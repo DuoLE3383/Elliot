@@ -89,7 +89,8 @@ export function PriceChart({
         if (en.target === el) {
           setWidth(Math.max(320, Math.floor(en.contentRect.width)));
         } else if (en.target === plot) {
-          setMeasuredH(Math.max(240, Math.floor(en.contentRect.height)));
+          // floor of 160px keeps the plot usable — going lower would overflow the card
+          setMeasuredH(Math.max(160, Math.floor(en.contentRect.height)));
         }
       }
     });
@@ -306,7 +307,7 @@ export function PriceChart({
 
   return (
     <div ref={wrapRef} className={`relative flex select-none flex-col ${fill ? "h-full" : ""}`}>
-      <div ref={plotRef} className={`relative min-h-0 ${fill ? "flex-1" : ""}`}>
+      <div ref={plotRef} className={`relative min-h-0 overflow-hidden ${fill ? "flex-1" : ""}`}>
         <svg
           width={width}
           height={height}
@@ -332,24 +333,38 @@ export function PriceChart({
               </text>
             </g>
           ))}
-          {/* time axis */}
-          {Array.from({ length: width < 520 ? 4 : 6 }, (_, k) => {
-            const idx = Math.round(viewStart + ((viewEnd - viewStart) * k) / (width < 520 ? 3 : 5));
-            const kk = klines[Math.min(idx, n - 1)];
-            return (
-              <text
-                key={k}
-                x={Math.min(x(idx), PAD_L + plotW - 10)}
-                y={height - 8}
-                fill={TEXT}
-                fontSize={10}
-                textAnchor="middle"
-                fontFamily="ui-monospace, monospace"
-              >
-                {timeLabel(kk.t)}
-              </text>
-            );
-          })}
+          {/* time axis — edge labels anchor inward, greedy de-dupe avoids collisions */}
+          {(() => {
+            const last = width < 520 ? 3 : 5;
+            const est = (s: string) => s.length * 6.2; // ~px per char @ 10px mono
+            let prevRight = -Infinity;
+            const nodes: React.ReactNode[] = [];
+            for (let k = 0; k <= last; k++) {
+              const idx = Math.round(viewStart + ((viewEnd - viewStart) * k) / last);
+              const kk = klines[Math.min(idx, n - 1)];
+              const label = timeLabel(kk.t);
+              const w = est(label);
+              const anchor = k === 0 ? "start" : k === last ? "end" : "middle";
+              const cx = k === 0 ? PAD_L : k === last ? PAD_L + plotW : Math.min(x(idx), PAD_L + plotW - 10);
+              const left = anchor === "start" ? cx : anchor === "end" ? cx - w : cx - w / 2;
+              if (left < prevRight + 10) continue; // would collide with the previous label
+              prevRight = left + w;
+              nodes.push(
+                <text
+                  key={k}
+                  x={cx}
+                  y={height - 8}
+                  fill={TEXT}
+                  fontSize={10}
+                  textAnchor={anchor}
+                  fontFamily="ui-monospace, monospace"
+                >
+                  {label}
+                </text>,
+              );
+            }
+            return nodes;
+          })()}
 
           {/* ── Whale taker-delta histogram (bottom of the plot) ───────── */}
           {whale.maxD > 0 && (
