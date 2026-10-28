@@ -1,0 +1,608 @@
+     1→/**
+     2→ * Smoke test for the paper-trading engine over live Binance data.
+     3→ * Run with: bun scripts/smoke.mjs   (bun imports the REAL src/lib TS directly)
+     4→ *
+     5→ * Contract (v5 — + Wyckoff Schematic Auto Detect):
+     6→ *  1. A reversal ALWAYS closes the open paper at the next candle open AND opens
+     7→ *     the opposite paper at that same price/time — the SMA gate never blocks it.
+     8→ *  2. The SMA gate is DIRECTIONAL and only filters FRESH entries from flat, and
+     9→ *     only when enabled: close < SMA blocks BUYs but never SELLs (and vice versa).
+    10→ *     An SMA value of null (start of the 500-candle window) must NOT block.
+    11→ *  3. Gate off → every confirmed signal enters immediately, no pending entries.
+    12→ *  4. Leverage: ROE = price move × leverage; positions are liquidated
+    13→ *     (~100%/leverage adverse move) → ROE = -100%, flagged `liquidated`.
+    14→ *  5. Analysis helpers: EMA seeds correctly, RSI stays in [0,100] (extremes on
+    15→ *     monotone runs), pivot structure returns a sane range/position.
+    16→ *  6. Wyckoff port: deterministic; events anchored to the exact pivot/transition
+    17→ *     bar extreme (T-space inversion for distribution); label orientation (below/
+    18→ *     above) matches the Pine f_lbl rule; boxes top>bottom; tints in {-1,0,1};
+    19→ *     dash sane; reqPhaseC=false never removes events; speed changes pivLen;
+    20→ *     synthetic accumulation produces SC→AR (+ mirrored BC on the inverted series).
+    21→ */
+    22→import { wyckoffFrom } from "../src/lib/wyckoff.ts";
+    23→import { DEFAULT_WYCKOFF } from "../src/lib/types.ts";
+    24→
+    25→const HOSTS = ["https://api.binance.com", "https://data-api.binance.vision"];
+    26→
+    27→async function fetchKlines(symbol, interval, limit = 500) {
+    28→  let lastErr;
+    29→  for (const host of HOSTS) {
+    30→    try {
+    31→      const res = await fetch(
+    32→        `${host}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
+    33→        { signal: AbortSignal.timeout(10000) },
+    34→      );
+    35→      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    36→      return (await res.json()).map((r) => ({
+    37→        t: r[0], o: +r[1], h: +r[2], l: +r[3], c: +r[4], v: +r[5],
+    38→      }));
+    39→    } catch (e) {
+    40→      lastErr = e;
+    41→    }
+    42→  }
+    43→  throw lastErr;
+    44→}
+    45→
+    46→// ── engine replica (kept in sync with src/lib) ──────────────────────────────
+    47→function sma(klines, period) {
+    48→  const out = new Array(klines.length).fill(null);
+    49→  let sum = 0;
+    50→  for (let i = 0; i < klines.length; i++) {
+    51→    sum += klines[i].c;
+    52→    if (i >= period) sum -= klines[i - period].c;
+    53→    if (i >= period - 1) out[i] = sum / period;
+    54→  }
+    55→  return out;
+    56→}
+    57→
+    58→function atr(klines, period) {
+    59→  const out = new Array(klines.length).fill(null);
+    60→  const tr = klines.map((k, i) =>
+    61→    i === 0 ? k.h - k.l : Math.max(k.h - k.l, Math.abs(k.h - klines[i - 1].c), Math.abs(k.l - klines[i - 1].c)),
+    62→  );
+    63→  let acc = 0;
+    64→  for (let i = 0; i < klines.length; i++) {
+    65→    if (i < period) {
+    66→      acc += tr[i];
+    67→      if (i === period - 1) out[i] = acc / period;
+    68→    } else out[i] = (out[i - 1] * (period - 1) + tr[i]) / period;
+    69→  }
+    70→  return out;
+    71→}
+    72→
+    73→function signalsFrom(klines, atrKey, atrPeriod, smaPeriod) {
+    74→  const a = atr(klines, atrPeriod);
+    75→  const smaArr = sma(klines, smaPeriod);
+    76→  const n = klines.length;
+    77→  const stop = new Array(n).fill(null);
+    78→  const trend = new Array(n).fill(0);
+    79→  let prevStop = 0, prevTrend = 0;
+    80→  for (let i = 0; i < n; i++) {
+    81→    if (a[i] == null) continue;
+    82→    const close = klines[i].c, loss = atrKey * a[i];
+    83→    if (prevTrend === 0) { prevStop = close - loss; prevTrend = 1; stop[i] = prevStop; trend[i] = 1; continue; }
+    84→    let s = prevStop, t = prevTrend;
+    85→    if (t === 1) { s = Math.max(prevStop, close - loss); if (close < s) { t = -1; s = close + loss; } }
+    86→    else { s = Math.min(prevStop, close + loss); if (close > s) { t = 1; s = close - loss; } }
+    87→    stop[i] = s; trend[i] = t; prevStop = s; prevTrend = t;
+    88→  }
+    89→  const signals = [];
+    90→  for (let i = 1; i < n; i++) {
+    91→    if (trend[i - 1] === 0) continue;
+    92→    const k = klines[i], sv = smaArr[i];
+    93→    // null SMA must NOT block (matches Pine computing SMA over full history)
+    94→    if (trend[i] === 1 && trend[i - 1] === -1)
+    95→      signals.push({ i, t: k.t, dir: "BUY", smaOk: sv == null || k.c > sv, price: k.c });
+    96→    else if (trend[i] === -1 && trend[i - 1] === 1)
+    97→      signals.push({ i, t: k.t, dir: "SELL", smaOk: sv == null || k.c < sv, price: k.c });
+    98→  }
+    99→  return { signals, sma: smaArr };
+   100→}
+   101→
+   102→function papersFrom(klines, signals, smaArr, symbol, interval, slPct, tpPct, leverage = 1, smaFilter = true) {
+   103→  const papers = [];
+   104→  let open, pending;
+   105→  const sigByIndex = new Map(signals.map((s) => [s.i, s]));
+   106→  const last = klines.length - 1;
+   107→  const gateOkAt = (side, idx) => {
+   108→    if (!smaFilter) return true;
+   109→    const sv = smaArr[idx];
+   110→    if (sv == null) return true;
+   111→    return side === "LONG" ? klines[idx].c > sv : klines[idx].c < sv;
+   112→  };
+   113→  const closeAt = (p, price, index, kind, liquidated = false) => {
+   114→    p.status = "closed"; p.exit = price; p.exitIndex = index; p.exitTime = klines[index].t; p.exitKind = kind;
+   115→    const pricePct = p.side === "LONG"
+   116→      ? ((price - p.entry) / p.entry) * 100
+   117→      : ((p.entry - price) / p.entry) * 100;
+   118→    p.pricePnlPct = pricePct;
+   119→    if (liquidated) { p.liquidated = true; p.pnlPct = -100; }
+   120→    else p.pnlPct = pricePct * p.leverage;
+   121→    open = undefined;
+   122→  };
+   123→  const enterAt = (side, price, index, flippedFrom) => {
+   124→    const p = {
+   125→      id: `${symbol}-${interval}-${side}-${klines[index].t}`, symbol, interval, side,
+   126→      entry: price, entryTime: klines[index].t, entryIndex: index, leverage,
+   127→      sl: side === "LONG" ? price * (1 - slPct / 100) : price * (1 + slPct / 100),
+   128→      tp: side === "LONG" ? price * (1 + tpPct / 100) : price * (1 - tpPct / 100),
+   129→      status: "open", flippedFrom,
+   130→    };
+   131→    papers.push(p); open = p; pending = undefined;
+   132→  };
+   133→  for (let i = 0; i < klines.length; i++) {
+   134→    const k = klines[i];
+   135→    if (pending && !open && i > pending.signalIndex && gateOkAt(pending.side, i - 1))
+   136→      enterAt(pending.side, k.o, i);
+   137→    if (open && open.entryIndex <= i) {
+   138→      const liqPrice = open.side === "LONG"
+   139→        ? open.entry * (1 - 1 / open.leverage)
+   140→        : open.entry * (1 + 1 / open.leverage);
+   141→      if (open.side === "LONG") {
+   142→        const stopLevel = Math.max(open.sl, liqPrice);
+   143→        const isLiq = liqPrice > open.sl + 1e-12;
+   144→        if (k.l <= stopLevel) closeAt(open, stopLevel, i, "sl", isLiq);
+   145→        else if (k.h >= open.tp) closeAt(open, open.tp, i, "tp");
+   146→      } else {
+   147→        const stopLevel = Math.min(open.sl, liqPrice);
+   148→        const isLiq = liqPrice < open.sl - 1e-12;
+   149→        if (k.h >= stopLevel) closeAt(open, stopLevel, i, "sl", isLiq);
+   150→        else if (k.l <= open.tp) closeAt(open, open.tp, i, "tp");
+   151→      }
+   152→    }
+   153→    const sig = sigByIndex.get(i);
+   154→    if (!sig || i >= last) continue;
+   155→    const newSide = sig.dir === "BUY" ? "LONG" : "SHORT";
+   156→    if (open && open.side !== newSide) {
+   157→      // reversal: ALWAYS close + open opposite (gate never blocks a flip)
+   158→      const old = open, fi = i + 1, fp = klines[fi].o;
+   159→      closeAt(old, fp, fi, "flip");
+   160→      enterAt(newSide, fp, fi, old.id);
+   161→    } else if (open) {
+   162→      // pyramiding=0
+   163→    } else if (pending && pending.side !== newSide) pending = { side: newSide, signalIndex: i };
+   164→    else if (pending) pending = { ...pending, signalIndex: i };
+   165→    else if (gateOkAt(newSide, i)) enterAt(newSide, klines[i + 1].o, i + 1);
+   166→    else pending = { side: newSide, signalIndex: i };
+   167→  }
+   168→  return { papers, open, pending };
+   169→}
+   170→
+   171→// ── analysis replicas (kept in sync with src/lib/indicators.ts + analysis.ts) ─
+   172→function ema(klines, period) {
+   173→  const out = new Array(klines.length).fill(null);
+   174→  if (klines.length < period) return out;
+   175→  let sum = 0;
+   176→  for (let i = 0; i < period; i++) sum += klines[i].c;
+   177→  let prev = sum / period;
+   178→  out[period - 1] = prev;
+   179→  const k = 2 / (period + 1);
+   180→  for (let i = period; i < klines.length; i++) {
+   181→    prev = klines[i].c * k + prev * (1 - k);
+   182→    out[i] = prev;
+   183→  }
+   184→  return out;
+   185→}
+   186→
+   187→function rsi(klines, period) {
+   188→  const out = new Array(klines.length).fill(null);
+   189→  if (klines.length <= period) return out;
+   190→  let gain = 0, loss = 0;
+   191→  for (let i = 1; i <= period; i++) {
+   192→    const d = klines[i].c - klines[i - 1].c;
+   193→    if (d >= 0) gain += d; else loss -= d;
+   194→  }
+   195→  let avgG = gain / period, avgL = loss / period;
+   196→  out[period] = avgL === 0 ? 100 : 100 - 100 / (1 + avgG / avgL);
+   197→  for (let i = period + 1; i < klines.length; i++) {
+   198→    const d = klines[i].c - klines[i - 1].c;
+   199→    const g = d > 0 ? d : 0, l = d < 0 ? -d : 0;
+   200→    avgG = (avgG * (period - 1) + g) / period;
+   201→    avgL = (avgL * (period - 1) + l) / period;
+   202→    out[i] = avgL === 0 ? 100 : 100 - 100 / (1 + avgG / avgL);
+   203→  }
+   204→  return out;
+   205→}
+   206→
+   207→function pivotRange(klines, endIndex, pivot = 5, lookback = 150) {
+   208→  const end = endIndex + 1;
+   209→  const start = Math.max(pivot, end - 1 - lookback);
+   210→  let high = null, low = null;
+   211→  for (let j = end - 1 - pivot; j >= start; j--) {
+   212→    let isHigh = true, isLow = true;
+   213→    for (let k = j - pivot; k <= j + pivot; k++) {
+   214→      if (k < 0 || k >= end || k === j) continue;
+   215→      if (klines[k].h >= klines[j].h) isHigh = false;
+   216→      if (klines[k].l <= klines[j].l) isLow = false;
+   217→    }
+   218→    if (high == null && isHigh) high = klines[j].h;
+   219→    if (low == null && isLow) low = klines[j].l;
+   220→    if (high != null && low != null) break;
+   221→  }
+   222→  return high != null && low != null && high > low ? { high, low } : null;
+   223→}
+   224→
+   225→function runAnalysisSuite(klines, tag) {
+   226→  const closed = klines.length - 2;
+   227→  // EMA seeds with the SMA of the first `period` closes and stays finite
+   228→  const e50 = ema(klines, 50);
+   229→  let smaSeed = 0;
+   230→  for (let i = 0; i < 50; i++) smaSeed += klines[i].c;
+   231→  check(Math.abs(e50[49] - smaSeed / 50) < 1e-9, `${tag}: ema50 seed == sma50`);
+   232→  check(e50[closed] != null && isFinite(e50[closed]), `${tag}: ema50 finite on closed candle`);
+   233→
+   234→  // RSI bounds + extremes on monotone synthetic runs
+   235→  const r = rsi(klines, 14);
+   236→  let inBounds = true, hasVal = false;
+   237→  for (const v of r) {
+   238→    if (v == null) continue;
+   239→    hasVal = true;
+   240→    if (!(v >= 0 && v <= 100)) inBounds = false;
+   241→  }
+   242→  check(hasVal && inBounds, `${tag}: rsi14 within [0,100]`);
+   243→  const upRun = Array.from({ length: 40 }, (_, i) => ({ t: i, o: 1 + i, h: 1.5 + i, l: 0.9 + i, c: 2 + i, v: 1 }));
+   244→  const downRun = Array.from({ length: 40 }, (_, i) => ({ t: i, o: 41 - i, h: 41.5 - i, l: 40.9 - i, c: 40 - i, v: 1 }));
+   245→  check(rsi(upRun, 14)[39] === 100, `${tag}: rsi == 100 on pure uptrend`);
+   246→  check(rsi(downRun, 14)[39] === 0, `${tag}: rsi == 0 on pure downtrend`);
+   247→
+   248→  // pivot structure on live data
+   249→  const range = pivotRange(klines, closed);
+   250→  check(range != null, `${tag}: pivot range found on 500 candles`);
+   251→  if (range) {
+   252→    check(range.high > range.low, `${tag}: range high > low`);
+   253→    const c = klines[closed].c;
+   254→    const pos = ((c - range.low) / (range.high - range.low)) * 100;
+   255→    check(isFinite(pos), `${tag}: range position finite`);
+   256→    check(
+   257→      (pos >= 0 && pos <= 100) || pos > 100 || pos < 0,
+   258→      `${tag}: structure classifiable`,
+   259→      `pos=${pos}`,
+   260→    );
+   261→  }
+   262→
+   263→  // directional gate on live data: BUYs below SMA must not have entered directly
+   264→  const { signals, sma } = signalsFrom(klines, 2, 10, 200);
+   265→  for (const s of signals) {
+   266→    const sv = sma[s.i];
+   267→    if (sv == null) continue;
+   268→    if (s.dir === "BUY") check(s.smaOk === (klines[s.i].c > sv), `${tag}: BUY smaOk directional`, `i=${s.i}`);
+   269→    else check(s.smaOk === (klines[s.i].c < sv), `${tag}: SELL smaOk directional`, `i=${s.i}`);
+   270→  }
+   271→  // a downtrend stretch must produce SELL smaOk=true — the gate is NOT a wall
+   272→  const sells = signals.filter((s) => s.dir === "SELL");
+   273→  check(sells.length > 0, `${tag}: has SELL signals`);
+   274→}
+   275→
+   276→// ── invariants ──────────────────────────────────────────────────────────────
+   277→let failures = 0;
+   278→function check(cond, label, detail = "") {
+   279→  if (!cond) {
+   280→    failures++;
+   281→    console.log(`  FAIL ${label} ${detail}`);
+   282→  }
+   283→}
+   284→
+   285→async function runSuite(klines, symbol, interval, cfg) {
+   286→  const { slPct, tpPct, leverage, smaFilter } = cfg;
+   287→  const { signals, sma } = signalsFrom(klines, 2, 10, 200);
+   288→  const { papers, open, pending } = papersFrom(klines, signals, sma, symbol, interval, slPct, tpPct, leverage, smaFilter);
+   289→
+   290→  const tag = `${symbol} ${interval} ${cfg.name}`;
+   291→  const flips = papers.filter((p) => p.exitKind === "flip");
+   292→  const closed = papers.filter((p) => p.status === "closed");
+   293→  const tpC = closed.filter((p) => p.exitKind === "tp").length;
+   294→  const slC = closed.filter((p) => p.exitKind === "sl").length;
+   295→  const liqC = closed.filter((p) => p.liquidated).length;
+   296→
+   297→  check(papers.length > 0, `${tag}: has papers`, `n=${papers.length}`);
+   298→
+   299→  // determinism
+   300→  const again = papersFrom(klines, signals, sma, symbol, interval, slPct, tpPct, leverage, smaFilter);
+   301→  check(JSON.stringify(again.papers) === JSON.stringify(papers), `${tag}: deterministic`);
+   302→
+   303→  // max 1 open at any time
+   304→  let concurrent = 0;
+   305→  const events = [];
+   306→  for (const p of papers) {
+   307→    events.push({ t: p.entryTime, d: 1 });
+   308→    if (p.exitTime) events.push({ t: p.exitTime, d: -1 });
+   309→  }
+   310→  events.sort((a, b) => a.t - b.t || a.d - b.d);
+   311→  for (const e of events) {
+   312→    concurrent += e.d;
+   313→    check(concurrent <= 1, `${tag}: <=1 open position`, `concurrent=${concurrent}`);
+   314→  }
+   315→
+   316→  // reversal contract — EVERY flip has an immediate opposite child
+   317→  for (const f of flips) {
+   318→    check(f.exit != null, `${tag}: flip has exit price`);
+   319→    const sig = signals.find((s) => s.i === f.exitIndex - 1);
+   320→    check(sig != null, `${tag}: flip has originating signal`);
+   321→    if (!sig) continue;
+   322→    const kOpen = klines[f.exitIndex].o;
+   323→    check(Math.abs(f.exit - kOpen) < 1e-9, `${tag}: flip exit == next candle open`,
+   324→      `exit=${f.exit} open=${kOpen}`);
+   325→    check(f.exitTime === klines[f.exitIndex].t, `${tag}: flip exitTime == candle open time`);
+   326→    // gate NEVER blocks a reversal → child always exists, same price/time
+   327→    const child = papers.find((p) => p.flippedFrom === f.id);
+   328→    check(child != null, `${tag}: flip always opens child (gate-proof)`, `sigIdx=${sig.i} smaOk=${sig.smaOk}`);
+   329→    if (child) {
+   330→      check(child.side !== f.side, `${tag}: child side is opposite`);
+   331→      check(child.entryIndex === f.exitIndex, `${tag}: child enters on the flip candle`,
+   332→        `child=${child.entryIndex} flip=${f.exitIndex}`);
+   333→      check(Math.abs(child.entry - f.exit) < 1e-9, `${tag}: child entry == flip exit price`);
+   334→      check(child.entryTime === f.exitTime, `${tag}: child entryTime == flip exitTime`);
+   335→      check(child.leverage === f.leverage, `${tag}: child inherits leverage`);
+   336→    }
+   337→  }
+   338→
+   339→  // flippedFrom links
+   340→  for (const p of papers) {
+   341→    if (!p.flippedFrom) continue;
+   342→    const old = papers.find((q) => q.id === p.flippedFrom);
+   343→    check(old != null, `${tag}: flippedFrom link valid`, p.id);
+   344→    if (old) check(old.side !== p.side, `${tag}: flippedFrom side opposite`);
+   345→    check(old?.exitKind === "flip", `${tag}: flippedFrom source closed as flip`);
+   346→  }
+   347→
+   348→  // entries: direct (signal at entryIndex-1) or queued-pending (gate-on only)
+   349→  const gateOkAt = (side, idx) => {
+   350→    if (!smaFilter) return true;
+   351→    const sv = sma[idx];
+   352→    if (sv == null) return true;
+   353→    return side === "LONG" ? klines[idx].c > sv : klines[idx].c < sv;
+   354→  };
+   355→  for (const p of papers) {
+   356→    if (p.flippedFrom) continue; // flip entries checked above
+   357→    const sig = signals.find((s) => s.i === p.entryIndex - 1);
+   358→    let pendingOk = false;
+   359→    if (!sig && smaFilter) {
+   360→      const prior = signals.filter(
+   361→        (s) => s.i < p.entryIndex && s.dir === (p.side === "LONG" ? "BUY" : "SELL"),
+   362→      );
+   363→      if (prior.length) {
+   364→        const s0 = prior[prior.length - 1];
+   365→        if (gateOkAt(p.side, p.entryIndex - 1)) {
+   366→          let blocked = true;
+   367→          for (let k = s0.i; k <= p.entryIndex - 2; k++) {
+   368→            if (gateOkAt(p.side, k)) { blocked = false; break; }
+   369→          }
+   370→          pendingOk = blocked;
+   371→        }
+   372→      }
+   373→    }
+   374→    check(sig != null || pendingOk, `${tag}: entry is direct or queued-pending`, p.id);
+   375→    if (sig && smaFilter) {
+   376→      check(sig.dir === (p.side === "LONG" ? "BUY" : "SELL"), `${tag}: entry direction matches signal`);
+   377→      check(sig.smaOk, `${tag}: direct entry signal passed gate`, p.id);
+   378→    }
+   379→    if (!smaFilter) check(pending == null || pending.side != null, `${tag}: gate-off pending shape`);
+   380→    check(Math.abs(p.entry - klines[p.entryIndex].o) < 1e-9, `${tag}: entry == candle open`);
+   381→  }
+   382→
+   383→  // gate-off → no pending entries at all
+   384→  if (!smaFilter) check(pending == null, `${tag}: gate off → no pending`, JSON.stringify(pending));
+   385→
+   386→  // SL/TP geometry (price distances)
+   387→  for (const p of papers) {
+   388→    if (p.side === "LONG") check(p.sl < p.entry && p.tp > p.entry, `${tag}: LONG sl<entry<tp`);
+   389→    else check(p.sl > p.entry && p.tp < p.entry, `${tag}: SHORT sl>entry>tp`);
+   390→    check(Math.abs(Math.abs(p.sl / p.entry - 1) * 100 - slPct) < 1e-6, `${tag}: SL distance == slPct`);
+   391→    check(Math.abs(Math.abs(p.tp / p.entry - 1) * 100 - tpPct) < 1e-6, `${tag}: TP distance == tpPct`);
+   392→    check(p.leverage === leverage, `${tag}: leverage snapshot == settings`);
+   393→  }
+   394→
+   395→  // exit kinds + PnL math
+   396→  for (const p of closed) {
+   397→    check(["tp", "sl", "flip"].includes(p.exitKind), `${tag}: valid exitKind`);
+   398→    if (p.liquidated) {
+   399→      check(p.exitKind === "sl", `${tag}: liquidation exits as sl`, p.exitKind);
+   400→      check(p.pnlPct === -100, `${tag}: liquidation ROE == -100`, String(p.pnlPct));
+   401→      const dist = Math.abs(p.pricePnlPct);
+   402→      check(Math.abs(dist - 100 / leverage) < 1e-6, `${tag}: liq distance == 100/lev`,
+   403→        `dist=${dist} expect=${100 / leverage}`);
+   404→    } else {
+   405→      check(
+   406→        Math.abs(p.pnlPct - p.pricePnlPct * leverage) < 1e-6,
+   407→        `${tag}: ROE == price move × leverage`,
+   408→        `pnl=${p.pnlPct} price=${p.pricePnlPct} lev=${p.leverage}`,
+   409→      );
+   410→    }
+   411→    if (p.exitKind === "tp") check(p.pnlPct > 0 || Math.abs(p.pnlPct) < 1e-9, `${tag}: TP exit non-negative PnL`);
+   412→    if (p.exitKind === "sl") check(p.pnlPct < 0 || Math.abs(p.pnlPct) < 1e-9, `${tag}: SL exit non-positive PnL`);
+   413→  }
+   414→
+   415→  // KPI math
+   416→  const wins = closed.filter((p) => p.pnlPct > 0).length;
+   417→  check(tpC + slC + flips.length === closed.length, `${tag}: closed == tp+sl+flip`);
+   418→  check(wins + closed.filter((p) => p.pnlPct <= 0).length === closed.length, `${tag}: wins+losses == closed`);
+   419→  check(!open || papers.filter((p) => p.status === "open").length === 1, `${tag}: at most 1 open paper`);
+   420→
+   421→  return { tag, papers: papers.length, closed: closed.length, flips: flips.length, tpC, slC, liqC, wins, open: !!open, pending: !!pending };
+   422→}
+   423→
+   424→// ── Wyckoff suite (imports the real src/lib/wyckoff.ts) ───────────────────────
+   425→function runWyckoffSuite(klines, tag) {
+   426→  const cfgs = [
+   427→    { name: "auto", s: { ...DEFAULT_WYCKOFF } },
+   428→    { name: "noPhaseC", s: { ...DEFAULT_WYCKOFF, reqPhaseC: false } },
+   429→    { name: "fast", s: { ...DEFAULT_WYCKOFF, speed: "fast" } },
+   430→    { name: "manual", s: { ...DEFAULT_WYCKOFF, mode: "manual" } },
+   431→  ];
+   432→  const KINDS = new Set(["SC", "AR", "ST", "Spring", "SOS", "LPS", "Markup", "BC", "UT", "SOW", "LPSY", "Markdown"]);
+   433→  const LOW_EVENTS = ["SC", "ST", "Spring", "LPS"]; // acc events sitting on a pivot low
+   434→  const HIGH_DIST_EVENTS = ["BC", "ST", "UT", "LPSY"]; // dist events sitting on a real-space HIGH
+   435→
+   436→  for (const c of cfgs) {
+   437→    const wy1 = wyckoffFrom(klines, "5m", c.s);
+   438→    const wy2 = wyckoffFrom(klines, "5m", c.s);
+   439→    const ser = (w) =>
+   440→      JSON.stringify({ e: w.events, b: w.boxes, p: w.pivots, d: w.dash, t: Array.from(w.tints) });
+   441→    check(ser(wy1) === ser(wy2), `wy ${tag} ${c.name}: deterministic`);
+   442→
+   443→    let lastBar = -1;
+   444→    for (const e of wy1.events) {
+   445→      check(KINDS.has(e.kind), `wy ${tag} ${c.name}: kind enum`, e.kind);
+   446→      check(e.bar >= 0 && e.bar <= wy1.lastClosed, `wy ${tag} ${c.name}: bar in range`, `${e.kind} bar=${e.bar}`);
+   447→      check(isFinite(e.price) && e.price > 0, `wy ${tag} ${c.name}: finite price`, `${e.kind} ${e.price}`);
+   448→      check(e.bar >= lastBar, `wy ${tag} ${c.name}: events sorted by bar`);
+   449→      lastBar = e.bar;
+   450→
+   451→      // anchor: the event price must be EXACTLY the extreme of its own bar —
+   452→      // acc low events sit on the pivot low, dist low events mirror to the high, etc.
+   453→      const k = klines[e.bar];
+   454→      const anchor =
+   455→        e.dir === 1
+   456→          ? LOW_EVENTS.includes(e.kind) ? k.l : k.h
+   457→          : HIGH_DIST_EVENTS.includes(e.kind) ? k.h : k.l;
+   458→      check(Math.abs(e.price - anchor) < 1e-9, `wy ${tag} ${c.name}: ${e.kind} anchored to bar extreme`,
+   459→        `price=${e.price} anchor=${anchor}`);
+   460→
+   461→      // label orientation (Pine f_lbl: below = (d==1) == atLowT)
+   462→      const belowExp =
+   463→        e.dir === 1
+   464→          ? LOW_EVENTS.includes(e.kind)
+   465→          : ["AR", "SOW", "Markdown"].includes(e.kind);
+   466→      check(e.below === belowExp, `wy ${tag} ${c.name}: below flag for ${e.kind}`);
+   467→    }
+   468→    for (const b of wy1.boxes) {
+   469→      check(b.top > b.bottom, `wy ${tag} ${c.name}: box top>bottom`, `${b.top}/${b.bottom}`);
+   470→      check(b.left <= b.right, `wy ${tag} ${c.name}: box left<=right`);
+   471→      check(isFinite(b.top) && isFinite(b.bottom), `wy ${tag} ${c.name}: box finite`);
+   472→    }
+   473→    check(wy1.tints.length === klines.length, `wy ${tag} ${c.name}: tints aligned`);
+   474→    check(Array.from(wy1.tints).every((t) => t === 1 || t === -1 || t === 0), `wy ${tag} ${c.name}: tint domain`);
+   475→    const d = wy1.dash;
+   476→    check(d.st >= 0 && d.st <= 7, `wy ${tag} ${c.name}: dash st range`, String(d.st));
+   477→    check(d.rsi == null || (d.rsi >= 0 && d.rsi <= 100), `wy ${tag} ${c.name}: dash rsi bounds`);
+   478→    check(d.pivLen >= 2, `wy ${tag} ${c.name}: pivLen sane`, String(d.pivLen));
+   479→    check(d.volRatio == null || isFinite(d.volRatio), `wy ${tag} ${c.name}: volRatio finite`);
+   480→  }
+   481→
+   482→  // reqPhaseC=false only OPENS a door (SOS/SOW from st 3) — never fewer live events
+   483→  const wyPc = wyckoffFrom(klines, "5m", { ...DEFAULT_WYCKOFF });
+   484→  const wyNoPc = wyckoffFrom(klines, "5m", { ...DEFAULT_WYCKOFF, reqPhaseC: false });
+   485→  const liveCount = (w) => w.events.filter((e) => !e.deleted).length;
+   486→  check(liveCount(wyNoPc) >= liveCount(wyPc), `${tag} wy: reqPhaseC=false >= events`,
+   487→    `${liveCount(wyNoPc)}/${liveCount(wyPc)}`);
+   488→
+   489→  // speed changes the pivot length (auto mapping: 8 → fast 5, safe 12 on 5m)
+   490→  const wyFast = wyckoffFrom(klines, "5m", { ...DEFAULT_WYCKOFF, speed: "fast" });
+   491→  const wySafe = wyckoffFrom(klines, "5m", { ...DEFAULT_WYCKOFF, speed: "safe" });
+   492→  check(wyFast.dash.pivLen < wySafe.dash.pivLen, `${tag} wy: fast pivLen < safe pivLen`,
+   493→    `${wyFast.dash.pivLen}/${wySafe.dash.pivLen}`);
+   494→}
+   495→
+   496→/** Synthetic accumulation: flat → climax dump → base → rally → flat peak.
+   497→ *  Must yield SC (bar 79, price = bar low) and AR (flat peak), and the exact
+   498→ *  inverted series must yield BC/AR(dist) at mirrored prices (T-space proof). */
+   499→function runWyckoffSynthetic() {
+   500→  const tag = "wy synth";
+   501→  const mk = (invert) => {
+   502→    const raw = [];
+   503→    const t0 = 1700000000000;
+   504→    const step = 300000;
+   505→    let i = 0;
+   506→    const push = (o, h, l, c, v) => {
+   507→      raw.push(
+   508→        invert
+   509→          ? { t: t0 + i * step, o: 200 - o, h: 200 - l, l: 200 - h, c: 200 - c, v }
+   510→          : { t: t0 + i * step, o, h, l, c, v },
+   511→      );
+   512→      i++;
+   513→    };
+   514→    for (let k = 0; k < 70; k++) push(99.9, 100.2, 99.8, 100, 1); // quiet
+   515→    for (let k = 1; k <= 10; k++)
+   516→      push(100 - (k - 1) * 1.5, 100 - (k - 1) * 1.5 + 0.3, 100 - k * 1.5 - 0.4, 100 - k * 1.5, 8); // climax dump
+   517→    for (let k = 0; k < 30; k++) {
+   518→      const c = 85.5 + (k % 3) * 0.5;
+   519→      push(c - 0.2, c + 0.3, c - 0.5, c, 0.8); // base
+   520→    }
+   521→    for (let k = 1; k <= 20; k++) {
+   522→      const c = 86 + k * 0.45;
+   523→      push(86 + (k - 1) * 0.45, c + 0.2, c - 0.4, c, 2); // rally
+   524→    }
+   525→    for (let k = 0; k < 14; k++) {
+   526→      const h = 95.4 - Math.abs(k - 3) * 0.06;
+   527→      push(94.8, h, 94.6, 94.85, 1); // flat with a single confirmed peak at bar 133
+   528→    }
+   529→    return raw;
+   530→  };
+   531→  const s = { ...DEFAULT_WYCKOFF };
+   532→
+   533→  const acc = wyckoffFrom(mk(false), "5m", s);
+   534→  const liveAcc = acc.events.filter((e) => !e.deleted);
+   535→  const sc = liveAcc.find((e) => e.kind === "SC" && e.dir === 1);
+   536→  const ar = liveAcc.find((e) => e.kind === "AR" && e.dir === 1);
+   537→  check(sc != null, `${tag}: SC detected`, JSON.stringify(liveAcc.map((e) => e.kind)));
+   538→  check(ar != null, `${tag}: AR detected`, JSON.stringify(liveAcc.map((e) => e.kind)));
+   539→  if (sc) {
+   540→    check(sc.bar === 79, `${tag}: SC at dump-bottom bar`, String(sc.bar));
+   541→    check(Math.abs(sc.price - 84.6) < 1e-9, `${tag}: SC price == bar low`, String(sc.price));
+   542→    check(sc.below, `${tag}: SC label below`);
+   543→  }
+   544→  if (ar) {
+   545→    check(ar.bar === 133, `${tag}: AR at flat-peak bar`, String(ar.bar));
+   546→    check(Math.abs(ar.price - 95.4) < 1e-9, `${tag}: AR price == bar high`, String(ar.price));
+   547→    check(!ar.below, `${tag}: AR label above`);
+   548→  }
+   549→  if (sc && ar) check(ar.bar > sc.bar, `${tag}: AR after SC`);
+   550→  const accBox = acc.boxes.find((b) => !b.deleted && b.dir === 1);
+   551→  check(accBox != null, `${tag}: acc TR box exists`);
+   552→  if (accBox) {
+   553→    check(accBox.top > accBox.bottom, `${tag}: acc box geometry`);
+   554→    check(Math.abs(accBox.top - 95.4) < 1e-9, `${tag}: acc box top == AR high`, String(accBox.top));
+   555→    check(Math.abs(accBox.bottom - 84.6) < 1e-9, `${tag}: acc box bottom == SC low`, String(accBox.bottom));
+   556→  }
+   557→
+   558→  // T-space proof: the exact inverted series must give BC at the mirrored top
+   559→  const dist = wyckoffFrom(mk(true), "5m", s);
+   560→  const liveDist = dist.events.filter((e) => !e.deleted);
+   561→  const bc = liveDist.find((e) => e.kind === "BC" && e.dir === -1);
+   562→  check(bc != null, `${tag}: BC detected on inverted series`, JSON.stringify(liveDist.map((e) => `${e.dir}:${e.kind}`)));
+   563→  if (bc) {
+   564→    check(bc.bar === 79, `${tag}: BC at pump-top bar`, String(bc.bar));
+   565→    check(Math.abs(bc.price - 115.4) < 1e-9, `${tag}: BC price == mirrored bar high`, String(bc.price));
+   566→    check(!bc.below, `${tag}: BC label above`);
+   567→  }
+   568→}
+   569→
+   570→async function main() {
+   571→  const symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"];
+   572→  const intervals = ["5m", "15m", "1h"];
+   573→  const configs = [
+   574→    { name: "wide-l1-gate", slPct: 6, tpPct: 3.2, leverage: 1, smaFilter: true },
+   575→    { name: "pine-l5-gate", slPct: 1.5, tpPct: 3, leverage: 5, smaFilter: true },
+   576→    { name: "wide-l10-nogate", slPct: 6, tpPct: 3.2, leverage: 10, smaFilter: false },
+   577→  ];
+   578→  const summary = [];
+   579→  for (const sym of symbols) {
+   580→    for (const itv of intervals) {
+   581→      let klines;
+   582→      try {
+   583→        klines = await fetchKlines(sym, itv);
+   584→      } catch (e) {
+   585→        failures++;
+   586→        console.log(`FETCH FAIL ${sym} ${itv}: ${e.message}`);
+   587→        continue;
+   588→      }
+   589→      for (const cfg of configs) {
+   590→        summary.push(await runSuite(klines, sym, itv, cfg));
+   591→      }
+   592→      runAnalysisSuite(klines, `${sym} ${itv} analysis`);
+   593→      runWyckoffSuite(klines, `${sym} ${itv}`);
+   594→    }
+   595→  }
+   596→  runWyckoffSynthetic();
+   597→  console.log("\n========== SUMMARY ==========");
+   598→  for (const s of summary) {
+   599→    console.log(
+   600→      `${s.tag.padEnd(30)} papers=${String(s.papers).padStart(3)} closed=${String(s.closed).padStart(3)} (TP ${s.tpC} · SL ${s.slC} · LIQ ${s.liqC} · FLIP ${s.flips}) wins=${String(s.wins).padStart(3)} open=${s.open ? "Y" : "n"} pending=${s.pending ? "Y" : "n"}`,
+   601→    );
+   602→  }
+   603→  console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECKS FAILED`);
+   604→  process.exit(failures === 0 ? 0 : 1);
+   605→}
+   606→
+   607→main();
+   608→

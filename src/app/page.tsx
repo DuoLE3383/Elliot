@@ -2,11 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DeepAnalysis } from "@/components/analysis";
+import { EquityCurve } from "@/components/equity-curve";
 import { Journal } from "@/components/journal";
 import { KpiCards } from "@/components/kpi";
+import { SessionsPanel } from "@/components/sessions";
 import { SignalDock } from "@/components/panels";
 import { PriceChart } from "@/components/price-chart";
 import { SettingsDialog } from "@/components/settings-dialog";
+import { TickerStrip } from "@/components/ticker-strip";
+import { Watchlist } from "@/components/watchlist";
 import { WyckoffPanel } from "@/components/wyckoff-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +30,7 @@ import {
   MAX_CUSTOM_PAIRS,
   Paper,
   SYMBOLS,
+  Ticker,
   WyckoffSettings,
 } from "@/lib/types";
 import { AlertTriangle, ArrowLeftRight, Landmark, Plus, RefreshCw, Settings2, X } from "lucide-react";
@@ -62,6 +67,9 @@ export default function Home() {
   const [pinnedTime, setPinnedTime] = useState<number | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // ── market context (ticker strip + watchlist sparklines) ────────────────────
+  const [tickers, setTickers] = useState<Record<string, Ticker>>({});
+  const [minis, setMinis] = useState<Record<string, Kline[]>>({});
 
   const prevPapersRef = useRef<Map<string, Paper> | null>(null);
   const prevKeyRef = useRef<string>("");
@@ -381,6 +389,62 @@ export default function Home() {
 
   const langLabel = lang === "vi" ? "EN" : "VI";
 
+  // ── live 24h tickers for the strip + watchlist (30s) ───────────────────────
+  const pairListKey = allPairs.join(",");
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/ticker?symbols=${encodeURIComponent(pairListKey)}`);
+        if (!res.ok) return;
+        const json = (await res.json()) as { tickers: Ticker[] };
+        if (!alive) return;
+        const map: Record<string, Ticker> = {};
+        for (const tk of json.tickers) map[tk.symbol] = tk;
+        setTickers(map);
+      } catch {
+        // strip keeps previous values on transient failures
+      }
+    };
+    void load();
+    const id = window.setInterval(() => void load(), 30000);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, [pairListKey]);
+
+  // ── mini klines (48 candles) for watchlist sparklines + status (60s) ──────
+  useEffect(() => {
+    let alive = true;
+    const syms = pairListKey.split(",").filter(Boolean);
+    const load = async () => {
+      const results = await Promise.allSettled(
+        syms.map(async (sym) => {
+          const res = await fetch(
+            `/api/klines?symbol=${encodeURIComponent(sym)}&interval=${interval}&limit=48`,
+          );
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = (await res.json()) as { klines: Kline[] };
+          return [sym, json.klines] as const;
+        }),
+      );
+      if (!alive) return;
+      setMinis((prev) => {
+        const next: Record<string, Kline[]> = { ...prev };
+        for (const r of results) if (r.status === "fulfilled") next[r.value[0]] = r.value[1];
+        for (const k of Object.keys(next)) if (!syms.includes(k)) delete next[k];
+        return next;
+      });
+    };
+    void load();
+    const id = window.setInterval(() => void load(), 60000);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, [pairListKey, interval]);
+
   return (
     <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100">
       {/* ── Header ─────────────────────────────────────────────────── */}
@@ -521,6 +585,15 @@ export default function Home() {
         </div>
       </header>
 
+      {/* ── Live ticker strip (24h prices for every watched pair) ───── */}
+      <TickerStrip
+        lang={lang}
+        pairs={allPairs}
+        tickers={tickers}
+        current={symbol}
+        onSelect={setSymbol}
+      />
+
       {/* ── Main ───────────────────────────────────────────────────── */}
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-4">
         {error ? (
@@ -548,7 +621,13 @@ export default function Home() {
           </div>
         ) : (
           <div className="space-y-4">
-            <KpiCards lang={lang} stats={stats} openPaper={engine.open} leverage={settings.leverage} />
+            <KpiCards
+              lang={lang}
+              stats={stats}
+              openPaper={engine.open}
+              leverage={settings.leverage}
+              signals={engine.signals}
+            />
 
             <DeepAnalysis
               lang={lang}
@@ -618,7 +697,36 @@ export default function Home() {
               </div>
             </div>
 
+            {/* ── Watchlist + trading sessions (ORCA-style additions) ─── */}
+            <div className="grid min-w-0 gap-4 lg:grid-cols-5">
+              <div className="min-w-0 lg:col-span-3">
+                <Watchlist
+                  lang={lang}
+                  pairs={allPairs}
+                  cap={SYMBOLS.length + MAX_CUSTOM_PAIRS}
+                  current={symbol}
+                  tickers={tickers}
+                  minis={minis}
+                  atrKey={settings.atrKey}
+                  atrPeriod={settings.atrPeriod}
+                  smaPeriod={settings.smaPeriod}
+                  pairInput={pairInput}
+                  checkingPair={checkingPair}
+                  onPairInput={setPairInput}
+                  onAddPair={() => void addPair()}
+                  onRemovePair={removePair}
+                  onSelect={setSymbol}
+                  defaultPairs={SYMBOLS}
+                />
+              </div>
+              <div className="min-w-0 lg:col-span-2">
+                <SessionsPanel lang={lang} klines={klines} />
+              </div>
+            </div>
+
             <WyckoffPanel lang={lang} wy={wyckoff} on={wySettings.enabled} sens={wySettings.sens} />
+
+            <EquityCurve lang={lang} papers={engine.papers} />
 
             <Journal lang={lang} papers={engine.papers} symbol={symbol} interval={interval} />
           </div>

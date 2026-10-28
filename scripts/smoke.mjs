@@ -16,11 +16,20 @@
  *  6. Wyckoff port: deterministic; events anchored to the exact pivot/transition
  *     bar extreme (T-space inversion for distribution); label orientation (below/
  *     above) matches the Pine f_lbl rule; boxes top>bottom; tints in {-1,0,1};
- *     dash sane; reqPhaseC=false never removes events; speed changes pivLen;
+ *     dash sane; reqPhaseC=true ties every live SOS/SOW to a same-dir Spring/UT,
+ *     reqPhaseC=false runs deterministic; speed changes pivLen;
  *     synthetic accumulation produces SC→AR (+ mirrored BC on the inverted series).
+ *  7. Market context: sessions cover all 24h with sane Bull%/drift; whale delta
+ *     bounded by volume (null without taker data); volume profile distributes
+ *     exactly the window's volume; compact formatter stable.
+ *  8. Equity curve: cumulative ROE over closed papers in exit order (peak ≥ 0,
+ *     trough ≤ 0), consistent with kpiFrom netPnl / flipNetPnl.
  */
 import { wyckoffFrom } from "../src/lib/wyckoff.ts";
 import { DEFAULT_WYCKOFF } from "../src/lib/types.ts";
+import { sessionOf, sessionStats, whaleDelta, volumeProfile, fmtCompact } from "../src/lib/market.ts";
+import { equityFrom } from "../src/lib/equity.ts";
+import { kpiFrom } from "../src/lib/papers.ts";
 
 const HOSTS = ["https://api.binance.com", "https://data-api.binance.vision"];
 
@@ -479,12 +488,26 @@ function runWyckoffSuite(klines, tag) {
     check(d.volRatio == null || isFinite(d.volRatio), `wy ${tag} ${c.name}: volRatio finite`);
   }
 
-  // reqPhaseC=false only OPENS a door (SOS/SOW from st 3) — never fewer live events
+  // reqPhaseC=true: every live SOS/SOW must carry its Spring/UT (same structure,
+  // same direction, pivot bar not after the SOS bar). Trajectory-level event
+  // counts are NOT monotone in reqPhaseC — the earlier st5 entry changes which
+  // failure rule applies — so only the rule-level invariant is asserted.
   const wyPc = wyckoffFrom(klines, "5m", { ...DEFAULT_WYCKOFF });
   const wyNoPc = wyckoffFrom(klines, "5m", { ...DEFAULT_WYCKOFF, reqPhaseC: false });
-  const liveCount = (w) => w.events.filter((e) => !e.deleted).length;
-  check(liveCount(wyNoPc) >= liveCount(wyPc), `${tag} wy: reqPhaseC=false >= events`,
-    `${liveCount(wyNoPc)}/${liveCount(wyPc)}`);
+  const liveEv = (w) => w.events.filter((e) => !e.deleted);
+  for (const e of liveEv(wyPc)) {
+    if (e.kind !== "SOS" && e.kind !== "SOW") continue;
+    const hasPhC = liveEv(wyPc).some(
+      (p) => p.dir === e.dir && (p.kind === "Spring" || p.kind === "UT") && p.bar <= e.bar,
+    );
+    check(hasPhC, `${tag} wy: reqPhaseC SOS has Spring/UT`, `${e.kind}@${e.bar}`);
+  }
+  // reqPhaseC=false only OPENS a door — the run itself must stay deterministic
+  const wyNoPc2 = wyckoffFrom(klines, "5m", { ...DEFAULT_WYCKOFF, reqPhaseC: false });
+  check(
+    JSON.stringify(liveEv(wyNoPc)) === JSON.stringify(liveEv(wyNoPc2)),
+    `${tag} wy: reqPhaseC=false deterministic`,
+  );
 
   // speed changes the pivot length (auto mapping: 8 → fast 5, safe 12 on 5m)
   const wyFast = wyckoffFrom(klines, "5m", { ...DEFAULT_WYCKOFF, speed: "fast" });
@@ -567,6 +590,105 @@ function runWyckoffSynthetic() {
   }
 }
 
+// ── market context: sessions / whale delta / volume profile ─────────────────
+function runMarketSuite(klines, tag) {
+  const closed = klines.length - 2;
+  if (closed < 50) return;
+
+  // session windows: UTC hour boundaries
+  const at = (h) => Date.UTC(2025, 0, 15, h, 0, 0);
+  const lny = sessionOf(at(13));
+  check(lny.includes("london") && lny.includes("newyork") && lny.length === 2, "sessions: 13h = london+ny", JSON.stringify(lny));
+  const syd = sessionOf(at(23));
+  check(syd.length === 1 && syd[0] === "sydney", "sessions: 23h = sydney", JSON.stringify(syd));
+  const tok = sessionOf(at(2));
+  check(tok.includes("tokyo") && tok.includes("sydney"), "sessions: 02h = sydney+tokyo", JSON.stringify(tok));
+
+  // stats: bull% within [0,100], every closed candle counted at least once
+  const stats = sessionStats(klines);
+  check(stats.length === 4, "sessions: 4 sessions returned");
+  let nSum = 0;
+  for (const s of stats) {
+    if (s.bullPct != null) {
+      check(s.bullPct >= 0 && s.bullPct <= 100, `${tag}: bull% in [0,100] (${s.key})`, String(s.bullPct));
+      check(isFinite(s.driftPct ?? 0), `${tag}: drift finite (${s.key})`);
+    }
+    nSum += s.candles;
+  }
+  check(nSum >= closed, `${tag}: session candle coverage ≥ closed count`, `${nSum} vs ${closed}`);
+
+  // whale delta bounded by total volume; null without taker data
+  const withTb = klines.map((k) => ({ ...k, tb: k.v * 0.6 }));
+  const wd = whaleDelta(withTb, 20);
+  check(wd != null, `${tag}: whale delta present with taker data`);
+  if (wd) {
+    let volSum = 0;
+    for (let i = Math.max(0, closed - 19); i <= closed; i++) volSum += klines[i].v;
+    check(Math.abs(wd.net) <= volSum + 1e-9, `${tag}: |net delta| ≤ window volume`, `${wd.net} vs ${volSum}`);
+    check(wd.strongBuy >= 0 && wd.strongSell >= 0, `${tag}: strong deltas non-negative`);
+    check(Math.abs(wd.last - (2 * 0.6 - 1) * klines[closed].v) < 1e-6, `${tag}: last delta = 2tb − v`);
+  }
+  // fetched klines carry no tb field → whale panel must degrade to null
+  check(whaleDelta(klines, 20) === null, `${tag}: whale delta null without taker data`);
+
+  // volume profile distributes exactly the window volume
+  const vp = volumeProfile(withTb, 0, closed, 26);
+  check(vp != null, `${tag}: volume profile built`);
+  if (vp) {
+    check(vp.rows.length === 26, `${tag}: vp rows = 26`);
+    let tot = 0;
+    for (const r of vp.rows) tot += r.buy + r.sell;
+    let vSum = 0;
+    for (let i = 0; i <= closed; i++) vSum += klines[i].v;
+    check(Math.abs(tot - vSum) < vSum * 1e-9, `${tag}: vp conserves volume`, `${tot} vs ${vSum}`);
+    check(vp.max > 0 && vp.poc >= vp.minP && vp.poc <= vp.maxP, `${tag}: vp poc in range`);
+    const buyRatioTot = vp.rows.reduce((a, r) => a + r.buy, 0) / Math.max(tot, 1e-9);
+    check(Math.abs(buyRatioTot - 0.6) < 0.02, `${tag}: vp buy split ≈ taker share`, String(buyRatioTot));
+  }
+
+  // compact formatter
+  check(fmtCompact(1234567) === "1.23M", "fmtCompact: M", fmtCompact(1234567));
+  check(fmtCompact(-9876) === "-9.9K", "fmtCompact: -K", fmtCompact(-9876));
+  check(fmtCompact(512) === "512", "fmtCompact: plain");
+}
+
+// ── equity curve + kpi extensions ───────────────────────────────────────────
+function runEquitySuite(klines, symbol, interval, cfg) {
+  const { slPct, tpPct, leverage, smaFilter } = cfg;
+  const tag = `${symbol} ${interval} ${cfg.name} equity`;
+  const { signals, sma } = signalsFrom(klines, 2, 10, 200);
+  const { papers } = papersFrom(klines, signals, sma, symbol, interval, slPct, tpPct, leverage, smaFilter);
+
+  const eq = equityFrom(papers);
+  const closed = papers.filter((p) => p.status === "closed");
+  check(eq.count === closed.length, `${tag}: point count == closed`, `${eq.count} vs ${closed.length}`);
+  check(eq.peak >= 0 && eq.trough <= 0, `${tag}: peak ≥ 0 / trough ≤ 0`, `${eq.peak}/${eq.trough}`);
+
+  const kpi = kpiFrom(papers);
+  check(Math.abs(eq.last - kpi.netPnl) < 1e-9, `${tag}: last cum == kpi netPnl`, `${eq.last} vs ${kpi.netPnl}`);
+  const flipNet = closed.filter((p) => p.exitKind === "flip").reduce((a, p) => a + (p.pnlPct ?? 0), 0);
+  check(Math.abs(kpi.flipNetPnl - flipNet) < 1e-9, `${tag}: flipNetPnl consistent`);
+
+  // exit-order times non-decreasing
+  let sorted = true;
+  for (let i = 1; i < eq.points.length; i++)
+    if (eq.points[i].time < eq.points[i - 1].time) sorted = false;
+  check(sorted, `${tag}: equity points time-sorted`);
+
+  // exact synthetic math
+  const fake = [
+    { status: "closed", pnlPct: 10, entryIndex: 0, entryTime: 500, exitIndex: 1, exitTime: 1500, exitKind: "tp", leverage: 1 },
+    { status: "closed", pnlPct: -4, entryIndex: 2, entryTime: 2500, exitIndex: 3, exitTime: 3500, exitKind: "sl", leverage: 1 },
+    { status: "open", pnlPct: undefined, entryIndex: 4, entryTime: 4500, exitIndex: undefined, exitTime: undefined, leverage: 1 },
+  ];
+  const e2 = equityFrom(fake);
+  check(e2.count === 2 && Math.abs(e2.last - 6) < 1e-9 && Math.abs(e2.peak - 10) < 1e-9 && Math.abs(e2.trough - 0) < 1e-9, "equity: synthetic cum 10→6, peak 10, trough 0", JSON.stringify(e2));
+  const k2 = kpiFrom(fake);
+  check(Math.abs(k2.netPnl - 6) < 1e-9 && k2.flipNetPnl === 0, "kpi: synthetic net 6, flipNet 0");
+  const fakeFlip = [...fake, { status: "closed", pnlPct: -2, entryIndex: 5, entryTime: 5500, exitIndex: 6, exitTime: 6500, exitKind: "flip", leverage: 1 }];
+  check(Math.abs(kpiFrom(fakeFlip).flipNetPnl + 2) < 1e-9, "kpi: flipNetPnl sums flip trades only");
+}
+
 async function main() {
   const symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"];
   const intervals = ["5m", "15m", "1h"];
@@ -590,7 +712,11 @@ async function main() {
         summary.push(await runSuite(klines, sym, itv, cfg));
       }
       runAnalysisSuite(klines, `${sym} ${itv} analysis`);
+      runMarketSuite(klines, `${sym} ${itv} market`);
       runWyckoffSuite(klines, `${sym} ${itv}`);
+      for (const cfg of configs) {
+        runEquitySuite(klines, sym, itv, cfg);
+      }
     }
   }
   runWyckoffSynthetic();

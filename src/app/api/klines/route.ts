@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
       }
       const raw = (await res.json()) as unknown[];
       const klines: Kline[] = raw.map((r) => {
-        const row = r as [number, string, string, string, string, string];
+        const row = r as [number, string, string, string, string, string, number, string, number, string];
         return {
           t: row[0],
           o: Number(row[1]),
@@ -50,6 +50,8 @@ export async function GET(req: NextRequest) {
           l: Number(row[3]),
           c: Number(row[4]),
           v: Number(row[5]),
+          // taker buy base volume → whale delta / volume-profile buy/sell split
+          tb: Number(row[9]) || 0,
         };
       });
       return NextResponse.json(

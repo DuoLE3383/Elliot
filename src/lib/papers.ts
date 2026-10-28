@@ -187,6 +187,8 @@ export interface KpiStats {
   flipCount: number;
   flipWins: number;
   flipLosses: number;
+  /** net ROE% summed over closed reversal trades only */
+  flipNetPnl: number;
   netPnl: number;
 }
 
@@ -201,6 +203,7 @@ export function kpiFrom(papers: Paper[]): KpiStats {
   const flipWins = flipPapers.filter((p) => (p.pnlPct ?? 0) > 0).length;
   const tp = closedPapers.filter((p) => p.exitKind === "tp").length;
   const sl = closedPapers.filter((p) => p.exitKind === "sl").length;
+  const flipNet = flipPapers.reduce((acc, p) => acc + (p.pnlPct ?? 0), 0);
   const net = closedPapers.reduce((acc, p) => acc + (p.pnlPct ?? 0), 0);
   return {
     total: papers.length,
@@ -214,6 +217,7 @@ export function kpiFrom(papers: Paper[]): KpiStats {
     flipCount: flipPapers.length,
     flipWins,
     flipLosses: flipPapers.length - flipWins,
+    flipNetPnl: flipNet,
     netPnl: net,
   };
 }

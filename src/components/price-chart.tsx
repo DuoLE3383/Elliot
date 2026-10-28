@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Kline, Paper, Signal } from "@/lib/types";
 import type { PendingEntry } from "@/lib/papers";
 import type { WyckoffEvent, WyckoffResult } from "@/lib/wyckoff";
+import { volumeProfile } from "@/lib/market";
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 
@@ -134,6 +135,10 @@ export function PriceChart({
     (p) => p.exitIndex !== undefined ? p.exitIndex >= viewStart || p.entryIndex <= viewEnd : p.entryIndex <= viewEnd,
   );
 
+  // ── Volume profile over the visible window (buy/sell split via taker data) ─
+  const vp = useMemo(() => volumeProfile(klines, viewStart, viewEnd, 26), [klines, viewStart, viewEnd]);
+  const vpW = plotW * 0.16;
+
   // ── Wyckoff layers (only when enabled) ─────────────────────────────────
   const wyOn = !!wyckoffOn && !!wyckoff;
   const wyBoxes = wyOn
@@ -229,6 +234,38 @@ export function PriceChart({
             </text>
           );
         })}
+
+        {/* ── Volume profile (volume by price, right-anchored) ────────── */}
+        {vp && (
+          <g clipPath="url(#wy-plot-clip)">
+            {vp.rows.map((r, k) => {
+              const yTop = y(r.high);
+              const yBot = y(r.low);
+              const h = Math.max(1, yBot - yTop - 1);
+              const tot = r.buy + r.sell;
+              if (tot <= 0) return null;
+              const w = (tot / vp.max) * vpW;
+              const bw = (r.buy / tot) * w;
+              const right = PAD_L + plotW;
+              return (
+                <g key={`vp-${k}`}>
+                  <rect x={right - bw} y={yTop} width={Math.max(0, bw)} height={h} fill={UP} opacity={0.2} />
+                  <rect x={right - w} y={yTop} width={Math.max(0, w - bw)} height={h} fill={DOWN} opacity={0.18} />
+                </g>
+              );
+            })}
+            <line
+              x1={PAD_L}
+              x2={PAD_L + plotW}
+              y1={y(vp.poc)}
+              y2={y(vp.poc)}
+              stroke="#e4e4e7"
+              strokeOpacity={0.22}
+              strokeDasharray="3 5"
+              strokeWidth={1}
+            />
+          </g>
+        )}
 
         {/* ── Wyckoff trading-range boxes (under everything) ─────────── */}
         {wyOn && (
@@ -479,6 +516,11 @@ export function PriceChart({
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />
           {t(lang, "chart.legend.trades")}
+        </span>
+        <span className="flex items-center gap-1.5" title={`${t(lang, "vp.buy")} / ${t(lang, "vp.sell")}`}>
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-500/40 ring-1 ring-emerald-500/50" />
+          <span className="-ml-2.5 inline-block h-2.5 w-2.5 rounded-sm bg-rose-500/40 ring-1 ring-rose-500/50" />
+          {t(lang, "chart.legend.vp")}
         </span>
         {wyOn && (
           <>

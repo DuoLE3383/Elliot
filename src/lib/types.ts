@@ -14,6 +14,8 @@ export interface Kline {
   l: number;
   c: number;
   v: number;
+  /** taker buy base volume (Binance kline field 9) — powers the whale delta */
+  tb?: number;
 }
 
 /**
@@ -138,6 +140,14 @@ export const KLINE_LIMIT = 500;
 
 export const MAX_CUSTOM_PAIRS = 10;
 export const MAX_LEVERAGE = 125;
+
+/** Binance 24hr ticker snapshot (from /api/ticker). */
+export interface Ticker {
+  symbol: string;
+  price: number;
+  /** 24h price change, % */
+  changePct: number;
+}
 
 // ─── Wyckoff Schematic Auto Detect ───────────────────────────────────────────
 /** Port of the Pine v6 "Wyckoff Schematic Auto Detect (Rebuild)" indicator. */
