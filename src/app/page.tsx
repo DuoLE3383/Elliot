@@ -648,7 +648,9 @@ export default function Home() {
 
             {/* ── CENTER: chart + bottom tabs ────────────────────────── */}
             <div className="rail-scroll order-1 flex min-h-0 flex-col gap-3 lg:order-2 lg:overflow-y-auto lg:pr-0.5">
-              <Card className="flex min-h-0 flex-1 flex-col border-zinc-800 bg-zinc-900/60">
+              {/* lg:min-h keeps the chart usable on short viewports — the rail scrolls
+                  instead of the card collapsing and its content painting over the tabs */}
+              <Card className="flex min-h-0 flex-1 flex-col overflow-hidden border-zinc-800 bg-zinc-900/60 lg:min-h-[430px]">
                 <CardHeader className="shrink-0 border-b border-zinc-800/70 px-3 py-2.5">
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
