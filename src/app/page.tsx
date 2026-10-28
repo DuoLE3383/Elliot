@@ -35,7 +35,8 @@ import {
   Ticker,
   WyckoffSettings,
 } from "@/lib/types";
-import { AlertTriangle, ArrowLeftRight, Landmark, RefreshCw, Settings2, Waves } from "lucide-react";
+import { ElliottLogo } from "@/components/logo";
+import { AlertTriangle, ArrowLeftRight, Landmark, RefreshCw, Settings2 } from "lucide-react";
 
 interface Toast {
   id: number;
@@ -501,16 +502,16 @@ export default function Home() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-zinc-950 text-zinc-100 lg:h-dvh lg:min-h-0 lg:overflow-hidden">
-      {/* ── Header — ORCA terminal bar ─────────────────────────────── */}
+      {/* ── Header — ELLIOTT terminal bar ──────────────────────────── */}
       <header className="shrink-0 border-b border-zinc-800 bg-zinc-950/95 backdrop-blur">
         <div className="flex h-12 items-center gap-2 px-3">
           <div className="flex min-w-0 items-center gap-2">
-            <div className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5">
-              <Waves className="h-4 w-4 text-emerald-400" />
-              <span className="text-sm font-black tracking-[0.2em] text-zinc-100">ORCA</span>
+            <div className="flex h-8 shrink-0 items-center gap-2 rounded-lg border border-zinc-800 bg-gradient-to-b from-zinc-900 to-zinc-950 p-1.5 shadow-[0_0_18px_-6px_rgba(16,185,129,0.45)] lg:pr-3">
+              <ElliottLogo className="h-6 w-6" />
+              <span className="hidden text-sm font-black tracking-[0.24em] text-zinc-100 lg:inline">ELLIOTT</span>
             </div>
             <div className="hidden leading-tight xl:block">
-              <p className="text-[11px] font-semibold text-zinc-300">UT · Phiên · Cá voi</p>
+              <p className="text-[11px] font-semibold text-zinc-300">UT Bot · Sóng · Cá voi</p>
               <p className="text-[10px] text-zinc-600">{t(lang, "app.subtitle")}</p>
             </div>
           </div>

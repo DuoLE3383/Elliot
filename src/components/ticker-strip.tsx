@@ -4,7 +4,7 @@ import { fmtPrice, symbolLabel, t, type Lang } from "@/lib/i18n";
 import type { Ticker } from "@/lib/types";
 
 /**
- * Live 24h price strip under the header (ORCA-style top ticker).
+ * Live 24h price strip under the header (Elliott-style top ticker).
  * Pure addition — clicking a pair switches the chart, nothing else changes.
  */
 export function TickerStrip({

@@ -14,12 +14,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "UT Paper Trading — Đảo chiều = thoát + entry mới",
+  title: "Elliott — Paper Trading Terminal",
   description:
-    "Mô phỏng paper trading theo tín hiệu UT Bot với cổng SMA. Tín hiệu đảo chiều đóng lệnh hiện tại và mở lệnh mới theo hướng ngược lại.",
-  keywords: ["UT Bot", "paper trading", "Binance", "reversal", "SMA gate"],
+    "Elliott — mô phỏng paper trading theo tín hiệu UT Bot với cổng SMA. Tín hiệu đảo chiều đóng lệnh hiện tại và mở lệnh mới theo hướng ngược lại.",
+  keywords: ["Elliott", "UT Bot", "paper trading", "Binance", "reversal", "SMA gate"],
   icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+    icon: "/elliott.svg",
   },
 };
 

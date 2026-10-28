@@ -3,7 +3,7 @@ export type Lang = "vi" | "en";
 type Dict = Record<string, string>;
 
 const vi: Dict = {
-  "app.title": "UT Paper Trading",
+  "app.title": "Elliott Paper Trading",
   "app.subtitle": "Mô phỏng lệnh theo tín hiệu UT Bot + cổng SMA",
   "header.refresh": "Làm mới",
   "header.settings": "Cài đặt",
@@ -260,7 +260,7 @@ const vi: Dict = {
 };
 
 const en: Dict = {
-  "app.title": "UT Paper Trading",
+  "app.title": "Elliott Paper Trading",
   "app.subtitle": "Paper trading on UT Bot signals + SMA gate",
   "header.refresh": "Refresh",
   "header.settings": "Settings",

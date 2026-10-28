@@ -24,7 +24,7 @@ interface Props {
 }
 
 /**
- * Right-rail context card — ORCA-style compact read-out:
+ * Right-rail context card — Elliott-style compact read-out:
  * status (position/signal side + EMA trend), open sessions with Bull%/drift,
  * and the whale (taker delta) summary. Pure read-only — no controls here.
  */

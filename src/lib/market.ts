@@ -1,6 +1,6 @@
 // ─── Market context: sessions, whale (taker) delta, volume profile ───────────
 //
-// Pure helpers powering the ORCA-style panels:
+// Pure helpers powering the Elliott-style panels:
 //  - "Phiên giao dịch"  → which global session is open + Bull% / drift per session
 //  - "Cá voi"           → net taker delta (buy volume − sell volume) recent candles
 //  - volume profile     → volume-by-price histogram with a taker buy/sell split

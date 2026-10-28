@@ -8,7 +8,7 @@ import type { Paper } from "@/lib/types";
 import { LineChart } from "lucide-react";
 
 /**
- * "Đường cong vốn" — cumulative ROE over closed trades, ORCA-style footer
+ * "Đường cong vốn" — cumulative ROE over closed trades, Elliott-style footer
  * panel. Pure addition at the bottom of the page.
  */
 export function EquityCurve({ lang, papers }: { lang: Lang; papers: Paper[] }) {

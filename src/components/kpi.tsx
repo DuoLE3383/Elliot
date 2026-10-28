@@ -18,7 +18,7 @@ interface Props {
   signals?: Signal[];
 }
 
-/** Compact 5-card KPI row — ORCA terminal style (label / big value / two sub lines). */
+/** Compact 5-card KPI row — Elliott terminal style (label / big value / two sub lines). */
 export function KpiCards({ lang, stats, openPaper, leverage, openPnl, signals = [] }: Props) {
   // signal split over the window — blocked signals count as "chờ"
   const long = signals.filter((s) => s.dir === "BUY" && s.smaOk).length;
