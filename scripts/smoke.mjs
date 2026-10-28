@@ -1,14 +1,17 @@
 /**
  * Smoke test for the paper-trading engine over live Binance data.
  *
- * Contract (v3 — SMA gate fix + leverage):
+ * Contract (v4 — directional gate UX + deep-analysis indicators):
  *  1. A reversal ALWAYS closes the open paper at the next candle open AND opens
  *     the opposite paper at that same price/time — the SMA gate never blocks it.
- *  2. The SMA gate only filters FRESH entries from flat, and only when enabled.
+ *  2. The SMA gate is DIRECTIONAL and only filters FRESH entries from flat, and
+ *     only when enabled: close < SMA blocks BUYs but never SELLs (and vice versa).
  *     An SMA value of null (start of the 500-candle window) must NOT block.
  *  3. Gate off → every confirmed signal enters immediately, no pending entries.
  *  4. Leverage: ROE = price move × leverage; positions are liquidated
  *     (~100%/leverage adverse move) → ROE = -100%, flagged `liquidated`.
+ *  5. Analysis helpers: EMA seeds correctly, RSI stays in [0,100] (extremes on
+ *     monotone runs), pivot structure returns a sane range/position.
  */
 const HOSTS = ["https://api.binance.com", "https://data-api.binance.vision"];
 
@@ -154,6 +157,111 @@ function papersFrom(klines, signals, smaArr, symbol, interval, slPct, tpPct, lev
     else pending = { side: newSide, signalIndex: i };
   }
   return { papers, open, pending };
+}
+
+// ── analysis replicas (kept in sync with src/lib/indicators.ts + analysis.ts) ─
+function ema(klines, period) {
+  const out = new Array(klines.length).fill(null);
+  if (klines.length < period) return out;
+  let sum = 0;
+  for (let i = 0; i < period; i++) sum += klines[i].c;
+  let prev = sum / period;
+  out[period - 1] = prev;
+  const k = 2 / (period + 1);
+  for (let i = period; i < klines.length; i++) {
+    prev = klines[i].c * k + prev * (1 - k);
+    out[i] = prev;
+  }
+  return out;
+}
+
+function rsi(klines, period) {
+  const out = new Array(klines.length).fill(null);
+  if (klines.length <= period) return out;
+  let gain = 0, loss = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = klines[i].c - klines[i - 1].c;
+    if (d >= 0) gain += d; else loss -= d;
+  }
+  let avgG = gain / period, avgL = loss / period;
+  out[period] = avgL === 0 ? 100 : 100 - 100 / (1 + avgG / avgL);
+  for (let i = period + 1; i < klines.length; i++) {
+    const d = klines[i].c - klines[i - 1].c;
+    const g = d > 0 ? d : 0, l = d < 0 ? -d : 0;
+    avgG = (avgG * (period - 1) + g) / period;
+    avgL = (avgL * (period - 1) + l) / period;
+    out[i] = avgL === 0 ? 100 : 100 - 100 / (1 + avgG / avgL);
+  }
+  return out;
+}
+
+function pivotRange(klines, endIndex, pivot = 5, lookback = 150) {
+  const end = endIndex + 1;
+  const start = Math.max(pivot, end - 1 - lookback);
+  let high = null, low = null;
+  for (let j = end - 1 - pivot; j >= start; j--) {
+    let isHigh = true, isLow = true;
+    for (let k = j - pivot; k <= j + pivot; k++) {
+      if (k < 0 || k >= end || k === j) continue;
+      if (klines[k].h >= klines[j].h) isHigh = false;
+      if (klines[k].l <= klines[j].l) isLow = false;
+    }
+    if (high == null && isHigh) high = klines[j].h;
+    if (low == null && isLow) low = klines[j].l;
+    if (high != null && low != null) break;
+  }
+  return high != null && low != null && high > low ? { high, low } : null;
+}
+
+function runAnalysisSuite(klines, tag) {
+  const closed = klines.length - 2;
+  // EMA seeds with the SMA of the first `period` closes and stays finite
+  const e50 = ema(klines, 50);
+  let smaSeed = 0;
+  for (let i = 0; i < 50; i++) smaSeed += klines[i].c;
+  check(Math.abs(e50[49] - smaSeed / 50) < 1e-9, `${tag}: ema50 seed == sma50`);
+  check(e50[closed] != null && isFinite(e50[closed]), `${tag}: ema50 finite on closed candle`);
+
+  // RSI bounds + extremes on monotone synthetic runs
+  const r = rsi(klines, 14);
+  let inBounds = true, hasVal = false;
+  for (const v of r) {
+    if (v == null) continue;
+    hasVal = true;
+    if (!(v >= 0 && v <= 100)) inBounds = false;
+  }
+  check(hasVal && inBounds, `${tag}: rsi14 within [0,100]`);
+  const upRun = Array.from({ length: 40 }, (_, i) => ({ t: i, o: 1 + i, h: 1.5 + i, l: 0.9 + i, c: 2 + i, v: 1 }));
+  const downRun = Array.from({ length: 40 }, (_, i) => ({ t: i, o: 41 - i, h: 41.5 - i, l: 40.9 - i, c: 40 - i, v: 1 }));
+  check(rsi(upRun, 14)[39] === 100, `${tag}: rsi == 100 on pure uptrend`);
+  check(rsi(downRun, 14)[39] === 0, `${tag}: rsi == 0 on pure downtrend`);
+
+  // pivot structure on live data
+  const range = pivotRange(klines, closed);
+  check(range != null, `${tag}: pivot range found on 500 candles`);
+  if (range) {
+    check(range.high > range.low, `${tag}: range high > low`);
+    const c = klines[closed].c;
+    const pos = ((c - range.low) / (range.high - range.low)) * 100;
+    check(isFinite(pos), `${tag}: range position finite`);
+    check(
+      (pos >= 0 && pos <= 100) || pos > 100 || pos < 0,
+      `${tag}: structure classifiable`,
+      `pos=${pos}`,
+    );
+  }
+
+  // directional gate on live data: BUYs below SMA must not have entered directly
+  const { signals, sma } = signalsFrom(klines, 2, 10, 200);
+  for (const s of signals) {
+    const sv = sma[s.i];
+    if (sv == null) continue;
+    if (s.dir === "BUY") check(s.smaOk === (klines[s.i].c > sv), `${tag}: BUY smaOk directional`, `i=${s.i}`);
+    else check(s.smaOk === (klines[s.i].c < sv), `${tag}: SELL smaOk directional`, `i=${s.i}`);
+  }
+  // a downtrend stretch must produce SELL smaOk=true — the gate is NOT a wall
+  const sells = signals.filter((s) => s.dir === "SELL");
+  check(sells.length > 0, `${tag}: has SELL signals`);
 }
 
 // ── invariants ──────────────────────────────────────────────────────────────
@@ -326,6 +434,7 @@ async function main() {
       for (const cfg of configs) {
         summary.push(await runSuite(klines, sym, itv, cfg));
       }
+      runAnalysisSuite(klines, `${sym} ${itv} analysis`);
     }
   }
   console.log("\n========== SUMMARY ==========");

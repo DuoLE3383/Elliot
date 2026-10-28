@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DeepAnalysis } from "@/components/analysis";
 import { Journal } from "@/components/journal";
 import { KpiCards } from "@/components/kpi";
 import { SignalDock } from "@/components/panels";
@@ -77,7 +78,18 @@ export default function Home() {
   useEffect(() => {
     try {
       const s = localStorage.getItem("utp.settings");
-      if (s) setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(s) });
+      if (s) {
+        let parsed = JSON.parse(s) as Partial<EngineSettings>;
+        // one-time legacy fix (gate v2): saved settings from the old build ship
+        // smaFilter: true, which kept fresh entries stuck behind the gate for
+        // whole sessions — unblock every existing save exactly once
+        if (localStorage.getItem("utp.gate.v2") !== "1") {
+          localStorage.setItem("utp.gate.v2", "1");
+          parsed = { ...parsed, smaFilter: false };
+          localStorage.setItem("utp.settings", JSON.stringify(parsed));
+        }
+        setSettings({ ...DEFAULT_SETTINGS, ...parsed });
+      }
       const p = localStorage.getItem("utp.pairs");
       if (p) {
         const arr = JSON.parse(p);
@@ -214,12 +226,33 @@ export default function Home() {
   const lastClose = klines.length ? klines[klines.length - 1].c : 0;
   const latestSignal = engine?.signals.at(-1);
   const confirmedSignal = engine?.confirmed.at(-1);
-  const gateOpen = useMemo(() => {
-    if (!engine || klines.length === 0) return false;
+  // DIRECTIONAL gate state — a close below the SMA blocks BUYs but NEVER SELLs
+  const gateInfo = useMemo(() => {
+    if (!engine || klines.length === 0) {
+      return { long: true, short: true, sma: null as number | null };
+    }
     const smaVal = engine.sma[klines.length - 1];
-    if (smaVal == null) return true; // no SMA data yet → cannot block
-    return lastClose > smaVal;
+    if (smaVal == null) return { long: true, short: true, sma: null as number | null };
+    return {
+      long: lastClose > smaVal,
+      short: lastClose < smaVal,
+      sma: smaVal as number | null,
+    };
   }, [engine, klines, lastClose]);
+
+  /** flip the SMA gate from the dock — persists and recomputes silently */
+  const toggleGate = useCallback((v: boolean) => {
+    setSettings((s) => {
+      const next = { ...s, smaFilter: v };
+      try {
+        localStorage.setItem("utp.settings", JSON.stringify(next));
+      } catch {
+        // storage blocked — the toggle still applies for this session
+      }
+      return next;
+    });
+    prevKeyRef.current = ""; // settings change → recompute without toast burst
+  }, []);
 
   const pinnedIndex = useMemo(() => {
     if (pinnedTime == null || !engine) return null;
@@ -453,6 +486,16 @@ export default function Home() {
           <div className="space-y-4">
             <KpiCards lang={lang} stats={stats} openPaper={engine.open} leverage={settings.leverage} />
 
+            <DeepAnalysis
+              lang={lang}
+              klines={klines}
+              smaFilter={settings.smaFilter}
+              smaPeriod={settings.smaPeriod}
+              gateLong={gateInfo.long}
+              gateShort={gateInfo.short}
+              smaValue={gateInfo.sma}
+            />
+
             <div className="grid min-w-0 gap-4 lg:grid-cols-5">
               <Card className="min-w-0 border-zinc-800 bg-zinc-900/60 lg:col-span-3">
                 <CardHeader className="pb-2">
@@ -494,7 +537,10 @@ export default function Home() {
                   smaFilter={settings.smaFilter}
                   latest={latestSignal}
                   confirmed={confirmedSignal}
-                  gateOpen={gateOpen}
+                  gateLong={gateInfo.long}
+                  gateShort={gateInfo.short}
+                  smaValue={gateInfo.sma}
+                  onToggleGate={toggleGate}
                   openPaper={engine.open}
                   pending={engine.pending}
                   papers={engine.papers}

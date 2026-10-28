@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import { fmtPct, fmtPrice, fmtTime, t, type Lang } from "@/lib/i18n";
 import type { PendingEntry } from "@/lib/papers";
 import type { Paper, Signal } from "@/lib/types";
@@ -20,7 +21,13 @@ interface Props {
   latest?: Signal;
   /** newest confirmed signal (closed candle) */
   confirmed?: Signal;
-  gateOpen: boolean;
+  /** DIRECTIONAL gate state — a price below the SMA blocks BUYs, not SELLs */
+  gateLong: boolean;
+  gateShort: boolean;
+  /** current SMA value (null before the window has enough candles) */
+  smaValue: number | null;
+  /** flip the SMA gate on/off right from the dock */
+  onToggleGate: (v: boolean) => void;
   openPaper?: Paper;
   pending?: PendingEntry;
   papers: Paper[];
@@ -65,7 +72,10 @@ export function SignalDock({
   smaFilter,
   latest,
   confirmed,
-  gateOpen,
+  gateLong,
+  gateShort,
+  smaValue,
+  onToggleGate,
   openPaper,
   pending,
   papers,
@@ -93,35 +103,70 @@ export function SignalDock({
   const planRef = confirmed ?? latest;
   const planSide = planRef ? (planRef.dir === "BUY" ? "LONG" : "SHORT") : undefined;
 
+  // how far the live price is from clearing the gate for a given side
+  const distToGate = (side: "LONG" | "SHORT"): number | null => {
+    if (smaValue == null || lastClose <= 0) return null;
+    return side === "LONG"
+      ? ((smaValue - lastClose) / lastClose) * 100 // positive → must rise
+      : ((lastClose - smaValue) / lastClose) * 100; // positive → must fall
+  };
+  const needText = (side: "LONG" | "SHORT"): string =>
+    side === "LONG"
+      ? t(lang, "dock.gate.needAbove", { p: smaPeriod, sma: fmtPrice(smaValue ?? 0) })
+      : t(lang, "dock.gate.needBelow", { p: smaPeriod, sma: fmtPrice(smaValue ?? 0) });
+
   return (
     <Card className="border-zinc-800 bg-zinc-900/60">
       <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base font-semibold text-zinc-100">{t(lang, "dock.title")}</CardTitle>
-          <Badge
-            variant="outline"
-            className={
-              !smaFilter
-                ? "border-zinc-700 bg-zinc-900 text-zinc-400"
-                : gateOpen
-                  ? "border-emerald-700 bg-emerald-950/60 text-emerald-400"
-                  : "border-rose-800 bg-rose-950/50 text-rose-400"
-            }
-          >
+          <div className="flex flex-wrap items-center gap-1.5">
             {!smaFilter ? (
-              <CircleSlash className="mr-1 h-3 w-3" />
-            ) : gateOpen ? (
-              <CircleDot className="mr-1 h-3 w-3" />
+              <Badge
+                variant="outline"
+                title={t(lang, "dock.gate.tip")}
+                className="border-zinc-700 bg-zinc-900 text-zinc-400"
+              >
+                <CircleSlash className="mr-1 h-3 w-3" />
+                {t(lang, "dock.gate")} · {t(lang, "dock.gate.off")}
+              </Badge>
             ) : (
-              <Ban className="mr-1 h-3 w-3" />
+              <>
+                <Badge
+                  variant="outline"
+                  title={t(lang, "dock.gate.tip")}
+                  className={
+                    gateLong
+                      ? "border-emerald-700 bg-emerald-950/60 text-emerald-400"
+                      : "border-rose-800 bg-rose-950/50 text-rose-400"
+                  }
+                >
+                  {gateLong ? <CircleDot className="mr-1 h-3 w-3" /> : <Ban className="mr-1 h-3 w-3" />}
+                  {t(lang, "chart.mark.buy")} {gateLong ? "✓" : "✗"}
+                </Badge>
+                <Badge
+                  variant="outline"
+                  title={t(lang, "dock.gate.tip")}
+                  className={
+                    gateShort
+                      ? "border-emerald-700 bg-emerald-950/60 text-emerald-400"
+                      : "border-rose-800 bg-rose-950/50 text-rose-400"
+                  }
+                >
+                  {gateShort ? <CircleDot className="mr-1 h-3 w-3" /> : <Ban className="mr-1 h-3 w-3" />}
+                  {t(lang, "chart.mark.sell")} {gateShort ? "✓" : "✗"}
+                </Badge>
+              </>
             )}
-            {t(lang, "dock.gate")} ·
-            {!smaFilter
-              ? t(lang, "dock.gate.off")
-              : gateOpen
-                ? t(lang, "dock.gate.open")
-                : t(lang, "dock.gate.blocked")}
-          </Badge>
+            <span title={t(lang, "dock.gate.tip")}>
+              <Switch
+                checked={smaFilter}
+                onCheckedChange={onToggleGate}
+                aria-label={t(lang, "settings.smaFilter")}
+                className="data-[state=checked]:bg-amber-600"
+              />
+            </span>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3 pt-0">
@@ -182,8 +227,22 @@ export function SignalDock({
               <span className={`font-mono text-sm font-bold ${SIDE_COLOR(pending.side)}`}>{pending.side}</span>
             </div>
             <p className="text-xs leading-relaxed text-amber-200/80">
-              {t(lang, "dock.pendingNote")} (SMA {smaPeriod}).
+              {needText(pending.side)}
+              {(() => {
+                const d = distToGate(pending.side);
+                return d != null ? (
+                  <span className="text-amber-300/70"> · {t(lang, "dock.gate.dist", { pct: fmtPct(d) })}</span>
+                ) : null;
+              })()}
             </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="mt-2 h-7 border-amber-700 px-2.5 text-[11px] text-amber-400 hover:bg-amber-950/60 hover:text-amber-300"
+              onClick={() => onToggleGate(false)}
+            >
+              {t(lang, "dock.gate.offBtn")}
+            </Button>
           </div>
         ) : /* ── Entry plan (flat) ─────────────────────────────────────── */
         planRef && planSide ? (
@@ -222,8 +281,12 @@ export function SignalDock({
               icon={<ArrowLeftRight className="h-3.5 w-3.5" />}
             />
             {!planRef.smaOk && (
-              <p className="mt-1 rounded bg-rose-950/40 px-2 py-1 text-[11px] text-rose-300">
-                {t(lang, "dock.gate.blocked")} — {t(lang, "dock.pendingNote")}
+              <p className="mt-1 rounded bg-rose-950/40 px-2 py-1 text-[11px] leading-relaxed text-rose-300">
+                {needText(planSide === "LONG" ? "LONG" : "SHORT")}
+                {(() => {
+                  const d = distToGate(planSide === "LONG" ? "LONG" : "SHORT");
+                  return d != null ? ` · ${t(lang, "dock.gate.dist", { pct: fmtPct(d) })}` : "";
+                })()}
               </p>
             )}
           </div>

@@ -12,6 +12,47 @@ export function sma(klines: Kline[], period: number): (number | null)[] {
   return out;
 }
 
+/** Exponential moving average, aligned to kline index (seeded with an SMA). */
+export function ema(klines: Kline[], period: number): (number | null)[] {
+  const out: (number | null)[] = new Array(klines.length).fill(null);
+  if (klines.length < period) return out;
+  let sum = 0;
+  for (let i = 0; i < period; i++) sum += klines[i].c;
+  let prev = sum / period;
+  out[period - 1] = prev;
+  const k = 2 / (period + 1);
+  for (let i = period; i < klines.length; i++) {
+    prev = klines[i].c * k + prev * (1 - k);
+    out[i] = prev;
+  }
+  return out;
+}
+
+/** Wilder RSI (0–100), aligned to kline index. */
+export function rsi(klines: Kline[], period: number): (number | null)[] {
+  const out: (number | null)[] = new Array(klines.length).fill(null);
+  if (klines.length <= period) return out;
+  let gain = 0;
+  let loss = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = klines[i].c - klines[i - 1].c;
+    if (d >= 0) gain += d;
+    else loss -= d;
+  }
+  let avgG = gain / period;
+  let avgL = loss / period;
+  out[period] = avgL === 0 ? 100 : 100 - 100 / (1 + avgG / avgL);
+  for (let i = period + 1; i < klines.length; i++) {
+    const d = klines[i].c - klines[i - 1].c;
+    const g = d > 0 ? d : 0;
+    const l = d < 0 ? -d : 0;
+    avgG = (avgG * (period - 1) + g) / period;
+    avgL = (avgL * (period - 1) + l) / period;
+    out[i] = avgL === 0 ? 100 : 100 - 100 / (1 + avgG / avgL);
+  }
+  return out;
+}
+
 /** Wilder's ATR (RMA of true range), aligned to kline index. */
 export function atr(klines: Kline[], period: number): (number | null)[] {
   const out: (number | null)[] = new Array(klines.length).fill(null);

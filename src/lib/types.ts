@@ -20,6 +20,7 @@ export interface Kline {
  * A raw UT-Bot signal evaluated at the close of kline[i].
  * `smaOk` is the gate state for the direction the signal proposes:
  * BUY requires close > SMA, SELL requires close < SMA.
+ * The gate is DIRECTIONAL — a price below the SMA blocks BUYs but never SELLs.
  */
 export interface Signal {
   /** index into the kline array */
@@ -82,6 +83,8 @@ export interface EngineSettings {
   smaFilter: boolean;
 }
 
+// Gate defaults OFF — entries were getting stuck "bị chặn" for whole sessions.
+// Users who want the trend filter re-enable it (dock switch or settings).
 export const DEFAULT_SETTINGS: EngineSettings = {
   slPct: 6,
   tpPct: 3.2,
@@ -89,7 +92,7 @@ export const DEFAULT_SETTINGS: EngineSettings = {
   atrPeriod: 10,
   smaPeriod: 200,
   leverage: 1,
-  smaFilter: true,
+  smaFilter: false,
 };
 
 export const PRESET_WIDE: EngineSettings = {
@@ -99,7 +102,7 @@ export const PRESET_WIDE: EngineSettings = {
   atrPeriod: 10,
   smaPeriod: 200,
   leverage: 1,
-  smaFilter: true,
+  smaFilter: false,
 };
 
 /** "Đặt theo Pine gốc" — the original UT Bot Alerts strategy exits. */
@@ -110,7 +113,7 @@ export const PRESET_PINE: EngineSettings = {
   atrPeriod: 10,
   smaPeriod: 200,
   leverage: 1,
-  smaFilter: true,
+  smaFilter: false,
 };
 
 /** Default pair chips (Binance USDT spot). Custom pairs are user-added. */
