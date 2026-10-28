@@ -691,7 +691,8 @@ function runEquitySuite(klines, symbol, interval, cfg) {
 
 async function main() {
   const symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"];
-  const intervals = ["5m", "15m", "1h"];
+  // 30m / 4h added with the terminal rebuild — engine must hold on all five TFs
+  const intervals = ["5m", "15m", "30m", "1h", "4h"];
   const configs = [
     { name: "wide-l1-gate", slPct: 6, tpPct: 3.2, leverage: 1, smaFilter: true },
     { name: "pine-l5-gate", slPct: 1.5, tpPct: 3, leverage: 5, smaFilter: true },

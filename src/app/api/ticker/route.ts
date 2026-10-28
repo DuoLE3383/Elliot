@@ -47,11 +47,17 @@ export async function GET(req: NextRequest) {
         symbol: string;
         lastPrice: string;
         priceChangePercent: string;
+        highPrice: string;
+        lowPrice: string;
+        quoteVolume: string;
       }>;
       const tickers: Ticker[] = rawArr.map((r) => ({
         symbol: r.symbol,
         price: Number(r.lastPrice) || 0,
         changePct: Number(r.priceChangePercent) || 0,
+        high: Number(r.highPrice) || 0,
+        low: Number(r.lowPrice) || 0,
+        quoteVolume: Number(r.quoteVolume) || 0,
       }));
       return NextResponse.json(
         { tickers, serverTime: Date.now() },

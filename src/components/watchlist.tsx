@@ -139,7 +139,7 @@ export function Watchlist({
               onChange={(e) => onPairInput(e.target.value)}
               placeholder={t(lang, "symbol.addPh")}
               disabled={checkingPair}
-              className="h-7 w-28 border-zinc-700 bg-zinc-900 font-mono text-[11px] uppercase placeholder:text-zinc-600"
+              className="h-7 w-24 border-zinc-700 bg-zinc-900 font-mono text-[11px] uppercase placeholder:text-zinc-600"
               aria-label={t(lang, "watch.add")}
             />
             <Button
@@ -147,7 +147,7 @@ export function Watchlist({
               size="sm"
               variant="outline"
               disabled={checkingPair || !pairInput.trim()}
-              className="h-7 gap-1 border-zinc-700 px-2 text-[11px] text-zinc-300 hover:bg-zinc-800"
+              className="h-7 shrink-0 gap-1 whitespace-nowrap border-zinc-700 px-2 text-[11px] text-zinc-300 hover:bg-zinc-800"
             >
               <Plus className={`h-3.5 w-3.5 ${checkingPair ? "animate-pulse" : ""}`} />
               {t(lang, "watch.add")}

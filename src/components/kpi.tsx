@@ -2,21 +2,24 @@
 
 import { Card, CardContent } from "@/components/ui/card";
 import { SIDE_COLOR } from "@/components/panels";
-import { fmtPct, fmtPrice, t, type Lang } from "@/lib/i18n";
+import { fmtPct, fmtPrice, fmtTime, t, type Lang } from "@/lib/i18n";
 import type { KpiStats } from "@/lib/papers";
 import type { Paper, Signal } from "@/lib/types";
-import { Activity, ArrowLeftRight, CheckCircle2, Hash, Percent, Zap } from "lucide-react";
+import { Activity, ArrowLeftRight, Percent, Target, Zap } from "lucide-react";
 
 interface Props {
   lang: Lang;
   stats: KpiStats;
   openPaper?: Paper;
   leverage: number;
+  /** unrealized ROE % of the open position (price move × leverage) */
+  openPnl?: number;
   /** signals of the loaded window (for the "Tín hiệu khung này" card) */
   signals?: Signal[];
 }
 
-export function KpiCards({ lang, stats, openPaper, leverage, signals = [] }: Props) {
+/** Compact 5-card KPI row — ORCA terminal style (label / big value / two sub lines). */
+export function KpiCards({ lang, stats, openPaper, leverage, openPnl, signals = [] }: Props) {
   // signal split over the window — blocked signals count as "chờ"
   const long = signals.filter((s) => s.dir === "BUY" && s.smaOk).length;
   const short = signals.filter((s) => s.dir === "SELL" && s.smaOk).length;
@@ -29,7 +32,7 @@ export function KpiCards({ lang, stats, openPaper, leverage, signals = [] }: Pro
       label: t(lang, "kpi.signals"),
       value: String(signals.length),
       valueClass: "text-zinc-100",
-      sub: (
+      sub1: (
         <span className="text-zinc-500">
           {t(lang, blocked > 0 ? "kpi.signalsSub" : "kpi.signalsOff", {
             lo: long,
@@ -38,35 +41,44 @@ export function KpiCards({ lang, stats, openPaper, leverage, signals = [] }: Pro
           })}
         </span>
       ),
+      sub2: null as React.ReactNode,
       extra:
         signals.length > 0 ? (
-          <div className="mt-1.5 flex h-1.5 overflow-hidden rounded-full bg-zinc-800">
+          <div className="mt-1.5 flex h-1 overflow-hidden rounded-full bg-zinc-800">
             <div className="bg-emerald-500" style={{ width: `${longShare}%` }} />
             <div className="flex-1 bg-rose-500" />
           </div>
         ) : null,
-      icon: <Zap className="h-4 w-4 text-zinc-500" />,
+      icon: <Zap className="h-3.5 w-3.5 text-zinc-600" />,
     },
     {
       label: t(lang, "kpi.open"),
       value: String(stats.open),
       valueClass: "text-zinc-100",
-      sub: openPaper ? (
+      sub1: openPaper ? (
         <span className={`font-mono font-semibold ${SIDE_COLOR(openPaper.side)}`}>
           {openPaper.side} @ {fmtPrice(openPaper.entry)}
           {leverage > 1 && <span className="text-amber-400"> ×{leverage}</span>}
         </span>
       ) : (
-        "—"
+        <span className="text-zinc-600">—</span>
       ),
+      sub2:
+        openPaper && openPnl != null ? (
+          <span className={`font-mono ${(openPnl ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+            {t(lang, "kpi.openPnl", { pnl: fmtPct(openPnl) })}
+          </span>
+        ) : openPaper ? (
+          <span className="text-zinc-600">{t(lang, "kpi.openNewest", { time: fmtTime(openPaper.entryTime, lang) })}</span>
+        ) : null,
       extra: null,
-      icon: <Activity className="h-4 w-4 text-zinc-500" />,
+      icon: <Activity className="h-3.5 w-3.5 text-zinc-600" />,
     },
     {
-      label: t(lang, "kpi.closed"),
-      value: String(stats.closed),
+      label: t(lang, "kpi.winRate"),
+      value: `${stats.winRate.toFixed(0)}%`,
       valueClass: "text-zinc-100",
-      sub: (
+      sub1: (
         <span className="text-zinc-500">
           {t(lang, "kpi.breakdown", {
             tp: stats.tpCount,
@@ -76,39 +88,29 @@ export function KpiCards({ lang, stats, openPaper, leverage, signals = [] }: Pro
           })}
         </span>
       ),
+      sub2: <span className="text-zinc-600">{t(lang, "kpi.closedBase", { n: stats.closed })}</span>,
       extra: null,
-      icon: <Hash className="h-4 w-4 text-zinc-500" />,
-    },
-    {
-      label: t(lang, "kpi.winRate"),
-      value: `${stats.winRate.toFixed(0)}%`,
-      valueClass: "text-zinc-100",
-      sub: (
-        <span className="text-zinc-500">
-          {stats.wins}W / {stats.losses}L · {t(lang, "kpi.winRateNote")}
-        </span>
-      ),
-      extra: null,
-      icon: <Percent className="h-4 w-4 text-zinc-500" />,
+      icon: <Percent className="h-3.5 w-3.5 text-zinc-600" />,
     },
     {
       label: t(lang, "kpi.netPnl"),
       value: fmtPct(stats.netPnl),
       valueClass: stats.netPnl >= 0 ? "text-emerald-400" : "text-rose-400",
-      sub: (
+      sub1: (
         <span className="text-zinc-500">
-          {t(lang, "kpi.flipCount", { n: stats.flipCount })}
+          {t(lang, "kpi.netNote", { n: stats.closed })}
           {leverage > 1 && <span> · {t(lang, "kpi.levNote", { lev: leverage })}</span>}
         </span>
       ),
+      sub2: null,
       extra: null,
-      icon: <CheckCircle2 className="h-4 w-4 text-zinc-500" />,
+      icon: <Target className="h-3.5 w-3.5 text-zinc-600" />,
     },
     {
       label: t(lang, "kpi.flips"),
       value: String(stats.flipCount),
       valueClass: "text-amber-400",
-      sub: (
+      sub1: (
         <span className="text-zinc-500">
           {t(lang, "kpi.flipsSub", {
             w: stats.flipWins,
@@ -117,22 +119,24 @@ export function KpiCards({ lang, stats, openPaper, leverage, signals = [] }: Pro
           })}
         </span>
       ),
+      sub2: <span className="text-zinc-600">{t(lang, "kpi.flipsNote")}</span>,
       extra: null,
-      icon: <ArrowLeftRight className="h-4 w-4 text-zinc-500" />,
+      icon: <ArrowLeftRight className="h-3.5 w-3.5 text-zinc-600" />,
     },
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+    <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
       {cards.map((c, k) => (
         <Card key={k} className="border-zinc-800 bg-zinc-900/60">
-          <CardContent className="p-4">
+          <CardContent className="p-3">
             <div className="flex items-center justify-between">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">{c.label}</p>
+              <p className="truncate text-[11px] font-medium uppercase tracking-wide text-zinc-500">{c.label}</p>
               {c.icon}
             </div>
-            <p className={`mt-1 font-mono text-2xl font-bold ${c.valueClass}`}>{c.value}</p>
-            <p className="mt-0.5 truncate text-[11px]">{c.sub}</p>
+            <p className={`mt-0.5 font-mono text-xl font-bold leading-tight ${c.valueClass}`}>{c.value}</p>
+            <p className="mt-0.5 truncate text-[11px]">{c.sub1}</p>
+            {c.sub2 && <p className="truncate text-[10px] leading-tight">{c.sub2}</p>}
             {c.extra}
           </CardContent>
         </Card>

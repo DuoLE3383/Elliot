@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DeepAnalysis } from "@/components/analysis";
 import { EquityCurve } from "@/components/equity-curve";
 import { Journal } from "@/components/journal";
@@ -8,14 +8,16 @@ import { KpiCards } from "@/components/kpi";
 import { SessionsPanel } from "@/components/sessions";
 import { SignalDock } from "@/components/panels";
 import { PriceChart } from "@/components/price-chart";
+import { RailContext } from "@/components/rail-context";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { TickerStrip } from "@/components/ticker-strip";
 import { Watchlist } from "@/components/watchlist";
 import { WyckoffPanel } from "@/components/wyckoff-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { fmtCompact } from "@/lib/market";
 import { fmtPct, fmtPrice, fmtTime, symbolLabel, t, type Lang } from "@/lib/i18n";
 import { kpiFrom, papersFrom } from "@/lib/papers";
 import { signalsFrom } from "@/lib/signals";
@@ -33,7 +35,7 @@ import {
   Ticker,
   WyckoffSettings,
 } from "@/lib/types";
-import { AlertTriangle, ArrowLeftRight, Landmark, Plus, RefreshCw, Settings2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, Landmark, RefreshCw, Settings2, Waves } from "lucide-react";
 
 interface Toast {
   id: number;
@@ -50,6 +52,39 @@ const normalizePair = (raw: string): string => {
   if (!s) return "";
   return QUOTE_RE.test(s) ? s : `${s}USDT`;
 };
+
+/** Live VN + UTC clocks — 1 Hz external "store", SSR-safe (server snapshot 0). */
+function Clocks({ lang }: { lang: Lang }) {
+  // seconds-precision snapshot keeps getSnapshot stable within a second
+  const sec = useSyncExternalStore(
+    (onStoreChange) => {
+      const id = window.setInterval(onStoreChange, 1000);
+      return () => window.clearInterval(id);
+    },
+    () => Math.floor(Date.now() / 1000),
+    () => 0,
+  );
+  const fmt = (tz: string) =>
+    sec === 0
+      ? "--:--:--"
+      : new Date(sec * 1000).toLocaleTimeString("en-GB", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+          timeZone: tz,
+        });
+  return (
+    <div className="hidden flex-col items-end leading-tight lg:flex" aria-hidden>
+      <span className="font-mono text-[11px] text-zinc-300">
+        <span className="text-zinc-600">{t(lang, "header.clockVN")}</span> {fmt("Asia/Ho_Chi_Minh")}
+      </span>
+      <span className="font-mono text-[11px] text-zinc-500">
+        <span className="text-zinc-600">{t(lang, "header.clockUTC")}</span> {fmt("UTC")}
+      </span>
+    </div>
+  );
+}
 
 export default function Home() {
   const [symbol, setSymbol] = useState<string>("BTCUSDT");
@@ -208,7 +243,14 @@ export default function Home() {
       settings.smaFilter,
     );
     const confirmed = signals.filter((s) => s.i < klines.length - 1);
-    return { signals, sma: raw.sma, ...res, confirmed };
+    return {
+      signals,
+      sma: raw.sma,
+      stop: raw.stop,
+      trend: raw.trend,
+      ...res,
+      confirmed,
+    };
   }, [klines, settings, symbol, interval]);
 
   // Toast diffing — announce new papers (entries) and flips
@@ -311,6 +353,15 @@ export default function Home() {
       sma: smaVal as number | null,
     };
   }, [engine, klines, lastClose]);
+
+  // unrealized ROE % of the open position (price move × leverage)
+  const openPnl = useMemo(() => {
+    const p = engine?.open;
+    if (!p || !lastClose) return undefined;
+    const pricePct =
+      p.side === "LONG" ? ((lastClose - p.entry) / p.entry) * 100 : ((p.entry - lastClose) / p.entry) * 100;
+    return pricePct * settings.leverage;
+  }, [engine, lastClose, settings.leverage]);
 
   /** flip the SMA gate from the dock — persists and recomputes silently */
   const toggleGate = useCallback((v: boolean) => {
@@ -445,296 +496,302 @@ export default function Home() {
     };
   }, [pairListKey, interval]);
 
+  const activeTicker = tickers[symbol];
+  const tickerUp = (activeTicker?.changePct ?? 0) >= 0;
+
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100">
-      {/* ── Header ─────────────────────────────────────────────────── */}
-      <header className="border-b border-zinc-800 bg-zinc-950/95 backdrop-blur">
-        <div className="mx-auto w-full max-w-6xl px-4 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-600 font-mono text-sm font-black text-zinc-950">
-                UT
-              </div>
-              <div>
-                <h1 className="text-sm font-bold leading-tight">{t(lang, "app.title")}</h1>
-                <p className="text-[11px] leading-tight text-zinc-500">{t(lang, "app.subtitle")}</p>
-              </div>
+    <div className="flex min-h-dvh flex-col bg-zinc-950 text-zinc-100 lg:h-dvh lg:min-h-0 lg:overflow-hidden">
+      {/* ── Header — ORCA terminal bar ─────────────────────────────── */}
+      <header className="shrink-0 border-b border-zinc-800 bg-zinc-950/95 backdrop-blur">
+        <div className="flex h-12 items-center gap-2 px-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5">
+              <Waves className="h-4 w-4 text-emerald-400" />
+              <span className="text-sm font-black tracking-[0.2em] text-zinc-100">ORCA</span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 border-zinc-700 px-3 text-xs text-zinc-300 hover:bg-zinc-800"
-                onClick={() => setLang((l) => (l === "vi" ? "en" : "vi"))}
-              >
-                {langLabel}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 gap-1.5 border-zinc-700 px-3 text-xs text-zinc-300 hover:bg-zinc-800"
-                onClick={() => setSettingsOpen(true)}
-              >
-                <Settings2 className="h-3.5 w-3.5" />
-                {t(lang, "header.settings")}
-                {settings.leverage > 1 && (
-                  <span className="font-mono text-amber-400">×{settings.leverage}</span>
-                )}
-              </Button>
-              <Button
-                size="sm"
-                className="h-8 gap-1.5 bg-zinc-100 px-3 text-xs text-zinc-900 hover:bg-zinc-200"
-                disabled={loading}
-                onClick={() => void loadData(symbol, interval, true)}
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-                {t(lang, "header.refresh")}
-              </Button>
+            <div className="hidden leading-tight xl:block">
+              <p className="text-[11px] font-semibold text-zinc-300">UT · Phiên · Cá voi</p>
+              <p className="text-[10px] text-zinc-600">{t(lang, "app.subtitle")}</p>
             </div>
           </div>
 
-          <div className="mt-2.5 flex flex-wrap items-center gap-2">
-            {/* pairs — horizontally scrollable on narrow screens */}
-            <div className="max-w-full min-w-0 flex-1 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              <div className="flex w-max items-center gap-2">
-                <div className="flex shrink-0 items-center gap-0.5 rounded-lg border border-zinc-800 bg-zinc-900 p-0.5">
-                  {allPairs.map((s) => {
-                    const isCustom = !(SYMBOLS as readonly string[]).includes(s);
-                    return (
-                      <div
-                        key={s}
-                        className={`flex items-center rounded-md transition ${
-                          symbol === s ? "bg-zinc-100" : ""
-                        }`}
-                      >
-                        <button
-                          onClick={() => setSymbol(s)}
-                          title={s}
-                          className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
-                            symbol === s
-                              ? "text-zinc-900"
-                              : isCustom
-                                ? "text-amber-400/90 hover:text-amber-300"
-                                : "text-zinc-400 hover:text-zinc-200"
-                          }`}
-                        >
-                          {symbolLabel(s)}
-                        </button>
-                        {isCustom && (
-                          <button
-                            aria-label={t(lang, "symbol.remove", { sym: symbolLabel(s) })}
-                            onClick={() => removePair(s)}
-                            className={`mr-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[10px] leading-none ${
-                              symbol === s ? "text-zinc-500 hover:text-rose-600" : "text-zinc-600 hover:text-rose-400"
-                            }`}
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                {/* custom pair input */}
-                <form
-                  className="flex shrink-0 items-center gap-1"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void addPair();
-                  }}
-                >
-                  <Input
-                    value={pairInput}
-                    onChange={(e) => setPairInput(e.target.value)}
-                    placeholder={t(lang, "symbol.addPh")}
-                    title={t(lang, "symbol.add")}
-                    disabled={checkingPair}
-                    className="h-7 w-28 border-zinc-700 bg-zinc-900 font-mono text-[11px] uppercase placeholder:text-zinc-600 sm:w-32"
-                  />
-                  <Button
-                    type="submit"
-                    size="sm"
-                    variant="outline"
-                    disabled={checkingPair || !pairInput.trim()}
-                    className="h-7 gap-1 border-zinc-700 px-2 text-[11px] text-zinc-300 hover:bg-zinc-800"
-                  >
-                    <Plus className={`h-3.5 w-3.5 ${checkingPair ? "animate-pulse" : ""}`} />
-                    {t(lang, "symbol.add")}
-                  </Button>
-                </form>
-              </div>
-            </div>
+          {/* timeframes */}
+          <div className="ml-1 flex shrink-0 overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {INTERVALS.map((itv) => (
+              <button
+                key={itv}
+                onClick={() => setIntervalTf(itv)}
+                className={`shrink-0 rounded-md px-2 py-1 font-mono text-xs font-semibold transition sm:px-2.5 ${
+                  interval === itv ? "bg-emerald-600 text-zinc-950" : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                <span className="sm:hidden">{itv}</span>
+                <span className="hidden sm:inline">{t(lang, `itv.${itv}`)}</span>
+              </button>
+            ))}
+          </div>
 
-            <div className="flex shrink-0 rounded-lg border border-zinc-800 bg-zinc-900 p-0.5">
-              {INTERVALS.map((itv) => (
-                <button
-                  key={itv}
-                  onClick={() => setIntervalTf(itv)}
-                  className={`rounded-md px-3 py-1 font-mono text-xs font-semibold transition ${
-                    interval === itv ? "bg-amber-600 text-zinc-950" : "text-zinc-400 hover:text-zinc-200"
-                  }`}
-                >
-                  {itv}
-                </button>
-              ))}
-            </div>
-            <span className="ml-auto shrink-0 text-[11px] text-zinc-600">
-              {updatedAt ? `${t(lang, "header.updated")} ${fmtTime(updatedAt, lang)}` : t(lang, "header.loading")}
+          {/* live badge */}
+          <span className="hidden shrink-0 items-center gap-1.5 rounded-full border border-emerald-900 bg-emerald-950/40 px-2.5 py-1 text-[11px] font-medium text-emerald-400 md:flex">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
             </span>
+            {t(lang, "header.live")}
+          </span>
+
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            <Clocks lang={lang} />
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800"
+              onClick={() => setLang((l) => (l === "vi" ? "en" : "vi"))}
+            >
+              {langLabel}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">{t(lang, "header.settings")}</span>
+              {settings.leverage > 1 && (
+                <span className="font-mono text-amber-400">×{settings.leverage}</span>
+              )}
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 gap-1.5 bg-zinc-100 px-2.5 text-xs text-zinc-900 hover:bg-zinc-200"
+              disabled={loading}
+              onClick={() => void loadData(symbol, interval, true)}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+              <span className="hidden sm:inline">{t(lang, "header.refresh")}</span>
+            </Button>
           </div>
         </div>
       </header>
 
-      {/* ── Live ticker strip (24h prices for every watched pair) ───── */}
-      <TickerStrip
-        lang={lang}
-        pairs={allPairs}
-        tickers={tickers}
-        current={symbol}
-        onSelect={setSymbol}
-      />
+      {/* ── Live ticker strip ──────────────────────────────────────── */}
+      <TickerStrip lang={lang} pairs={allPairs} tickers={tickers} current={symbol} onSelect={setSymbol} />
 
-      {/* ── Main ───────────────────────────────────────────────────── */}
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-4">
+      {/* ── KPI row ────────────────────────────────────────────────── */}
+      <div className="shrink-0 px-3 pt-3">
+        {engine ? (
+          <KpiCards
+            lang={lang}
+            stats={stats}
+            openPaper={engine.open}
+            leverage={settings.leverage}
+            openPnl={openPnl}
+            signals={engine.signals}
+          />
+        ) : (
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
+            {Array.from({ length: 5 }, (_, k) => (
+              <Skeleton key={k} className="h-[76px] rounded-lg border border-zinc-800 bg-zinc-900" />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Main terminal grid ─────────────────────────────────────── */}
+      <main className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-3 lg:grid lg:grid-cols-[276px_minmax(0,1fr)_324px] lg:overflow-hidden xl:grid-cols-[300px_minmax(0,1fr)_352px]">
         {error ? (
-          <Card className="border-rose-900 bg-rose-950/30">
-            <CardContent className="flex flex-col items-center gap-3 p-10 text-center">
-              <AlertTriangle className="h-8 w-8 text-rose-500" />
-              <p className="text-sm font-semibold text-rose-300">{t(lang, "toast.error")}</p>
-              <p className="font-mono text-xs text-rose-400/70">{error}</p>
-              <Button
-                className="bg-rose-600 text-white hover:bg-rose-500"
-                onClick={() => void loadData(symbol, interval, true)}
-              >
-                {t(lang, "error.retry")}
-              </Button>
-            </CardContent>
-          </Card>
+          <div className="lg:col-span-3">
+            <Card className="border-rose-900 bg-rose-950/30">
+              <CardContent className="flex flex-col items-center gap-3 p-10 text-center">
+                <AlertTriangle className="h-8 w-8 text-rose-500" />
+                <p className="text-sm font-semibold text-rose-300">{t(lang, "toast.error")}</p>
+                <p className="font-mono text-xs text-rose-400/70">{error}</p>
+                <Button
+                  className="bg-rose-600 text-white hover:bg-rose-500"
+                  onClick={() => void loadData(symbol, interval, true)}
+                >
+                  {t(lang, "error.retry")}
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
         ) : !engine ? (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-              {Array.from({ length: 4 }, (_, k) => (
-                <Skeleton key={k} className="h-24 rounded-lg border border-zinc-800 bg-zinc-900" />
-              ))}
-            </div>
-            <Skeleton className="h-[400px] rounded-lg border border-zinc-800 bg-zinc-900" />
+          <div className="space-y-3 lg:col-span-3">
+            <Skeleton className="h-[420px] rounded-lg border border-zinc-800 bg-zinc-900" />
           </div>
         ) : (
-          <div className="space-y-4">
-            <KpiCards
-              lang={lang}
-              stats={stats}
-              openPaper={engine.open}
-              leverage={settings.leverage}
-              signals={engine.signals}
-            />
+          <>
+            {/* ── LEFT: watchlist + sessions ─────────────────────────── */}
+            <div className="rail-scroll order-3 flex min-h-0 flex-col gap-3 lg:order-1 lg:overflow-y-auto lg:pr-0.5">
+              <Watchlist
+                lang={lang}
+                pairs={allPairs}
+                cap={SYMBOLS.length + MAX_CUSTOM_PAIRS}
+                current={symbol}
+                tickers={tickers}
+                minis={minis}
+                atrKey={settings.atrKey}
+                atrPeriod={settings.atrPeriod}
+                smaPeriod={settings.smaPeriod}
+                pairInput={pairInput}
+                checkingPair={checkingPair}
+                onPairInput={setPairInput}
+                onAddPair={() => void addPair()}
+                onRemovePair={removePair}
+                onSelect={setSymbol}
+                defaultPairs={SYMBOLS}
+              />
+              <SessionsPanel lang={lang} klines={klines} />
+            </div>
 
-            <DeepAnalysis
-              lang={lang}
-              klines={klines}
-              smaFilter={settings.smaFilter}
-              smaPeriod={settings.smaPeriod}
-              gateLong={gateInfo.long}
-              gateShort={gateInfo.short}
-              smaValue={gateInfo.sma}
-            />
-
-            <div className="grid min-w-0 gap-4 lg:grid-cols-5">
-              <Card className="min-w-0 border-zinc-800 bg-zinc-900/60 lg:col-span-3">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-base font-semibold">
-                      {symbolLabel(symbol)}
-                      <span className="ml-1.5 font-mono text-xs font-normal text-zinc-500">
-                        {symbol} · {interval}
-                        {settings.leverage > 1 && (
-                          <span className="ml-1.5 font-semibold text-amber-500">×{settings.leverage}</span>
-                        )}
+            {/* ── CENTER: chart + bottom tabs ────────────────────────── */}
+            <div className="order-1 flex min-h-0 flex-col gap-3 lg:order-2 lg:overflow-hidden">
+              <Card className="flex min-h-0 flex-1 flex-col border-zinc-800 bg-zinc-900/60">
+                <CardHeader className="shrink-0 border-b border-zinc-800/70 px-3 py-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                      <CardTitle className="text-sm font-bold text-zinc-100">
+                        {symbolLabel(symbol)}
+                        <span className="ml-1.5 hidden font-mono text-[11px] font-normal text-zinc-500 sm:inline">
+                          {symbol} · {interval}
+                          {settings.leverage > 1 && (
+                            <span className="ml-1 font-semibold text-amber-500">×{settings.leverage}</span>
+                          )}
+                        </span>
+                      </CardTitle>
+                      <span className="font-mono text-sm font-bold text-zinc-100">{fmtPrice(lastClose)}</span>
+                      {activeTicker && (
+                        <span
+                          className={`font-mono text-[11px] font-semibold ${
+                            tickerUp ? "text-emerald-400" : "text-rose-400"
+                          }`}
+                        >
+                          {tickerUp ? "+" : ""}
+                          {activeTicker.changePct.toFixed(2)}%
+                        </span>
+                      )}
+                      <span className="text-[10px] text-zinc-600 sm:hidden">{interval}</span>
+                    </div>
+                    <div className="hidden items-center gap-3 font-mono text-[11px] text-zinc-500 md:flex">
+                      {activeTicker?.high != null && (
+                        <span>
+                          {t(lang, "chart.ohlc.high")} <b className="font-semibold text-zinc-300">{fmtPrice(activeTicker.high)}</b>
+                        </span>
+                      )}
+                      {activeTicker?.low != null && (
+                        <span>
+                          {t(lang, "chart.ohlc.low")} <b className="font-semibold text-zinc-300">{fmtPrice(activeTicker.low)}</b>
+                        </span>
+                      )}
+                      {activeTicker?.quoteVolume != null && (
+                        <span>
+                          {t(lang, "chart.ohlc.vol")}{" "}
+                          <b className="font-semibold text-zinc-300">{fmtCompact(activeTicker.quoteVolume)}</b>
+                        </span>
+                      )}
+                      <span className="text-zinc-600">
+                        {updatedAt ? `${t(lang, "header.updated")} ${fmtTime(updatedAt, lang)}` : t(lang, "header.loading")}
                       </span>
-                    </CardTitle>
-                    <span className="font-mono text-sm font-bold text-zinc-200">{fmtPrice(lastClose)}</span>
+                    </div>
                   </div>
                 </CardHeader>
-                <CardContent className="pt-0">
-                  <PriceChart
-                    klines={klines}
-                    sma={engine.sma}
-                    signals={engine.signals}
-                    papers={engine.papers}
-                    openPaper={engine.open}
-                    pending={engine.pending}
-                    pinnedIndex={pinnedIndex}
-                    onPin={handlePin}
-                    lang={lang}
-                    wyckoff={wyckoff}
-                    wyckoffOn={wySettings.enabled}
-                  />
+                <CardContent className="flex min-h-0 flex-1 flex-col px-3 pb-2 pt-2">
+                  <div className="h-[340px] shrink-0 sm:h-[400px] lg:h-auto lg:min-h-0 lg:flex-1 lg:shrink">
+                    <PriceChart
+                      klines={klines}
+                      sma={engine.sma}
+                      stop={engine.stop}
+                      trend={engine.trend}
+                      signals={engine.signals}
+                      papers={engine.papers}
+                      openPaper={engine.open}
+                      pending={engine.pending}
+                      pinnedIndex={pinnedIndex}
+                      onPin={handlePin}
+                      lang={lang}
+                      wyckoff={wyckoff}
+                      wyckoffOn={wySettings.enabled}
+                      fill
+                    />
+                  </div>
                 </CardContent>
               </Card>
 
-              <div className="min-w-0 lg:col-span-2">
-                <SignalDock
-                  lang={lang}
-                  smaPeriod={settings.smaPeriod}
-                  slPct={settings.slPct}
-                  tpPct={settings.tpPct}
-                  leverage={settings.leverage}
-                  smaFilter={settings.smaFilter}
-                  latest={latestSignal}
-                  confirmed={confirmedSignal}
-                  gateLong={gateInfo.long}
-                  gateShort={gateInfo.short}
-                  smaValue={gateInfo.sma}
-                  onToggleGate={toggleGate}
-                  openPaper={engine.open}
-                  pending={engine.pending}
-                  papers={engine.papers}
-                  pinnedIndex={pinnedIndex}
-                  lastClose={lastClose}
-                  onUnpin={() => setPinnedTime(null)}
-                  pinnedSig={pinnedSig}
-                />
-              </div>
+              <Tabs defaultValue="equity" className="shrink-0">
+                <TabsList className="h-8 justify-start rounded-lg border border-zinc-800 bg-zinc-900 p-0.5">
+                  <TabsTrigger
+                    value="equity"
+                    className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+                  >
+                    {t(lang, "tabs.equity")}
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="journal"
+                    className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+                  >
+                    {t(lang, "tabs.journal")}
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="analysis"
+                    className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+                  >
+                    {t(lang, "tabs.analysis")}
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="equity" className="mt-2 lg:h-[200px] lg:overflow-y-auto rail-scroll">
+                  <EquityCurve lang={lang} papers={engine.papers} />
+                </TabsContent>
+                <TabsContent value="journal" className="mt-2 lg:h-[200px] lg:overflow-y-auto rail-scroll">
+                  <Journal lang={lang} papers={engine.papers} symbol={symbol} interval={interval} maxListClass="max-h-36" />
+                </TabsContent>
+                <TabsContent value="analysis" className="mt-2 lg:h-[200px] lg:overflow-y-auto rail-scroll">
+                  <DeepAnalysis
+                    lang={lang}
+                    klines={klines}
+                    smaFilter={settings.smaFilter}
+                    smaPeriod={settings.smaPeriod}
+                    gateLong={gateInfo.long}
+                    gateShort={gateInfo.short}
+                    smaValue={gateInfo.sma}
+                  />
+                </TabsContent>
+              </Tabs>
             </div>
 
-            {/* ── Watchlist + trading sessions (ORCA-style additions) ─── */}
-            <div className="grid min-w-0 gap-4 lg:grid-cols-5">
-              <div className="min-w-0 lg:col-span-3">
-                <Watchlist
-                  lang={lang}
-                  pairs={allPairs}
-                  cap={SYMBOLS.length + MAX_CUSTOM_PAIRS}
-                  current={symbol}
-                  tickers={tickers}
-                  minis={minis}
-                  atrKey={settings.atrKey}
-                  atrPeriod={settings.atrPeriod}
-                  smaPeriod={settings.smaPeriod}
-                  pairInput={pairInput}
-                  checkingPair={checkingPair}
-                  onPairInput={setPairInput}
-                  onAddPair={() => void addPair()}
-                  onRemovePair={removePair}
-                  onSelect={setSymbol}
-                  defaultPairs={SYMBOLS}
-                />
-              </div>
-              <div className="min-w-0 lg:col-span-2">
-                <SessionsPanel lang={lang} klines={klines} />
-              </div>
+            {/* ── RIGHT: dock + context + Wyckoff ────────────────────── */}
+            <div className="rail-scroll order-2 flex min-h-0 flex-col gap-3 lg:order-3 lg:overflow-y-auto lg:pl-0.5">
+              <SignalDock
+                lang={lang}
+                smaPeriod={settings.smaPeriod}
+                slPct={settings.slPct}
+                tpPct={settings.tpPct}
+                leverage={settings.leverage}
+                smaFilter={settings.smaFilter}
+                latest={latestSignal}
+                confirmed={confirmedSignal}
+                gateLong={gateInfo.long}
+                gateShort={gateInfo.short}
+                smaValue={gateInfo.sma}
+                onToggleGate={toggleGate}
+                openPaper={engine.open}
+                pending={engine.pending}
+                papers={engine.papers}
+                pinnedIndex={pinnedIndex}
+                lastClose={lastClose}
+                onUnpin={() => setPinnedTime(null)}
+                pinnedSig={pinnedSig}
+              />
+              <RailContext lang={lang} klines={klines} openPaper={engine.open} confirmed={confirmedSignal} />
+              <WyckoffPanel lang={lang} wy={wyckoff} on={wySettings.enabled} sens={wySettings.sens} />
+              <p className="px-1 pb-1 text-[10px] leading-snug text-zinc-700">{t(lang, "footer.note")}</p>
             </div>
-
-            <WyckoffPanel lang={lang} wy={wyckoff} on={wySettings.enabled} sens={wySettings.sens} />
-
-            <EquityCurve lang={lang} papers={engine.papers} />
-
-            <Journal lang={lang} papers={engine.papers} symbol={symbol} interval={interval} />
-          </div>
+          </>
         )}
       </main>
 
-      {/* ── Footer ─────────────────────────────────────────────────── */}
-      <footer className="mt-auto border-t border-zinc-800 bg-zinc-950 py-3">
+      {/* ── Footer (mobile flow only — the terminal fills the screen) ── */}
+      <footer className="shrink-0 border-t border-zinc-800 bg-zinc-950 py-2.5 lg:hidden">
         <p className="pb-[env(safe-area-inset-bottom)] text-center text-[11px] text-zinc-600">
           {t(lang, "footer.note")}
         </p>

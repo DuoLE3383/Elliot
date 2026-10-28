@@ -133,7 +133,7 @@ export const SYMBOLS = [
 /** Any Binance spot symbol — defaults plus user-added custom pairs. */
 export type Symbol = string;
 
-export const INTERVALS = ["5m", "15m", "1h"] as const;
+export const INTERVALS = ["5m", "15m", "30m", "1h", "4h"] as const;
 export type Interval = (typeof INTERVALS)[number];
 
 export const KLINE_LIMIT = 500;
@@ -147,6 +147,11 @@ export interface Ticker {
   price: number;
   /** 24h price change, % */
   changePct: number;
+  /** 24h high / low price (chart header read-out; optional for older saves) */
+  high?: number;
+  low?: number;
+  /** 24h quote volume (USDT) */
+  quoteVolume?: number;
 }
 
 // ─── Wyckoff Schematic Auto Detect ───────────────────────────────────────────

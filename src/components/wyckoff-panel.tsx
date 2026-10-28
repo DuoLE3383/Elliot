@@ -111,7 +111,7 @@ export function WyckoffPanel({ lang, wy, on, sens }: Props) {
           </p>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2.5">
               <Tile
                 label={t(lang, "wy.structure")}
                 icon={<Landmark className="h-3.5 w-3.5" />}

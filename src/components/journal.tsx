@@ -16,6 +16,8 @@ interface Props {
   papers: Paper[];
   symbol: string;
   interval: string;
+  /** Tailwind max-height class for the scrollable list (terminal tabs use a smaller one) */
+  maxListClass?: string;
 }
 
 const resultBadge = (p: Paper, lang: Lang) => {
@@ -54,7 +56,7 @@ const resultBadge = (p: Paper, lang: Lang) => {
   );
 };
 
-export function Journal({ lang, papers, symbol, interval }: Props) {
+export function Journal({ lang, papers, symbol, interval, maxListClass = "max-h-96" }: Props) {
   const [filter, setFilter] = useState<Filter>("all");
 
   const filtered = useMemo(() => {
@@ -152,7 +154,7 @@ export function Journal({ lang, papers, symbol, interval }: Props) {
         ) : (
           <>
             {/* Desktop table */}
-            <div className="hidden max-h-96 overflow-y-auto rounded-lg border border-zinc-800 md:block">
+            <div className={`hidden overflow-y-auto rounded-lg border border-zinc-800 md:block ${maxListClass}`}>
               <table className="w-full text-left text-xs">
                 <thead className="sticky top-0 bg-zinc-900 text-[11px] uppercase tracking-wide text-zinc-500">
                   <tr>
@@ -196,7 +198,7 @@ export function Journal({ lang, papers, symbol, interval }: Props) {
             </div>
 
             {/* Mobile cards */}
-            <div className="max-h-96 space-y-2 overflow-y-auto md:hidden">
+            <div className={`space-y-2 overflow-y-auto md:hidden ${maxListClass}`}>
               {filtered.map((p) => (
                 <div key={p.id} className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
                   <div className="flex items-center justify-between">

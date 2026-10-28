@@ -26,7 +26,7 @@ export function TickerStrip({
       aria-label={t(lang, "ticker.aria")}
       className="border-b border-zinc-800/80 bg-zinc-950"
     >
-      <div className="mx-auto w-full max-w-6xl overflow-x-auto px-4 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="w-full overflow-x-auto px-3 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="flex w-max items-center gap-1.5">
           {pairs.map((sym) => {
             const tk = tickers[sym];
