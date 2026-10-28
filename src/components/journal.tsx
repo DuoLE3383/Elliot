@@ -26,6 +26,13 @@ const resultBadge = (p: Paper, lang: Lang) => {
       </Badge>
     );
   }
+  if (p.liquidated) {
+    return (
+      <Badge className="border border-rose-700 bg-rose-900 text-rose-200 hover:bg-rose-900">
+        {t(lang, "result.liq")}
+      </Badge>
+    );
+  }
   if (p.exitKind === "flip") {
     return (
       <Badge className="border-0 bg-amber-950 text-amber-400 hover:bg-amber-950">
@@ -61,17 +68,21 @@ export function Journal({ lang, papers, symbol, interval }: Props) {
   }, [papers, filter]);
 
   const exportCsv = () => {
-    const header = "Symbol,Interval,Side,Entry,Entry Time,Exit,Exit Time,Exit Kind,PnL %,Flipped From";
+    const header =
+      "Symbol,Interval,Side,Leverage,Entry,Entry Time,Exit,Exit Time,Exit Kind,Liquidated,Price Move %,ROE %,Flipped From";
     const lines = papers.map((p) =>
       [
         p.symbol,
         p.interval,
         p.side,
+        p.leverage,
         p.entry,
         new Date(p.entryTime).toISOString(),
         p.exit ?? "",
         p.exitTime ? new Date(p.exitTime).toISOString() : "",
         p.exitKind ?? "",
+        p.liquidated ? "YES" : "",
+        p.pricePnlPct?.toFixed(4) ?? "",
         p.pnlPct?.toFixed(4) ?? "",
         p.flippedFrom ?? "",
       ].join(","),
@@ -156,7 +167,10 @@ export function Journal({ lang, papers, symbol, interval }: Props) {
                 <tbody className="divide-y divide-zinc-800/80">
                   {filtered.map((p) => (
                     <tr key={p.id} className="text-zinc-300 hover:bg-zinc-900/70">
-                      <td className={`px-3 py-2 font-mono font-semibold ${SIDE_COLOR(p.side)}`}>{p.side}</td>
+                      <td className={`px-3 py-2 font-mono font-semibold ${SIDE_COLOR(p.side)}`}>
+                        {p.side}
+                        {p.leverage > 1 && <span className="ml-1 text-[10px] text-amber-500">×{p.leverage}</span>}
+                      </td>
                       <td className="px-3 py-2 text-right font-mono">
                         {fmtPrice(p.entry)}
                         {p.flippedFrom && <span className="ml-1 text-amber-500" title={p.flippedFrom}>⇄</span>}
@@ -186,7 +200,10 @@ export function Journal({ lang, papers, symbol, interval }: Props) {
               {filtered.map((p) => (
                 <div key={p.id} className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
                   <div className="flex items-center justify-between">
-                    <span className={`font-mono text-sm font-bold ${SIDE_COLOR(p.side)}`}>{p.side}</span>
+                    <span className={`font-mono text-sm font-bold ${SIDE_COLOR(p.side)}`}>
+                      {p.side}
+                      {p.leverage > 1 && <span className="ml-1 text-[10px] text-amber-500">×{p.leverage}</span>}
+                    </span>
                     {resultBadge(p, lang)}
                   </div>
                   <p className="mt-1 text-[11px] text-zinc-400">
@@ -205,6 +222,7 @@ export function Journal({ lang, papers, symbol, interval }: Props) {
                       }`}
                     >
                       {fmtPct(p.pnlPct!)}
+                      {p.liquidated && <span className="ml-1.5 text-rose-400">· {t(lang, "result.liq")}</span>}
                       {p.flippedFrom && <span className="ml-1.5 text-amber-500">⇄ {t(lang, "result.flip")}</span>}
                     </p>
                   )}

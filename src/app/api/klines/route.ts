@@ -33,6 +33,11 @@ export async function GET(req: NextRequest) {
       });
       if (!res.ok) {
         lastErr = `HTTP ${res.status}`;
+        // Binance answers 400 for an unknown symbol — surface it as-is so the
+        // custom-pair form can tell "pair not found" from a network failure
+        if (res.status === 400) {
+          return NextResponse.json({ error: "invalid symbol", symbol }, { status: 400 });
+        }
         continue;
       }
       const raw = (await res.json()) as unknown[];

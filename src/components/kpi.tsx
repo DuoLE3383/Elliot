@@ -2,7 +2,7 @@
 
 import { Card, CardContent } from "@/components/ui/card";
 import { SIDE_COLOR } from "@/components/panels";
-import { fmtPct, t, type Lang } from "@/lib/i18n";
+import { fmtPct, fmtPrice, t, type Lang } from "@/lib/i18n";
 import type { KpiStats } from "@/lib/papers";
 import type { Paper } from "@/lib/types";
 import { Activity, CheckCircle2, Hash, Percent } from "lucide-react";
@@ -11,16 +11,18 @@ interface Props {
   lang: Lang;
   stats: KpiStats;
   openPaper?: Paper;
+  leverage: number;
 }
 
-export function KpiCards({ lang, stats, openPaper }: Props) {
+export function KpiCards({ lang, stats, openPaper, leverage }: Props) {
   const cards = [
     {
       label: t(lang, "kpi.open"),
       value: String(stats.open),
       sub: openPaper ? (
         <span className={`font-mono font-semibold ${SIDE_COLOR(openPaper.side)}`}>
-          {openPaper.side} @ {openPaper.entry.toLocaleString("en-US")}
+          {openPaper.side} @ {fmtPrice(openPaper.entry)}
+          {leverage > 1 && <span className="text-amber-400"> ×{leverage}</span>}
         </span>
       ) : (
         "—"
@@ -56,7 +58,12 @@ export function KpiCards({ lang, stats, openPaper }: Props) {
       label: t(lang, "kpi.netPnl"),
       value: fmtPct(stats.netPnl),
       valueClass: stats.netPnl >= 0 ? "text-emerald-400" : "text-rose-400",
-      sub: <span className="text-zinc-500">{t(lang, "kpi.flipCount", { n: stats.flipCount })}</span>,
+      sub: (
+        <span className="text-zinc-500">
+          {t(lang, "kpi.flipCount", { n: stats.flipCount })}
+          {leverage > 1 && <span> · {t(lang, "kpi.levNote", { lev: leverage })}</span>}
+        </span>
+      ),
       icon: <CheckCircle2 className="h-4 w-4 text-zinc-500" />,
     },
   ];

@@ -7,13 +7,15 @@ import { Separator } from "@/components/ui/separator";
 import { fmtPct, fmtPrice, fmtTime, t, type Lang } from "@/lib/i18n";
 import type { PendingEntry } from "@/lib/papers";
 import type { Paper, Signal } from "@/lib/types";
-import { ArrowLeftRight, Ban, CircleDot, Crosshair, Info, TrendingUp } from "lucide-react";
+import { ArrowLeftRight, Ban, CircleDot, CircleSlash, Crosshair, Gauge, Info, TrendingUp } from "lucide-react";
 
 interface Props {
   lang: Lang;
   smaPeriod: number;
   slPct: number;
   tpPct: number;
+  leverage: number;
+  smaFilter: boolean;
   /** newest signal including the forming candle (provisional) */
   latest?: Signal;
   /** newest confirmed signal (closed candle) */
@@ -59,6 +61,8 @@ export function SignalDock({
   smaPeriod,
   slPct,
   tpPct,
+  leverage,
+  smaFilter,
   latest,
   confirmed,
   gateOpen,
@@ -78,11 +82,13 @@ export function SignalDock({
   const pinnedPaper = pinnedIndex != null ? papers.find((p) => p.entryIndex === pinnedIndex + 1) : undefined;
   const pinnedClosed = pinnedIndex != null ? papers.find((p) => p.exitIndex === pinnedIndex + 1) : undefined;
 
-  const upnl = openPaper
+  const pricePnl = openPaper
     ? openPaper.side === "LONG"
       ? ((lastClose - openPaper.entry) / openPaper.entry) * 100
       : ((openPaper.entry - lastClose) / openPaper.entry) * 100
     : undefined;
+  // unrealized ROE = price move × leverage
+  const upnl = pricePnl != null ? pricePnl * leverage : undefined;
 
   const planRef = confirmed ?? latest;
   const planSide = planRef ? (planRef.dir === "BUY" ? "LONG" : "SHORT") : undefined;
@@ -95,13 +101,26 @@ export function SignalDock({
           <Badge
             variant="outline"
             className={
-              gateOpen
-                ? "border-emerald-700 bg-emerald-950/60 text-emerald-400"
-                : "border-rose-800 bg-rose-950/50 text-rose-400"
+              !smaFilter
+                ? "border-zinc-700 bg-zinc-900 text-zinc-400"
+                : gateOpen
+                  ? "border-emerald-700 bg-emerald-950/60 text-emerald-400"
+                  : "border-rose-800 bg-rose-950/50 text-rose-400"
             }
           >
-            {gateOpen ? <CircleDot className="mr-1 h-3 w-3" /> : <Ban className="mr-1 h-3 w-3" />}
-            {t(lang, "dock.gate")} · {gateOpen ? t(lang, "dock.gate.open") : t(lang, "dock.gate.blocked")}
+            {!smaFilter ? (
+              <CircleSlash className="mr-1 h-3 w-3" />
+            ) : gateOpen ? (
+              <CircleDot className="mr-1 h-3 w-3" />
+            ) : (
+              <Ban className="mr-1 h-3 w-3" />
+            )}
+            {t(lang, "dock.gate")} ·
+            {!smaFilter
+              ? t(lang, "dock.gate.off")
+              : gateOpen
+                ? t(lang, "dock.gate.open")
+                : t(lang, "dock.gate.blocked")}
           </Badge>
         </div>
       </CardHeader>
@@ -121,6 +140,14 @@ export function SignalDock({
               className={SIDE_COLOR(openPaper.side)}
               icon={<TrendingUp className="h-3.5 w-3.5" />}
             />
+            {leverage > 1 && (
+              <Row
+                label={t(lang, "dock.leverage")}
+                value={`×${leverage}`}
+                className="text-amber-400"
+                icon={<Gauge className="h-3.5 w-3.5" />}
+              />
+            )}
             <Row label={t(lang, "dock.row.sl")} value={fmtPrice(openPaper.sl)} className="text-rose-400" />
             <Row label={t(lang, "dock.row.tp")} value={fmtPrice(openPaper.tp)} className="text-emerald-400" />
             <Row
@@ -131,7 +158,7 @@ export function SignalDock({
             />
             <Separator className="my-1.5 bg-zinc-800" />
             <Row
-              label={t(lang, "dock.uPnl")}
+              label={leverage > 1 ? `${t(lang, "dock.uPnl")} (ROE ×${leverage})` : t(lang, "dock.uPnl")}
               value={`${fmtPct(upnl ?? 0)} @ ${fmtPrice(lastClose)}`}
               className={(upnl ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}
             />
@@ -157,15 +184,6 @@ export function SignalDock({
             <p className="text-xs leading-relaxed text-amber-200/80">
               {t(lang, "dock.pendingNote")} (SMA {smaPeriod}).
             </p>
-            {pending.flippedFrom && byId.get(pending.flippedFrom) && (
-              <p className="mt-1 text-[11px] text-amber-500/90">
-                {t(lang, "dock.thatFlip")}:{" "}
-                <span className="font-mono">
-                  {byId.get(pending.flippedFrom)!.side} →{" "}
-                  {fmtPct(byId.get(pending.flippedFrom)!.pnlPct ?? 0)}
-                </span>
-              </p>
-            )}
           </div>
         ) : /* ── Entry plan (flat) ─────────────────────────────────────── */
         planRef && planSide ? (
@@ -183,12 +201,18 @@ export function SignalDock({
             />
             <Row
               label={t(lang, "dock.row.sl")}
-              value={fmtPrice(planRef.price * (1 - (planSide === "LONG" ? slPct : -slPct) / 100))}
+              value={
+                fmtPrice(planRef.price * (1 - (planSide === "LONG" ? slPct : -slPct) / 100)) +
+                (leverage > 1 ? ` · ROE ${fmtPct(-slPct * leverage)}` : "")
+              }
               className="text-rose-400"
             />
             <Row
               label={t(lang, "dock.row.tp")}
-              value={fmtPrice(planRef.price * (1 + (planSide === "LONG" ? tpPct : -tpPct) / 100))}
+              value={
+                fmtPrice(planRef.price * (1 + (planSide === "LONG" ? tpPct : -tpPct) / 100)) +
+                (leverage > 1 ? ` · ROE ${fmtPct(tpPct * leverage)}` : "")
+              }
               className="text-emerald-400"
             />
             <Row
@@ -241,7 +265,7 @@ export function SignalDock({
               <b className={`font-mono ${SIDE_COLOR(openPaper!.side)}`}>{openPaper!.side}</b> →{" "}
               {t(lang, "dock.flipInto")}{" "}
               <b className="font-mono">{latest.dir === "BUY" ? "LONG" : "SHORT"}</b>{" "}
-              {latest.smaOk ? "" : `· ${t(lang, "dock.flipWaitGate")}`}
+              {t(lang, "dock.nextOpen")}
             </p>
           </div>
         )}

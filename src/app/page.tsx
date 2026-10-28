@@ -8,21 +8,23 @@ import { PriceChart } from "@/components/price-chart";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fmtPct, fmtPrice, fmtTime, t, type Lang } from "@/lib/i18n";
+import { fmtPct, fmtPrice, fmtTime, symbolLabel, t, type Lang } from "@/lib/i18n";
 import { kpiFrom, papersFrom } from "@/lib/papers";
 import { signalsFrom } from "@/lib/signals";
 import {
   DEFAULT_SETTINGS,
   EngineSettings,
   INTERVALS,
-  Kline,
-  Paper,
-  Symbol,
-  SYMBOLS,
   Interval,
+  Kline,
+  MAX_CUSTOM_PAIRS,
+  Paper,
+  SYMBOLS,
 } from "@/lib/types";
-import { AlertTriangle, ArrowLeftRight, RefreshCw, Settings2 } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, Plus, RefreshCw, Settings2, X } from "lucide-react";
+
 interface Toast {
   id: number;
   kind: "entry" | "flip" | "error";
@@ -30,11 +32,23 @@ interface Toast {
   text: string;
 }
 
+const QUOTE_RE = /(USDT|USDC|FDUSD|TUSD|BUSD|BTC|ETH)$/;
+
+/** "pepe" → "PEPEUSDT", "PEPEUSDT" → "PEPEUSDT" */
+const normalizePair = (raw: string): string => {
+  const s = raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (!s) return "";
+  return QUOTE_RE.test(s) ? s : `${s}USDT`;
+};
+
 export default function Home() {
-  const [symbol, setSymbol] = useState<Symbol>("BTCUSDT");
+  const [symbol, setSymbol] = useState<string>("BTCUSDT");
   const [interval, setIntervalTf] = useState<Interval>("5m");
   const [lang, setLang] = useState<Lang>("vi");
   const [settings, setSettings] = useState<EngineSettings>(DEFAULT_SETTINGS);
+  const [customPairs, setCustomPairs] = useState<string[]>([]);
+  const [pairInput, setPairInput] = useState("");
+  const [checkingPair, setCheckingPair] = useState(false);
   const [klines, setKlines] = useState<Kline[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +62,8 @@ export default function Home() {
   /** key of the kline data actually loaded — differs from the selected key mid-switch */
   const dataKeyRef = useRef<string>("");
   const toastSeq = useRef(0);
+  /** localStorage has been read — saves are gated on this to avoid clobbering */
+  const hydratedRef = useRef(false);
 
   const pushToast = useCallback((toast: Omit<Toast, "id">) => {
     const id = ++toastSeq.current;
@@ -57,29 +73,66 @@ export default function Home() {
     }, 7000);
   }, []);
 
-  const loadData = useCallback(
-    async (sym: Symbol, itv: Interval, announce: boolean) => {
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/klines?symbol=${sym}&interval=${itv}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = (await res.json()) as { klines: Kline[] };
-        dataKeyRef.current = `${sym}-${itv}`;
-        setKlines(json.klines);
-        setError(null);
-        setUpdatedAt(Date.now());
-
-        if (announce) {
-          // Toast diffing happens in a layout effect after engine recompute
+  // ── localStorage hydration (client only, after first paint) ────────────────
+  useEffect(() => {
+    try {
+      const s = localStorage.getItem("utp.settings");
+      if (s) setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(s) });
+      const p = localStorage.getItem("utp.pairs");
+      if (p) {
+        const arr = JSON.parse(p);
+        if (Array.isArray(arr)) {
+          setCustomPairs(
+            arr.filter((x: unknown): x is string => typeof x === "string").slice(0, MAX_CUSTOM_PAIRS),
+          );
         }
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "fetch failed");
-      } finally {
-        setLoading(false);
       }
-    },
-    [],
-  );
+      const sym = localStorage.getItem("utp.symbol");
+      if (sym && /^[A-Z0-9]{5,20}$/.test(sym)) setSymbol(sym);
+      const itv = localStorage.getItem("utp.interval");
+      if (itv && (INTERVALS as readonly string[]).includes(itv)) setIntervalTf(itv as Interval);
+      const lg = localStorage.getItem("utp.lang");
+      if (lg === "vi" || lg === "en") setLang(lg);
+    } catch {
+      // corrupted storage → keep defaults
+    } finally {
+      hydratedRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (hydratedRef.current) localStorage.setItem("utp.symbol", symbol);
+  }, [symbol]);
+  useEffect(() => {
+    if (hydratedRef.current) localStorage.setItem("utp.interval", interval);
+  }, [interval]);
+  useEffect(() => {
+    if (hydratedRef.current) localStorage.setItem("utp.lang", lang);
+  }, [lang]);
+  useEffect(() => {
+    if (hydratedRef.current) localStorage.setItem("utp.pairs", JSON.stringify(customPairs));
+  }, [customPairs]);
+
+  const loadData = useCallback(async (sym: string, itv: Interval, announce: boolean) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/klines?symbol=${encodeURIComponent(sym)}&interval=${itv}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as { klines: Kline[] };
+      dataKeyRef.current = `${sym}-${itv}`;
+      setKlines(json.klines);
+      setError(null);
+      setUpdatedAt(Date.now());
+
+      if (announce) {
+        // Toast diffing happens in a layout effect after engine recompute
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "fetch failed");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     void loadData(symbol, interval, false);
@@ -98,15 +151,24 @@ export default function Home() {
   const key = `${symbol}-${interval}`;
   const engine = useMemo(() => {
     if (klines.length === 0) return null;
-    const { signals, sma } = signalsFrom(
+    const raw = signalsFrom(klines, settings.atrKey, settings.atrPeriod, settings.smaPeriod);
+    // gate off → nothing is "blocked" anywhere in the UI
+    const signals = settings.smaFilter
+      ? raw.signals
+      : raw.signals.map((s) => ({ ...s, smaOk: true }));
+    const res = papersFrom(
       klines,
-      settings.atrKey,
-      settings.atrPeriod,
-      settings.smaPeriod,
+      signals,
+      raw.sma,
+      symbol,
+      interval,
+      settings.slPct,
+      settings.tpPct,
+      settings.leverage,
+      settings.smaFilter,
     );
-    const res = papersFrom(klines, signals, sma, symbol, interval, settings.slPct, settings.tpPct);
     const confirmed = signals.filter((s) => s.i < klines.length - 1);
-    return { signals, sma, ...res, confirmed };
+    return { signals, sma: raw.sma, ...res, confirmed };
   }, [klines, settings, symbol, interval]);
 
   // Toast diffing — announce new papers (entries) and flips
@@ -155,7 +217,7 @@ export default function Home() {
   const gateOpen = useMemo(() => {
     if (!engine || klines.length === 0) return false;
     const smaVal = engine.sma[klines.length - 1];
-    if (smaVal == null) return false;
+    if (smaVal == null) return true; // no SMA data yet → cannot block
     return lastClose > smaVal;
   }, [engine, klines, lastClose]);
 
@@ -176,6 +238,48 @@ export default function Home() {
       setPinnedTime(sig ? sig.t : null);
     },
     [engine],
+  );
+
+  // ── custom pairs ────────────────────────────────────────────────────────────
+  const allPairs = useMemo(() => {
+    const extra = customPairs.filter((c) => !(SYMBOLS as readonly string[]).includes(c));
+    return [...SYMBOLS, ...extra];
+  }, [customPairs]);
+
+  const addPair = useCallback(async () => {
+    const sym = normalizePair(pairInput);
+    if (!sym || checkingPair) return;
+    if ((allPairs as string[]).includes(sym)) {
+      setSymbol(sym);
+      setPairInput("");
+      return;
+    }
+    setCheckingPair(true);
+    try {
+      // probe Binance with a tiny request — the API route maps a 400 to "invalid symbol"
+      const res = await fetch(`/api/klines?symbol=${encodeURIComponent(sym)}&interval=5m&limit=2`);
+      if (!res.ok) {
+        pushToast({ kind: "error", text: t(lang, "toast.badPair", { sym }) });
+        return;
+      }
+      setCustomPairs((list) =>
+        list.includes(sym) ? list : [...list, sym].slice(-MAX_CUSTOM_PAIRS),
+      );
+      setSymbol(sym);
+      setPairInput("");
+    } catch {
+      pushToast({ kind: "error", text: t(lang, "toast.error") });
+    } finally {
+      setCheckingPair(false);
+    }
+  }, [pairInput, checkingPair, allPairs, lang, pushToast]);
+
+  const removePair = useCallback(
+    (sym: string) => {
+      setCustomPairs((list) => list.filter((x) => x !== sym));
+      if (symbol === sym) setSymbol("BTCUSDT");
+    },
+    [symbol],
   );
 
   const langLabel = lang === "vi" ? "EN" : "VI";
@@ -212,6 +316,9 @@ export default function Home() {
               >
                 <Settings2 className="h-3.5 w-3.5" />
                 {t(lang, "header.settings")}
+                {settings.leverage > 1 && (
+                  <span className="font-mono text-amber-400">×{settings.leverage}</span>
+                )}
               </Button>
               <Button
                 size="sm"
@@ -226,20 +333,78 @@ export default function Home() {
           </div>
 
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
-            <div className="flex rounded-lg border border-zinc-800 bg-zinc-900 p-0.5">
-              {SYMBOLS.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setSymbol(s)}
-                  className={`rounded-md px-3 py-1 text-xs font-semibold transition ${
-                    symbol === s ? "bg-zinc-100 text-zinc-900" : "text-zinc-400 hover:text-zinc-200"
-                  }`}
+            {/* pairs — horizontally scrollable on narrow screens */}
+            <div className="max-w-full min-w-0 flex-1 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="flex w-max items-center gap-2">
+                <div className="flex shrink-0 items-center gap-0.5 rounded-lg border border-zinc-800 bg-zinc-900 p-0.5">
+                  {allPairs.map((s) => {
+                    const isCustom = !(SYMBOLS as readonly string[]).includes(s);
+                    return (
+                      <div
+                        key={s}
+                        className={`flex items-center rounded-md transition ${
+                          symbol === s ? "bg-zinc-100" : ""
+                        }`}
+                      >
+                        <button
+                          onClick={() => setSymbol(s)}
+                          title={s}
+                          className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                            symbol === s
+                              ? "text-zinc-900"
+                              : isCustom
+                                ? "text-amber-400/90 hover:text-amber-300"
+                                : "text-zinc-400 hover:text-zinc-200"
+                          }`}
+                        >
+                          {symbolLabel(s)}
+                        </button>
+                        {isCustom && (
+                          <button
+                            aria-label={t(lang, "symbol.remove", { sym: symbolLabel(s) })}
+                            onClick={() => removePair(s)}
+                            className={`mr-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[10px] leading-none ${
+                              symbol === s ? "text-zinc-500 hover:text-rose-600" : "text-zinc-600 hover:text-rose-400"
+                            }`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* custom pair input */}
+                <form
+                  className="flex shrink-0 items-center gap-1"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void addPair();
+                  }}
                 >
-                  {t(lang, `symbol.${s.slice(0, 3).toLowerCase()}`)}
-                </button>
-              ))}
+                  <Input
+                    value={pairInput}
+                    onChange={(e) => setPairInput(e.target.value)}
+                    placeholder={t(lang, "symbol.addPh")}
+                    title={t(lang, "symbol.add")}
+                    disabled={checkingPair}
+                    className="h-7 w-28 border-zinc-700 bg-zinc-900 font-mono text-[11px] uppercase placeholder:text-zinc-600 sm:w-32"
+                  />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant="outline"
+                    disabled={checkingPair || !pairInput.trim()}
+                    className="h-7 gap-1 border-zinc-700 px-2 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                  >
+                    <Plus className={`h-3.5 w-3.5 ${checkingPair ? "animate-pulse" : ""}`} />
+                    {t(lang, "symbol.add")}
+                  </Button>
+                </form>
+              </div>
             </div>
-            <div className="flex rounded-lg border border-zinc-800 bg-zinc-900 p-0.5">
+
+            <div className="flex shrink-0 rounded-lg border border-zinc-800 bg-zinc-900 p-0.5">
               {INTERVALS.map((itv) => (
                 <button
                   key={itv}
@@ -252,7 +417,7 @@ export default function Home() {
                 </button>
               ))}
             </div>
-            <span className="ml-auto text-[11px] text-zinc-600">
+            <span className="ml-auto shrink-0 text-[11px] text-zinc-600">
               {updatedAt ? `${t(lang, "header.updated")} ${fmtTime(updatedAt, lang)}` : t(lang, "header.loading")}
             </span>
           </div>
@@ -286,16 +451,19 @@ export default function Home() {
           </div>
         ) : (
           <div className="space-y-4">
-            <KpiCards lang={lang} stats={stats} openPaper={engine.open} />
+            <KpiCards lang={lang} stats={stats} openPaper={engine.open} leverage={settings.leverage} />
 
             <div className="grid min-w-0 gap-4 lg:grid-cols-5">
               <Card className="min-w-0 border-zinc-800 bg-zinc-900/60 lg:col-span-3">
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-base font-semibold">
-                      {t(lang, `symbol.${symbol.slice(0, 3).toLowerCase()}`)}
+                      {symbolLabel(symbol)}
                       <span className="ml-1.5 font-mono text-xs font-normal text-zinc-500">
                         {symbol} · {interval}
+                        {settings.leverage > 1 && (
+                          <span className="ml-1.5 font-semibold text-amber-500">×{settings.leverage}</span>
+                        )}
                       </span>
                     </CardTitle>
                     <span className="font-mono text-sm font-bold text-zinc-200">{fmtPrice(lastClose)}</span>
@@ -322,6 +490,8 @@ export default function Home() {
                   smaPeriod={settings.smaPeriod}
                   slPct={settings.slPct}
                   tpPct={settings.tpPct}
+                  leverage={settings.leverage}
+                  smaFilter={settings.smaFilter}
                   latest={latestSignal}
                   confirmed={confirmedSignal}
                   gateOpen={gateOpen}
@@ -380,6 +550,11 @@ export default function Home() {
         settings={settings}
         onApply={(s) => {
           setSettings(s);
+          try {
+            localStorage.setItem("utp.settings", JSON.stringify(s));
+          } catch {
+            // storage full/blocked — settings still apply for this session
+          }
           prevKeyRef.current = ""; // settings change → recompute silently
         }}
       />

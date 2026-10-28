@@ -4,32 +4,32 @@ export interface PendingEntry {
   side: Side;
   /** kline index of the signal that queued this entry */
   signalIndex: number;
-  /** id of the flip-closed paper this entry replaces, if any */
-  flippedFrom?: string;
 }
 
 export interface EngineResult {
   papers: Paper[];
   /** currently open paper (status "open"), if any */
   open?: Paper;
-  /** queued entry waiting for the SMA gate to open */
+  /** queued entry waiting for the SMA gate to open (fresh entries only) */
   pending?: PendingEntry;
 }
 
 const sideOf = (dir: "BUY" | "SELL"): Side => (dir === "BUY" ? "LONG" : "SHORT");
 
 /**
- * Paper-trading simulator over klines + UT signals + SMA gate.
+ * Paper-trading simulator over klines + UT signals + SMA gate + leverage.
  *
  * Rules (mirrors the Pine strategy with pyramiding=0):
  *  - Entry at the OPEN of the candle right after a gate-passing signal close.
  *  - A signal in the OPPOSITE direction of the open position is a REVERSAL:
- *    it closes the open paper at the open of the next candle (exitKind "flip")
- *    AND opens a new paper in the opposite direction at that same open price,
- *    linked via `flippedFrom`. If the gate blocks the new direction, the entry
- *    stays pending and fires at the open of the first candle whose PREVIOUS
- *    close passes the gate.
+ *    it ALWAYS closes the open paper at the open of the next candle (exitKind
+ *    "flip") AND opens a new paper in the opposite direction at that same open
+ *    price, linked via `flippedFrom`. The SMA gate NEVER blocks a reversal —
+ *    only fresh entries from flat are gated (and only when `smaFilter` is on).
  *  - SL and TP are evaluated intrabar (SL-first on ambiguous candles).
+ *  - With leverage > 1 the position is liquidated when the adverse move reaches
+ *    ~100%/leverage (isolated-margin estimate): exitKind "sl" + `liquidated`,
+ *    ROE = -100%.
  *  - Signals on the still-forming last candle are ignored (they confirm at close).
  */
 export function papersFrom(
@@ -40,6 +40,8 @@ export function papersFrom(
   interval: string,
   slPct: number,
   tpPct: number,
+  leverage = 1,
+  smaFilter = true,
 ): EngineResult {
   const papers: Paper[] = [];
   let open: Paper | undefined;
@@ -51,8 +53,9 @@ export function papersFrom(
   const last = klines.length - 1;
 
   const gateOkAt = (side: Side, index: number): boolean => {
+    if (!smaFilter) return true; // gate disabled → every entry passes
     const smaVal = smaArr[index];
-    if (smaVal == null) return false;
+    if (smaVal == null) return true; // insufficient SMA data must not block
     const c = klines[index].c;
     return side === "LONG" ? c > smaVal : c < smaVal;
   };
@@ -62,16 +65,24 @@ export function papersFrom(
     price: number,
     index: number,
     kind: "tp" | "sl" | "flip",
+    liquidated = false,
   ) => {
     p.status = "closed";
     p.exit = price;
     p.exitIndex = index;
     p.exitTime = klines[index].t;
     p.exitKind = kind;
-    p.pnlPct =
+    const pricePct =
       p.side === "LONG"
         ? ((price - p.entry) / p.entry) * 100
         : ((p.entry - price) / p.entry) * 100;
+    p.pricePnlPct = pricePct;
+    if (liquidated) {
+      p.liquidated = true;
+      p.pnlPct = -100; // margin wiped
+    } else {
+      p.pnlPct = pricePct * p.leverage;
+    }
     open = undefined;
   };
 
@@ -90,6 +101,7 @@ export function papersFrom(
       entry: price,
       entryTime: klines[index].t,
       entryIndex: index,
+      leverage,
       sl: side === "LONG" ? price * (1 - slPct / 100) : price * (1 + slPct / 100),
       tp: side === "LONG" ? price * (1 + tpPct / 100) : price * (1 - tpPct / 100),
       status: "open",
@@ -108,17 +120,27 @@ export function papersFrom(
     //    passed the gate for the pending side.
     if (pending && !open && i > pending.signalIndex) {
       if (gateOkAt(pending.side, i - 1)) {
-        enterAt(pending.side, k.o, i, pending.flippedFrom);
+        enterAt(pending.side, k.o, i);
       }
     }
 
-    // B. Intrabar TP/SL on the open position (SL-first when both are touched).
+    // B. Intrabar SL / liquidation / TP on the open position.
+    //    Adverse stop = the closer of SL and liquidation price (SL-first on ties).
     if (open && open.entryIndex <= i) {
+      // isolated-margin estimate: liq at ~100%/leverage adverse move
+      const liqPrice =
+        open.side === "LONG"
+          ? open.entry * (1 - 1 / open.leverage)
+          : open.entry * (1 + 1 / open.leverage);
       if (open.side === "LONG") {
-        if (k.l <= open.sl) closeAt(open, open.sl, i, "sl");
+        const stopLevel = Math.max(open.sl, liqPrice);
+        const isLiq = liqPrice > open.sl + 1e-12;
+        if (k.l <= stopLevel) closeAt(open, stopLevel, i, "sl", isLiq);
         else if (k.h >= open.tp) closeAt(open, open.tp, i, "tp");
       } else {
-        if (k.h >= open.sl) closeAt(open, open.sl, i, "sl");
+        const stopLevel = Math.min(open.sl, liqPrice);
+        const isLiq = liqPrice < open.sl - 1e-12;
+        if (k.h >= stopLevel) closeAt(open, stopLevel, i, "sl", isLiq);
         else if (k.l <= open.tp) closeAt(open, open.tp, i, "tp");
       }
     }
@@ -129,25 +151,21 @@ export function papersFrom(
     const newSide = sideOf(sig.dir);
 
     if (open && open.side !== newSide) {
-      // ── REVERSAL: close current position AND open the opposite entry ──
+      // ── REVERSAL: ALWAYS close current position AND open the opposite entry.
+      //    The SMA gate never blocks a flip — only fresh entries are gated.
       const old = open;
       const flipIndex = i + 1;
       const flipPrice = klines[flipIndex].o;
       closeAt(old, flipPrice, flipIndex, "flip");
-
-      if (sig.smaOk) {
-        enterAt(newSide, flipPrice, flipIndex, old.id);
-      } else {
-        pending = { side: newSide, signalIndex: i, flippedFrom: old.id };
-      }
+      enterAt(newSide, flipPrice, flipIndex, old.id);
     } else if (open) {
       // same direction → pyramiding=0, ignore
     } else if (pending && pending.side !== newSide) {
-      // direction changed while queued → drop the stale flip link
+      // direction changed while queued → replace the queued entry
       pending = { side: newSide, signalIndex: i };
     } else if (pending) {
       pending = { ...pending, signalIndex: i };
-    } else if (sig.smaOk) {
+    } else if (gateOkAt(newSide, i)) {
       enterAt(newSide, klines[i + 1].o, i + 1);
     } else {
       pending = { side: newSide, signalIndex: i };
@@ -173,8 +191,8 @@ export interface KpiStats {
 }
 
 /**
- * Win rate counts EVERY closed paper — TP, SL and reversal exits alike.
- * A closed paper wins when its signed PnL is positive.
+ * Win rate counts EVERY closed paper — TP, SL (incl. liquidations) and reversal
+ * exits alike. A closed paper wins when its signed ROE is positive.
  */
 export function kpiFrom(papers: Paper[]): KpiStats {
   const closedPapers = papers.filter((p) => p.status === "closed");

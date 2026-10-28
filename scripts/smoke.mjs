@@ -1,8 +1,14 @@
 /**
  * Smoke test for the paper-trading engine over live Binance data.
- * Validates the reversal contract: opposite signal → close current paper at
- * the next candle open AND open the opposite paper at that same price (linked
- * via flippedFrom), or queue it as pending when the SMA gate blocks.
+ *
+ * Contract (v3 — SMA gate fix + leverage):
+ *  1. A reversal ALWAYS closes the open paper at the next candle open AND opens
+ *     the opposite paper at that same price/time — the SMA gate never blocks it.
+ *  2. The SMA gate only filters FRESH entries from flat, and only when enabled.
+ *     An SMA value of null (start of the 500-candle window) must NOT block.
+ *  3. Gate off → every confirmed signal enters immediately, no pending entries.
+ *  4. Leverage: ROE = price move × leverage; positions are liquidated
+ *     (~100%/leverage adverse move) → ROE = -100%, flagged `liquidated`.
  */
 const HOSTS = ["https://api.binance.com", "https://data-api.binance.vision"];
 
@@ -72,33 +78,40 @@ function signalsFrom(klines, atrKey, atrPeriod, smaPeriod) {
   for (let i = 1; i < n; i++) {
     if (trend[i - 1] === 0) continue;
     const k = klines[i], sv = smaArr[i];
+    // null SMA must NOT block (matches Pine computing SMA over full history)
     if (trend[i] === 1 && trend[i - 1] === -1)
-      signals.push({ i, t: k.t, dir: "BUY", smaOk: sv != null && k.c > sv, price: k.c });
+      signals.push({ i, t: k.t, dir: "BUY", smaOk: sv == null || k.c > sv, price: k.c });
     else if (trend[i] === -1 && trend[i - 1] === 1)
-      signals.push({ i, t: k.t, dir: "SELL", smaOk: sv != null && k.c < sv, price: k.c });
+      signals.push({ i, t: k.t, dir: "SELL", smaOk: sv == null || k.c < sv, price: k.c });
   }
   return { signals, sma: smaArr };
 }
 
-function papersFrom(klines, signals, smaArr, symbol, interval, slPct, tpPct) {
+function papersFrom(klines, signals, smaArr, symbol, interval, slPct, tpPct, leverage = 1, smaFilter = true) {
   const papers = [];
   let open, pending;
   const sigByIndex = new Map(signals.map((s) => [s.i, s]));
   const last = klines.length - 1;
   const gateOkAt = (side, idx) => {
+    if (!smaFilter) return true;
     const sv = smaArr[idx];
-    if (sv == null) return false;
+    if (sv == null) return true;
     return side === "LONG" ? klines[idx].c > sv : klines[idx].c < sv;
   };
-  const closeAt = (p, price, index, kind) => {
+  const closeAt = (p, price, index, kind, liquidated = false) => {
     p.status = "closed"; p.exit = price; p.exitIndex = index; p.exitTime = klines[index].t; p.exitKind = kind;
-    p.pnlPct = p.side === "LONG" ? ((price - p.entry) / p.entry) * 100 : ((p.entry - price) / p.entry) * 100;
+    const pricePct = p.side === "LONG"
+      ? ((price - p.entry) / p.entry) * 100
+      : ((p.entry - price) / p.entry) * 100;
+    p.pricePnlPct = pricePct;
+    if (liquidated) { p.liquidated = true; p.pnlPct = -100; }
+    else p.pnlPct = pricePct * p.leverage;
     open = undefined;
   };
   const enterAt = (side, price, index, flippedFrom) => {
     const p = {
       id: `${symbol}-${interval}-${side}-${klines[index].t}`, symbol, interval, side,
-      entry: price, entryTime: klines[index].t, entryIndex: index,
+      entry: price, entryTime: klines[index].t, entryIndex: index, leverage,
       sl: side === "LONG" ? price * (1 - slPct / 100) : price * (1 + slPct / 100),
       tp: side === "LONG" ? price * (1 + tpPct / 100) : price * (1 - tpPct / 100),
       status: "open", flippedFrom,
@@ -108,13 +121,20 @@ function papersFrom(klines, signals, smaArr, symbol, interval, slPct, tpPct) {
   for (let i = 0; i < klines.length; i++) {
     const k = klines[i];
     if (pending && !open && i > pending.signalIndex && gateOkAt(pending.side, i - 1))
-      enterAt(pending.side, k.o, i, pending.flippedFrom);
+      enterAt(pending.side, k.o, i);
     if (open && open.entryIndex <= i) {
+      const liqPrice = open.side === "LONG"
+        ? open.entry * (1 - 1 / open.leverage)
+        : open.entry * (1 + 1 / open.leverage);
       if (open.side === "LONG") {
-        if (k.l <= open.sl) closeAt(open, open.sl, i, "sl");
+        const stopLevel = Math.max(open.sl, liqPrice);
+        const isLiq = liqPrice > open.sl + 1e-12;
+        if (k.l <= stopLevel) closeAt(open, stopLevel, i, "sl", isLiq);
         else if (k.h >= open.tp) closeAt(open, open.tp, i, "tp");
       } else {
-        if (k.h >= open.sl) closeAt(open, open.sl, i, "sl");
+        const stopLevel = Math.min(open.sl, liqPrice);
+        const isLiq = liqPrice < open.sl - 1e-12;
+        if (k.h >= stopLevel) closeAt(open, stopLevel, i, "sl", isLiq);
         else if (k.l <= open.tp) closeAt(open, open.tp, i, "tp");
       }
     }
@@ -122,15 +142,15 @@ function papersFrom(klines, signals, smaArr, symbol, interval, slPct, tpPct) {
     if (!sig || i >= last) continue;
     const newSide = sig.dir === "BUY" ? "LONG" : "SHORT";
     if (open && open.side !== newSide) {
+      // reversal: ALWAYS close + open opposite (gate never blocks a flip)
       const old = open, fi = i + 1, fp = klines[fi].o;
       closeAt(old, fp, fi, "flip");
-      if (sig.smaOk) enterAt(newSide, fp, fi, old.id);
-      else pending = { side: newSide, signalIndex: i, flippedFrom: old.id };
+      enterAt(newSide, fp, fi, old.id);
     } else if (open) {
       // pyramiding=0
     } else if (pending && pending.side !== newSide) pending = { side: newSide, signalIndex: i };
     else if (pending) pending = { ...pending, signalIndex: i };
-    else if (sig.smaOk) enterAt(newSide, klines[i + 1].o, i + 1);
+    else if (gateOkAt(newSide, i)) enterAt(newSide, klines[i + 1].o, i + 1);
     else pending = { side: newSide, signalIndex: i };
   }
   return { papers, open, pending };
@@ -145,25 +165,23 @@ function check(cond, label, detail = "") {
   }
 }
 
-async function runSuite(symbol, interval, slPct, tpPct) {
-  const klines = await fetchKlines(symbol, interval);
+async function runSuite(klines, symbol, interval, cfg) {
+  const { slPct, tpPct, leverage, smaFilter } = cfg;
   const { signals, sma } = signalsFrom(klines, 2, 10, 200);
-  const { papers, open, pending } = papersFrom(klines, signals, sma, symbol, interval, slPct, tpPct);
+  const { papers, open, pending } = papersFrom(klines, signals, sma, symbol, interval, slPct, tpPct, leverage, smaFilter);
 
-  const tag = `${symbol} ${interval} (SL${slPct}/TP${tpPct})`;
+  const tag = `${symbol} ${interval} ${cfg.name}`;
   const flips = papers.filter((p) => p.exitKind === "flip");
   const closed = papers.filter((p) => p.status === "closed");
   const tpC = closed.filter((p) => p.exitKind === "tp").length;
   const slC = closed.filter((p) => p.exitKind === "sl").length;
+  const liqC = closed.filter((p) => p.liquidated).length;
 
   check(papers.length > 0, `${tag}: has papers`, `n=${papers.length}`);
 
   // determinism
-  const again = papersFrom(klines, signals, sma, symbol, interval, slPct, tpPct);
-  check(
-    JSON.stringify(again.papers) === JSON.stringify(papers),
-    `${tag}: deterministic`,
-  );
+  const again = papersFrom(klines, signals, sma, symbol, interval, slPct, tpPct, leverage, smaFilter);
+  check(JSON.stringify(again.papers) === JSON.stringify(papers), `${tag}: deterministic`);
 
   // max 1 open at any time
   let concurrent = 0;
@@ -178,33 +196,26 @@ async function runSuite(symbol, interval, slPct, tpPct) {
     check(concurrent <= 1, `${tag}: <=1 open position`, `concurrent=${concurrent}`);
   }
 
-  // reversal contract
+  // reversal contract — EVERY flip has an immediate opposite child
   for (const f of flips) {
     check(f.exit != null, `${tag}: flip has exit price`);
     const sig = signals.find((s) => s.i === f.exitIndex - 1);
     check(sig != null, `${tag}: flip has originating signal`);
     if (!sig) continue;
     const kOpen = klines[f.exitIndex].o;
-    check(
-      Math.abs(f.exit - kOpen) < 1e-9,
-      `${tag}: flip exit == next candle open`,
-      `exit=${f.exit} open=${kOpen}`,
-    );
+    check(Math.abs(f.exit - kOpen) < 1e-9, `${tag}: flip exit == next candle open`,
+      `exit=${f.exit} open=${kOpen}`);
     check(f.exitTime === klines[f.exitIndex].t, `${tag}: flip exitTime == candle open time`);
+    // gate NEVER blocks a reversal → child always exists, same price/time
     const child = papers.find((p) => p.flippedFrom === f.id);
-    check(child != null || !sig.smaOk, `${tag}: flip opened child paper (gate passed)`, `sigIdx=${sig.i}`);
+    check(child != null, `${tag}: flip always opens child (gate-proof)`, `sigIdx=${sig.i} smaOk=${sig.smaOk}`);
     if (child) {
       check(child.side !== f.side, `${tag}: child side is opposite`);
-      if (sig.smaOk) {
-        // gate passed → child enters on the flip candle at the flip price
-        check(child.entryIndex === f.exitIndex, `${tag}: child enters on the flip candle`);
-        check(Math.abs(child.entry - f.exit) < 1e-9, `${tag}: child entry == flip exit price`);
-        check(child.entryTime === f.exitTime, `${tag}: child entryTime == flip exitTime`);
-      } else {
-        // gate blocked → child is the queued pending entry, fires later
-        check(child.entryIndex > f.exitIndex, `${tag}: pending child fires after the flip`,
-          `child=${child.entryIndex} flip=${f.exitIndex}`);
-      }
+      check(child.entryIndex === f.exitIndex, `${tag}: child enters on the flip candle`,
+        `child=${child.entryIndex} flip=${f.exitIndex}`);
+      check(Math.abs(child.entry - f.exit) < 1e-9, `${tag}: child entry == flip exit price`);
+      check(child.entryTime === f.exitTime, `${tag}: child entryTime == flip exitTime`);
+      check(child.leverage === f.leverage, `${tag}: child inherits leverage`);
     }
   }
 
@@ -217,20 +228,18 @@ async function runSuite(symbol, interval, slPct, tpPct) {
     check(old?.exitKind === "flip", `${tag}: flippedFrom source closed as flip`);
   }
 
-  // entry at next candle open after a gate-passing signal (direct) OR a
-  // pending entry firing at the first gate-passing close (queued)
+  // entries: direct (signal at entryIndex-1) or queued-pending (gate-on only)
   const gateOkAt = (side, idx) => {
+    if (!smaFilter) return true;
     const sv = sma[idx];
-    if (sv == null) return false;
+    if (sv == null) return true;
     return side === "LONG" ? klines[idx].c > sv : klines[idx].c < sv;
   };
   for (const p of papers) {
     if (p.flippedFrom) continue; // flip entries checked above
     const sig = signals.find((s) => s.i === p.entryIndex - 1);
     let pendingOk = false;
-    if (!sig) {
-      // pending case: newest signal before entry queued this side; gate failed
-      // at every close from that signal up to entryIndex-2, then passed
+    if (!sig && smaFilter) {
       const prior = signals.filter(
         (s) => s.i < p.entryIndex && s.dir === (p.side === "LONG" ? "BUY" : "SELL"),
       );
@@ -239,43 +248,49 @@ async function runSuite(symbol, interval, slPct, tpPct) {
         if (gateOkAt(p.side, p.entryIndex - 1)) {
           let blocked = true;
           for (let k = s0.i; k <= p.entryIndex - 2; k++) {
-            if (gateOkAt(p.side, k)) {
-              blocked = false;
-              break;
-            }
+            if (gateOkAt(p.side, k)) { blocked = false; break; }
           }
           pendingOk = blocked;
         }
       }
     }
     check(sig != null || pendingOk, `${tag}: entry is direct or queued-pending`, p.id);
-    if (sig) {
+    if (sig && smaFilter) {
       check(sig.dir === (p.side === "LONG" ? "BUY" : "SELL"), `${tag}: entry direction matches signal`);
-      check(sig.smaOk, `${tag}: entry signal passed gate`, p.id);
+      check(sig.smaOk, `${tag}: direct entry signal passed gate`, p.id);
     }
+    if (!smaFilter) check(pending == null || pending.side != null, `${tag}: gate-off pending shape`);
     check(Math.abs(p.entry - klines[p.entryIndex].o) < 1e-9, `${tag}: entry == candle open`);
   }
 
-  // SL/TP geometry
+  // gate-off → no pending entries at all
+  if (!smaFilter) check(pending == null, `${tag}: gate off → no pending`, JSON.stringify(pending));
+
+  // SL/TP geometry (price distances)
   for (const p of papers) {
-    if (p.side === "LONG") {
-      check(p.sl < p.entry && p.tp > p.entry, `${tag}: LONG sl<entry<tp`);
-    } else {
-      check(p.sl > p.entry && p.tp < p.entry, `${tag}: SHORT sl>entry>tp`);
-    }
-    check(
-      Math.abs(Math.abs(p.sl / p.entry - 1) * 100 - slPct) < 1e-6,
-      `${tag}: SL distance == slPct`,
-    );
-    check(
-      Math.abs(Math.abs(p.tp / p.entry - 1) * 100 - tpPct) < 1e-6,
-      `${tag}: TP distance == tpPct`,
-    );
+    if (p.side === "LONG") check(p.sl < p.entry && p.tp > p.entry, `${tag}: LONG sl<entry<tp`);
+    else check(p.sl > p.entry && p.tp < p.entry, `${tag}: SHORT sl>entry>tp`);
+    check(Math.abs(Math.abs(p.sl / p.entry - 1) * 100 - slPct) < 1e-6, `${tag}: SL distance == slPct`);
+    check(Math.abs(Math.abs(p.tp / p.entry - 1) * 100 - tpPct) < 1e-6, `${tag}: TP distance == tpPct`);
+    check(p.leverage === leverage, `${tag}: leverage snapshot == settings`);
   }
 
-  // exit kinds + PnL sign
+  // exit kinds + PnL math
   for (const p of closed) {
     check(["tp", "sl", "flip"].includes(p.exitKind), `${tag}: valid exitKind`);
+    if (p.liquidated) {
+      check(p.exitKind === "sl", `${tag}: liquidation exits as sl`, p.exitKind);
+      check(p.pnlPct === -100, `${tag}: liquidation ROE == -100`, String(p.pnlPct));
+      const dist = Math.abs(p.pricePnlPct);
+      check(Math.abs(dist - 100 / leverage) < 1e-6, `${tag}: liq distance == 100/lev`,
+        `dist=${dist} expect=${100 / leverage}`);
+    } else {
+      check(
+        Math.abs(p.pnlPct - p.pricePnlPct * leverage) < 1e-6,
+        `${tag}: ROE == price move × leverage`,
+        `pnl=${p.pnlPct} price=${p.pricePnlPct} lev=${p.leverage}`,
+      );
+    }
     if (p.exitKind === "tp") check(p.pnlPct > 0 || Math.abs(p.pnlPct) < 1e-9, `${tag}: TP exit non-negative PnL`);
     if (p.exitKind === "sl") check(p.pnlPct < 0 || Math.abs(p.pnlPct) < 1e-9, `${tag}: SL exit non-positive PnL`);
   }
@@ -286,33 +301,37 @@ async function runSuite(symbol, interval, slPct, tpPct) {
   check(wins + closed.filter((p) => p.pnlPct <= 0).length === closed.length, `${tag}: wins+losses == closed`);
   check(!open || papers.filter((p) => p.status === "open").length === 1, `${tag}: at most 1 open paper`);
 
-  return { tag, papers: papers.length, closed: closed.length, flips: flips.length, tpC, slC, wins, open: !!open, pending: !!pending };
+  return { tag, papers: papers.length, closed: closed.length, flips: flips.length, tpC, slC, liqC, wins, open: !!open, pending: !!pending };
 }
 
 async function main() {
   const symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"];
   const intervals = ["5m", "15m", "1h"];
-  const presets = [
-    { slPct: 6, tpPct: 3.2 },
-    { slPct: 1.5, tpPct: 3 },
+  const configs = [
+    { name: "wide-l1-gate", slPct: 6, tpPct: 3.2, leverage: 1, smaFilter: true },
+    { name: "pine-l5-gate", slPct: 1.5, tpPct: 3, leverage: 5, smaFilter: true },
+    { name: "wide-l10-nogate", slPct: 6, tpPct: 3.2, leverage: 10, smaFilter: false },
   ];
   const summary = [];
   for (const sym of symbols) {
     for (const itv of intervals) {
-      for (const preset of presets) {
-        try {
-          summary.push(await runSuite(sym, itv, preset.slPct, preset.tpPct));
-        } catch (e) {
-          failures++;
-          console.log(`FETCH FAIL ${sym} ${itv}: ${e.message}`);
-        }
+      let klines;
+      try {
+        klines = await fetchKlines(sym, itv);
+      } catch (e) {
+        failures++;
+        console.log(`FETCH FAIL ${sym} ${itv}: ${e.message}`);
+        continue;
+      }
+      for (const cfg of configs) {
+        summary.push(await runSuite(klines, sym, itv, cfg));
       }
     }
   }
   console.log("\n========== SUMMARY ==========");
   for (const s of summary) {
     console.log(
-      `${s.tag.padEnd(34)} papers=${String(s.papers).padStart(3)} closed=${String(s.closed).padStart(3)} (TP ${s.tpC} · SL ${s.slC} · FLIP ${s.flips}) wins=${String(s.wins).padStart(3)} open=${s.open ? "Y" : "n"} pending=${s.pending ? "Y" : "n"}`,
+      `${s.tag.padEnd(30)} papers=${String(s.papers).padStart(3)} closed=${String(s.closed).padStart(3)} (TP ${s.tpC} · SL ${s.slC} · LIQ ${s.liqC} · FLIP ${s.flips}) wins=${String(s.wins).padStart(3)} open=${s.open ? "Y" : "n"} pending=${s.pending ? "Y" : "n"}`,
     );
   }
   console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECKS FAILED`);

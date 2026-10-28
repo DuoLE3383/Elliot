@@ -28,7 +28,9 @@ export function signalsFrom(
         i,
         t: k.t,
         dir: "BUY",
-        smaOk: smaVal != null && k.c > smaVal,
+        // SMA unavailable (start of the window) must NOT block — in Pine the
+        // SMA is computed over full history, so a null here is an artifact
+        smaOk: smaVal == null || k.c > smaVal,
         price: k.c,
       });
     } else if (trend[i] === -1 && trend[i - 1] === 1) {
@@ -36,7 +38,7 @@ export function signalsFrom(
         i,
         t: k.t,
         dir: "SELL",
-        smaOk: smaVal != null && k.c < smaVal,
+        smaOk: smaVal == null || k.c < smaVal,
         price: k.c,
       });
     }

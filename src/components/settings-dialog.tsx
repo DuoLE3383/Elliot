@@ -12,8 +12,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { t, type Lang } from "@/lib/i18n";
-import { DEFAULT_SETTINGS, EngineSettings, PRESET_PINE, PRESET_WIDE } from "@/lib/types";
+import { DEFAULT_SETTINGS, EngineSettings, MAX_LEVERAGE, PRESET_PINE, PRESET_WIDE } from "@/lib/types";
 
 interface Props {
   lang: Lang;
@@ -26,7 +27,13 @@ interface Props {
 type PresetKey = "wide" | "pine" | "custom";
 
 const sameSettings = (a: EngineSettings, b: EngineSettings) =>
-  a.slPct === b.slPct && a.tpPct === b.tpPct && a.atrKey === b.atrKey && a.atrPeriod === b.atrPeriod && a.smaPeriod === b.smaPeriod;
+  a.slPct === b.slPct &&
+  a.tpPct === b.tpPct &&
+  a.atrKey === b.atrKey &&
+  a.atrPeriod === b.atrPeriod &&
+  a.smaPeriod === b.smaPeriod &&
+  a.leverage === b.leverage &&
+  a.smaFilter === b.smaFilter;
 
 export function SettingsDialog({ lang, open, onOpenChange, settings, onApply }: Props) {
   // parent remounts this component (key={open}) each time the dialog opens,
@@ -45,11 +52,13 @@ export function SettingsDialog({ lang, open, onOpenChange, settings, onApply }: 
     return isFinite(n) && n > 0 ? n : fallback;
   };
 
+  // presets only touch SL/TP/ATR — leverage and the SMA gate stay as-is
   const choosePreset = (key: PresetKey) => {
     setPreset(key);
-    if (key === "wide") setDraft(PRESET_WIDE);
-    if (key === "pine") setDraft(PRESET_PINE);
-    if (key === "custom") setDraft({ ...DEFAULT_SETTINGS });
+    const keep = { leverage: draft.leverage, smaFilter: draft.smaFilter };
+    if (key === "wide") setDraft({ ...PRESET_WIDE, ...keep });
+    if (key === "pine") setDraft({ ...PRESET_PINE, ...keep });
+    if (key === "custom") setDraft({ ...DEFAULT_SETTINGS, ...keep });
   };
 
   const apply = () => {
@@ -59,6 +68,8 @@ export function SettingsDialog({ lang, open, onOpenChange, settings, onApply }: 
       atrKey: Math.min(10, num(String(draft.atrKey), 2)),
       atrPeriod: Math.min(100, Math.round(num(String(draft.atrPeriod), 10))),
       smaPeriod: Math.min(400, Math.round(num(String(draft.smaPeriod), 200))),
+      leverage: Math.max(1, Math.min(MAX_LEVERAGE, Math.round(num(String(draft.leverage), 1)))),
+      smaFilter: draft.smaFilter,
     });
     onOpenChange(false);
   };
@@ -69,9 +80,10 @@ export function SettingsDialog({ lang, open, onOpenChange, settings, onApply }: 
     { key: "custom", label: t(lang, "settings.presetCustom") },
   ];
 
-  const fields: { key: keyof EngineSettings; label: string; step: string }[] = [
+  const fields: { key: "slPct" | "tpPct" | "atrKey" | "atrPeriod" | "smaPeriod" | "leverage"; label: string; step: string }[] = [
     { key: "slPct", label: t(lang, "settings.sl"), step: "0.1" },
     { key: "tpPct", label: t(lang, "settings.tp"), step: "0.1" },
+    { key: "leverage", label: t(lang, "settings.leverage"), step: "1" },
     { key: "atrKey", label: t(lang, "settings.atrKey"), step: "0.1" },
     { key: "atrPeriod", label: t(lang, "settings.atrPeriod"), step: "1" },
     { key: "smaPeriod", label: t(lang, "settings.smaPeriod"), step: "10" },
@@ -114,8 +126,9 @@ export function SettingsDialog({ lang, open, onOpenChange, settings, onApply }: 
                   inputMode="decimal"
                   step={f.step}
                   min="0"
+                  max={f.key === "leverage" ? String(MAX_LEVERAGE) : undefined}
                   value={draft[f.key]}
-                  disabled={preset !== "custom" && f.key !== "slPct" && f.key !== "tpPct"}
+                  disabled={preset !== "custom" && f.key !== "slPct" && f.key !== "tpPct" && f.key !== "leverage"}
                   onChange={(e) =>
                     setDraft((d) => ({ ...d, [f.key]: e.target.value === "" ? 0 : Number(e.target.value) }))
                   }
@@ -123,6 +136,21 @@ export function SettingsDialog({ lang, open, onOpenChange, settings, onApply }: 
                 />
               </div>
             ))}
+          </div>
+
+          {/* SMA gate toggle */}
+          <div className="flex items-center justify-between gap-3 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2.5">
+            <div className="min-w-0">
+              <Label className="text-xs text-zinc-200">{t(lang, "settings.smaFilter")}</Label>
+              <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
+                {t(lang, "settings.smaFilterDesc")}
+              </p>
+            </div>
+            <Switch
+              checked={draft.smaFilter}
+              onCheckedChange={(v) => setDraft((d) => ({ ...d, smaFilter: v }))}
+              className="data-[state=checked]:bg-amber-600"
+            />
           </div>
         </div>
 

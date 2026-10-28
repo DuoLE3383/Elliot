@@ -2,7 +2,7 @@
 
 export type Side = "LONG" | "SHORT";
 export type SignalDir = "BUY" | "SELL";
-/** Exit reason: take-profit, stop-loss, or reversal (opposite UT signal). */
+/** Exit reason: take-profit, stop-loss (incl. liquidation), or reversal (opposite UT signal). */
 export type ExitKind = "tp" | "sl" | "flip";
 export type PaperStatus = "open" | "closed";
 
@@ -49,8 +49,14 @@ export interface Paper {
   exitTime?: number;
   exitIndex?: number;
   exitKind?: ExitKind;
-  /** signed % PnL: LONG (exit-entry)/entry, SHORT (entry-exit)/entry */
+  /** leverage snapshot at entry (1 = spot) */
+  leverage: number;
+  /** signed % PRICE move: LONG (exit-entry)/entry, SHORT (entry-exit)/entry */
+  pricePnlPct?: number;
+  /** signed % ROE = price move × leverage; liquidation = -100 */
   pnlPct?: number;
+  /** true when the position was liquidated (~100%/leverage adverse move) */
+  liquidated?: boolean;
   /**
    * id of the paper that was force-closed by the reversal that opened this one.
    * Present whenever this entry came from a "flip" — reversal is a first-class
@@ -60,9 +66,9 @@ export interface Paper {
 }
 
 export interface EngineSettings {
-  /** stop-loss % (0-100) */
+  /** stop-loss % (0-100, price distance) */
   slPct: number;
-  /** take-profit % (0-100) */
+  /** take-profit % (0-100, price distance) */
   tpPct: number;
   /** ATR trailing-stop key value (UT Bot "a") */
   atrKey: number;
@@ -70,6 +76,10 @@ export interface EngineSettings {
   atrPeriod: number;
   /** SMA gate period */
   smaPeriod: number;
+  /** leverage multiplier (1 = spot); ROE = price move × leverage */
+  leverage: number;
+  /** SMA trend gate — off = every confirmed signal trades immediately */
+  smaFilter: boolean;
 }
 
 export const DEFAULT_SETTINGS: EngineSettings = {
@@ -78,6 +88,8 @@ export const DEFAULT_SETTINGS: EngineSettings = {
   atrKey: 2,
   atrPeriod: 10,
   smaPeriod: 200,
+  leverage: 1,
+  smaFilter: true,
 };
 
 export const PRESET_WIDE: EngineSettings = {
@@ -86,6 +98,8 @@ export const PRESET_WIDE: EngineSettings = {
   atrKey: 2,
   atrPeriod: 10,
   smaPeriod: 200,
+  leverage: 1,
+  smaFilter: true,
 };
 
 /** "Đặt theo Pine gốc" — the original UT Bot Alerts strategy exits. */
@@ -95,12 +109,29 @@ export const PRESET_PINE: EngineSettings = {
   atrKey: 2,
   atrPeriod: 10,
   smaPeriod: 200,
+  leverage: 1,
+  smaFilter: true,
 };
 
-export const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"] as const;
-export type Symbol = (typeof SYMBOLS)[number];
+/** Default pair chips (Binance USDT spot). Custom pairs are user-added. */
+export const SYMBOLS = [
+  "BTCUSDT",
+  "ETHUSDT",
+  "SOLUSDT",
+  "BNBUSDT",
+  "XRPUSDT",
+  "DOGEUSDT",
+  "ADAUSDT",
+  "AVAXUSDT",
+  "LINKUSDT",
+] as const;
+/** Any Binance spot symbol — defaults plus user-added custom pairs. */
+export type Symbol = string;
 
 export const INTERVALS = ["5m", "15m", "1h"] as const;
 export type Interval = (typeof INTERVALS)[number];
 
 export const KLINE_LIMIT = 500;
+
+export const MAX_CUSTOM_PAIRS = 10;
+export const MAX_LEVERAGE = 125;
