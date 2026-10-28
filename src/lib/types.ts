@@ -138,3 +138,30 @@ export const KLINE_LIMIT = 500;
 
 export const MAX_CUSTOM_PAIRS = 10;
 export const MAX_LEVERAGE = 125;
+
+// ─── Wyckoff Schematic Auto Detect ───────────────────────────────────────────
+/** Port of the Pine v6 "Wyckoff Schematic Auto Detect (Rebuild)" indicator. */
+
+export type WyckoffMode = "auto" | "manual";
+export type WyckoffSpeed = "auto-tf" | "fast" | "normal" | "safe";
+
+export interface WyckoffSettings {
+  /** overlay + dashboard on/off */
+  enabled: boolean;
+  /** Auto = per-timeframe calibration, Manual = Pine manual defaults */
+  mode: WyckoffMode;
+  /** pivot detection speed multiplier: fast 0.6 / normal 1.0 / safe 1.5 / auto-tf 1.0 */
+  speed: WyckoffSpeed;
+  /** Trend Sensitivity — climax RSI threshold (SC needs RSI <= sens, BC >= 100 - sens) */
+  sens: number;
+  /** Require Spring/UT (Phase C) before SOS/SOW */
+  reqPhaseC: boolean;
+}
+
+export const DEFAULT_WYCKOFF: WyckoffSettings = {
+  enabled: true,
+  mode: "auto",
+  speed: "auto-tf",
+  sens: 25,
+  reqPhaseC: true,
+};

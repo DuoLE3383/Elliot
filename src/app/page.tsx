@@ -7,6 +7,7 @@ import { KpiCards } from "@/components/kpi";
 import { SignalDock } from "@/components/panels";
 import { PriceChart } from "@/components/price-chart";
 import { SettingsDialog } from "@/components/settings-dialog";
+import { WyckoffPanel } from "@/components/wyckoff-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,8 +15,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { fmtPct, fmtPrice, fmtTime, symbolLabel, t, type Lang } from "@/lib/i18n";
 import { kpiFrom, papersFrom } from "@/lib/papers";
 import { signalsFrom } from "@/lib/signals";
+import { wyckoffFrom } from "@/lib/wyckoff";
 import {
   DEFAULT_SETTINGS,
+  DEFAULT_WYCKOFF,
   EngineSettings,
   INTERVALS,
   Interval,
@@ -23,12 +26,13 @@ import {
   MAX_CUSTOM_PAIRS,
   Paper,
   SYMBOLS,
+  WyckoffSettings,
 } from "@/lib/types";
-import { AlertTriangle, ArrowLeftRight, Plus, RefreshCw, Settings2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, Landmark, Plus, RefreshCw, Settings2, X } from "lucide-react";
 
 interface Toast {
   id: number;
-  kind: "entry" | "flip" | "error";
+  kind: "entry" | "flip" | "error" | "wy";
   side?: Paper["side"];
   text: string;
 }
@@ -47,6 +51,7 @@ export default function Home() {
   const [interval, setIntervalTf] = useState<Interval>("5m");
   const [lang, setLang] = useState<Lang>("vi");
   const [settings, setSettings] = useState<EngineSettings>(DEFAULT_SETTINGS);
+  const [wySettings, setWySettings] = useState<WyckoffSettings>(DEFAULT_WYCKOFF);
   const [customPairs, setCustomPairs] = useState<string[]>([]);
   const [pairInput, setPairInput] = useState("");
   const [checkingPair, setCheckingPair] = useState(false);
@@ -90,6 +95,18 @@ export default function Home() {
         }
         setSettings({ ...DEFAULT_SETTINGS, ...parsed });
       }
+      const w = localStorage.getItem("utp.wyckoff");
+      if (w) {
+        const pw = JSON.parse(w) as Partial<WyckoffSettings>;
+        setWySettings((prev) => ({
+          ...prev,
+          ...pw,
+          sens: typeof pw.sens === "number" ? Math.min(45, Math.max(5, Math.round(pw.sens))) : prev.sens,
+          mode: pw.mode === "manual" ? "manual" : "auto",
+          speed:
+            pw.speed === "fast" || pw.speed === "normal" || pw.speed === "safe" ? pw.speed : "auto-tf",
+        }));
+      }
       const p = localStorage.getItem("utp.pairs");
       if (p) {
         const arr = JSON.parse(p);
@@ -124,6 +141,9 @@ export default function Home() {
   useEffect(() => {
     if (hydratedRef.current) localStorage.setItem("utp.pairs", JSON.stringify(customPairs));
   }, [customPairs]);
+  useEffect(() => {
+    if (hydratedRef.current) localStorage.setItem("utp.wyckoff", JSON.stringify(wySettings));
+  }, [wySettings]);
 
   const loadData = useCallback(async (sym: string, itv: Interval, announce: boolean) => {
     setLoading(true);
@@ -222,6 +242,50 @@ export default function Home() {
   }, [engine, key, lang, pushToast]);
 
   const stats = useMemo(() => kpiFrom(engine?.papers ?? []), [engine]);
+
+  // ── Wyckoff Schematic Auto Detect ─────────────────────────────────────
+  const wyckoff = useMemo(() => {
+    if (!wySettings.enabled || klines.length < 60) return null;
+    try {
+      return wyckoffFrom(klines, interval, wySettings);
+    } catch {
+      return null;
+    }
+  }, [klines, interval, wySettings]);
+
+  // Wyckoff event toasts — same dataKey discipline as paper toasts; keys use
+  // candle TIME (stable across the sliding 500-candle window), and a cfg
+  // signature reseeds silently whenever Wyckoff settings change
+  const wySeenRef = useRef<{ key: string; cfg: string; seen: Set<string> }>({
+    key: "",
+    cfg: "",
+    seen: new Set(),
+  });
+  useEffect(() => {
+    if (!wyckoff) return;
+    if (dataKeyRef.current !== key) return;
+    const cfg = `${wySettings.mode}|${wySettings.speed}|${wySettings.sens}|${wySettings.reqPhaseC}`;
+    const s = wySeenRef.current;
+    if (s.key !== key || s.cfg !== cfg) {
+      wySeenRef.current = {
+        key,
+        cfg,
+        seen: new Set(wyckoff.events.map((e) => `${e.kind}-${e.time}-${e.dir}`)),
+      };
+      return;
+    }
+    let count = 0;
+    for (const e of wyckoff.events) {
+      const k = `${e.kind}-${e.time}-${e.dir}`;
+      if (s.seen.has(k) || count >= 2) continue;
+      s.seen.add(k);
+      count++;
+      pushToast({
+        kind: "wy",
+        text: t(lang, "toast.wyckoff", { event: e.kind, sym: symbolLabel(symbol), itv: interval }),
+      });
+    }
+  }, [wyckoff, key, lang, symbol, interval, pushToast, wySettings]);
 
   const lastClose = klines.length ? klines[klines.length - 1].c : 0;
   const latestSignal = engine?.signals.at(-1);
@@ -523,6 +587,8 @@ export default function Home() {
                     pinnedIndex={pinnedIndex}
                     onPin={handlePin}
                     lang={lang}
+                    wyckoff={wyckoff}
+                    wyckoffOn={wySettings.enabled}
                   />
                 </CardContent>
               </Card>
@@ -552,6 +618,8 @@ export default function Home() {
               </div>
             </div>
 
+            <WyckoffPanel lang={lang} wy={wyckoff} on={wySettings.enabled} sens={wySettings.sens} />
+
             <Journal lang={lang} papers={engine.papers} symbol={symbol} interval={interval} />
           </div>
         )}
@@ -572,16 +640,19 @@ export default function Home() {
             className={`pointer-events-auto rounded-lg border px-3.5 py-2.5 shadow-lg backdrop-blur ${
               toast.kind === "flip"
                 ? "border-amber-600 bg-amber-950/90"
-                : toast.kind === "error"
-                  ? "border-rose-700 bg-rose-950/90"
-                  : toast.side === "LONG"
-                    ? "border-emerald-700 bg-emerald-950/90"
-                    : "border-rose-700 bg-rose-950/90"
+                : toast.kind === "wy"
+                  ? "border-violet-700 bg-violet-950/90"
+                  : toast.kind === "error"
+                    ? "border-rose-700 bg-rose-950/90"
+                    : toast.side === "LONG"
+                      ? "border-emerald-700 bg-emerald-950/90"
+                      : "border-rose-700 bg-rose-950/90"
             }`}
             role="status"
           >
             <p className="flex items-start gap-2 text-xs leading-relaxed text-zinc-100">
               {toast.kind === "flip" && <ArrowLeftRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />}
+              {toast.kind === "wy" && <Landmark className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-400" />}
               <span>{toast.text}</span>
             </p>
           </div>
@@ -594,6 +665,8 @@ export default function Home() {
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         settings={settings}
+        wyckoff={wySettings}
+        onWyckoffApply={(w) => setWySettings(w)}
         onApply={(s) => {
           setSettings(s);
           try {

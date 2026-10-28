@@ -1,7 +1,8 @@
 /**
  * Smoke test for the paper-trading engine over live Binance data.
+ * Run with: bun scripts/smoke.mjs   (bun imports the REAL src/lib TS directly)
  *
- * Contract (v4 — directional gate UX + deep-analysis indicators):
+ * Contract (v5 — + Wyckoff Schematic Auto Detect):
  *  1. A reversal ALWAYS closes the open paper at the next candle open AND opens
  *     the opposite paper at that same price/time — the SMA gate never blocks it.
  *  2. The SMA gate is DIRECTIONAL and only filters FRESH entries from flat, and
@@ -12,7 +13,15 @@
  *     (~100%/leverage adverse move) → ROE = -100%, flagged `liquidated`.
  *  5. Analysis helpers: EMA seeds correctly, RSI stays in [0,100] (extremes on
  *     monotone runs), pivot structure returns a sane range/position.
+ *  6. Wyckoff port: deterministic; events anchored to the exact pivot/transition
+ *     bar extreme (T-space inversion for distribution); label orientation (below/
+ *     above) matches the Pine f_lbl rule; boxes top>bottom; tints in {-1,0,1};
+ *     dash sane; reqPhaseC=false never removes events; speed changes pivLen;
+ *     synthetic accumulation produces SC→AR (+ mirrored BC on the inverted series).
  */
+import { wyckoffFrom } from "../src/lib/wyckoff.ts";
+import { DEFAULT_WYCKOFF } from "../src/lib/types.ts";
+
 const HOSTS = ["https://api.binance.com", "https://data-api.binance.vision"];
 
 async function fetchKlines(symbol, interval, limit = 500) {
@@ -412,6 +421,152 @@ async function runSuite(klines, symbol, interval, cfg) {
   return { tag, papers: papers.length, closed: closed.length, flips: flips.length, tpC, slC, liqC, wins, open: !!open, pending: !!pending };
 }
 
+// ── Wyckoff suite (imports the real src/lib/wyckoff.ts) ───────────────────────
+function runWyckoffSuite(klines, tag) {
+  const cfgs = [
+    { name: "auto", s: { ...DEFAULT_WYCKOFF } },
+    { name: "noPhaseC", s: { ...DEFAULT_WYCKOFF, reqPhaseC: false } },
+    { name: "fast", s: { ...DEFAULT_WYCKOFF, speed: "fast" } },
+    { name: "manual", s: { ...DEFAULT_WYCKOFF, mode: "manual" } },
+  ];
+  const KINDS = new Set(["SC", "AR", "ST", "Spring", "SOS", "LPS", "Markup", "BC", "UT", "SOW", "LPSY", "Markdown"]);
+  const LOW_EVENTS = ["SC", "ST", "Spring", "LPS"]; // acc events sitting on a pivot low
+  const HIGH_DIST_EVENTS = ["BC", "ST", "UT", "LPSY"]; // dist events sitting on a real-space HIGH
+
+  for (const c of cfgs) {
+    const wy1 = wyckoffFrom(klines, "5m", c.s);
+    const wy2 = wyckoffFrom(klines, "5m", c.s);
+    const ser = (w) =>
+      JSON.stringify({ e: w.events, b: w.boxes, p: w.pivots, d: w.dash, t: Array.from(w.tints) });
+    check(ser(wy1) === ser(wy2), `wy ${tag} ${c.name}: deterministic`);
+
+    let lastBar = -1;
+    for (const e of wy1.events) {
+      check(KINDS.has(e.kind), `wy ${tag} ${c.name}: kind enum`, e.kind);
+      check(e.bar >= 0 && e.bar <= wy1.lastClosed, `wy ${tag} ${c.name}: bar in range`, `${e.kind} bar=${e.bar}`);
+      check(isFinite(e.price) && e.price > 0, `wy ${tag} ${c.name}: finite price`, `${e.kind} ${e.price}`);
+      check(e.bar >= lastBar, `wy ${tag} ${c.name}: events sorted by bar`);
+      lastBar = e.bar;
+
+      // anchor: the event price must be EXACTLY the extreme of its own bar —
+      // acc low events sit on the pivot low, dist low events mirror to the high, etc.
+      const k = klines[e.bar];
+      const anchor =
+        e.dir === 1
+          ? LOW_EVENTS.includes(e.kind) ? k.l : k.h
+          : HIGH_DIST_EVENTS.includes(e.kind) ? k.h : k.l;
+      check(Math.abs(e.price - anchor) < 1e-9, `wy ${tag} ${c.name}: ${e.kind} anchored to bar extreme`,
+        `price=${e.price} anchor=${anchor}`);
+
+      // label orientation (Pine f_lbl: below = (d==1) == atLowT)
+      const belowExp =
+        e.dir === 1
+          ? LOW_EVENTS.includes(e.kind)
+          : ["AR", "SOW", "Markdown"].includes(e.kind);
+      check(e.below === belowExp, `wy ${tag} ${c.name}: below flag for ${e.kind}`);
+    }
+    for (const b of wy1.boxes) {
+      check(b.top > b.bottom, `wy ${tag} ${c.name}: box top>bottom`, `${b.top}/${b.bottom}`);
+      check(b.left <= b.right, `wy ${tag} ${c.name}: box left<=right`);
+      check(isFinite(b.top) && isFinite(b.bottom), `wy ${tag} ${c.name}: box finite`);
+    }
+    check(wy1.tints.length === klines.length, `wy ${tag} ${c.name}: tints aligned`);
+    check(Array.from(wy1.tints).every((t) => t === 1 || t === -1 || t === 0), `wy ${tag} ${c.name}: tint domain`);
+    const d = wy1.dash;
+    check(d.st >= 0 && d.st <= 7, `wy ${tag} ${c.name}: dash st range`, String(d.st));
+    check(d.rsi == null || (d.rsi >= 0 && d.rsi <= 100), `wy ${tag} ${c.name}: dash rsi bounds`);
+    check(d.pivLen >= 2, `wy ${tag} ${c.name}: pivLen sane`, String(d.pivLen));
+    check(d.volRatio == null || isFinite(d.volRatio), `wy ${tag} ${c.name}: volRatio finite`);
+  }
+
+  // reqPhaseC=false only OPENS a door (SOS/SOW from st 3) — never fewer live events
+  const wyPc = wyckoffFrom(klines, "5m", { ...DEFAULT_WYCKOFF });
+  const wyNoPc = wyckoffFrom(klines, "5m", { ...DEFAULT_WYCKOFF, reqPhaseC: false });
+  const liveCount = (w) => w.events.filter((e) => !e.deleted).length;
+  check(liveCount(wyNoPc) >= liveCount(wyPc), `${tag} wy: reqPhaseC=false >= events`,
+    `${liveCount(wyNoPc)}/${liveCount(wyPc)}`);
+
+  // speed changes the pivot length (auto mapping: 8 → fast 5, safe 12 on 5m)
+  const wyFast = wyckoffFrom(klines, "5m", { ...DEFAULT_WYCKOFF, speed: "fast" });
+  const wySafe = wyckoffFrom(klines, "5m", { ...DEFAULT_WYCKOFF, speed: "safe" });
+  check(wyFast.dash.pivLen < wySafe.dash.pivLen, `${tag} wy: fast pivLen < safe pivLen`,
+    `${wyFast.dash.pivLen}/${wySafe.dash.pivLen}`);
+}
+
+/** Synthetic accumulation: flat → climax dump → base → rally → flat peak.
+ *  Must yield SC (bar 79, price = bar low) and AR (flat peak), and the exact
+ *  inverted series must yield BC/AR(dist) at mirrored prices (T-space proof). */
+function runWyckoffSynthetic() {
+  const tag = "wy synth";
+  const mk = (invert) => {
+    const raw = [];
+    const t0 = 1700000000000;
+    const step = 300000;
+    let i = 0;
+    const push = (o, h, l, c, v) => {
+      raw.push(
+        invert
+          ? { t: t0 + i * step, o: 200 - o, h: 200 - l, l: 200 - h, c: 200 - c, v }
+          : { t: t0 + i * step, o, h, l, c, v },
+      );
+      i++;
+    };
+    for (let k = 0; k < 70; k++) push(99.9, 100.2, 99.8, 100, 1); // quiet
+    for (let k = 1; k <= 10; k++)
+      push(100 - (k - 1) * 1.5, 100 - (k - 1) * 1.5 + 0.3, 100 - k * 1.5 - 0.4, 100 - k * 1.5, 8); // climax dump
+    for (let k = 0; k < 30; k++) {
+      const c = 85.5 + (k % 3) * 0.5;
+      push(c - 0.2, c + 0.3, c - 0.5, c, 0.8); // base
+    }
+    for (let k = 1; k <= 20; k++) {
+      const c = 86 + k * 0.45;
+      push(86 + (k - 1) * 0.45, c + 0.2, c - 0.4, c, 2); // rally
+    }
+    for (let k = 0; k < 14; k++) {
+      const h = 95.4 - Math.abs(k - 3) * 0.06;
+      push(94.8, h, 94.6, 94.85, 1); // flat with a single confirmed peak at bar 133
+    }
+    return raw;
+  };
+  const s = { ...DEFAULT_WYCKOFF };
+
+  const acc = wyckoffFrom(mk(false), "5m", s);
+  const liveAcc = acc.events.filter((e) => !e.deleted);
+  const sc = liveAcc.find((e) => e.kind === "SC" && e.dir === 1);
+  const ar = liveAcc.find((e) => e.kind === "AR" && e.dir === 1);
+  check(sc != null, `${tag}: SC detected`, JSON.stringify(liveAcc.map((e) => e.kind)));
+  check(ar != null, `${tag}: AR detected`, JSON.stringify(liveAcc.map((e) => e.kind)));
+  if (sc) {
+    check(sc.bar === 79, `${tag}: SC at dump-bottom bar`, String(sc.bar));
+    check(Math.abs(sc.price - 84.6) < 1e-9, `${tag}: SC price == bar low`, String(sc.price));
+    check(sc.below, `${tag}: SC label below`);
+  }
+  if (ar) {
+    check(ar.bar === 133, `${tag}: AR at flat-peak bar`, String(ar.bar));
+    check(Math.abs(ar.price - 95.4) < 1e-9, `${tag}: AR price == bar high`, String(ar.price));
+    check(!ar.below, `${tag}: AR label above`);
+  }
+  if (sc && ar) check(ar.bar > sc.bar, `${tag}: AR after SC`);
+  const accBox = acc.boxes.find((b) => !b.deleted && b.dir === 1);
+  check(accBox != null, `${tag}: acc TR box exists`);
+  if (accBox) {
+    check(accBox.top > accBox.bottom, `${tag}: acc box geometry`);
+    check(Math.abs(accBox.top - 95.4) < 1e-9, `${tag}: acc box top == AR high`, String(accBox.top));
+    check(Math.abs(accBox.bottom - 84.6) < 1e-9, `${tag}: acc box bottom == SC low`, String(accBox.bottom));
+  }
+
+  // T-space proof: the exact inverted series must give BC at the mirrored top
+  const dist = wyckoffFrom(mk(true), "5m", s);
+  const liveDist = dist.events.filter((e) => !e.deleted);
+  const bc = liveDist.find((e) => e.kind === "BC" && e.dir === -1);
+  check(bc != null, `${tag}: BC detected on inverted series`, JSON.stringify(liveDist.map((e) => `${e.dir}:${e.kind}`)));
+  if (bc) {
+    check(bc.bar === 79, `${tag}: BC at pump-top bar`, String(bc.bar));
+    check(Math.abs(bc.price - 115.4) < 1e-9, `${tag}: BC price == mirrored bar high`, String(bc.price));
+    check(!bc.below, `${tag}: BC label above`);
+  }
+}
+
 async function main() {
   const symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"];
   const intervals = ["5m", "15m", "1h"];
@@ -435,8 +590,10 @@ async function main() {
         summary.push(await runSuite(klines, sym, itv, cfg));
       }
       runAnalysisSuite(klines, `${sym} ${itv} analysis`);
+      runWyckoffSuite(klines, `${sym} ${itv}`);
     }
   }
+  runWyckoffSynthetic();
   console.log("\n========== SUMMARY ==========");
   for (const s of summary) {
     console.log(

@@ -12,9 +12,23 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { t, type Lang } from "@/lib/i18n";
-import { DEFAULT_SETTINGS, EngineSettings, MAX_LEVERAGE, PRESET_PINE, PRESET_WIDE } from "@/lib/types";
+import {
+  DEFAULT_SETTINGS,
+  EngineSettings,
+  MAX_LEVERAGE,
+  PRESET_PINE,
+  PRESET_WIDE,
+  WyckoffSettings,
+} from "@/lib/types";
 
 interface Props {
   lang: Lang;
@@ -22,6 +36,8 @@ interface Props {
   onOpenChange: (v: boolean) => void;
   settings: EngineSettings;
   onApply: (s: EngineSettings) => void;
+  wyckoff: WyckoffSettings;
+  onWyckoffApply: (w: WyckoffSettings) => void;
 }
 
 type PresetKey = "wide" | "pine" | "custom";
@@ -35,10 +51,11 @@ const sameSettings = (a: EngineSettings, b: EngineSettings) =>
   a.leverage === b.leverage &&
   a.smaFilter === b.smaFilter;
 
-export function SettingsDialog({ lang, open, onOpenChange, settings, onApply }: Props) {
+export function SettingsDialog({ lang, open, onOpenChange, settings, onApply, wyckoff, onWyckoffApply }: Props) {
   // parent remounts this component (key={open}) each time the dialog opens,
   // so lazy initializers below always start from the current settings
   const [draft, setDraft] = useState<EngineSettings>(settings);
+  const [draftW, setDraftW] = useState<WyckoffSettings>(wyckoff);
   const [preset, setPreset] = useState<PresetKey>(() =>
     sameSettings(settings, PRESET_WIDE)
       ? "wide"
@@ -70,6 +87,10 @@ export function SettingsDialog({ lang, open, onOpenChange, settings, onApply }: 
       smaPeriod: Math.min(400, Math.round(num(String(draft.smaPeriod), 200))),
       leverage: Math.max(1, Math.min(MAX_LEVERAGE, Math.round(num(String(draft.leverage), 1)))),
       smaFilter: draft.smaFilter,
+    });
+    onWyckoffApply({
+      ...draftW,
+      sens: Math.max(5, Math.min(45, Math.round(num(String(draftW.sens), 25)))),
     });
     onOpenChange(false);
   };
@@ -151,6 +172,89 @@ export function SettingsDialog({ lang, open, onOpenChange, settings, onApply }: 
               onCheckedChange={(v) => setDraft((d) => ({ ...d, smaFilter: v }))}
               className="data-[state=checked]:bg-amber-600"
             />
+          </div>
+
+          {/* ── Wyckoff Schematic ─────────────────────────────────── */}
+          <div className="space-y-2.5 rounded-md border border-violet-900/60 bg-zinc-950 px-3 py-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <Label className="text-xs text-violet-300">{t(lang, "wy.title")}</Label>
+                <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">{t(lang, "wy.showOnChartDesc")}</p>
+              </div>
+              <Switch
+                checked={draftW.enabled}
+                onCheckedChange={(v) => setDraftW((d) => ({ ...d, enabled: v }))}
+                className="data-[state=checked]:bg-violet-600"
+              />
+            </div>
+
+            {draftW.enabled && (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[11px] text-zinc-500">{t(lang, "wy.mode")}</Label>
+                    <Select
+                      value={draftW.mode}
+                      onValueChange={(v) => setDraftW((d) => ({ ...d, mode: v as WyckoffSettings["mode"] }))}
+                    >
+                      <SelectTrigger className="h-8 border-zinc-700 bg-zinc-900 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="border-zinc-700 bg-zinc-900 text-zinc-100">
+                        <SelectItem value="auto">{t(lang, "wy.modeAuto")}</SelectItem>
+                        <SelectItem value="manual">{t(lang, "wy.modeManual")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[11px] text-zinc-500">{t(lang, "wy.speed")}</Label>
+                    <Select
+                      value={draftW.speed}
+                      onValueChange={(v) => setDraftW((d) => ({ ...d, speed: v as WyckoffSettings["speed"] }))}
+                    >
+                      <SelectTrigger className="h-8 border-zinc-700 bg-zinc-900 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="border-zinc-700 bg-zinc-900 text-zinc-100">
+                        <SelectItem value="auto-tf">{t(lang, "wy.speedAuto")}</SelectItem>
+                        <SelectItem value="fast">{t(lang, "wy.speedFast")}</SelectItem>
+                        <SelectItem value="normal">{t(lang, "wy.speedNormal")}</SelectItem>
+                        <SelectItem value="safe">{t(lang, "wy.speedSafe")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[11px] text-zinc-500">{t(lang, "wy.sens")}</Label>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={5}
+                      max={45}
+                      step="1"
+                      value={draftW.sens}
+                      onChange={(e) =>
+                        setDraftW((d) => ({ ...d, sens: e.target.value === "" ? 0 : Number(e.target.value) }))
+                      }
+                      className="h-8 border-zinc-700 bg-zinc-950 font-mono text-sm"
+                    />
+                  </div>
+                  <div className="flex items-end pb-0.5">
+                    <div className="flex w-full items-center justify-between gap-2 rounded-md border border-zinc-800 px-2 py-1.5">
+                      <Label className="text-[11px] leading-snug text-zinc-400">{t(lang, "wy.phaseC")}</Label>
+                      <Switch
+                        checked={draftW.reqPhaseC}
+                        onCheckedChange={(v) => setDraftW((d) => ({ ...d, reqPhaseC: v }))}
+                        className="data-[state=checked]:bg-violet-600"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <p className="text-[11px] leading-snug text-zinc-600">{t(lang, "wy.phaseCDesc")}</p>
+              </>
+            )}
           </div>
         </div>
 

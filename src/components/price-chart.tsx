@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Kline, Paper, Signal } from "@/lib/types";
 import type { PendingEntry } from "@/lib/papers";
+import type { WyckoffEvent, WyckoffResult } from "@/lib/wyckoff";
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 
@@ -11,6 +12,17 @@ const DOWN = "#f43f5e";
 const FLIP = "#f59e0b";
 const GRID = "#27272a";
 const TEXT = "#a1a1aa";
+// Wyckoff palette — mirrors the Pine original
+const WY_ACC = "#22c55e";
+const WY_DIST = "#ef4444";
+const WY_PHC = "#a855f7";
+const WY_ACC_BAR = "#84cc16"; // barcolor lime
+const WY_DIST_BAR = "#a855f7"; // barcolor purple
+const WY_PIVOT = "#f97316";
+const WY_EMA_F = "#14b8a6"; // teal
+const WY_EMA_S = "#ef4444"; // red
+
+const wyEventColor = (e: WyckoffEvent) => (e.phaseC ? WY_PHC : e.dir === 1 ? WY_ACC : WY_DIST);
 
 interface Props {
   klines: Kline[];
@@ -22,6 +34,9 @@ interface Props {
   pinnedIndex: number | null;
   onPin: (index: number | null) => void;
   lang: Lang;
+  /** Wyckoff overlay (computed in page when enabled) */
+  wyckoff?: WyckoffResult | null;
+  wyckoffOn?: boolean;
 }
 
 const PAD_L = 8;
@@ -39,6 +54,8 @@ export function PriceChart({
   pinnedIndex,
   onPin,
   lang,
+  wyckoff,
+  wyckoffOn,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(900);
@@ -117,6 +134,35 @@ export function PriceChart({
     (p) => p.exitIndex !== undefined ? p.exitIndex >= viewStart || p.entryIndex <= viewEnd : p.entryIndex <= viewEnd,
   );
 
+  // ── Wyckoff layers (only when enabled) ─────────────────────────────────
+  const wyOn = !!wyckoffOn && !!wyckoff;
+  const wyBoxes = wyOn
+    ? wyckoff!.boxes.filter((b) => !b.deleted && b.right >= viewStart && b.left <= viewEnd)
+    : [];
+  const wyEvents = wyOn
+    ? wyckoff!.events.filter((e) => !e.deleted && e.bar >= viewStart && e.bar <= viewEnd)
+    : [];
+  const wyPivots = wyOn
+    ? wyckoff!.pivots.filter((p) => !p.hidden && p.bar >= viewStart && p.bar <= viewEnd)
+    : [];
+  const tintOf = (i: number): 0 | 1 | -1 => (wyOn ? (wyckoff!.tints[i] as 0 | 1 | -1) : 0);
+
+  /** polyline path skipping nulls (EMA arrays) */
+  const linePath = (arr: (number | null)[]): string => {
+    let d = "";
+    let pen = false;
+    for (let i = viewStart; i <= viewEnd; i++) {
+      const v = arr[i];
+      if (v == null) {
+        pen = false;
+        continue;
+      }
+      d += `${pen ? "L" : "M"}${x(i)},${y(v)} `;
+      pen = true;
+    }
+    return d.trim();
+  };
+
   const timeLabel = (t: number) => {
     const d = new Date(t);
     const hh = String(d.getHours()).padStart(2, "0");
@@ -151,6 +197,11 @@ export function PriceChart({
         role="img"
         aria-label={t(lang, "chart.title")}
       >
+        <defs>
+          <clipPath id="wy-plot-clip">
+            <rect x={PAD_L} y={PAD_T} width={plotW} height={plotH} />
+          </clipPath>
+        </defs>
         {/* grid + price axis */}
         {gridPrices.map((p, k) => (
           <g key={k}>
@@ -178,6 +229,33 @@ export function PriceChart({
             </text>
           );
         })}
+
+        {/* ── Wyckoff trading-range boxes (under everything) ─────────── */}
+        {wyOn && (
+          <g clipPath="url(#wy-plot-clip)">
+            {wyBoxes.map((b, k) => {
+              const x1 = Math.max(PAD_L, x(b.left) - cw / 2);
+              const x2 = Math.min(PAD_L + plotW, x(b.right) + cw / 2);
+              const yTop = y(b.top);
+              const yBot = y(b.bottom);
+              const col = b.dir === 1 ? WY_ACC : WY_DIST;
+              return (
+                <rect
+                  key={`wyb-${b.left}-${b.dir}-${k}`}
+                  x={x1}
+                  y={Math.min(yTop, yBot)}
+                  width={Math.max(0, x2 - x1)}
+                  height={Math.max(1, Math.abs(yBot - yTop))}
+                  fill={col}
+                  fillOpacity={0.07}
+                  stroke={col}
+                  strokeOpacity={0.35}
+                  strokeWidth={1}
+                />
+              );
+            })}
+          </g>
+        )}
 
         {/* closed papers connectors */}
         {papersInView.map((p) => {
@@ -273,11 +351,21 @@ export function PriceChart({
           opacity={0.75}
         />
 
+        {/* ── Wyckoff EMA 50/200 ─────────────────────────────────────── */}
+        {wyOn && (
+          <g clipPath="url(#wy-plot-clip)">
+            <path d={linePath(wyckoff!.emaS)} fill="none" stroke={WY_EMA_S} strokeWidth={1} opacity={0.5} />
+            <path d={linePath(wyckoff!.emaF)} fill="none" stroke={WY_EMA_F} strokeWidth={1} opacity={0.55} />
+          </g>
+        )}
+
         {/* candles */}
         {klines.slice(viewStart, viewEnd + 1).map((k, idx) => {
           const i = viewStart + idx;
           const up = k.c >= k.o;
-          const color = up ? UP : DOWN;
+          // Wyckoff bar coloring overrides the candle color (Pine barcolor)
+          const tint = tintOf(i);
+          const color = tint === 1 ? WY_ACC_BAR : tint === -1 ? WY_DIST_BAR : up ? UP : DOWN;
           const bw = Math.max(2, cw * 0.62);
           const yo = y(k.o);
           const yc = y(k.c);
@@ -285,19 +373,60 @@ export function PriceChart({
           const h = Math.max(1.5, Math.abs(yc - yo));
           return (
             <g key={k.t}>
-              <line x1={x(i)} x2={x(i)} y1={y(k.h)} y2={y(k.l)} stroke={color} strokeWidth={1} />
+              <line x1={x(i)} x2={x(i)} y1={y(k.h)} y2={y(k.l)} stroke={color} strokeWidth={1} opacity={tint !== 0 ? 0.9 : 1} />
               <rect
                 x={x(i) - bw / 2}
                 y={top}
                 width={bw}
                 height={h}
-                fill={up ? "transparent" : color}
+                fill={up || tint !== 0 ? (tint !== 0 ? color : "transparent") : color}
                 stroke={color}
                 strokeWidth={1}
+                opacity={tint !== 0 ? 0.85 : 1}
               />
             </g>
           );
         })}
+
+        {/* ── Wyckoff orange pivots + event labels ───────────────────── */}
+        {wyOn && (
+          <g clipPath="url(#wy-plot-clip)">
+            {wyPivots.map((p, k) => {
+              const px = x(p.bar);
+              const py = y(p.price);
+              // tiny triangle: up under a pivot low, down over a pivot high
+              const d = p.isHigh
+                ? `M${px},${py - 2} ${px - 3.5},${py - 9} ${px + 3.5},${py - 9}`
+                : `M${px},${py + 2} ${px - 3.5},${py + 9} ${px + 3.5},${py + 9}`;
+              return <path key={`wyp-${p.bar}-${p.isHigh ? "h" : "l"}-${k}`} d={d} fill={WY_PIVOT} opacity={0.75} />;
+            })}
+            {wyEvents.map((e, k) => {
+              const px = x(e.bar);
+              const py = y(e.price);
+              const col = wyEventColor(e);
+              const tri = e.below
+                ? `M${px},${py + 2} ${px - 4},${py + 9} ${px + 4},${py + 9}`
+                : `M${px},${py - 2} ${px - 4},${py - 9} ${px + 4},${py - 9}`;
+              return (
+                <g key={`wye-${e.kind}-${e.time}-${e.dir}-${k}`} opacity={0.95}>
+                  <path d={tri} fill={col} />
+                  <text
+                    x={px}
+                    y={e.below ? py + 20 : py - 13}
+                    textAnchor="middle"
+                    fontSize={9}
+                    fontWeight={700}
+                    fill={col}
+                    fontFamily="ui-monospace, monospace"
+                  >
+                    {e.kind}
+                  </text>
+                  <title>{`Wyckoff ${e.kind} · ${fmtPrice(e.price)} · ${e.dir === 1 ? "ACC" : "DIST"}`}</title>
+                </g>
+              );
+            })}
+          </g>
+        )}
 
         {/* signal markers */}
         {sigInView.map((s) => {
@@ -351,6 +480,30 @@ export function PriceChart({
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />
           {t(lang, "chart.legend.trades")}
         </span>
+        {wyOn && (
+          <>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-500/25 ring-1 ring-emerald-500/60" />
+              {t(lang, "chart.legend.wyacc")}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-rose-500/25 ring-1 ring-rose-500/60" />
+              {t(lang, "chart.legend.wydist")}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block h-0 w-0 border-x-[4px] border-b-[7px] border-x-transparent border-b-violet-500" />
+              {t(lang, "chart.legend.wyphc")}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block h-0 w-0 border-x-[4px] border-b-[7px] border-x-transparent border-b-orange-500" />
+              {t(lang, "chart.legend.wypivot")}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block h-0.5 w-4 bg-teal-500" />
+              {t(lang, "chart.legend.wyema")}
+            </span>
+          </>
+        )}
         <span>{pinnedIndex != null ? t(lang, "chart.hint.pinned") : t(lang, "chart.hint.pin")}</span>
         {viewEnd < n - 1 && (
           <Button
