@@ -460,6 +460,8 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   // AND the send happen on the SERVER (one digest per hour/day no matter how
   // many tabs or devices are open). Local refs only stop us re-posting the same
   // boundary every minute. force=true → extra manual "gửi ngay" digest.
+  // Digests only fire while Auto is ON — a parked terminal with Auto off must
+  // stay silent instead of spamming empty "0 mở · 0 đóng" reports every hour.
   const sendPeriodicStats = useCallback(async (force = false) => {
     if (statBusyRef.current) return;
     const c = cfgRef.current;
@@ -475,8 +477,8 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
       }
       return;
     }
-    const dueHour = c.statHourly && lastHourRef.current !== hourKey;
-    const dueDay = c.statDaily && lastDayRef.current !== dayKey;
+    const dueHour = c.on && c.statHourly && lastHourRef.current !== hourKey;
+    const dueDay = c.on && c.statDaily && lastDayRef.current !== dayKey;
     if (!dueHour && !dueDay) return;
     statBusyRef.current = true;
     try {
