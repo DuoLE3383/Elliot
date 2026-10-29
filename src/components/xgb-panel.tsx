@@ -66,7 +66,7 @@ export function XgbPanel({ lang, candles, busy, progress, result, stale, runs, o
               </Badge>
               <Badge
                 variant="outline"
-                className="border-amber-800/60 bg-amber-950/30 text-amber-300"
+                className="border-zinc-700 bg-zinc-900 text-zinc-300"
                 title={t(lang, "xgb.diff.tip")}
               >
                 {t(lang, "xgb.diff")} Lv{result.difficulty}
@@ -218,7 +218,7 @@ export function XgbPanel({ lang, candles, busy, progress, result, stale, runs, o
                   <span className="ml-auto shrink-0 font-mono text-zinc-300">{r.acc.toFixed(1)}%</span>
                   <span className="shrink-0 font-mono text-zinc-500">AUC {r.auc.toFixed(2)}</span>
                   <span
-                    className="shrink-0 font-mono text-amber-500/80"
+                    className="shrink-0 font-mono text-zinc-500"
                     title={t(lang, "xgb.diff.tip")}
                   >
                     Lv{r.params?.lv ?? 0}

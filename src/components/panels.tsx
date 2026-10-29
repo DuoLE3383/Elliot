@@ -283,7 +283,7 @@ export function SignalDock({
             <Row
               label={t(lang, "dock.row.flip")}
               value={t(lang, "dock.nextOpen")}
-              className="text-amber-400 text-xs font-medium"
+              className="text-zinc-400 text-xs font-medium"
               icon={<ArrowLeftRight className="h-3.5 w-3.5" />}
             />
             <Separator className="my-1.5 bg-zinc-800" />
@@ -293,7 +293,7 @@ export function SignalDock({
               className={(upnl ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}
             />
             {flippedOld && (
-              <p className="mt-1 text-[11px] leading-relaxed text-amber-500/90">
+              <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
                 {t(lang, "dock.flippedFrom")}{" "}
                 <span className="font-mono">
                   {flippedOld.side} {fmtPrice(flippedOld.entry)} → {fmtPrice(flippedOld.exit ?? 0)} (
@@ -304,26 +304,26 @@ export function SignalDock({
           </div>
         ) : /* ── Pending entry (gate blocked) ─────────────────────────── */
         pending ? (
-          <div className="rounded-lg border border-dashed border-amber-700/70 bg-amber-950/20 p-3">
+          <div className="rounded-lg border border-dashed border-zinc-700/70 bg-zinc-950/20 p-3">
             <div className="mb-1 flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wide text-amber-500">
+              <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
                 {t(lang, "dock.pending")}
               </span>
               <span className={`font-mono text-sm font-bold ${SIDE_COLOR(pending.side)}`}>{pending.side}</span>
             </div>
-            <p className="text-xs leading-relaxed text-amber-200/80">
+            <p className="text-xs leading-relaxed text-zinc-300">
               {needText(pending.side)}
               {(() => {
                 const d = distToGate(pending.side);
                 return d != null ? (
-                  <span className="text-amber-300/70"> · {t(lang, "dock.gate.dist", { pct: fmtPct(d) })}</span>
+                  <span className="text-zinc-500"> · {t(lang, "dock.gate.dist", { pct: fmtPct(d) })}</span>
                 ) : null;
               })()}
             </p>
             <Button
               size="sm"
               variant="outline"
-              className="mt-2 h-7 border-amber-700 px-2.5 text-[11px] text-amber-400 hover:bg-amber-950/60 hover:text-amber-300"
+              className="mt-2 h-7 border-zinc-700 px-2.5 text-[11px] text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
               onClick={() => onToggleGate(false)}
             >
               {t(lang, "dock.gate.offBtn")}
@@ -362,7 +362,7 @@ export function SignalDock({
             <Row
               label={t(lang, "dock.row.flip")}
               value={t(lang, "dock.nextOpen")}
-              className="text-amber-400 text-xs font-medium"
+              className="text-zinc-400 text-xs font-medium"
               icon={<ArrowLeftRight className="h-3.5 w-3.5" />}
             />
             {!planRef.smaOk && (
@@ -383,12 +383,12 @@ export function SignalDock({
 
         {/* ── Reversal banner (first-class) ─────────────────────────── */}
         {openPaper && flippedOld && (
-          <div className="rounded-lg border border-amber-600/70 bg-amber-950/40 p-3">
-            <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-amber-400">
+          <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3">
+            <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-zinc-200">
               <ArrowLeftRight className="h-3.5 w-3.5" />
               {t(lang, "dock.flipBanner")}
             </p>
-            <p className="mt-1 text-xs leading-relaxed text-amber-100/90">
+            <p className="mt-1 text-xs leading-relaxed text-zinc-400">
               {t(lang, "dock.flipClose")}{" "}
               <b className="font-mono">
                 {flippedOld.side} @{fmtPrice(flippedOld.exit ?? 0)}
@@ -403,12 +403,12 @@ export function SignalDock({
           </div>
         )}
         {formingOpposite && latest && (
-          <div className="rounded-lg border border-amber-600/50 bg-amber-950/25 p-3">
-            <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-amber-400">
+          <div className="rounded-lg border border-zinc-700/70 bg-zinc-900 p-3">
+            <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-zinc-200">
               <Crosshair className="h-3.5 w-3.5" />
               {t(lang, "dock.flipBanner")} — {t(lang, "dock.forming")}
             </p>
-            <p className="mt-1 text-xs leading-relaxed text-amber-100/80">
+            <p className="mt-1 text-xs leading-relaxed text-zinc-400">
               {t(lang, "dock.flipClose")}{" "}
               <b className={`font-mono ${SIDE_COLOR(openPaper!.side)}`}>{openPaper!.side}</b> →{" "}
               {t(lang, "dock.flipInto")}{" "}
@@ -471,7 +471,7 @@ export function SignalDock({
                 )}
                 {pinnedClosed && pinnedClosed.exitKind === "flip" && (
                   <p className="flex items-center gap-1.5">
-                    <ArrowLeftRight className="h-3 w-3 text-amber-500" />
+                    <ArrowLeftRight className="h-3 w-3 text-zinc-500" />
                     {t(lang, "dock.thatFlip")}:{" "}
                     <span className="font-mono text-zinc-200">
                       {pinnedClosed.side} {fmtPct(pinnedClosed.pnlPct ?? 0)}

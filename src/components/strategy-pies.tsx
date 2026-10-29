@@ -117,7 +117,7 @@ export function StrategyPies({ lang, klines, leverage }: Props) {
       <CardHeader className="pb-2">
         <div className="flex flex-wrap items-baseline justify-between gap-1">
           <CardTitle className="flex items-center gap-1.5 text-base font-semibold text-zinc-100">
-            <PieChart className="h-4 w-4 text-amber-400" />
+            <PieChart className="h-4 w-4 text-zinc-400" />
             {t(lang, "analysis.pies.title")}
           </CardTitle>
           <span className="text-[11px] text-zinc-600">

@@ -188,7 +188,7 @@ export function SuggestionHistory({ lang, symbol, interval, refreshKey }: Props)
             valueClass={stats.winRate != null && stats.winRate >= 50 ? "text-emerald-400" : undefined}
           />
           <StatTile
-            icon={<Clock3 className="h-3 w-3 text-amber-400" />}
+            icon={<Clock3 className="h-3 w-3 text-zinc-400" />}
             label={t(lang, "sg.pending", { n: stats.pending })}
             value={String(stats.pending)}
           />

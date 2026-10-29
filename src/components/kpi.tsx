@@ -109,7 +109,7 @@ export function KpiCards({ lang, stats, openPaper, leverage, openPnl, signals = 
     {
       label: t(lang, "kpi.flips"),
       value: String(stats.flipCount),
-      valueClass: "text-amber-400",
+      valueClass: "text-zinc-100",
       sub1: (
         <span className="text-zinc-500">
           {t(lang, "kpi.flipsSub", {

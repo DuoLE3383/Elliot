@@ -37,7 +37,7 @@ const resultBadge = (p: Paper, lang: Lang) => {
   }
   if (p.exitKind === "flip") {
     return (
-      <Badge className="border-0 bg-amber-950 text-amber-400 hover:bg-amber-950">
+      <Badge className="border-0 bg-zinc-800 text-zinc-300 hover:bg-zinc-800">
         {t(lang, "result.flip")}
       </Badge>
     );
@@ -175,7 +175,7 @@ export function Journal({ lang, papers, symbol, interval, maxListClass = "max-h-
                       </td>
                       <td className="px-3 py-2 text-right font-mono">
                         {fmtPrice(p.entry)}
-                        {p.flippedFrom && <span className="ml-1 text-amber-500" title={p.flippedFrom}>⇄</span>}
+                        {p.flippedFrom && <span className="ml-1 text-zinc-500" title={p.flippedFrom}>⇄</span>}
                       </td>
                       <td className="px-3 py-2 text-right font-mono">
                         {p.exit != null ? fmtPrice(p.exit) : <span className="text-zinc-600">—</span>}
@@ -225,7 +225,7 @@ export function Journal({ lang, papers, symbol, interval, maxListClass = "max-h-
                     >
                       {fmtPct(p.pnlPct!)}
                       {p.liquidated && <span className="ml-1.5 text-rose-400">· {t(lang, "result.liq")}</span>}
-                      {p.flippedFrom && <span className="ml-1.5 text-amber-500">⇄ {t(lang, "result.flip")}</span>}
+                      {p.flippedFrom && <span className="ml-1.5 text-zinc-500">⇄ {t(lang, "result.flip")}</span>}
                     </p>
                   )}
                 </div>

@@ -1051,7 +1051,7 @@ export default function Home() {
             key={toast.id}
             className={`pointer-events-auto rounded-lg border px-3.5 py-2.5 shadow-lg backdrop-blur ${
               toast.kind === "flip"
-                ? "border-amber-600 bg-amber-950/90"
+                ? "border-zinc-600 bg-zinc-950/90"
                 : toast.kind === "wy"
                   ? "border-violet-700 bg-violet-950/90"
                   : toast.kind === "xgb"
@@ -1065,7 +1065,7 @@ export default function Home() {
             role="status"
           >
             <p className="flex items-start gap-2 text-xs leading-relaxed text-zinc-100">
-              {toast.kind === "flip" && <ArrowLeftRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />}
+              {toast.kind === "flip" && <ArrowLeftRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-400" />}
               {toast.kind === "wy" && <Landmark className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-400" />}
               {toast.kind === "xgb" && <BrainCircuit className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-400" />}
               <span>{toast.text}</span>
