@@ -1,7 +1,7 @@
 // ─── /api/autotrade — dry-run auto-trading position book ─────────────────────
 // GET   → { trades, open, capital, stats } — capital = last closed capitalAfter
 // POST  { action: "open", symbol, interval, side, entryPrice, slPct, tpPct,
-//         leverage, prob, acc, auc, score, capitalBefore }
+//         leverage, stakePct, prob, acc, auc, score, capitalBefore }
 //         → opens ONE position; rejected while another is open
 // PATCH { action: "close", id, exitPrice, exitKind } → settles ROE + capital
 // PATCH { action: "reset" }                          → wipe the whole book
@@ -29,6 +29,7 @@ type TradeRow = {
   slPct: number;
   tpPct: number;
   leverage: number;
+  stakePct: number | null;
   status: string;
   exitPrice: number | null;
   exitTime: string | null;
@@ -53,6 +54,7 @@ const serialize = (r: {
   slPct: number;
   tpPct: number;
   leverage: number;
+  stakePct: number | null;
   status: string;
   exitPrice: number | null;
   exitTime: Date | null;
@@ -75,6 +77,7 @@ const serialize = (r: {
   slPct: r.slPct,
   tpPct: r.tpPct,
   leverage: r.leverage,
+  stakePct: r.stakePct,
   status: r.status === "open" ? "open" : "closed",
   exitPrice: r.exitPrice,
   exitTime: r.exitTime?.toISOString() ?? null,
@@ -147,6 +150,7 @@ export async function POST(req: NextRequest) {
       slPct: num(body.slPct, 0.1, 90, 2),
       tpPct: num(body.tpPct, 0.1, 90, 3),
       leverage: num(body.leverage, 1, 125, 1),
+      stakePct: num(body.stakePct, 1, 100, 100),
       prob: num(body.prob, 0, 1, 0.5),
       acc: num(body.acc, 0, 100, 0),
       auc: num(body.auc, 0, 1, 0.5),
@@ -193,7 +197,10 @@ export async function PATCH(req: NextRequest) {
   if (row.leverage > 1 && adverse <= -(100 / row.leverage)) pnlPct = -100;
 
   const capitalBefore = row.capitalBefore ?? 1000;
-  const capitalAfter = Math.max(0, Math.round(capitalBefore * (1 + pnlPct / 100) * 100) / 100);
+  // only the STAKED share of equity takes risk: delta = stake × ROE
+  const stakePct = row.stakePct ?? 100;
+  const delta = Math.round(capitalBefore * (stakePct / 100) * (pnlPct / 100) * 100) / 100;
+  const capitalAfter = Math.max(0, Math.round((capitalBefore + delta) * 100) / 100);
 
   const updated = await db.autoTrade.update({
     where: { id },

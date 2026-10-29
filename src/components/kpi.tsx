@@ -126,21 +126,23 @@ export function KpiCards({ lang, stats, openPaper, leverage, openPnl, signals = 
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
-      {cards.map((c, k) => (
-        <Card key={k} className="border-zinc-800 bg-zinc-900/60">
-          <CardContent className="p-3">
-            <div className="flex items-center justify-between">
-              <p className="truncate text-[11px] font-medium uppercase tracking-wide text-zinc-500">{c.label}</p>
+    /* one slim stat strip instead of five separate cards — tighter vertical
+       footprint, cells separated by hairline dividers on wide screens */
+    <Card className="border-zinc-800 bg-zinc-900/60">
+      <CardContent className="grid grid-cols-2 gap-x-3 gap-y-2.5 px-2.5 py-2 sm:grid-cols-3 xl:grid-cols-5 xl:gap-0 xl:divide-x xl:divide-zinc-800/70">
+        {cards.map((c, k) => (
+          <div key={k} className="min-w-0 px-2 xl:first:pl-2.5 xl:px-3 xl:last:pr-1">
+            <div className="flex items-center justify-between gap-1">
+              <p className="truncate text-[10px] font-medium uppercase tracking-wide text-zinc-500">{c.label}</p>
               {c.icon}
             </div>
-            <p className={`mt-0.5 font-mono text-xl font-bold leading-tight ${c.valueClass}`}>{c.value}</p>
-            <p className="mt-0.5 truncate text-[11px]">{c.sub1}</p>
-            {c.sub2 && <p className="truncate text-[10px] leading-tight">{c.sub2}</p>}
+            <p className={`mt-0.5 truncate font-mono text-lg font-bold leading-tight ${c.valueClass}`}>{c.value}</p>
+            <p className="truncate text-[10px] leading-tight">{c.sub1}</p>
+            {c.sub2 && <p className="truncate text-[9px] leading-tight">{c.sub2}</p>}
             {c.extra}
-          </CardContent>
-        </Card>
-      ))}
-    </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }

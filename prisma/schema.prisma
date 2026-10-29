@@ -99,6 +99,8 @@ model AutoTrade {
   slPct         Float
   tpPct         Float
   leverage      Float     @default(1)
+  /** share of equity staked on this trade, % (100 = all-in) */
+  stakePct      Float     @default(100)
   status        String    @default("open") // open | closed
   exitPrice     Float?
   exitTime      DateTime?

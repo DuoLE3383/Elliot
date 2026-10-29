@@ -728,10 +728,10 @@ export default function Home() {
       // channel convention is Vietnamese — matches the scan / open / close messages
       void sendTelegram(
         [
-          "🧠 TRAIN TOÀN BỘ XONG",
-          `${allPairs.length} pair × ${INTERVALS.length} khung · đã lưu ${saved}/${combos} combo`,
+          "🧠 <b>TRAIN TOÀN BỘ XONG</b>",
+          `${allPairs.length} pair × ${INTERVALS.length} TF · đã lưu <b>${saved}/${combos}</b> combo`,
           best
-            ? `Tốt nhất: #${best.symbol} ${best.interval} · ACC ${best.acc.toFixed(1)}% · AUC ${best.auc.toFixed(2)} · Điểm ${best.score.toFixed(1)}`
+            ? `🏆 Tốt nhất: <b>#${best.symbol}</b> ${best.interval} · ACC ${best.acc.toFixed(1)}% · AUC ${best.auc.toFixed(2)} · Score ${best.score.toFixed(1)}`
             : "",
         ]
           .filter(Boolean)
@@ -892,11 +892,7 @@ export default function Home() {
             signals={engine.signals}
           />
         ) : (
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
-            {Array.from({ length: 5 }, (_, k) => (
-              <Skeleton key={k} className="h-[76px] rounded-lg border border-zinc-800 bg-zinc-900" />
-            ))}
-          </div>
+          <Skeleton className="h-[72px] rounded-lg border border-zinc-800 bg-zinc-900" />
         )}
       </div>
 
@@ -1072,7 +1068,7 @@ export default function Home() {
               </Tabs>
             </div>
 
-            {/* ── RIGHT: dock + context + Wyckoff ────────────────────── */}
+            {/* ── RIGHT: controls first, then Auto, analytics in tabs ──── */}
             <div className="rail-scroll order-2 flex min-h-0 flex-col gap-3 lg:order-3 lg:overflow-y-auto lg:pl-0.5">
               <SignalDock
                 lang={lang}
@@ -1101,22 +1097,6 @@ export default function Home() {
                 onUnpin={() => setPinnedTime(null)}
                 pinnedSig={pinnedSig}
               />
-              <RailContext lang={lang} klines={klines} openPaper={engine.open} confirmed={confirmedSignal} />
-              <WyckoffPanel lang={lang} wy={wyckoff} on={wySettings.enabled} sens={wySettings.sens} />
-              <XgbPanel
-                lang={lang}
-                candles={klines.length}
-                busy={xgbBusy}
-                progress={xgbProgress}
-                result={xgb}
-                stale={xgbStale}
-                runs={xgbRuns}
-                allTrain={allTrain}
-                allPairsCount={allPairs.length}
-                onTrain={() => void trainXgb(true)}
-                onTrainAll={() => void trainAllXgb()}
-                onApply={applyXgb}
-              />
               <AutoPanel
                 lang={lang}
                 pairs={allPairs}
@@ -1129,6 +1109,52 @@ export default function Home() {
                 }}
                 pushToast={pushToast}
               />
+              {/* analytical panels share one tabbed card — the rail no longer
+                  scrolls past three stacked cards to reach Auto Trade */}
+              <Tabs defaultValue="context" className="shrink-0">
+                <TabsList className="h-8 w-full justify-start overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <TabsTrigger
+                    value="context"
+                    className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+                  >
+                    {t(lang, "tabs.context")}
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="wyckoff"
+                    className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+                  >
+                    {t(lang, "tabs.wyckoff")}
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="ai"
+                    className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+                  >
+                    {t(lang, "tabs.ai")}
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="context" className="mt-2">
+                  <RailContext lang={lang} klines={klines} openPaper={engine.open} confirmed={confirmedSignal} />
+                </TabsContent>
+                <TabsContent value="wyckoff" className="mt-2">
+                  <WyckoffPanel lang={lang} wy={wyckoff} on={wySettings.enabled} sens={wySettings.sens} />
+                </TabsContent>
+                <TabsContent value="ai" className="mt-2">
+                  <XgbPanel
+                    lang={lang}
+                    candles={klines.length}
+                    busy={xgbBusy}
+                    progress={xgbProgress}
+                    result={xgb}
+                    stale={xgbStale}
+                    runs={xgbRuns}
+                    allTrain={allTrain}
+                    allPairsCount={allPairs.length}
+                    onTrain={() => void trainXgb(true)}
+                    onTrainAll={() => void trainAllXgb()}
+                    onApply={applyXgb}
+                  />
+                </TabsContent>
+              </Tabs>
               <p className="px-1 pb-1 text-[10px] leading-snug text-zinc-700">{t(lang, "footer.note")}</p>
             </div>
           </>

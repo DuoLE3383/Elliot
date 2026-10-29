@@ -16,11 +16,13 @@ import {
   loadAutoConfig,
   nearHit,
   openAutoTrade,
+  RISK_CHOICES,
   roeOf,
   saveAutoConfig,
   scanAll,
   sendTelegram,
   slTpHit,
+  TP_MODES,
   telegramConfigured,
   telegramDiscover,
   telegramSaveChat,
@@ -68,85 +70,114 @@ const fmtLeft = (s: number): string => {
   return rh ? `${d}d ${rh}h` : `${d}d`;
 };
 
-// ─── Telegram message builders (channel language: Vietnamese) ────────────────
+// ─── Telegram message builders (HTML parse mode, trading terms) ──────────────
 
-const msgOpen = (r: AutoTradeRow, capital: number): string =>
-  [
-    "🤖 AUTO MỞ LỆNH (dry-run)",
-    `#${r.symbol} · ${r.interval} · ${r.side}`,
-    `Vào: ${fmtPrice(r.entryPrice)}`,
-    `SL −${r.slPct.toFixed(1)}% · TP +${r.tpPct.toFixed(1)}% · đòn bẩy ×${r.leverage % 1 === 0 ? r.leverage : r.leverage.toFixed(1)}`,
-    `Prob ${(r.prob != null ? r.prob * 100 : 0).toFixed(1)}% · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(1)}% · Điểm ${(r.score ?? 0).toFixed(1)}`,
-    `Vốn: ${capital.toFixed(2)} USDT`,
+const HR = "━━━━━━━━━━━━━━━━━━";
+const levTxt = (x: number): string => `×${x % 1 === 0 ? x : x.toFixed(1)}`;
+const sideTxt = (side: string): string => (side === "LONG" ? "LONG 🟢" : side === "SHORT" ? "SHORT 🔴" : "NEUTRAL ⚪");
+
+/** absolute SL price level for a side (price-move %, before leverage) */
+const slPrice = (side: string, entry: number, slPct: number): number =>
+  side === "SHORT" ? entry * (1 + Math.abs(slPct) / 100) : entry * (1 - Math.abs(slPct) / 100);
+/** absolute TP price level for a side */
+const tpPrice = (side: string, entry: number, tpPct: number): number =>
+  side === "SHORT" ? entry * (1 - Math.abs(tpPct) / 100) : entry * (1 + Math.abs(tpPct) / 100);
+
+const msgOpen = (r: AutoTradeRow, equity: number): string => {
+  const stake = (equity * (r.stakePct ?? 100)) / 100;
+  const notional = stake * r.leverage;
+  const rr = r.slPct > 0 ? r.tpPct / r.slPct : 0;
+  return [
+    `🤖 <b>AUTO OPEN (dry-run) · ${r.side === "LONG" ? "LONG 🟢" : "SHORT 🔴"}</b>`,
+    `📌 <b>#${r.symbol}</b> · ${r.interval}`,
+    HR,
+    `🎯 Entry: <b>${fmtPrice(r.entryPrice)}</b>`,
+    `🛑 Stop Loss: <b>−${r.slPct.toFixed(1)}%</b> (${fmtPrice(slPrice(r.side, r.entryPrice, r.slPct))})`,
+    `🏁 Take Profit: <b>+${r.tpPct.toFixed(1)}%</b> (${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))})`,
+    `⚖️ Leverage ${levTxt(r.leverage)} · R:R 1:${rr.toFixed(2)}`,
+    `📦 Stake: <b>${stake.toFixed(2)}</b> USDT · ${r.stakePct ?? 100}% equity · Notional ${notional.toFixed(2)} USDT`,
+    `🧠 Prob ${((r.prob ?? 0) * 100).toFixed(1)}% · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(1)}% · Score ${(r.score ?? 0).toFixed(1)}`,
   ].join("\n");
+};
 
-const kindVi = (k: string | null): string => (k === "tp" ? "CHẠM TP ✅" : k === "sl" ? "CẮT LỖ 🔻" : "ĐÓNG THỦ CÔNG");
+const kindTag = (k: string | null): string =>
+  k === "tp" ? "TAKE PROFIT ✅" : k === "sl" ? "STOP LOSS 🔻" : "ĐÓNG THỦ CÔNG ✋";
 
 const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPnlPct: number): string =>
   [
-    `🤖 AUTO ĐÓNG LỆNH · ${kindVi(r.exitKind)}`,
-    `#${r.symbol} ${r.interval} ${r.side}`,
-    `Ra: ${fmtPrice(r.exitPrice ?? 0)} · ROE ${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}%`,
-    `Vốn: ${(r.capitalBefore ?? 0).toFixed(2)} → ${(r.capitalAfter ?? 0).toFixed(2)} USDT`,
-    `Tổng: ${closed} lệnh · win ${winRate.toFixed(0)}% · net ROE ${netPnlPct >= 0 ? "+" : ""}${netPnlPct.toFixed(1)}%`,
+    `🤖 <b>AUTO CLOSE · ${kindTag(r.exitKind)}</b>`,
+    `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
+    HR,
+    `🎯 Entry ${fmtPrice(r.entryPrice)} → 🚪 Exit <b>${fmtPrice(r.exitPrice ?? 0)}</b>`,
+    `💵 PnL (ROE): <b>${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}%</b>`,
+    `💰 Equity: ${(r.capitalBefore ?? 0).toFixed(2)} → <b>${(r.capitalAfter ?? 0).toFixed(2)}</b> USDT`,
+    `📈 Track record: ${closed} lệnh · Win rate ${winRate.toFixed(0)}% · Net ROE ${netPnlPct >= 0 ? "+" : ""}${netPnlPct.toFixed(1)}%`,
   ].join("\n");
 
 const msgScan = (rows: ScanRow[], nPairs: number, nTf: number): string => {
-  const top3 = rows
+  const medals = ["1️⃣", "2️⃣", "3️⃣"];
+  const top = rows
     .slice(0, 3)
-    .map((r) => `${r.symbol} ${r.interval} (${r.score.toFixed(1)})`)
-    .join(" · ");
+    .map(
+      (r, i) =>
+        `${medals[i]} <b>${r.symbol}</b> ${r.interval} ${sideTxt(r.bias)} · Score <b>${r.score.toFixed(1)}</b>${
+          i === 0 ? ` · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(1)}%` : ""
+        }`,
+    )
+    .join("\n");
   const best = rows[0];
   return [
-    "📊 AUTO QUÉT XONG",
-    `${nPairs} pair × ${nTf} khung = ${nPairs * nTf} combo · ${rows.length} hợp lệ`,
-    best
-      ? `Tốt nhất: #${best.symbol} ${best.interval} ${best.bias} · AUC ${best.auc.toFixed(2)} · ACC ${best.acc.toFixed(1)}% · Điểm ${best.score.toFixed(1)}`
-      : "Không có combo hợp lệ",
-    top3 ? `Top 3: ${top3}` : "",
+    `📊 <b>AUTO SCAN · ${nPairs} pair × ${nTf} TF</b>`,
+    `✅ ${rows.length}/${nPairs * nTf} combo đạt chuẩn dữ liệu`,
+    HR,
+    best ? "🏆 <b>Top setups:</b>" : "Không có combo hợp lệ",
+    top,
   ]
     .filter(Boolean)
     .join("\n");
 };
 
-const TEST_MSG = "✅ Elliott terminal — kết nối Telegram OK.\nAuto trade (dry-run) sẽ báo mở/đóng lệnh và kết quả quét tại kênh này.";
+const TEST_MSG =
+  "✅ <b>Elliott Terminal — kết nối Telegram OK</b>\nAuto trade (dry-run) sẽ báo mở/đóng lệnh, cảnh báo sát TP/SL, kết quả quét và báo cáo thống kê tại kênh này.";
 
 const msgNear = (r: AutoTradeRow, price: number, kind: "tp" | "sl"): string => {
-  const dir = r.side === "SHORT" ? -1 : 1;
-  const targetPrice =
-    kind === "tp" ? r.entryPrice * (1 + (dir * Math.abs(r.tpPct)) / 100) : r.entryPrice * (1 - (dir * Math.abs(r.slPct)) / 100);
-  const awayPct = price > 0 ? Math.abs((targetPrice - price) / price) * 100 : 0;
+  const target = kind === "tp" ? tpPrice(r.side, r.entryPrice, r.tpPct) : slPrice(r.side, r.entryPrice, r.slPct);
+  const awayPct = price > 0 ? Math.abs((target - price) / price) * 100 : 0;
   const roe = roeOf(r.side, r.entryPrice, price, r.leverage);
   return [
-    kind === "tp" ? "⚠️ AUTO SẮP CHẠM TP" : "⚠️ AUTO SẮP CHẠM SL",
-    `#${r.symbol} ${r.interval} ${r.side}`,
-    `Giá: ${fmtPrice(price)} · cách ${kind === "tp" ? "TP" : "SL"} ${awayPct.toFixed(2)}%`,
-    `ROE: ${roe >= 0 ? "+" : ""}${roe.toFixed(1)}% · đòn bẩy ×${r.leverage % 1 === 0 ? r.leverage : r.leverage.toFixed(1)}`,
+    kind === "tp" ? "⚠️ <b>GIÁ SÁT TAKE PROFIT — SẴN SÀNG CHỐT LỜI</b>" : "⚠️ <b>GIÁ SÁT STOP LOSS — THEO DÕI RỦI RO</b>",
+    `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
+    HR,
+    `${kind === "tp" ? "🏁" : "🛑"} ${kind === "tp" ? "Take Profit" : "Stop Loss"} ${fmtPrice(target)} · còn <b>${awayPct.toFixed(2)}%</b>`,
+    `📈 Giá ${fmtPrice(price)} · ROE <b>${roe >= 0 ? "+" : ""}${roe.toFixed(1)}%</b> · Lev ${levTxt(r.leverage)}`,
   ].join("\n");
 };
 
-const statLines = (st: AutoState, sinceMs: number, title: string): string[] => {
+const statLines = (st: AutoState, sinceMs: number, title: string, periodLabel: string): string[] => {
   const recent = st.trades.filter((x) => x.status === "closed" && x.exitTime && new Date(x.exitTime).getTime() >= sinceMs);
   const wins = recent.filter((x) => (x.pnlPct ?? 0) > 0).length;
   const net = recent.reduce((a, x) => a + (x.pnlPct ?? 0), 0);
   const lines = [
     title,
-    `Khoảng qua: ${recent.length} lệnh · win ${recent.length ? Math.round((wins / recent.length) * 100) : 0}% · ROE ${net >= 0 ? "+" : ""}${net.toFixed(2)}%`,
+    HR,
+    `📊 ${periodLabel}: <b>${recent.length} lệnh</b> · Win rate <b>${recent.length ? Math.round((wins / recent.length) * 100) : 0}%</b> · Net ROE <b>${net >= 0 ? "+" : ""}${net.toFixed(2)}%</b>`,
   ];
-  if (st.open) lines.push(`Đang mở: #${st.open.symbol} ${st.open.interval} ${st.open.side} @ ${fmtPrice(st.open.entryPrice)}`);
-  lines.push(`Tổng: ${st.stats.closed} lệnh · win ${st.stats.winRate.toFixed(0)}% · vốn ${st.capital != null ? `${st.capital.toFixed(2)} USDT` : "?"}`);
+  if (st.open) lines.push(`🔓 Đang giữ: <b>#${st.open.symbol}</b> ${st.open.interval} ${sideTxt(st.open.side)} @ ${fmtPrice(st.open.entryPrice)}`);
+  lines.push(
+    `💰 Equity: <b>${st.capital != null ? st.capital.toFixed(2) : "?"}</b> USDT · Tổng ${st.stats.closed} lệnh · WR ${st.stats.winRate.toFixed(0)}%`,
+  );
   const best = (st.byCombo ?? []).filter((c) => c.closed >= 3).sort((a, b) => b.winRate - a.winRate)[0];
-  if (best) lines.push(`Tốt nhất: #${best.symbol} ${best.interval} · win ${best.winRate.toFixed(0)}% (${best.closed} lệnh)`);
+  if (best) lines.push(`🏆 Combo tốt nhất: <b>#${best.symbol}</b> ${best.interval} · WR ${best.winRate.toFixed(0)}% (${best.closed} lệnh)`);
   return lines;
 };
 
 const pad2 = (n: number): string => String(n).padStart(2, "0");
 
 const msgHourly = (st: AutoState, now: Date): string =>
-  statLines(st, now.getTime() - 3_600_000, `⏰ AUTO BÁO CÁO GIỜ · ${pad2(now.getHours())}:00`).join("\n");
+  statLines(st, now.getTime() - 3_600_000, `⏰ <b>BÁO CÁO GIỜ · ${pad2(now.getHours())}:00</b>`, "1 giờ qua").join("\n");
 
 const msgDaily = (st: AutoState, now: Date): string =>
-  statLines(st, now.getTime() - 86_400_000, `📅 AUTO BÁO CÁO NGÀY · ${pad2(now.getDate())}/${pad2(now.getMonth() + 1)}`).join("\n");
+  statLines(st, now.getTime() - 86_400_000, `📅 <b>BÁO CÁO NGÀY · ${pad2(now.getDate())}/${pad2(now.getMonth() + 1)}</b>`, "24 giờ qua").join("\n");
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -353,8 +384,10 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
         interval: best.interval,
         side: best.bias,
         entryPrice: price,
-        slPct: best.slPct,
-        tpPct: best.tpPct,
+        // manual mode overrides the per-proposal ATR levels with fixed ones
+        slPct: c.tpMode === "manual" ? c.slPct : best.slPct,
+        tpPct: c.tpMode === "manual" ? c.tpPct : best.tpPct,
+        stakePct: c.riskPct,
         leverage: leverageRef.current,
         prob: best.prob,
         acc: best.acc,
@@ -458,7 +491,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
         const st = await refreshAuto();
         if (st) {
           void sendTelegram(
-            statLines(st, now.getTime() - 86_400_000, `📊 AUTO THỐNG KÊ · ${pad2(now.getHours())}:${pad2(now.getMinutes())}`).join("\n"),
+            statLines(st, now.getTime() - 86_400_000, `📊 <b>AUTO THỐNG KÊ · ${pad2(now.getHours())}:${pad2(now.getMinutes())}</b>`, "24 giờ qua").join("\n"),
           );
         }
       } finally {
@@ -605,7 +638,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
       </CardHeader>
 
       <CardContent className="space-y-3 pt-0">
-        {/* config */}
+        {/* config — risk control first: equity share per trade + TP/SL source */}
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-1.5 text-[11px] text-zinc-500">
             {t(lang, "auto.cfg.capital")}
@@ -617,6 +650,67 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
               className="h-7 w-24 border-zinc-800 bg-zinc-950/60 px-2 font-mono text-xs text-zinc-100"
             />
           </label>
+          <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.risk")}>
+            <span className="mr-0.5 text-[11px] text-zinc-500">{t(lang, "auto.cfg.risk")}</span>
+            {RISK_CHOICES.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => updateCfg({ riskPct: p })}
+                className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
+                  cfg.riskPct === p
+                    ? "border-teal-700 bg-teal-950/40 text-teal-300"
+                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                }`}
+              >
+                {p}%
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.tpmode")}>
+            <span className="mr-0.5 text-[11px] text-zinc-500">TP/SL</span>
+            {TP_MODES.map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => updateCfg({ tpMode: m })}
+                className={`h-7 rounded-md border px-2 text-[11px] ${
+                  cfg.tpMode === m
+                    ? "border-teal-700 bg-teal-950/40 text-teal-300"
+                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                }`}
+              >
+                {t(lang, m === "auto" ? "auto.cfg.tpAuto" : "auto.cfg.tpManual")}
+              </button>
+            ))}
+            {cfg.tpMode === "manual" && (
+              <label className="flex items-center gap-1 text-[11px] text-zinc-500">
+                SL
+                <Input
+                  type="number"
+                  min={0.2}
+                  max={20}
+                  step={0.1}
+                  value={cfg.slPct}
+                  onChange={(e) => updateCfg({ slPct: Math.min(20, Math.max(0.2, Number(e.target.value) || 1)) })}
+                  className="h-7 w-14 border-rose-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-rose-300"
+                />
+                TP
+                <Input
+                  type="number"
+                  min={0.2}
+                  max={30}
+                  step={0.1}
+                  value={cfg.tpPct}
+                  onChange={(e) => updateCfg({ tpPct: Math.min(30, Math.max(0.2, Number(e.target.value) || 1.5)) })}
+                  className="h-7 w-14 border-emerald-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-emerald-300"
+                />
+                %
+              </label>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.cycle")}>
             <span className="mr-0.5 text-[11px] text-zinc-500">{t(lang, "auto.cfg.cycle")}</span>
             {CYCLE_CHOICES.map((c) => (
@@ -686,7 +780,6 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
             </Button>
           </div>
         </div>
-        <p className="text-[11px] text-zinc-600">{t(lang, "auto.cfg.min", { auc: cfg.minAuc.toFixed(2), acc: cfg.minAcc })}</p>
 
         {/* scan actions */}
         <div className="flex flex-wrap items-center gap-2">
@@ -857,6 +950,14 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
               </span>
               <span className="text-zinc-500">{t(lang, "auto.pos.entry")}</span>
               <span className="text-right font-mono text-zinc-200">{fmtPrice(open.entryPrice)}</span>
+              <span className="text-zinc-500">{t(lang, "auto.pos.stake")}</span>
+              <span className="text-right font-mono text-zinc-200">
+                {(((open.capitalBefore ?? capitalNow) * (open.stakePct ?? 100)) / 100).toFixed(2)} USDT · {open.stakePct ?? 100}%
+                <span className="text-zinc-500">
+                  {" "}
+                  · {t(lang, "auto.pos.notional")} {((((open.capitalBefore ?? capitalNow) * (open.stakePct ?? 100)) / 100) * open.leverage).toFixed(2)}
+                </span>
+              </span>
               <span className="text-zinc-500">SL / TP</span>
               <span className="text-right font-mono">
                 <span className="text-rose-300">−{open.slPct.toFixed(1)}%</span> / <span className="text-emerald-300">+{open.tpPct.toFixed(1)}%</span> · ×{open.leverage}

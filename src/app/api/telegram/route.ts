@@ -33,12 +33,14 @@ export async function POST(req: NextRequest) {
   if (!text) {
     return NextResponse.json({ error: "text required" }, { status: 400 });
   }
+  // only HTML is whitelisted — anything else sends as plain text
+  const parseMode = body.parse_mode === "HTML" ? "HTML" : undefined;
 
   try {
     const res = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chat.id, text, disable_web_page_preview: true }),
+      body: JSON.stringify({ chat_id: chat.id, text, parse_mode: parseMode, disable_web_page_preview: true }),
       signal: AbortSignal.timeout(8000),
     });
     const json = (await res.json().catch(() => null)) as { ok?: boolean; description?: string } | null;

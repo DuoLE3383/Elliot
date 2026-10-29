@@ -248,6 +248,8 @@ export interface AutoTradeRow {
   slPct: number;
   tpPct: number;
   leverage: number;
+  /** share of equity staked on this trade, % (100 = all-in) */
+  stakePct: number | null;
   status: string;
   exitPrice: number | null;
   exitTime: string | null;
@@ -294,6 +296,8 @@ export async function openAutoTrade(payload: {
   slPct: number;
   tpPct: number;
   leverage: number;
+  /** equity share staked on this trade, % */
+  stakePct: number;
   prob: number;
   acc: number;
   auc: number;
@@ -412,13 +416,17 @@ export async function telegramSaveChat(chatId: string): Promise<boolean> {
   }
 }
 
-/** Fire-and-forget notification — resolves {ok:false, detail} instead of throwing. */
-export async function sendTelegram(text: string): Promise<{ ok: boolean; detail?: string }> {
+/**
+ * Fire-and-forget notification — resolves {ok:false, detail} instead of throwing.
+ * `html: true` (default) sends with parse_mode HTML — templates must escape
+ * raw < > & themselves (pair names / numbers never contain them).
+ */
+export async function sendTelegram(text: string, opts?: { html?: boolean }): Promise<{ ok: boolean; detail?: string }> {
   try {
     const res = await fetch("/api/telegram", {
       method: "POST",
       headers: jsonHeaders,
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, parse_mode: opts?.html === false ? undefined : "HTML" }),
     });
     if (!res.ok) {
       const json = (await res.json().catch(() => null)) as { detail?: string } | null;
@@ -436,13 +444,21 @@ export const AUTO_LS_KEY = "utp.auto";
 
 export interface AutoConfig {
   on: boolean;
-  /** dry-run starting capital, USDT */
+  /** dry-run starting equity, USDT */
   capital: number;
+  /** share of equity staked per trade, % (100 = all-in) */
+  riskPct: number;
+  /** TP/SL source: "auto" = per-proposal ATR levels from the scan row, "manual" = fixed */
+  tpMode: "auto" | "manual";
+  /** manual SL % (price move, before leverage) — used when tpMode = manual */
+  slPct: number;
+  /** manual TP % (price move, before leverage) — used when tpMode = manual */
+  tpPct: number;
   /** cycle interval, minutes */
   cycleMin: number;
-  /** min validation AUC to trade a scan row */
+  /** min validation AUC to trade a scan row (internal quality gate, no UI) */
   minAuc: number;
-  /** min validation accuracy % to trade a scan row */
+  /** min validation accuracy % to trade a scan row (internal quality gate, no UI) */
   minAcc: number;
   /** wait after an SL exit on the same combo, minutes (0 = off) */
   cooldownMin: number;
@@ -452,8 +468,23 @@ export interface AutoConfig {
   statDaily: boolean;
 }
 
-export const AUTO_DEFAULTS: AutoConfig = { on: false, capital: 1000, cycleMin: 5, minAuc: 0.55, minAcc: 55, cooldownMin: 30, statHourly: true, statDaily: true };
+export const AUTO_DEFAULTS: AutoConfig = {
+  on: false,
+  capital: 1000,
+  riskPct: 25,
+  tpMode: "auto",
+  slPct: 1,
+  tpPct: 1.5,
+  cycleMin: 5,
+  minAuc: 0.55,
+  minAcc: 55,
+  cooldownMin: 30,
+  statHourly: true,
+  statDaily: true,
+};
 export const COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
+export const RISK_CHOICES = [10, 25, 50, 100] as const;
+export const TP_MODES = ["auto", "manual"] as const;
 
 /** auto-trade rescan cycle choices — minutes + display label ("1w" = 1 tuần) */
 export const CYCLE_CHOICES = [
@@ -475,6 +506,10 @@ export function loadAutoConfig(): AutoConfig {
     return {
       on: p.on === true,
       capital: typeof p.capital === "number" && p.capital > 0 ? p.capital : AUTO_DEFAULTS.capital,
+      riskPct: RISK_CHOICES.includes(p.riskPct as (typeof RISK_CHOICES)[number]) ? (p.riskPct as number) : AUTO_DEFAULTS.riskPct,
+      tpMode: p.tpMode === "manual" ? "manual" : "auto",
+      slPct: typeof p.slPct === "number" ? Math.min(20, Math.max(0.2, p.slPct)) : AUTO_DEFAULTS.slPct,
+      tpPct: typeof p.tpPct === "number" ? Math.min(30, Math.max(0.2, p.tpPct)) : AUTO_DEFAULTS.tpPct,
       cycleMin: CYCLE_CHOICES.some((c) => c.m === p.cycleMin) ? (p.cycleMin as number) : AUTO_DEFAULTS.cycleMin,
       minAuc: typeof p.minAuc === "number" ? Math.min(0.8, Math.max(0.5, p.minAuc)) : AUTO_DEFAULTS.minAuc,
       minAcc: typeof p.minAcc === "number" ? Math.min(80, Math.max(50, p.minAcc)) : AUTO_DEFAULTS.minAcc,
