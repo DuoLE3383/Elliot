@@ -5,16 +5,33 @@
 // to db/telegram.json (git-ignored) so they survive restarts too.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { randomBytes, timingSafeEqual } from "crypto";
 import path from "path";
 import { dataFile } from "./data-dir";
 
 const FILE = dataFile("telegram.json");
+
+interface TgConnect {
+  /** one-time secret carried in the ?tg= connect link (never the token itself) */
+  secret: string;
+  /** the bot token handed to the consuming device */
+  token: string;
+  bot?: string;
+  verified?: boolean;
+  createdAt: number;
+}
 
 interface TgStore {
   chatId?: string;
   botToken?: string;
   /** alternate Telegram Bot API origin (Cloudflare Worker proxy) — fights 503s */
   apiBase?: string;
+  /** @username from the last successful getMe (display only) */
+  bot?: string;
+  /** false = stored but never verified against Telegram (network was down) */
+  verified?: boolean;
+  /** pending one-time connect link (auto-connect via ?tg=… URL) */
+  connect?: TgConnect;
 }
 
 function readStore(): TgStore {
@@ -58,12 +75,59 @@ export function getStoredToken(): string | null {
   return typeof t === "string" && t ? t : null;
 }
 
-export function setStoredToken(token: string): void {
-  writeStore({ botToken: token.trim() });
+/** Persist the runtime token together with its verification metadata. */
+export function setStoredToken(token: string, meta?: { bot?: string | null; verified?: boolean }): void {
+  writeStore({
+    botToken: token.trim(),
+    bot: meta?.bot ?? "",
+    verified: meta?.verified ?? false,
+  });
+}
+
+/** Display metadata of the STORED token (null fields when the token came from env). */
+export function getStoredTokenMeta(): { bot: string | null; verified: boolean | null } {
+  const s = readStore();
+  if (!s.botToken) return { bot: null, verified: null };
+  return {
+    bot: typeof s.bot === "string" && s.bot ? s.bot : null,
+    verified: s.verified === undefined ? null : s.verified === true,
+  };
 }
 
 export function clearStoredToken(): void {
-  writeStore({ botToken: "" });
+  writeStore({ botToken: "", bot: "", verified: false });
+}
+
+// ─── One-time connect links (?tg=<secret> auto-connect) ───────────────────────
+// The panel can mint a short-lived link so another device (phone, fresh VPS
+// install) connects Telegram WITHOUT pasting the bot token: the secret is
+// stored server-side and swapped for the real token exactly once, then dies.
+
+const CONNECT_TTL_MS = 30 * 60_000;
+
+/** Mint a fresh one-time connect link bound to the current effective token. */
+export function createConnectLink(token: string, bot: string | null, verified: boolean): string {
+  const secret = randomBytes(16).toString("hex"); // 128-bit — not guessable
+  writeStore({ connect: { secret, token, bot: bot ?? undefined, verified, createdAt: Date.now() } });
+  return secret;
+}
+
+/**
+ * Consume a connect secret: valid, unused, <30 min old → return the bound
+ * token and DELETE the link (one-time). Anything else → null.
+ */
+export function popConnectLink(secret: string): { token: string; bot: string | null; verified: boolean } | null {
+  const c = readStore().connect;
+  if (!c || !c.token) return null;
+  const a = Buffer.from(secret);
+  const b = Buffer.from(c.secret ?? "");
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  if (Date.now() - c.createdAt > CONNECT_TTL_MS) {
+    writeStore({ connect: undefined }); // expired → clean up
+    return null;
+  }
+  writeStore({ connect: undefined }); // burn it — one-time use
+  return { token: c.token, bot: c.bot ?? null, verified: c.verified !== false };
 }
 
 /** Effective chat id: runtime override first, then the .env default. */
@@ -156,13 +220,14 @@ export async function tgApi(
   method: string,
   body?: Record<string, unknown>,
   attempts = 3,
+  tokenOverride?: string,
 ): Promise<TgApiResult> {
-  const tok = effectiveToken();
-  if (!tok.token) return { json: null, status: 0, detail: "telegram_not_configured" };
+  const tok = tokenOverride?.trim() || effectiveToken().token;
+  if (!tok) return { json: null, status: 0, detail: "telegram_not_configured" };
   const { base } = effectiveApiBase();
   for (let i = 1; ; i++) {
     try {
-      const res = await fetch(`${base}/bot${tok.token}/${method}`, {
+      const res = await fetch(`${base}/bot${tok}/${method}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),

@@ -39,6 +39,43 @@ export function sessionOf(now: number | Date): SessionKey[] {
   return SESSIONS.filter((s) => inRange(h, s.from, s.to)).map((s) => s.key);
 }
 
+/**
+ * One-hot session encoding for a candle OPEN time (ms) — order follows
+ * SESSION_ORDER: [sydney, tokyo, london, newyork]. Pure function of the
+ * timestamp → no lookahead, safe as model features.
+ */
+export function sessionOneHot(t: number): [number, number, number, number] {
+  const h = new Date(t).getUTCHours();
+  return SESSION_ORDER.map((key) => {
+    const s = SESSIONS.find((d) => d.key === key);
+    return s && inRange(h, s.from, s.to) ? 1 : 0;
+  }) as [number, number, number, number];
+}
+
+/**
+ * UTC time-of-day as sin/cos (period 24h) for a candle OPEN time — lets the
+ * model learn intraday seasonality without a hard session boundary.
+ */
+export function hourFeatures(t: number): [number, number] {
+  const frac = (((t / 60_000) % 1440) + 1440) % 1440 / 1440;
+  const a = 2 * Math.PI * frac;
+  return [Math.sin(a), Math.cos(a)];
+}
+
+/** Next session to OPEN after `now` (currently-open ones are skipped). */
+export function nextSessionOpen(now: number | Date): { key: SessionKey; inMin: number } | null {
+  const d = new Date(now);
+  const nowMin = d.getUTCHours() * 60 + d.getUTCMinutes();
+  let best: { key: SessionKey; inMin: number } | null = null;
+  for (const s of SESSIONS) {
+    const start = s.from * 60;
+    const delta = (start - nowMin + 1440) % 1440 || 1440; // exactly on open → not "next" yet
+    if (inRange(d.getUTCHours(), s.from, s.to)) continue; // already open
+    if (!best || delta < best.inMin) best = { key: s.key, inMin: delta };
+  }
+  return best;
+}
+
 /** Bar geometry (fractions 0..1 of a 24h strip) for one session. */
 export function sessionBar(s: SessionDef): { left: number; width: number } {
   const span = s.from > s.to ? 24 - s.from + s.to : s.to - s.from;

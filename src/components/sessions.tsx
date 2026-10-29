@@ -7,6 +7,7 @@ import {
   SESSIONS,
   fmtCompact,
   gmtLabel,
+  nextSessionOpen,
   sessionBar,
   sessionHours,
   sessionHoursLocal,
@@ -15,7 +16,7 @@ import {
   whaleDelta,
 } from "@/lib/market";
 import type { Kline } from "@/lib/types";
-import { Clock, Waves } from "lucide-react";
+import { Clock, Radar, Waves } from "lucide-react";
 
 const SESSION_LABEL: Record<string, string> = {
   sydney: "sess.sydney",
@@ -125,6 +126,51 @@ export function SessionsPanel({ lang, klines }: { lang: Lang; klines: Kline[] })
         })}
 
         <p className="text-[10px] leading-relaxed text-zinc-600">{t(lang, "sess.note")}</p>
+
+        {/* ── Session forecast — frequentist lean from the same closed candles ── */}
+        {(() => {
+          const valid = stats.filter((s) => s.bullPct != null && s.candles >= 5);
+          if (valid.length === 0) return null;
+          const best = valid.reduce((a, b) => ((b.bullPct ?? 0) > (a.bullPct ?? 0) ? b : a));
+          const worst = valid.reduce((a, b) => ((b.bullPct ?? 100) < (a.bullPct ?? 100) ? b : a));
+          const nx = nextSessionOpen(now);
+          const nxStat = nx ? byKey.get(nx.key) : undefined;
+          const inLabel =
+            nx == null
+              ? ""
+              : nx.inMin >= 60
+                ? `${Math.floor(nx.inMin / 60)}h${nx.inMin % 60 ? ` ${nx.inMin % 60}p` : ""}`
+                : `${nx.inMin}p`;
+          return (
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5">
+              <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                <Radar className="h-3.5 w-3.5" />
+                {t(lang, "sess.forecast.title")}
+              </p>
+              {nx && nxStat?.bullPct != null && (
+                <p className="mt-1.5 text-[11px] text-zinc-300">
+                  {t(lang, "sess.forecast.next", { sess: t(lang, SESSION_LABEL[nx.key]), in: inLabel })}{" "}
+                  <span className={nxStat.bullPct >= 50 ? "font-semibold text-emerald-400" : "font-semibold text-rose-400"}>
+                    {t(lang, "sess.forecast.lean", {
+                      dir: nxStat.bullPct >= 50 ? "LONG" : "SHORT",
+                      p: Math.max(nxStat.bullPct, 100 - nxStat.bullPct).toFixed(0),
+                      n: nxStat.candles,
+                    })}
+                  </span>
+                </p>
+              )}
+              <p className="mt-1 text-[11px] text-zinc-400">
+                {t(lang, "sess.forecast.best", {
+                  hi: t(lang, SESSION_LABEL[best.key]),
+                  hip: (best.bullPct ?? 0).toFixed(0),
+                  lo: t(lang, SESSION_LABEL[worst.key]),
+                  lop: (worst.bullPct ?? 0).toFixed(0),
+                })}
+              </p>
+              <p className="mt-1 text-[10px] leading-relaxed text-zinc-600">{t(lang, "sess.forecast.note")}</p>
+            </div>
+          );
+        })()}
 
         {/* ── Whale / taker delta ─────────────────────────────────────── */}
         <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5">

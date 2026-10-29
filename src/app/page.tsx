@@ -10,6 +10,7 @@ import { SessionsPanel } from "@/components/sessions";
 import { SignalDock } from "@/components/panels";
 import { PriceChart } from "@/components/price-chart";
 import { RailContext } from "@/components/rail-context";
+import { TgLinkBootstrap } from "@/components/tg-connect-link";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { SuggestionHistory } from "@/components/suggestions";
 import { TickerStrip } from "@/components/ticker-strip";
@@ -821,6 +822,8 @@ export default function Home() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-zinc-950 text-zinc-100 lg:h-dvh lg:min-h-0 lg:overflow-hidden">
+      {/* one-time ?tg= connect-link consumer — must live outside every tab */}
+      <TgLinkBootstrap />
       {/* ── Header — ELLIOTT terminal bar ──────────────────────────── */}
       <header className="shrink-0 border-b border-zinc-800 bg-zinc-950/95 backdrop-blur">
         <div className="flex h-12 items-center gap-2 px-3">

@@ -3,18 +3,21 @@
 // POST { text } → sendMessage to the effective channel (runtime store → .env)
 
 import { NextRequest, NextResponse } from "next/server";
-import { effectiveChatId, effectiveToken, tgSendMessage } from "@/lib/telegram-store";
+import { effectiveChatId, effectiveToken, getStoredTokenMeta, tgSendMessage } from "@/lib/telegram-store";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   const chat = effectiveChatId();
   const tok = effectiveToken();
+  const meta = getStoredTokenMeta();
   return NextResponse.json({
     configured: Boolean(tok.token && chat.id),
     chatId: chat.id,
     source: chat.source,
     tokenSource: tok.source,
+    verified: tok.source === "store" ? meta.verified !== false : tok.token != null,
+    bot: tok.source === "store" ? meta.bot : null,
   });
 }
 

@@ -48,7 +48,7 @@ const serialize = (r: {
           const o = x as Record<string, unknown>;
           return typeof o.name === "string" && typeof o.gain === "number";
         })
-        .slice(0, 13);
+        .slice(0, 22);
     }
   } catch {
     // corrupted row → empty importance
@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
             const o = x as Record<string, unknown>;
             return typeof o.name === "string" && typeof o.gain === "number";
           })
-          .slice(0, 13),
+          .slice(0, 22),
       )
     : "[]";
   const params =

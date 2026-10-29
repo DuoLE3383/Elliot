@@ -31,6 +31,7 @@ import {
   telegramSaveChat,
   telegramSaveToken,
   telegramStatus,
+  telegramCreateLink,
   AUTO_DEFAULTS,
   type AutoConfig,
   type AutoState,
@@ -44,7 +45,7 @@ import { fmtPrice, t, type Lang } from "@/lib/i18n";
 import type { EngineSettings, Ticker } from "@/lib/types";
 import { INTERVALS } from "@/lib/types";
 import { llmReviewViaApi, type LlmVerdict } from "@/lib/llm";
-import { Bot, KeyRound, ScanLine, Send, Square } from "lucide-react";
+import { Bot, Copy, KeyRound, Link2, ScanLine, Send, Square } from "lucide-react";
 
 interface Props {
   lang: Lang;
@@ -209,6 +210,10 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const [tgSavingToken, setTgSavingToken] = useState(false);
   const [tgBotUser, setTgBotUser] = useState<string | null>(null); // @username from getMe
   const [tgTokenSrc, setTgTokenSrc] = useState<"store" | "env" | null>(null);
+  const [tgVerified, setTgVerified] = useState<boolean | null>(null); // stored-but-unverified support
+  const [tgLink, setTgLink] = useState<string | null>(null); // one-time ?tg= connect link
+  const [tgLinkBusy, setTgLinkBusy] = useState(false);
+  const [tgLinkCopied, setTgLinkCopied] = useState(false);
   const [tgBase, setTgBase] = useState<TgApiBase | null>(null); // effective API origin (proxy?)
   const [tgBaseInput, setTgBaseInput] = useState("");
   const [tgSavingBase, setTgSavingBase] = useState(false);
@@ -318,6 +323,8 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
       if (!mountedRef.current) return;
       setTgChatId(s.chatId);
       setTgTokenSrc(s.tokenSource ?? null);
+      setTgVerified(s.verified ?? null);
+      if (s.bot) setTgBotUser(s.bot);
     });
     void telegramGetBase().then((b) => {
       if (mountedRef.current && b) setTgBase(b);
@@ -666,8 +673,13 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
       setTgBotUser(r.bot ?? null);
       setTgTokenSrc("store");
       setTgConfigured(true);
+      setTgVerified(r.verified !== false);
       setTgTokenInput("");
-      pushToast({ kind: "xgb", text: t(lang, "auto.tg.token.saved", { bot: r.bot ?? "?" }) });
+      pushToast(
+        r.verified === false
+          ? { kind: "wy", text: t(lang, "auto.tg.token.savedUnv") }
+          : { kind: "xgb", text: t(lang, "auto.tg.token.saved", { bot: r.bot ?? "?" }) },
+      );
       void checkTg(); // will succeed or open the channel guide (chat not found)
     } else {
       const busy = /telegram_busy|HTTP 50\d|Overload/i.test(r.detail ?? "");
@@ -676,6 +688,34 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
         : t(lang, "auto.tg.token.bad", { detail: r.detail ?? "?" });
       setTgDetail(msg);
       pushToast({ kind: "error", text: msg });
+    }
+  };
+
+  // mint a one-time ?tg= auto-connect link bound to the current bot token
+  const createLink = async () => {
+    if (tgLinkBusy) return;
+    setTgLinkBusy(true);
+    const r = await telegramCreateLink();
+    if (mountedRef.current) {
+      setTgLinkBusy(false);
+      if (r.ok && r.url) {
+        setTgLink(r.url);
+        setTgLinkCopied(false);
+        void navigator.clipboard?.writeText(r.url).then(() => setTgLinkCopied(true)).catch(() => {});
+      } else {
+        pushToast({ kind: "error", text: t(lang, "auto.tg.link.bad", { detail: r.detail ?? "?" }) });
+      }
+    }
+  };
+
+  const copyLink = async () => {
+    if (!tgLink) return;
+    try {
+      await navigator.clipboard.writeText(tgLink);
+      setTgLinkCopied(true);
+      window.setTimeout(() => mountedRef.current && setTgLinkCopied(false), 2000);
+    } catch {
+      // clipboard blocked — the URL stays selectable in the input
     }
   };
 
@@ -973,12 +1013,19 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
           <div className="space-y-2 rounded-lg border border-amber-800/50 bg-amber-950/20 p-2.5">
             <div className="flex flex-wrap items-center justify-between gap-1.5">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-300">{t(lang, "auto.tg.token.title")}</p>
-              {tgTokenSrc && (
-                <span className="font-mono text-[10px] text-zinc-500">
-                  {t(lang, "auto.tg.token.set", { src: tgTokenSrc === "store" ? "runtime" : ".env" })}
-                  {tgBotUser && <span className="ml-1 text-teal-400">@{tgBotUser}</span>}
-                </span>
-              )}
+              <span className="flex items-center gap-1.5">
+                {tgVerified === false && (
+                  <span className="rounded bg-amber-950 px-1.5 py-0.5 text-[10px] font-bold text-amber-400" title={t(lang, "auto.tg.unverifiedTip")}>
+                    ⚠ {t(lang, "auto.tg.unverified")}
+                  </span>
+                )}
+                {tgTokenSrc && (
+                  <span className="font-mono text-[10px] text-zinc-500">
+                    {t(lang, "auto.tg.token.set", { src: tgTokenSrc === "store" ? "runtime" : ".env" })}
+                    {tgBotUser && <span className="ml-1 text-teal-400">@{tgBotUser}</span>}
+                  </span>
+                )}
+              </span>
             </div>
             <p className="text-[11px] leading-relaxed text-zinc-400">{t(lang, "auto.tg.token.how")}</p>
             <div className="flex items-center gap-1.5">
@@ -1011,6 +1058,45 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
                 {t(lang, "auto.tg.openbot", { bot: tgBotUser })}
               </a>
             )}
+
+            {/* one-time ?tg= link — connect any other device without pasting the token */}
+            <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/50 p-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">🔗 {t(lang, "auto.tg.link.title")}</p>
+              <p className="text-[11px] leading-relaxed text-zinc-400">{t(lang, "auto.tg.link.hint")}</p>
+              {tgLink && (
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    readOnly
+                    value={tgLink}
+                    onFocus={(e) => e.currentTarget.select()}
+                    className="h-8 flex-1 border-teal-800 bg-zinc-950/60 font-mono text-[10px] text-teal-200"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 shrink-0 border-teal-700 px-2 text-[11px] text-teal-300 hover:bg-teal-950/40"
+                    onClick={() => void copyLink()}
+                  >
+                    <Copy className="mr-1 h-3 w-3" />
+                    {tgLinkCopied ? t(lang, "auto.tg.link.copied") : t(lang, "auto.tg.link.copy")}
+                  </Button>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                  disabled={tgLinkBusy || tgTokenSrc == null}
+                  title={tgTokenSrc == null ? t(lang, "auto.tg.link.needToken") : undefined}
+                  onClick={() => void createLink()}
+                >
+                  <Link2 className="mr-1.5 h-3 w-3" />
+                  {tgLinkBusy ? "…" : tgLink ? t(lang, "auto.tg.link.again") : t(lang, "auto.tg.link.create")}
+                </Button>
+                <span className="text-[10px] text-zinc-600">{t(lang, "auto.tg.link.expires")}</span>
+              </div>
+            </div>
 
             {/* anti-503 — route Bot-API calls through a Cloudflare Worker proxy */}
             <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/50 p-2">

@@ -374,6 +374,10 @@ export interface TgStatus {
   chatId: string | null;
   source: "store" | "env" | null;
   tokenSource?: "store" | "env" | null;
+  /** false = stored but not yet verified against Telegram (network was down) */
+  verified?: boolean;
+  /** @username of the stored bot, when known */
+  bot?: string | null;
 }
 
 export interface TgChat {
@@ -405,10 +409,12 @@ export async function telegramStatus(): Promise<TgStatus> {
 export interface TgTokenSave {
   ok: boolean;
   bot?: string | null;
+  /** false = token SAVED but Telegram was unreachable — verify later via Test */
+  verified?: boolean;
   detail?: string;
 }
 
-/** Validate + persist a bot token at runtime (getMe checked server-side first). */
+/** Validate + persist a bot token at runtime (the NEW token is getMe-checked server-side). */
 export async function telegramSaveToken(token: string): Promise<TgTokenSave> {
   try {
     const res = await fetch("/api/telegram/token", {
@@ -416,9 +422,11 @@ export async function telegramSaveToken(token: string): Promise<TgTokenSave> {
       headers: jsonHeaders,
       body: JSON.stringify({ token }),
     });
-    const json = (await res.json().catch(() => null)) as { ok?: boolean; bot?: string | null; detail?: string } | null;
+    const json = (await res.json().catch(() => null)) as
+      | { ok?: boolean; bot?: string | null; verified?: boolean; detail?: string }
+      | null;
     if (!res.ok || !json?.ok) return { ok: false, detail: json?.detail ?? `HTTP ${res.status}` };
-    return { ok: true, bot: json.bot ?? null };
+    return { ok: true, bot: json.bot ?? null, verified: json.verified !== false };
   } catch (e) {
     return { ok: false, detail: e instanceof Error ? e.message : "fetch failed" };
   }
@@ -431,6 +439,36 @@ export async function telegramClearToken(): Promise<boolean> {
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+/** Mint a one-time ?tg=… auto-connect link bound to the current bot token. */
+export async function telegramCreateLink(): Promise<{ ok: boolean; url?: string; detail?: string }> {
+  try {
+    const res = await fetch("/api/telegram/link", { method: "POST" });
+    const json = (await res.json().catch(() => null)) as { ok?: boolean; url?: string; error?: string } | null;
+    if (!res.ok || !json?.ok || !json.url) {
+      return { ok: false, detail: json?.error ?? `HTTP ${res.status}` };
+    }
+    return { ok: true, url: json.url };
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : "fetch failed" };
+  }
+}
+
+/** Consume a ?tg= secret on this device — installs the bound bot token. */
+export async function telegramLinkConnect(secret: string): Promise<{ ok: boolean; bot?: string | null; error?: string }> {
+  try {
+    const res = await fetch("/api/telegram/link/connect", {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ secret }),
+    });
+    const json = (await res.json().catch(() => null)) as { ok?: boolean; bot?: string | null; error?: string } | null;
+    if (!res.ok || !json?.ok) return { ok: false, error: json?.error ?? `HTTP ${res.status}` };
+    return { ok: true, bot: json.bot ?? null };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "fetch failed" };
   }
 }
 

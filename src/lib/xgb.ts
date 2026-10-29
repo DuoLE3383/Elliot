@@ -15,6 +15,7 @@
 // over the real paper-trading engine.
 
 import { atr, ema, rsi, sma, utTrail } from "./indicators";
+import { hourFeatures, sessionOneHot } from "./market";
 import { kpiFrom, papersFrom } from "./papers";
 import { signalsFrom } from "./signals";
 import type { EngineSettings, Kline } from "./types";
@@ -123,6 +124,13 @@ export const FEATURE_NAMES = [
   "whaleClv",
   "utTrend",
   "stopDist",
+  // trading-session context (UTC open hour of the bar — no lookahead)
+  "sessSydney",
+  "sessTokyo",
+  "sessLondon",
+  "sessNewyork",
+  "hourSin",
+  "hourCos",
 ] as const;
 
 export interface XgbCtx {
@@ -227,6 +235,8 @@ function featuresAt(k: Kline[], i: number, ctx: XgbCtx): number[] | null {
     spike * clv,
     trend,
     stopDist,
+    ...sessionOneHot(cur.t),
+    ...hourFeatures(cur.t),
   ];
 }
 

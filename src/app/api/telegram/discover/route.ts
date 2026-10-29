@@ -6,7 +6,14 @@
 //        edit / server restart needed.
 
 import { NextRequest, NextResponse } from "next/server";
-import { effectiveChatId, effectiveToken, setStoredChatId, tgApi } from "@/lib/telegram-store";
+import {
+  effectiveChatId,
+  effectiveToken,
+  getStoredTokenMeta,
+  setStoredChatId,
+  setStoredToken,
+  tgApi,
+} from "@/lib/telegram-store";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +51,11 @@ export async function GET() {
     const [me, ups] = await Promise.all([tgApi("getMe"), tgApi("getUpdates", { limit: 100 })]);
 
     const bot = !me.detail ? (me.json?.result?.username ?? null) : null;
+    // a successful getMe against the stored token flips any "unverified" flag
+    // (saved during a network outage) back to verified — self-healing
+    if (bot && tok.source === "store" && getStoredTokenMeta().verified === false) {
+      setStoredToken(tok.token ?? "", { bot, verified: true });
+    }
     if (ups.detail || !ups.json) {
       return NextResponse.json(
         { ok: false, detail: ups.detail ?? "getUpdates failed", bot, chats: [], chatId: chat.id, source: chat.source, tokenSource: tok.source },
