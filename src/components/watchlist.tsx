@@ -18,8 +18,8 @@ function Spark({ klines }: { klines: Kline[] }) {
     const min = Math.min(...closes);
     const max = Math.max(...closes);
     const span = max - min || max * 0.001 || 1;
-    const w = 76;
-    const h = 22;
+    const w = 52;
+    const h = 20;
     return {
       up: closes[closes.length - 1] >= closes[0],
       path: closes
@@ -29,10 +29,10 @@ function Spark({ klines }: { klines: Kline[] }) {
   }, [klines]);
 
   if (!d) {
-    return <div className="h-6 w-[76px] animate-pulse rounded bg-zinc-800/60" />;
+    return <div className="h-5 w-[52px] shrink-0 animate-pulse rounded bg-zinc-800/60" />;
   }
   return (
-    <svg width={76} height={22} className="shrink-0" aria-hidden>
+    <svg width={52} height={20} className="shrink-0" aria-hidden>
       <path d={d.path} fill="none" stroke={d.up ? "#10b981" : "#f43f5e"} strokeWidth={1.3} />
     </svg>
   );
@@ -139,7 +139,7 @@ export function Watchlist({
               onChange={(e) => onPairInput(e.target.value)}
               placeholder={t(lang, "symbol.addPh")}
               disabled={checkingPair}
-              className="h-7 w-24 border-zinc-700 bg-zinc-900 font-mono text-[11px] uppercase placeholder:text-zinc-600"
+              className="h-7 w-20 border-zinc-700 bg-zinc-900 font-mono text-[11px] uppercase placeholder:text-zinc-600"
               aria-label={t(lang, "watch.add")}
             />
             <Button
@@ -161,14 +161,14 @@ export function Watchlist({
             {t(lang, "watch.empty")}
           </p>
         ) : (
-          <div className="max-h-72 space-y-1 overflow-y-auto pr-0.5">
+          <div className="max-h-72 space-y-1 overflow-x-hidden overflow-y-auto pr-0.5">
             {rows.map(({ sym, ticker, status, isCustom }) => {
               const up = (ticker?.changePct ?? 0) >= 0;
               const active = sym === current;
               return (
                 <div
                   key={sym}
-                  className={`group flex items-center gap-1.5 rounded-lg border px-2 py-1.5 transition ${
+                  className={`group flex min-w-0 items-center gap-1.5 overflow-hidden rounded-lg border px-2 py-1.5 transition ${
                     active
                       ? "border-zinc-600 bg-zinc-800/70"
                       : "border-transparent hover:border-zinc-700 hover:bg-zinc-800/40"
@@ -179,7 +179,7 @@ export function Watchlist({
                     onClick={() => onSelect(sym)}
                     title={t(lang, "watch.hint")}
                   >
-                    <span className="w-16 shrink-0">
+                    <span className="w-14 shrink-0">
                       <span
                         className={`block truncate text-xs font-bold ${
                           active ? "text-zinc-100" : isCustom ? "text-amber-400/90" : "text-zinc-300"
@@ -187,19 +187,19 @@ export function Watchlist({
                       >
                         {symbolLabel(sym)}
                       </span>
-                      <span className="block truncate font-mono text-[11px] text-zinc-400">
+                      <span className="block truncate font-mono text-[10px] leading-tight text-zinc-400">
                         {ticker ? fmtPrice(ticker.price) : t(lang, "watch.loading")}
                       </span>
                     </span>
                     <Spark klines={minis[sym] ?? []} />
                     <span
-                      className={`w-14 shrink-0 text-right font-mono text-[11px] font-semibold ${
+                      className={`w-11 shrink-0 text-right font-mono text-[11px] font-semibold ${
                         ticker ? (up ? "text-emerald-400" : "text-rose-400") : "text-zinc-600"
                       }`}
                     >
                       {ticker ? `${up ? "+" : ""}${ticker.changePct.toFixed(2)}%` : "—"}
                     </span>
-                    <span className="w-12 shrink-0 text-right">
+                    <span className="w-11 shrink-0 text-right">
                       {status.kind === "loading" ? (
                         <span className="text-[10px] text-zinc-600">…</span>
                       ) : status.kind === "signal" ? (

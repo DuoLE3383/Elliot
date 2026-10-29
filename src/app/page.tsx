@@ -16,8 +16,10 @@ import { TickerStrip } from "@/components/ticker-strip";
 import { Watchlist } from "@/components/watchlist";
 import { WyckoffPanel } from "@/components/wyckoff-panel";
 import { XgbPanel } from "@/components/xgb-panel";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtCompact } from "@/lib/market";
@@ -45,7 +47,7 @@ import {
 } from "@/lib/types";
 import { runXgb, MAX_DIFFICULTY, type XgbResult } from "@/lib/xgb";
 import { ElliottLogo } from "@/components/logo";
-import { AlertTriangle, ArrowLeftRight, BrainCircuit, Landmark, RefreshCw, Settings2 } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, BrainCircuit, ChevronRight, Eye, EyeOff, Landmark, RefreshCw, Settings2 } from "lucide-react";
 
 interface Toast {
   id: number;
@@ -165,6 +167,10 @@ export default function Home() {
   const [pinnedTime, setPinnedTime] = useState<number | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** XGBoost Tuner popup — full trainer opens on demand instead of living in the rail */
+  const [xgbOpen, setXgbOpen] = useState(false);
+  /** mobile: low-traffic areas (watchlist · sessions · context tabs) — hidden by default */
+  const [showExtra, setShowExtra] = useState(false);
   // ── XGBoost trainer state ────────────────────────────────────────
   const [xgb, setXgb] = useState<XgbResult | null>(null);
   const [xgbBusy, setXgbBusy] = useState(false);
@@ -247,6 +253,7 @@ export default function Home() {
       if (lg === "vi" || lg === "en") setLang(lg);
       const cs = localStorage.getItem("utp.candleStyle");
       if (cs === "normal" || cs === "neon") setCandleStyle(cs);
+      if (localStorage.getItem("utp.extra") === "1") setShowExtra(true);
     } catch {
       // corrupted storage → keep defaults
     } finally {
@@ -272,6 +279,9 @@ export default function Home() {
   useEffect(() => {
     if (hydratedRef.current) localStorage.setItem("utp.wyckoff", JSON.stringify(wySettings));
   }, [wySettings]);
+  useEffect(() => {
+    if (hydratedRef.current) localStorage.setItem("utp.extra", showExtra ? "1" : "0");
+  }, [showExtra]);
 
   const loadData = useCallback(async (sym: string, itv: Interval, announce: boolean) => {
     setLoading(true);
@@ -920,8 +930,10 @@ export default function Home() {
           </div>
         ) : (
           <>
-            {/* ── LEFT: watchlist + sessions ─────────────────────────── */}
-            <div className="rail-scroll order-3 flex min-h-0 flex-col gap-3 lg:order-1 lg:overflow-y-auto lg:pr-0.5">
+            {/* ── LEFT: watchlist + sessions — hidden on mobile unless toggled ── */}
+            <div
+              className={`${showExtra ? "flex" : "hidden"} rail-scroll order-3 min-h-0 flex-col gap-3 lg:order-1 lg:flex lg:overflow-y-auto lg:pr-0.5`}
+            >
               <Watchlist
                 lang={lang}
                 pairs={allPairs}
@@ -942,6 +954,17 @@ export default function Home() {
               />
               <SessionsPanel lang={lang} klines={klines} />
             </div>
+
+            {/* ── mobile toggle for the low-traffic areas (order-3 → sits right
+                before them in the mobile flow; disappears on lg) ─────────── */}
+            <button
+              type="button"
+              onClick={() => setShowExtra((v) => !v)}
+              className="order-3 flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 lg:hidden"
+            >
+              {showExtra ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              {t(lang, showExtra ? "ui.hideExtra" : "ui.showExtra")}
+            </button>
 
             {/* ── CENTER: chart + bottom tabs ────────────────────────── */}
             <div className="rail-scroll order-1 flex min-h-0 flex-col gap-3 lg:order-2 lg:overflow-y-auto lg:pr-0.5">
@@ -1109,9 +1132,44 @@ export default function Home() {
                 }}
                 pushToast={pushToast}
               />
+              {/* XGBoost Tuner — slim launcher; the full trainer panel opens
+                  in a popup when needed instead of living inside the rail */}
+              <Button
+                variant="outline"
+                className="h-9 w-full shrink-0 justify-between gap-2 border-zinc-800 bg-zinc-900/60 px-3 hover:bg-zinc-800"
+                onClick={() => setXgbOpen(true)}
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <BrainCircuit className="h-4 w-4 shrink-0 text-teal-400" />
+                  <span className="truncate text-xs font-semibold text-zinc-200">{t(lang, "xgb.title")}</span>
+                </span>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  {allTrain?.busy === true ? (
+                    <span className="font-mono text-[10px] text-teal-300">
+                      {allTrain.done}/{allTrain.total}
+                    </span>
+                  ) : (
+                    xgb &&
+                    !xgbStale && (
+                      <Badge
+                        variant="outline"
+                        className={`h-5 px-1.5 text-[10px] ${
+                          xgb.auc >= 0.55
+                            ? "border-emerald-700 bg-emerald-950/40 text-emerald-300"
+                            : "border-zinc-700 bg-zinc-900 text-zinc-400"
+                        }`}
+                      >
+                        AUC {xgb.auc.toFixed(2)}
+                      </Badge>
+                    )
+                  )}
+                  <ChevronRight className="h-3.5 w-3.5 text-zinc-500" />
+                </span>
+              </Button>
               {/* analytical panels share one tabbed card — the rail no longer
-                  scrolls past three stacked cards to reach Auto Trade */}
-              <Tabs defaultValue="context" className="shrink-0">
+                  scrolls past three stacked cards to reach Auto Trade;
+                  on mobile the card is part of the toggleable low-traffic areas */}
+              <Tabs defaultValue="context" className={`shrink-0 ${showExtra ? "" : "hidden lg:block"}`}>
                 <TabsList className="h-8 w-full justify-start overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   <TabsTrigger
                     value="context"
@@ -1125,34 +1183,12 @@ export default function Home() {
                   >
                     {t(lang, "tabs.wyckoff")}
                   </TabsTrigger>
-                  <TabsTrigger
-                    value="ai"
-                    className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
-                  >
-                    {t(lang, "tabs.ai")}
-                  </TabsTrigger>
                 </TabsList>
                 <TabsContent value="context" className="mt-2">
                   <RailContext lang={lang} klines={klines} openPaper={engine.open} confirmed={confirmedSignal} />
                 </TabsContent>
                 <TabsContent value="wyckoff" className="mt-2">
                   <WyckoffPanel lang={lang} wy={wyckoff} on={wySettings.enabled} sens={wySettings.sens} />
-                </TabsContent>
-                <TabsContent value="ai" className="mt-2">
-                  <XgbPanel
-                    lang={lang}
-                    candles={klines.length}
-                    busy={xgbBusy}
-                    progress={xgbProgress}
-                    result={xgb}
-                    stale={xgbStale}
-                    runs={xgbRuns}
-                    allTrain={allTrain}
-                    allPairsCount={allPairs.length}
-                    onTrain={() => void trainXgb(true)}
-                    onTrainAll={() => void trainAllXgb()}
-                    onApply={applyXgb}
-                  />
                 </TabsContent>
               </Tabs>
               <p className="px-1 pb-1 text-[10px] leading-snug text-zinc-700">{t(lang, "footer.note")}</p>
@@ -1197,6 +1233,28 @@ export default function Home() {
           </div>
         ))}
       </div>
+
+      {/* ── XGBoost Tuner popup — the full trainer panel, opened on demand ── */}
+      <Dialog open={xgbOpen} onOpenChange={setXgbOpen}>
+        <DialogContent className="max-h-[85dvh] gap-0 overflow-y-auto border-zinc-800 bg-zinc-900 p-0 rail-scroll sm:max-w-md">
+          <DialogTitle className="sr-only">{t(lang, "xgb.title")}</DialogTitle>
+          <DialogDescription className="sr-only">{t(lang, "xgb.subtitle")}</DialogDescription>
+          <XgbPanel
+            lang={lang}
+            candles={klines.length}
+            busy={xgbBusy}
+            progress={xgbProgress}
+            result={xgb}
+            stale={xgbStale}
+            runs={xgbRuns}
+            allTrain={allTrain}
+            allPairsCount={allPairs.length}
+            onTrain={() => void trainXgb(true)}
+            onTrainAll={() => void trainAllXgb()}
+            onApply={applyXgb}
+          />
+        </DialogContent>
+      </Dialog>
 
       <SettingsDialog
         key={settingsOpen ? "dlg-on" : "dlg-off"}

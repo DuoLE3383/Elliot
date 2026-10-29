@@ -6,7 +6,10 @@ import { t, type Lang } from "@/lib/i18n";
 import {
   SESSIONS,
   fmtCompact,
+  gmtLabel,
   sessionBar,
+  sessionHours,
+  sessionHoursLocal,
   sessionOf,
   sessionStats,
   whaleDelta,
@@ -73,12 +76,18 @@ export function SessionsPanel({ lang, klines }: { lang: Lang; klines: Kline[] })
           const st = byKey.get(s.key);
           const isOpen = openSet.has(s.key);
           const bar = sessionBar(s);
+          // range label: UTC hours + the viewer's local shift (VN devices → GMT+7)
+          const tzOffsetMin = new Date(now).getTimezoneOffset();
+          const hoursLabel = `${sessionHours(s)} · ${sessionHoursLocal(s, tzOffsetMin)} ${gmtLabel(tzOffsetMin)}`;
           return (
             <div key={s.key}>
               <div className="flex items-center justify-between gap-2">
-                <span className="flex items-center gap-1.5 text-xs font-semibold text-zinc-300">
-                  <span className={`h-2 w-2 rounded-full ${SESSION_TINT[s.key]} ${isOpen ? "" : "opacity-30"}`} />
-                  {t(lang, SESSION_LABEL[s.key])}
+                <span className="min-w-0">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-zinc-300">
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${SESSION_TINT[s.key]} ${isOpen ? "" : "opacity-30"}`} />
+                    {t(lang, SESSION_LABEL[s.key])}
+                  </span>
+                  <span className="ml-3.5 block font-mono text-[10px] leading-tight text-zinc-600">{hoursLabel}</span>
                 </span>
                 <span className="font-mono text-[11px]">
                   {st && st.bullPct != null ? (

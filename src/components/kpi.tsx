@@ -18,7 +18,11 @@ interface Props {
   signals?: Signal[];
 }
 
-/** Compact 5-card KPI row — Elliott terminal style (label / big value / two sub lines). */
+/**
+ * Ultra-slim single-line KPI strip — one row of "label / value + inline sub"
+ * cells (~half the height of the old stacked cards). Full detail lives in the
+ * title tooltip so nothing is lost by the compaction.
+ */
 export function KpiCards({ lang, stats, openPaper, leverage, openPnl, signals = [] }: Props) {
   // signal split over the window — blocked signals count as "chờ"
   const long = signals.filter((s) => s.dir === "BUY" && s.smaOk).length;
@@ -27,119 +31,119 @@ export function KpiCards({ lang, stats, openPaper, leverage, openPnl, signals = 
   const dirTotal = long + short;
   const longShare = dirTotal > 0 ? (long / dirTotal) * 100 : 50;
 
+  const openMain = openPaper ? (
+    <span className={`font-mono font-semibold ${SIDE_COLOR(openPaper.side)}`}>
+      {openPaper.side} @ {fmtPrice(openPaper.entry)}
+      {leverage > 1 && <span className="text-amber-400"> ×{leverage}</span>}
+    </span>
+  ) : null;
+  const openSub =
+    openPaper && openPnl != null ? (
+      <span className={`font-mono ${(openPnl ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+        {t(lang, "kpi.openPnl", { pnl: fmtPct(openPnl) })}
+      </span>
+    ) : openPaper ? (
+      <span className="text-zinc-600">{t(lang, "kpi.openNewest", { time: fmtTime(openPaper.entryTime, lang) })}</span>
+    ) : null;
+
   const cards = [
     {
       label: t(lang, "kpi.signals"),
       value: String(signals.length),
       valueClass: "text-zinc-100",
-      sub1: (
+      tip: t(lang, "kpi.signalsSub", { lo: long, sh: short, bl: blocked }),
+      sub: (
         <span className="text-zinc-500">
-          {t(lang, blocked > 0 ? "kpi.signalsSub" : "kpi.signalsOff", {
-            lo: long,
-            sh: short,
-            bl: blocked,
-          })}
+          {t(lang, blocked > 0 ? "kpi.signalsSub" : "kpi.signalsOff", { lo: long, sh: short, bl: blocked })}
         </span>
       ),
-      sub2: null as React.ReactNode,
-      extra:
-        signals.length > 0 ? (
-          <div className="mt-1.5 flex h-1 overflow-hidden rounded-full bg-zinc-800">
-            <div className="bg-emerald-500" style={{ width: `${longShare}%` }} />
-            <div className="flex-1 bg-rose-500" />
-          </div>
-        ) : null,
+      bar: signals.length > 0 ? longShare : null,
       icon: <Zap className="h-3.5 w-3.5 text-zinc-600" />,
     },
     {
       label: t(lang, "kpi.open"),
       value: String(stats.open),
       valueClass: "text-zinc-100",
-      sub1: openPaper ? (
-        <span className={`font-mono font-semibold ${SIDE_COLOR(openPaper.side)}`}>
-          {openPaper.side} @ {fmtPrice(openPaper.entry)}
-          {leverage > 1 && <span className="text-amber-400"> ×{leverage}</span>}
-        </span>
-      ) : (
-        <span className="text-zinc-600">—</span>
-      ),
-      sub2:
-        openPaper && openPnl != null ? (
-          <span className={`font-mono ${(openPnl ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-            {t(lang, "kpi.openPnl", { pnl: fmtPct(openPnl) })}
-          </span>
-        ) : openPaper ? (
-          <span className="text-zinc-600">{t(lang, "kpi.openNewest", { time: fmtTime(openPaper.entryTime, lang) })}</span>
-        ) : null,
-      extra: null,
+      tip: openPaper ? `${openPaper.side} @ ${fmtPrice(openPaper.entry)} · ×${leverage}` : undefined,
+      sub: openMain ?? <span className="text-zinc-600">—</span>,
+      sub2: openSub,
+      bar: null,
       icon: <Activity className="h-3.5 w-3.5 text-zinc-600" />,
     },
     {
       label: t(lang, "kpi.winRate"),
       value: `${stats.winRate.toFixed(0)}%`,
       valueClass: "text-zinc-100",
-      sub1: (
+      tip: `${t(lang, "kpi.breakdown", { tp: stats.tpCount, sl: stats.slCount, fw: stats.flipWins, fl: stats.flipLosses })} · ${t(
+        lang,
+        "kpi.closedBase",
+        { n: stats.closed },
+      )}`,
+      sub: (
         <span className="text-zinc-500">
-          {t(lang, "kpi.breakdown", {
-            tp: stats.tpCount,
-            sl: stats.slCount,
-            fw: stats.flipWins,
-            fl: stats.flipLosses,
-          })}
+          {t(lang, "kpi.breakdown", { tp: stats.tpCount, sl: stats.slCount, fw: stats.flipWins, fl: stats.flipLosses })}
         </span>
       ),
-      sub2: <span className="text-zinc-600">{t(lang, "kpi.closedBase", { n: stats.closed })}</span>,
-      extra: null,
+      sub2: null,
+      bar: null,
       icon: <Percent className="h-3.5 w-3.5 text-zinc-600" />,
     },
     {
       label: t(lang, "kpi.netPnl"),
       value: fmtPct(stats.netPnl),
       valueClass: stats.netPnl >= 0 ? "text-emerald-400" : "text-rose-400",
-      sub1: (
+      tip: `${t(lang, "kpi.netNote", { n: stats.closed })}${leverage > 1 ? ` · ${t(lang, "kpi.levNote", { lev: leverage })}` : ""}`,
+      sub: (
         <span className="text-zinc-500">
           {t(lang, "kpi.netNote", { n: stats.closed })}
           {leverage > 1 && <span> · {t(lang, "kpi.levNote", { lev: leverage })}</span>}
         </span>
       ),
       sub2: null,
-      extra: null,
+      bar: null,
       icon: <Target className="h-3.5 w-3.5 text-zinc-600" />,
     },
     {
       label: t(lang, "kpi.flips"),
       value: String(stats.flipCount),
       valueClass: "text-zinc-100",
-      sub1: (
+      tip: `${t(lang, "kpi.flipsSub", { w: stats.flipWins, l: stats.flipLosses, pnl: fmtPct(stats.flipNetPnl) })} · ${t(
+        lang,
+        "kpi.flipsNote",
+      )}`,
+      sub: (
         <span className="text-zinc-500">
-          {t(lang, "kpi.flipsSub", {
-            w: stats.flipWins,
-            l: stats.flipLosses,
-            pnl: fmtPct(stats.flipNetPnl),
-          })}
+          {t(lang, "kpi.flipsSub", { w: stats.flipWins, l: stats.flipLosses, pnl: fmtPct(stats.flipNetPnl) })}
         </span>
       ),
-      sub2: <span className="text-zinc-600">{t(lang, "kpi.flipsNote")}</span>,
-      extra: null,
+      sub2: null,
+      bar: null,
       icon: <ArrowLeftRight className="h-3.5 w-3.5 text-zinc-600" />,
     },
   ];
 
   return (
-    /* one slim stat strip instead of five separate cards — tighter vertical
-       footprint, cells separated by hairline dividers on wide screens */
+    /* one slim stat strip — label above, value + inline sub on the same row,
+       optional micro long/short bar; cells split by hairline dividers on xl */
     <Card className="border-zinc-800 bg-zinc-900/60">
-      <CardContent className="grid grid-cols-2 gap-x-3 gap-y-2.5 px-2.5 py-2 sm:grid-cols-3 xl:grid-cols-5 xl:gap-0 xl:divide-x xl:divide-zinc-800/70">
+      <CardContent className="grid grid-cols-2 gap-x-3 gap-y-1.5 px-2.5 py-1.5 sm:grid-cols-3 xl:grid-cols-5 xl:gap-0 xl:divide-x xl:divide-zinc-800/70">
         {cards.map((c, k) => (
-          <div key={k} className="min-w-0 px-2 xl:first:pl-2.5 xl:px-3 xl:last:pr-1">
+          <div key={k} className="min-w-0 px-2 py-0.5 xl:first:pl-2.5 xl:px-3 xl:last:pr-1" title={c.tip}>
             <div className="flex items-center justify-between gap-1">
-              <p className="truncate text-[10px] font-medium uppercase tracking-wide text-zinc-500">{c.label}</p>
+              <p className="truncate text-[9px] font-medium uppercase tracking-wide text-zinc-500">{c.label}</p>
               {c.icon}
             </div>
-            <p className={`mt-0.5 truncate font-mono text-lg font-bold leading-tight ${c.valueClass}`}>{c.value}</p>
-            <p className="truncate text-[10px] leading-tight">{c.sub1}</p>
-            {c.sub2 && <p className="truncate text-[9px] leading-tight">{c.sub2}</p>}
-            {c.extra}
+            <p className="mt-px flex items-baseline gap-1.5">
+              <span className={`shrink-0 font-mono text-sm font-bold leading-tight ${c.valueClass}`}>{c.value}</span>
+              <span className="min-w-0 flex-1 truncate text-[10px] leading-tight">{c.sub}</span>
+            </p>
+            {c.sub2 && <p className="mt-px truncate text-[9px] leading-tight">{c.sub2}</p>}
+            {c.bar != null && (
+              <div className="mt-0.5 flex h-[3px] max-w-24 overflow-hidden rounded-full bg-zinc-800">
+                <div className="bg-emerald-500" style={{ width: `${c.bar}%` }} />
+                <div className="flex-1 bg-rose-500" />
+              </div>
+            )}
           </div>
         ))}
       </CardContent>
