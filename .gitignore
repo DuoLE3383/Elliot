@@ -60,3 +60,6 @@ db/
 skills/
 .zscripts/
 upload/
+
+# but keep the example file
+!.env.example
