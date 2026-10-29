@@ -55,6 +55,12 @@ export interface XgbResult {
   importance: { name: string; gain: number }[];
   /** hyperparameters actually used by this run — persisted with the run row */
   params: XgbParams;
+  /** difficulty level (0..12) = number of prior persisted runs for this pair */
+  difficulty: number;
+  /** label dead-zone width in ATR units — grows with difficulty (0..0.3) */
+  marginAtr: number;
+  /** base horizon for the timeframe before difficulty extensions */
+  horizonBase: number;
   suggestion: XgbSuggestion;
 }
 
@@ -84,6 +90,17 @@ const PARAMS: XgbParams = {
 const HORIZON: Record<string, number> = { "5m": 6, "15m": 5, "30m": 4, "1h": 4, "4h": 3 };
 const WARMUP = 110; // longest lookback indicator is SMA100 (+ safety margin)
 const VAL_FRAC = 0.25; // chronological hold-out share
+// Progressive difficulty — every retrain makes the task harder so the model
+// must earn its accuracy instead of fitting candle noise:
+//   • +1 bar of horizon every 2 levels (predicting further ahead is harder)
+//   • a label dead-zone of marginAtr × ATR: bars whose future move stays
+//     inside the noise band are dropped, so classes only contain decisive moves
+export const MAX_DIFFICULTY = 12;
+const HORIZON_STEP = 2; // one extra bar per N difficulty levels
+const HORIZON_CAP = 3; // never extend the horizon by more than this
+const MARGIN_STEP = 0.05; // dead-zone growth per level (× ATR)
+const MARGIN_CAP = 0.3; // dead-zone ceiling (× ATR)
+const MIN_ROWS_WITH_MARGIN = 150; // fall back to no dead-zone below this
 
 // ─── Features ─────────────────────────────────────────────────────────────────
 
@@ -204,8 +221,18 @@ export interface Dataset {
   horizon: number;
 }
 
-/** Build the supervised dataset over the closed candles of the window. */
-export function buildDataset(klines: Kline[], horizon: number, atrKey: number, atrPeriod: number): Dataset | null {
+/**
+ * Build the supervised dataset over the closed candles of the window.
+ * `marginAtr` > 0 drops bars whose future move stays inside the noise band
+ * (±margin × ATR) — the higher it is, the harder the classification task.
+ */
+export function buildDataset(
+  klines: Kline[],
+  horizon: number,
+  atrKey: number,
+  atrPeriod: number,
+  marginAtr = 0,
+): Dataset | null {
   const n = klines.length;
   if (n < WARMUP + horizon + 60) return null;
   const ctx = buildCtx(klines, atrKey, atrPeriod);
@@ -216,11 +243,24 @@ export function buildDataset(klines: Kline[], horizon: number, atrKey: number, a
   for (let i = WARMUP; i + horizon <= n - 2; i++) {
     const f = featuresAt(klines, i, ctx);
     if (!f) continue;
-    rows.push(f);
-    y.push(klines[i + horizon].c > klines[i].c ? 1 : 0);
+    if (marginAtr > 0) {
+      const a = ctx.atr14[i];
+      if (a == null) continue;
+      const fut = (klines[i + horizon].c - klines[i].c) / klines[i].c;
+      if (Math.abs(fut) <= (marginAtr * a) / klines[i].c) continue; // noise band → drop
+      rows.push(f);
+      y.push(fut > 0 ? 1 : 0);
+    } else {
+      rows.push(f);
+      y.push(klines[i + horizon].c > klines[i].c ? 1 : 0);
+    }
     idx.push(i);
   }
   if (rows.length < 120) return null;
+  if (marginAtr > 0 && rows.length < MIN_ROWS_WITH_MARGIN) {
+    // dead-zone starved the dataset — fall back to the plain labeling
+    return buildDataset(klines, horizon, atrKey, atrPeriod, 0);
+  }
   return { rows, y, idx, ctx, horizon };
 }
 
@@ -551,9 +591,13 @@ export async function runXgb(
   key: string,
   interval: string,
   onProgress?: (frac: number) => void,
+  difficulty = 0,
 ): Promise<XgbResult> {
-  const horizon = HORIZON[interval] ?? 4;
-  const ds = buildDataset(klines, horizon, settings.atrKey, settings.atrPeriod);
+  const lv = Math.min(MAX_DIFFICULTY, Math.max(0, Math.round(difficulty)));
+  const horizonBase = HORIZON[interval] ?? 4;
+  const horizon = horizonBase + Math.min(HORIZON_CAP, Math.floor(lv / HORIZON_STEP));
+  const marginAtr = Math.min(MARGIN_CAP, lv * MARGIN_STEP);
+  const ds = buildDataset(klines, horizon, settings.atrKey, settings.atrPeriod, marginAtr);
   if (!ds) throw new Error("not enough data");
 
   const split = Math.max(40, Math.floor(ds.rows.length * (1 - VAL_FRAC)));
@@ -562,7 +606,14 @@ export async function runXgb(
   const valRows = ds.rows.slice(split);
   const valY = ds.y.slice(split);
 
-  const { model, imp } = await trainTrees(trainRows, trainY, makeBins(trainRows, PARAMS.bins), PARAMS, 20260101, onProgress);
+  const { model, imp } = await trainTrees(
+    trainRows,
+    trainY,
+    makeBins(trainRows, PARAMS.bins),
+    PARAMS,
+    20260101 + lv * 7919, // per-level seed → each difficulty trains a fresh ensemble
+    onProgress,
+  );
 
   const valP = valRows.map((r) => predictProb(model, r));
   const correct = valP.reduce((acc, p, i) => acc + ((p >= 0.5 ? 1 : 0) === valY[i] ? 1 : 0), 0);
@@ -595,6 +646,9 @@ export async function runXgb(
       .sort((a, b) => b.gain - a.gain)
       .slice(0, 6),
     params: model.params,
+    difficulty: lv,
+    marginAtr,
+    horizonBase,
     suggestion,
   };
 }

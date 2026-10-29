@@ -49,6 +49,8 @@ export interface RunRow {
   trees: number;
   horizon: number;
   importance: { name: string; gain: number }[];
+  /** hyperparams JSON + difficulty extras (lv, marginAtr) stored with the run */
+  params?: { lv?: number; marginAtr?: number } & Record<string, unknown>;
   applied: boolean;
   createdAt: string;
 }

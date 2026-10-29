@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DeepAnalysis } from "@/components/analysis";
+import { StrategyPies } from "@/components/strategy-pies";
 import { Journal } from "@/components/journal";
 import { KpiCards } from "@/components/kpi";
 import { SessionsPanel } from "@/components/sessions";
@@ -40,7 +41,7 @@ import {
   WyckoffSettings,
   matchPreset,
 } from "@/lib/types";
-import { runXgb, type XgbResult } from "@/lib/xgb";
+import { runXgb, MAX_DIFFICULTY, type XgbResult } from "@/lib/xgb";
 import { ElliottLogo } from "@/components/logo";
 import { AlertTriangle, ArrowLeftRight, BrainCircuit, Landmark, RefreshCw, Settings2 } from "lucide-react";
 
@@ -440,66 +441,79 @@ export default function Home() {
 
   const activePreset = useMemo(() => matchPreset(settings), [settings]);
 
-  // ── XGBoost train + apply ────────────────────────────────────────
-  const trainXgb = useCallback(async () => {
-    if (xgbBusy || klines.length < 200) return;
-    setXgbBusy(true);
-    setXgbProgress(0);
-    try {
-      const res = await runXgb(klines, settings, key, interval, (p) => setXgbProgress(p));
-      setXgb(res);
-      pushToast({
-        kind: "xgb",
-        text: t(lang, "toast.xgbDone", { acc: res.acc.toFixed(1), auc: res.auc.toFixed(2) }),
-      });
-      // persist run + suggestion per (pair, interval, time) — outcomes are
-      // scored later by resolve-batch once the horizon bars have elapsed
-      const entryPrice = klines.length >= 2 ? klines[klines.length - 2].c : 0;
-      const [saved, runSaved] = await Promise.all([
-        saveSuggestion({
-          symbol,
-          interval,
-          bias: res.suggestion.bias,
-          prob: res.suggestion.prob,
-          confidence: res.suggestion.confidence,
-          slPct: res.suggestion.slPct,
-          tpPct: res.suggestion.tpPct,
-          atrKey: res.suggestion.atrKey,
-          atrPeriod: res.suggestion.atrPeriod,
-          smaFilter: res.suggestion.smaFilter,
-          smaPeriod: res.suggestion.smaPeriod,
-          acc: res.acc,
-          auc: res.auc,
-          horizonBars: res.horizon,
-          entryPrice,
-        }),
-        saveRun({
-          symbol,
-          interval,
-          samples: res.samples,
-          valSamples: res.valSamples,
-          acc: res.acc,
-          auc: res.auc,
-          logloss: res.logloss,
-          trees: res.trees,
-          horizon: res.horizon,
-          importance: res.importance,
-          params: res.params,
-        }),
-      ]);
-      setXgbSavedId(saved?.id ?? null);
-      setXgbRunId(runSaved?.id ?? null);
-      pushToast({
-        kind: "xgb",
-        text: saved && runSaved ? t(lang, "sg.saved") : t(lang, "sg.saveFail"),
-      });
-      bumpHist();
-    } catch {
-      pushToast({ kind: "error", text: t(lang, "toast.xgbFail") });
-    } finally {
-      setXgbBusy(false);
-    }
-  }, [xgbBusy, klines, settings, key, interval, symbol, lang, pushToast, bumpHist]);
+  // ── XGBoost train + apply ──────────────────────────────────────────
+  /**
+   * Train (or retrain) the model for the CURRENT pair+interval.
+   * persist=true  → manual click: also writes Suggestion + FinetuneRun rows and
+   *                 bumps the difficulty level (one level per persisted run).
+   * persist=false → silent auto-retrain after a pair/interval switch: compute
+   *                 only, nothing written — suggestion history stays user-driven.
+   */
+  const trainXgb = useCallback(
+    async (persist: boolean) => {
+      if (xgbBusy || klines.length < 200) return;
+      setXgbBusy(true);
+      setXgbProgress(0);
+      try {
+        // difficulty grows with every persisted run for this pair+interval
+        const lv = Math.min(MAX_DIFFICULTY, xgbRuns.length);
+        const res = await runXgb(klines, settings, key, interval, (p) => setXgbProgress(p), lv);
+        setXgb(res);
+        if (!persist) return;
+        pushToast({
+          kind: "xgb",
+          text: t(lang, "toast.xgbDone", { acc: res.acc.toFixed(1), auc: res.auc.toFixed(2) }),
+        });
+        // persist run + suggestion per (pair, interval, time) — outcomes are
+        // scored later by resolve-batch once the horizon bars have elapsed
+        const entryPrice = klines.length >= 2 ? klines[klines.length - 2].c : 0;
+        const [saved, runSaved] = await Promise.all([
+          saveSuggestion({
+            symbol,
+            interval,
+            bias: res.suggestion.bias,
+            prob: res.suggestion.prob,
+            confidence: res.suggestion.confidence,
+            slPct: res.suggestion.slPct,
+            tpPct: res.suggestion.tpPct,
+            atrKey: res.suggestion.atrKey,
+            atrPeriod: res.suggestion.atrPeriod,
+            smaFilter: res.suggestion.smaFilter,
+            smaPeriod: res.suggestion.smaPeriod,
+            acc: res.acc,
+            auc: res.auc,
+            horizonBars: res.horizon,
+            entryPrice,
+          }),
+          saveRun({
+            symbol,
+            interval,
+            samples: res.samples,
+            valSamples: res.valSamples,
+            acc: res.acc,
+            auc: res.auc,
+            logloss: res.logloss,
+            trees: res.trees,
+            horizon: res.horizon,
+            importance: res.importance,
+            params: { ...res.params, lv: res.difficulty, marginAtr: Number(res.marginAtr.toFixed(3)) },
+          }),
+        ]);
+        setXgbSavedId(saved?.id ?? null);
+        setXgbRunId(runSaved?.id ?? null);
+        pushToast({
+          kind: "xgb",
+          text: saved && runSaved ? t(lang, "sg.saved") : t(lang, "sg.saveFail"),
+        });
+        bumpHist();
+      } catch {
+        if (persist) pushToast({ kind: "error", text: t(lang, "toast.xgbFail") });
+      } finally {
+        setXgbBusy(false);
+      }
+    },
+    [xgbBusy, xgbRuns.length, klines, settings, key, interval, symbol, lang, pushToast, bumpHist],
+  );
 
   const applyXgb = useCallback(() => {
     if (!xgb) return;
@@ -531,6 +545,7 @@ export default function Home() {
   const xgbStale = xgb != null && xgb.key !== key;
 
   // persisted finetune runs for the current pair+interval — reload on switch/mutation
+  const runsKeyRef = useRef(""); // key the loaded runs list belongs to
   useEffect(() => {
     let alive = true;
     const load = async () => {
@@ -539,6 +554,8 @@ export default function Home() {
         if (alive) setXgbRuns(list);
       } catch {
         if (alive) setXgbRuns([]);
+      } finally {
+        if (alive) runsKeyRef.current = `${symbol}-${interval}`;
       }
     };
     void load();
@@ -546,6 +563,20 @@ export default function Home() {
       alive = false;
     };
   }, [symbol, interval, histRefresh]);
+
+  // auto-retrain when the shown model belongs to another pair/interval — the
+  // stale banner used to sit there until the user clicked "Train lại"; now the
+  // panel silently recomputes instead (one attempt per key, nothing persisted).
+  // Waits until the runs list of the NEW pair has loaded so the difficulty
+  // level derives from that pair's own history, not the previous pair's.
+  const autoTrainRef = useRef("");
+  useEffect(() => {
+    if (!xgbStale || xgbBusy || klines.length < 200) return;
+    if (runsKeyRef.current !== key) return; // runs of the new pair not loaded yet
+    if (autoTrainRef.current === key) return; // already attempted for this pair+interval
+    autoTrainRef.current = key;
+    void trainXgb(false);
+  }, [xgbStale, xgbBusy, key, klines, trainXgb]);
 
   // ── outcome scoring — feed fresh prices every 5 minutes; the server scores
   // any pending suggestion whose horizon has elapsed (win/loss per direction) ──
@@ -942,15 +973,18 @@ export default function Home() {
                   <SuggestionHistory lang={lang} symbol={symbol} interval={interval} refreshKey={histRefresh} />
                 </TabsContent>
                 <TabsContent value="analysis" className="mt-2 lg:h-[200px] lg:overflow-y-auto rail-scroll">
-                  <DeepAnalysis
-                    lang={lang}
-                    klines={klines}
-                    smaFilter={settings.smaFilter}
-                    smaPeriod={settings.smaPeriod}
-                    gateLong={gateInfo.long}
-                    gateShort={gateInfo.short}
-                    smaValue={gateInfo.sma}
-                  />
+                  <div className="space-y-2.5">
+                    <DeepAnalysis
+                      lang={lang}
+                      klines={klines}
+                      smaFilter={settings.smaFilter}
+                      smaPeriod={settings.smaPeriod}
+                      gateLong={gateInfo.long}
+                      gateShort={gateInfo.short}
+                      smaValue={gateInfo.sma}
+                    />
+                    <StrategyPies lang={lang} klines={klines} leverage={settings.leverage} />
+                  </div>
                 </TabsContent>
               </Tabs>
             </div>
@@ -994,7 +1028,7 @@ export default function Home() {
                 result={xgb}
                 stale={xgbStale}
                 runs={xgbRuns}
-                onTrain={() => void trainXgb()}
+                onTrain={() => void trainXgb(true)}
                 onApply={applyXgb}
               />
               <p className="px-1 pb-1 text-[10px] leading-snug text-zinc-700">{t(lang, "footer.note")}</p>

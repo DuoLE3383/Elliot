@@ -53,16 +53,25 @@ export function XgbPanel({ lang, candles, busy, progress, result, stale, runs, o
             <p className="mt-0.5 text-[11px] text-zinc-500">{t(lang, "xgb.subtitle")}</p>
           </div>
           {result && !stale && (
-            <Badge
-              variant="outline"
-              className={
-                result.auc >= 0.55
-                  ? "border-emerald-700 bg-emerald-950/40 text-emerald-300"
-                  : "border-zinc-700 bg-zinc-900 text-zinc-400"
-              }
-            >
-              AUC {result.auc.toFixed(2)}
-            </Badge>
+            <div className="flex items-center gap-1.5">
+              <Badge
+                variant="outline"
+                className={
+                  result.auc >= 0.55
+                    ? "border-emerald-700 bg-emerald-950/40 text-emerald-300"
+                    : "border-zinc-700 bg-zinc-900 text-zinc-400"
+                }
+              >
+                AUC {result.auc.toFixed(2)}
+              </Badge>
+              <Badge
+                variant="outline"
+                className="border-amber-800/60 bg-amber-950/30 text-amber-300"
+                title={t(lang, "xgb.diff.tip")}
+              >
+                {t(lang, "xgb.diff")} Lv{result.difficulty}
+              </Badge>
+            </div>
           )}
         </div>
       </CardHeader>
@@ -71,11 +80,6 @@ export function XgbPanel({ lang, candles, busy, progress, result, stale, runs, o
 
         {!result || stale ? (
           <div className="space-y-2">
-            {stale && (
-              <p className="rounded-md border border-amber-800/60 bg-amber-950/30 px-2.5 py-1.5 text-[11px] text-amber-300">
-                {t(lang, "xgb.stale")}
-              </p>
-            )}
             <Button
               className="h-8 w-full bg-teal-600 text-zinc-950 hover:bg-teal-500 disabled:opacity-50"
               disabled={busy || !enough}
@@ -213,6 +217,12 @@ export function XgbPanel({ lang, candles, busy, progress, result, stale, runs, o
                   </span>
                   <span className="ml-auto shrink-0 font-mono text-zinc-300">{r.acc.toFixed(1)}%</span>
                   <span className="shrink-0 font-mono text-zinc-500">AUC {r.auc.toFixed(2)}</span>
+                  <span
+                    className="shrink-0 font-mono text-amber-500/80"
+                    title={t(lang, "xgb.diff.tip")}
+                  >
+                    Lv{r.params?.lv ?? 0}
+                  </span>
                   {r.applied && <CheckCircle2 className="h-3 w-3 shrink-0 text-teal-500" title={t(lang, "xgb.run.applied")} />}
                 </div>
               ))}
