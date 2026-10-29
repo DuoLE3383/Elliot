@@ -1,5 +1,7 @@
 // ─── /api/autotrade — dry-run auto-trading position book ─────────────────────
-// GET   → { trades, open, capital, stats } — capital = last closed capitalAfter
+// GET   → { trades, open, capital, stats } — capital = last closed capitalAfter,
+//         falling back to the open position's entry capital (never null while a
+//         position exists — the digest used to render "? USDT")
 // POST  { action: "open", symbol, interval, side, entryPrice, slPct, tpPct,
 //         leverage, stakePct, prob, acc, auc, score, capitalBefore }
 //         → opens ONE position; rejected while another is open
@@ -9,7 +11,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { comboStats } from "@/lib/autotrade";
+import { readAutoState, serialize } from "@/lib/autostate";
 
 export const dynamic = "force-dynamic";
 
@@ -19,103 +21,8 @@ const num = (v: unknown, lo: number, hi: number, fb: number): number => {
   return Math.min(hi, Math.max(lo, n));
 };
 
-type TradeRow = {
-  id: string;
-  symbol: string;
-  interval: string;
-  side: string;
-  entryPrice: number;
-  entryTime: string;
-  slPct: number;
-  tpPct: number;
-  leverage: number;
-  stakePct: number | null;
-  status: string;
-  exitPrice: number | null;
-  exitTime: string | null;
-  pnlPct: number | null;
-  exitKind: string | null;
-  prob: number | null;
-  acc: number | null;
-  auc: number | null;
-  score: number | null;
-  capitalBefore: number | null;
-  capitalAfter: number | null;
-  createdAt: string;
-};
-
-const serialize = (r: {
-  id: string;
-  symbol: string;
-  interval: string;
-  side: string;
-  entryPrice: number;
-  entryTime: Date;
-  slPct: number;
-  tpPct: number;
-  leverage: number;
-  stakePct: number | null;
-  status: string;
-  exitPrice: number | null;
-  exitTime: Date | null;
-  pnlPct: number | null;
-  exitKind: string | null;
-  prob: number | null;
-  acc: number | null;
-  auc: number | null;
-  score: number | null;
-  capitalBefore: number | null;
-  capitalAfter: number | null;
-  createdAt: Date;
-}): TradeRow => ({
-  id: r.id,
-  symbol: r.symbol,
-  interval: r.interval,
-  side: r.side,
-  entryPrice: r.entryPrice,
-  entryTime: r.entryTime.toISOString(),
-  slPct: r.slPct,
-  tpPct: r.tpPct,
-  leverage: r.leverage,
-  stakePct: r.stakePct,
-  status: r.status === "open" ? "open" : "closed",
-  exitPrice: r.exitPrice,
-  exitTime: r.exitTime?.toISOString() ?? null,
-  pnlPct: r.pnlPct,
-  exitKind: r.exitKind,
-  prob: r.prob,
-  acc: r.acc,
-  auc: r.auc,
-  score: r.score,
-  capitalBefore: r.capitalBefore,
-  capitalAfter: r.capitalAfter,
-  createdAt: r.createdAt.toISOString(),
-});
-
 export async function GET() {
-  const rows = await db.autoTrade.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
-  // win-rate table aggregates the ENTIRE closed history, not just the last 200
-  const allClosed = await db.autoTrade.findMany({
-    where: { status: "closed" },
-    select: { symbol: true, interval: true, status: true, pnlPct: true },
-  });
-  const trades = rows.map(serialize);
-  const open = trades.find((t) => t.status === "open") ?? null;
-  const closed = trades.filter((t) => t.status === "closed");
-  const capital = closed.length > 0 ? (closed[0].capitalAfter ?? null) : null;
-  const wins = closed.filter((t) => (t.pnlPct ?? 0) > 0).length;
-  return NextResponse.json({
-    trades,
-    open,
-    capital,
-    byCombo: comboStats(allClosed),
-    stats: {
-      closed: closed.length,
-      wins,
-      winRate: closed.length ? (wins / closed.length) * 100 : 0,
-      netPnlPct: Math.round(closed.reduce((a, t) => a + (t.pnlPct ?? 0), 0) * 100) / 100,
-    },
-  });
+  return NextResponse.json(await readAutoState());
 }
 
 export async function POST(req: NextRequest) {

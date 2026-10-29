@@ -14,6 +14,7 @@
 import type { EngineSettings, Kline } from "./types";
 import { INTERVALS } from "./types";
 import { runXgb, type XgbBias, type XgbResult } from "./xgb";
+import { fmtPrice } from "./i18n";
 
 // ─── Scan rows ────────────────────────────────────────────────────────────────
 
@@ -435,6 +436,49 @@ export async function sendTelegram(text: string, opts?: { html?: boolean }): Pro
     return { ok: true };
   } catch (e) {
     return { ok: false, detail: e instanceof Error ? e.message : "fetch failed" };
+  }
+}
+
+// ─── Periodic stats digest (hourly / daily Telegram reports) ────────────────
+
+const DIGEST_HR = "━━━━━━━━━━━━━━━━━━";
+const sideTag = (side: string): string => (side === "LONG" ? "LONG 🟢" : side === "SHORT" ? "SHORT 🔴" : "NEUTRAL ⚪");
+
+/**
+ * Digest body — counts OPENS as well as closes inside the window (an hourly
+ * report saying "0 lệnh" right after a fresh open reads as broken), and shows
+ * "—" instead of a fake 0% win rate while nothing has settled yet.
+ * Built server-side (see /api/autotrade/push) so every open tab/device shares
+ * one exactly-once sender.
+ */
+export function statLines(st: AutoState, sinceMs: number, title: string, periodLabel: string): string[] {
+  const recent = st.trades.filter((x) => x.status === "closed" && x.exitTime && new Date(x.exitTime).getTime() >= sinceMs);
+  const opened = st.trades.filter((x) => new Date(x.entryTime).getTime() >= sinceMs);
+  const wins = recent.filter((x) => (x.pnlPct ?? 0) > 0).length;
+  const net = recent.reduce((a, x) => a + (x.pnlPct ?? 0), 0);
+  const wr = recent.length ? `${Math.round((wins / recent.length) * 100)}%` : "—";
+  const roe = recent.length ? `${net >= 0 ? "+" : ""}${net.toFixed(2)}%` : "—";
+  const lines = [
+    title,
+    DIGEST_HR,
+    `📊 ${periodLabel}: <b>${opened.length} mở</b> · <b>${recent.length} đóng</b> · Win rate <b>${wr}</b> · Net ROE <b>${roe}</b>`,
+  ];
+  if (st.open) lines.push(`🔓 Đang giữ: <b>#${st.open.symbol}</b> ${st.open.interval} ${sideTag(st.open.side)} @ ${fmtPrice(st.open.entryPrice)}`);
+  lines.push(
+    `💰 Equity: <b>${st.capital != null ? st.capital.toFixed(2) : "—"}</b> USDT · Tổng ${st.stats.closed} đóng${st.open ? " · 1 đang mở" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(0)}%` : "—"}`,
+  );
+  const best = (st.byCombo ?? []).filter((c) => c.closed >= 3).sort((a, b) => b.winRate - a.winRate)[0];
+  if (best) lines.push(`🏆 Combo tốt nhất: <b>#${best.symbol}</b> ${best.interval} · WR ${best.winRate.toFixed(0)}% (${best.closed} lệnh)`);
+  return lines;
+}
+
+/** Trigger the server-side digest sender — dedupe/boundary logic lives there. */
+export async function pushAutoStats(body: { hourly?: boolean; daily?: boolean; force?: boolean }): Promise<boolean> {
+  try {
+    const res = await fetch("/api/autotrade/push", { method: "POST", headers: jsonHeaders, body: JSON.stringify(body) });
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 

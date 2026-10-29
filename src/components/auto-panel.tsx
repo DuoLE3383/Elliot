@@ -16,6 +16,7 @@ import {
   loadAutoConfig,
   nearHit,
   openAutoTrade,
+  pushAutoStats,
   RISK_CHOICES,
   roeOf,
   saveAutoConfig,
@@ -155,31 +156,10 @@ const msgNear = (r: AutoTradeRow, price: number, kind: "tp" | "sl"): string => {
   ].join("\n");
 };
 
-const statLines = (st: AutoState, sinceMs: number, title: string, periodLabel: string): string[] => {
-  const recent = st.trades.filter((x) => x.status === "closed" && x.exitTime && new Date(x.exitTime).getTime() >= sinceMs);
-  const wins = recent.filter((x) => (x.pnlPct ?? 0) > 0).length;
-  const net = recent.reduce((a, x) => a + (x.pnlPct ?? 0), 0);
-  const lines = [
-    title,
-    HR,
-    `📊 ${periodLabel}: <b>${recent.length} lệnh</b> · Win rate <b>${recent.length ? Math.round((wins / recent.length) * 100) : 0}%</b> · Net ROE <b>${net >= 0 ? "+" : ""}${net.toFixed(2)}%</b>`,
-  ];
-  if (st.open) lines.push(`🔓 Đang giữ: <b>#${st.open.symbol}</b> ${st.open.interval} ${sideTxt(st.open.side)} @ ${fmtPrice(st.open.entryPrice)}`);
-  lines.push(
-    `💰 Equity: <b>${st.capital != null ? st.capital.toFixed(2) : "?"}</b> USDT · Tổng ${st.stats.closed} lệnh · WR ${st.stats.winRate.toFixed(0)}%`,
-  );
-  const best = (st.byCombo ?? []).filter((c) => c.closed >= 3).sort((a, b) => b.winRate - a.winRate)[0];
-  if (best) lines.push(`🏆 Combo tốt nhất: <b>#${best.symbol}</b> ${best.interval} · WR ${best.winRate.toFixed(0)}% (${best.closed} lệnh)`);
-  return lines;
-};
-
-const pad2 = (n: number): string => String(n).padStart(2, "0");
-
-const msgHourly = (st: AutoState, now: Date): string =>
-  statLines(st, now.getTime() - 3_600_000, `⏰ <b>BÁO CÁO GIỜ · ${pad2(now.getHours())}:00</b>`, "1 giờ qua").join("\n");
-
-const msgDaily = (st: AutoState, now: Date): string =>
-  statLines(st, now.getTime() - 86_400_000, `📅 <b>BÁO CÁO NGÀY · ${pad2(now.getDate())}/${pad2(now.getMonth() + 1)}</b>`, "24 giờ qua").join("\n");
+// hourly / daily digest builders (statLines · msgHourly · msgDaily) now live in
+// src/lib/autotrade.ts and run SERVER-SIDE via /api/autotrade/push — one sender
+// per boundary no matter how many tabs/devices are open (fixes duplicate 14:00
+// reports and lets the report count fresh opens, not just closed trades).
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -476,9 +456,10 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     return () => window.clearInterval(id);
   }, [cfg.on, closeOpen, runCycle, pushToast]);
 
-  // hourly / daily Telegram digests — checked every minute; each boundary
-  // (top of the hour, calendar day) sends exactly one stats message.
-  // force=true → skip the boundary check (manual "send now" button).
+  // hourly / daily Telegram digests — checked every minute. The boundary dedupe
+  // AND the send happen on the SERVER (one digest per hour/day no matter how
+  // many tabs or devices are open). Local refs only stop us re-posting the same
+  // boundary every minute. force=true → extra manual "gửi ngay" digest.
   const sendPeriodicStats = useCallback(async (force = false) => {
     if (statBusyRef.current) return;
     const c = cfgRef.current;
@@ -488,14 +469,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     if (force) {
       statBusyRef.current = true;
       try {
-        lastHourRef.current = hourKey;
-        lastDayRef.current = dayKey;
-        const st = await refreshAuto();
-        if (st) {
-          void sendTelegram(
-            statLines(st, now.getTime() - 86_400_000, `📊 <b>AUTO THỐNG KÊ · ${pad2(now.getHours())}:${pad2(now.getMinutes())}</b>`, "24 giờ qua").join("\n"),
-          );
-        }
+        await pushAutoStats({ force: true });
       } finally {
         statBusyRef.current = false;
       }
@@ -506,20 +480,16 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     if (!dueHour && !dueDay) return;
     statBusyRef.current = true;
     try {
-      const st = await refreshAuto();
-      if (!st) return;
-      if (dueHour) {
+      const ok = await pushAutoStats({ hourly: dueHour, daily: dueDay });
+      if (ok) {
+        // the server is the single sender — marking locally just stops re-posting
         lastHourRef.current = hourKey;
-        void sendTelegram(msgHourly(st, now));
-      }
-      if (dueDay) {
         lastDayRef.current = dayKey;
-        void sendTelegram(msgDaily(st, now));
       }
     } finally {
       statBusyRef.current = false;
     }
-  }, [refreshAuto]);
+  }, []);
 
   useEffect(() => {
     const id = window.setInterval(() => void sendPeriodicStats(), 60_000);
