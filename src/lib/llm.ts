@@ -67,19 +67,36 @@ const VERDICT_SCHEMA = {
   required: ["verdict", "confidence", "reasons"],
 };
 
-/** GET /v1/models — cheap health probe behind the "Test LLM" button. */
-export async function llmPing(url: string): Promise<{ ok: boolean; detail: string }> {
+/**
+ * Browser-side entry point — posts the setup to the SAME-ORIGIN /api/llm/review
+ * route and the server talks to the llama-server. This keeps the LLM call out
+ * of the browser entirely (no mixed-content, no CORS) while the UI stays
+ * silent: no toggle, no inputs, the risk officer simply runs in the backend.
+ * Returns null on ANY failure — the caller stays fail-open.
+ */
+export async function llmReviewViaApi(
+  url: string,
+  model: string,
+  s: LlmSetup,
+): Promise<LlmVerdict | null> {
   try {
-    const res = await fetch(`${baseOf(url)}/v1/models`, { signal: AbortSignal.timeout(5_000) });
-    if (!res.ok) return { ok: false, detail: `HTTP ${res.status}` };
-    const j = (await res.json()) as { data?: { id?: string }[] };
-    const ids = (j.data ?? [])
-      .map((m) => m.id ?? "")
-      .filter(Boolean)
-      .join(", ");
-    return { ok: true, detail: ids ? ids.slice(0, 80) : "connected" };
-  } catch (e) {
-    return { ok: false, detail: e instanceof Error ? e.message : "fetch failed" };
+    const res = await fetch("/api/llm/review", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(14_000),
+      body: JSON.stringify({ url, model, setup: s }),
+    });
+    if (!res.ok) return null;
+    const j = (await res.json()) as Partial<LlmVerdict> & { verdict?: string | null };
+    if (j.verdict !== "go" && j.verdict !== "skip") return null;
+    return {
+      verdict: j.verdict,
+      confidence: typeof j.confidence === "number" ? j.confidence : 0.5,
+      reasons: Array.isArray(j.reasons) ? j.reasons.slice(0, 3) : [],
+      ms: typeof j.ms === "number" ? j.ms : 0,
+    };
+  } catch {
+    return null;
   }
 }
 

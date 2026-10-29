@@ -43,7 +43,7 @@ import {
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
 import type { EngineSettings, Ticker } from "@/lib/types";
 import { INTERVALS } from "@/lib/types";
-import { llmPing, llmReview, type LlmVerdict } from "@/lib/llm";
+import { llmReviewViaApi, type LlmVerdict } from "@/lib/llm";
 import { Bot, KeyRound, ScanLine, Send, Square } from "lucide-react";
 
 interface Props {
@@ -216,8 +216,6 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const [tgSaving, setTgSaving] = useState(false);
   const [status, setStatus] = useState<string>("");
   const [countdown, setCountdown] = useState<number | null>(null);
-  const [llmTesting, setLlmTesting] = useState(false);
-  const [llmTest, setLlmTest] = useState<string | null>(null);
   const [llmLast, setLlmLast] = useState<LlmLast | null>(null);
 
   // refs mirror props/state for the interval callbacks (no stale closures,
@@ -361,24 +359,6 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     }
   }, []);
 
-  // health probe for the LLM risk-officer config
-  const testLlm = useCallback(async () => {
-    setLlmTesting(true);
-    setLlmTest(null);
-    try {
-      const r = await llmPing(cfgRef.current.llmUrl);
-      if (mountedRef.current) {
-        setLlmTest(
-          r.ok
-            ? t(langRef.current, "auto.llm.test.ok", { detail: r.detail })
-            : t(langRef.current, "auto.llm.test.fail", { detail: r.detail }),
-        );
-      }
-    } finally {
-      if (mountedRef.current) setLlmTesting(false);
-    }
-  }, []);
-
   // ── one auto cycle: manage the open position, then maybe enter the best pick
   const runCycle = useCallback(async () => {
     if (busyRef.current) return;
@@ -426,12 +406,14 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
       const price = tickersRef.current[best.symbol]?.price ?? 0;
       if (price <= 0) return; // no live price for that pair — wait for the next cycle
 
-      // 2.5) optional LLM risk officer — the local llama-server reviews the
-      // chosen setup before any entry. Fail-open: a dead/slow/misbehaving
-      // server never blocks trading, it just downgrades to the XGBoost flow.
-      if (c.llmEnabled) {
+      // 2.5) LLM risk officer — runs silently in the backend (no UI toggle):
+      // the browser posts the setup to the same-origin /api/llm/review route and
+      // the SERVER reviews it against the local llama-server. Fail-open: a
+      // dead/slow/misbehaving server never blocks trading, it just downgrades
+      // to the XGBoost flow (a circuit breaker stops repeated dead-end calls).
+      {
         setStatus(t(langRef.current, "auto.llm.checking", { pair: best.symbol, tf: best.interval }));
-        const v = await llmReview(c.llmUrl, c.llmModel, {
+        const v = await llmReviewViaApi(c.llmUrl, c.llmModel, {
           symbol: best.symbol,
           interval: best.interval,
           side: best.bias as "LONG" | "SHORT", // isTradeable already excluded NEUTRAL
@@ -917,7 +899,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
           </div>
         </div>
 
-        {/* whale filter + LLM risk officer (optional local llama-server) */}
+        {/* whale filter — the LLM risk officer runs silently in the backend */}
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -932,51 +914,6 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
           >
             🐋 {t(lang, "auto.whale.title")}
           </button>
-          <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.llm.title")}>
-            <button
-              type="button"
-              onClick={() => updateCfg({ llmEnabled: !cfg.llmEnabled })}
-              aria-pressed={cfg.llmEnabled}
-              title={t(lang, "auto.llm.tip")}
-              className={`h-7 rounded-md border px-2 text-[11px] ${
-                cfg.llmEnabled
-                  ? "border-teal-700 bg-teal-950/40 text-teal-300"
-                  : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
-              }`}
-            >
-              <Bot className="mr-1 inline h-3 w-3" />
-              {t(lang, "auto.llm.title")}
-            </button>
-            {cfg.llmEnabled && (
-              <>
-                <Input
-                  value={cfg.llmUrl}
-                  onChange={(e) => updateCfg({ llmUrl: e.target.value })}
-                  spellCheck={false}
-                  placeholder="http://127.0.0.8:8888"
-                  className="h-7 w-48 border-zinc-800 bg-zinc-950/60 px-1.5 font-mono text-[11px] text-zinc-300"
-                />
-                <Input
-                  value={cfg.llmModel}
-                  onChange={(e) => updateCfg({ llmModel: e.target.value })}
-                  spellCheck={false}
-                  placeholder="qwen2.5-7b-instruct"
-                  className="h-7 w-32 border-zinc-800 bg-zinc-950/60 px-1.5 font-mono text-[11px] text-zinc-300"
-                />
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 px-2 text-[11px] text-zinc-400 hover:bg-zinc-800"
-                  disabled={llmTesting}
-                  onClick={() => void testLlm()}
-                >
-                  <Send className="mr-1 h-3 w-3" />
-                  {t(lang, "auto.llm.test")}
-                </Button>
-                {llmTest && <span className="max-w-[22rem] truncate text-[11px] text-zinc-500">{llmTest}</span>}
-              </>
-            )}
-          </div>
           {llmLast && (
             <span
               className={`text-[11px] ${

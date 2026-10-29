@@ -584,9 +584,8 @@ export interface AutoConfig {
   statHourly: boolean;
   /** auto-post a stats digest to Telegram once a day */
   statDaily: boolean;
-  /** optional local LLM (llama-server, OpenAI-compatible) reviews every entry before it opens */
-  llmEnabled: boolean;
-  /** base URL of the llama-server endpoint, e.g. http://127.0.0.8:8888 */
+  /** base URL of the llama-server endpoint, e.g. http://127.0.0.8:8888 —
+   *  the risk officer runs silently in the backend (no UI toggle) */
   llmUrl: string;
   /** model name sent with each request (informational — the server binds one model) */
   llmModel: string;
@@ -607,7 +606,6 @@ export const AUTO_DEFAULTS: AutoConfig = {
   cooldownMin: 30,
   statHourly: true,
   statDaily: true,
-  llmEnabled: false,
   llmUrl: LLM_URL_DEFAULT,
   llmModel: LLM_MODEL_DEFAULT,
   whaleFilter: true,
@@ -648,7 +646,6 @@ export function loadAutoConfig(): AutoConfig {
         : AUTO_DEFAULTS.cooldownMin,
       statHourly: p.statHourly !== false,
       statDaily: p.statDaily !== false,
-      llmEnabled: p.llmEnabled === true,
       llmUrl:
         typeof p.llmUrl === "string" && /^https?:\/\/\S{1,120}$/.test(p.llmUrl.trim()) ? p.llmUrl.trim() : AUTO_DEFAULTS.llmUrl,
       llmModel: typeof p.llmModel === "string" && p.llmModel.length <= 60 ? p.llmModel : AUTO_DEFAULTS.llmModel,
