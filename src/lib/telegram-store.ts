@@ -13,6 +13,8 @@ const FILE = dataFile("telegram.json");
 interface TgStore {
   chatId?: string;
   botToken?: string;
+  /** alternate Telegram Bot API origin (Cloudflare Worker proxy) — fights 503s */
+  apiBase?: string;
 }
 
 function readStore(): TgStore {
@@ -82,6 +84,43 @@ export function effectiveToken(): { token: string | null; source: "store" | "env
   return { token: null, source: null };
 }
 
+export const TG_API_BASE_DEFAULT = "https://api.telegram.org";
+
+/** Sanitize a custom API base — http(s) URL, no trailing slash, no path. */
+function normalizeApiBase(raw: string): string | null {
+  const v = raw.trim().replace(/\/+$/, "");
+  if (!v) return null;
+  try {
+    const u = new URL(v);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    return `${u.protocol}//${u.host}`; // drop any path — we append /bot<token>/<method>
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Effective Telegram API origin: runtime override (Cloudflare Worker proxy),
+ * then TELEGRAM_API_BASE env, then the official api.telegram.org.
+ * A proxy fixes persistent 503/429 seen from some VPS / ISP routes — the
+ * Worker's clean Cloudflare egress talks to Telegram instead of your server.
+ */
+export function effectiveApiBase(): { base: string; source: "store" | "env" | "default" } {
+  const stored = normalizeApiBase(readStore().apiBase ?? "");
+  if (stored) return { base: stored, source: "store" };
+  const env = normalizeApiBase(process.env.TELEGRAM_API_BASE ?? "");
+  if (env) return { base: env, source: "env" };
+  return { base: TG_API_BASE_DEFAULT, source: "default" };
+}
+
+/** Set (or clear — empty string) the runtime API-base override. Returns null when invalid. */
+export function setStoredApiBase(raw: string): string | null {
+  const v = normalizeApiBase(raw);
+  if (raw.trim() && !v) return null;
+  writeStore({ apiBase: v ?? "" });
+  return v ?? TG_API_BASE_DEFAULT;
+}
+
 // ─── Server-side Telegram API core (shared, with retry) ───────────────────────
 // Used by the /api/telegram relay AND the /api/autotrade/push digest sender so
 // both go through the same token / chat-id resolution / error mapping.
@@ -120,9 +159,10 @@ export async function tgApi(
 ): Promise<TgApiResult> {
   const tok = effectiveToken();
   if (!tok.token) return { json: null, status: 0, detail: "telegram_not_configured" };
+  const { base } = effectiveApiBase();
   for (let i = 1; ; i++) {
     try {
-      const res = await fetch(`https://api.telegram.org/bot${tok.token}/${method}`, {
+      const res = await fetch(`${base}/bot${tok.token}/${method}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),

@@ -26,6 +26,8 @@ import {
   TP_MODES,
   telegramConfigured,
   telegramDiscover,
+  telegramGetBase,
+  telegramSaveBase,
   telegramSaveChat,
   telegramSaveToken,
   telegramStatus,
@@ -35,6 +37,7 @@ import {
   type AutoTradeRow,
   type ComboStat,
   type ScanRow,
+  type TgApiBase,
   type TgChat,
 } from "@/lib/autotrade";
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
@@ -206,6 +209,9 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const [tgSavingToken, setTgSavingToken] = useState(false);
   const [tgBotUser, setTgBotUser] = useState<string | null>(null); // @username from getMe
   const [tgTokenSrc, setTgTokenSrc] = useState<"store" | "env" | null>(null);
+  const [tgBase, setTgBase] = useState<TgApiBase | null>(null); // effective API origin (proxy?)
+  const [tgBaseInput, setTgBaseInput] = useState("");
+  const [tgSavingBase, setTgSavingBase] = useState(false);
   const [tgDiscovering, setTgDiscovering] = useState(false);
   const [tgSaving, setTgSaving] = useState(false);
   const [status, setStatus] = useState<string>("");
@@ -314,6 +320,9 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
       if (!mountedRef.current) return;
       setTgChatId(s.chatId);
       setTgTokenSrc(s.tokenSource ?? null);
+    });
+    void telegramGetBase().then((b) => {
+      if (mountedRef.current && b) setTgBase(b);
     });
     // start clocks at the CURRENT hour/day so the first digest goes out at the
     // next boundary, not the second the app opens
@@ -688,6 +697,23 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     }
   };
 
+  // persist the Telegram API origin (Cloudflare Worker proxy) — "" clears
+  const saveBase = async () => {
+    if (tgSavingBase) return;
+    setTgSavingBase(true);
+    const r = await telegramSaveBase(tgBaseInput.trim());
+    if (!mountedRef.current) return;
+    setTgSavingBase(false);
+    if (r) {
+      setTgBase(r);
+      setTgBaseInput("");
+      pushToast({ kind: "xgb", text: t(lang, "auto.tg.base.saved", { base: r.apiBase }) });
+      void checkTg(); // re-test through the new origin right away
+    } else {
+      pushToast({ kind: "error", text: t(lang, "auto.tg.base.bad") });
+    }
+  };
+
   // persist the picked chat id, then re-test immediately
   const applyChat = async (id: string) => {
     setTgSaving(true);
@@ -1023,6 +1049,49 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
               >
                 {tgSavingToken ? t(lang, "auto.tg.token.saving") : t(lang, "auto.tg.token.save")}
               </Button>
+            </div>
+            {tgBotUser && (
+              <a
+                href={`https://t.me/${tgBotUser}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-400 underline decoration-sky-700 underline-offset-2 hover:text-sky-300"
+              >
+                <Send className="h-3 w-3" />
+                {t(lang, "auto.tg.openbot", { bot: tgBotUser })}
+              </a>
+            )}
+
+            {/* anti-503 — route Bot-API calls through a Cloudflare Worker proxy */}
+            <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/50 p-2">
+              <div className="flex flex-wrap items-center justify-between gap-1">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">{t(lang, "auto.tg.base.title")}</p>
+                {tgBase && (
+                  <span className="max-w-[55%] truncate font-mono text-[10px] text-zinc-500">
+                    {tgBase.source === "default" ? t(lang, "auto.tg.base.default") : tgBase.apiBase}
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] leading-relaxed text-zinc-400">{t(lang, "auto.tg.base.hint")}</p>
+              <div className="flex items-center gap-1.5">
+                <Input
+                  type="text"
+                  autoComplete="off"
+                  className="h-8 flex-1 border-zinc-700 bg-zinc-950/60 font-mono text-[11px] text-zinc-200 placeholder:text-zinc-600"
+                  placeholder={t(lang, "auto.tg.base.ph")}
+                  value={tgBaseInput}
+                  onChange={(e) => setTgBaseInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && void saveBase()}
+                />
+                <Button
+                  size="sm"
+                  className="h-8 shrink-0 bg-zinc-700 text-zinc-100 hover:bg-zinc-600 disabled:opacity-50"
+                  disabled={tgSavingBase}
+                  onClick={() => void saveBase()}
+                >
+                  {t(lang, "auto.tg.base.save")}
+                </Button>
+              </div>
             </div>
             {tgDetail && <p className="font-mono text-[10px] text-zinc-500">{tgDetail}</p>}
           </div>

@@ -451,6 +451,38 @@ export async function telegramSaveChat(chatId: string): Promise<boolean> {
   }
 }
 
+export interface TgApiBase {
+  apiBase: string;
+  source: "store" | "env" | "default";
+}
+
+/** Current Telegram API origin (may be a Cloudflare Worker proxy). */
+export async function telegramGetBase(): Promise<TgApiBase | null> {
+  try {
+    const res = await fetch("/api/telegram/base");
+    if (!res.ok) return null;
+    return (await res.json()) as TgApiBase;
+  } catch {
+    return null;
+  }
+}
+
+/** Save / clear the Telegram API origin override ("" = clear). Returns the effective base, or null on invalid URL. */
+export async function telegramSaveBase(apiBase: string): Promise<TgApiBase | null> {
+  try {
+    const res = await fetch("/api/telegram/base", {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ apiBase }),
+    });
+    const json = (await res.json().catch(() => null)) as (TgApiBase & { ok?: boolean }) | null;
+    if (!res.ok || !json) return null;
+    return { apiBase: json.apiBase, source: json.source };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Fire-and-forget notification — resolves {ok:false, detail} instead of throwing.
  * `html: true` (default) sends with parse_mode HTML — templates must escape

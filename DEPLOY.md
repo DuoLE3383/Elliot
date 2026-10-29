@@ -119,6 +119,19 @@ docker exec elliott bunx prisma db push   # chỉ tạo bảng, không phá data
 
 **Lựa chọn thực dụng đã dùng ở mục 1:** host app trên VPS và trỏ domain qua **cloudflared tunnel** — vẫn được SSL + CDN + DDoS protection + ẩn IP của Cloudflare mà không phải sửa một dòng code nào.
 
+## 6b. Fix lỗi Telegram 503 — proxy Bot API qua Cloudflare Worker (5 phút)
+
+**Triệu chứng:** panel Auto báo `Telegram is overloaded (503)` dù token hợp lệ — lặp lại nhiều ngày. Nguyên nhân: **đường mạng từ server app → api.telegram.org** bị nghẽn/throttled (rất thường gặp với IP VPS/datacenter và một số ISP), không phải lỗi token.
+
+**Cách chạy đã có sẵn trong app:** mọi call Bot API đi qua `tgApi()` (retry 3 lần, tôn trọng `retry_after`) và đọc origin từ "API base" — có thể trỏ sang 1 **Worker proxy trên chính account Cloudflare** của bạn:
+
+1. Cloudflare Dashboard → **Workers & Pages → Create → Worker** → Deploy → **Edit code** → dán nguyên file [`deploy/tg-proxy-worker.js`](deploy/tg-proxy-worker.js) → Deploy
+2. Copy URL miễn phí `https://<tên-worker>.<account>.workers.dev` (hoặc gắn custom domain `tg.huyenbao.com` trong Settings → Domains & Routes)
+3. App → panel **Auto → Telegram → API base** → dán URL Worker → **Lưu** (panel tự test lại ngay). Xoá trắng + Lưu = về `api.telegram.org`
+4. Không cần nhập lại token — token vẫn nằm ở server app, Worker chỉ chuyển tiếp path verbatim và **không lưu gì**
+
+Kiểm tra Worker sống: `curl https://<worker-url>/health` → `ok`.
+
 ## 7. Bảo vệ source code (đã bật)
 
 - **Sourcemap luôn bị xóa** trong mọi bản build production (`scripts/postbuild.mjs`)
