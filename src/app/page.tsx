@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DeepAnalysis } from "@/components/analysis";
 import { StrategyPies } from "@/components/strategy-pies";
+import { AutoPanel } from "@/components/auto-panel";
 import { Journal } from "@/components/journal";
 import { KpiCards } from "@/components/kpi";
 import { SessionsPanel } from "@/components/sessions";
@@ -1030,6 +1031,18 @@ export default function Home() {
                 runs={xgbRuns}
                 onTrain={() => void trainXgb(true)}
                 onApply={applyXgb}
+              />
+              <AutoPanel
+                lang={lang}
+                pairs={allPairs}
+                leverage={settings.leverage}
+                tickers={tickers}
+                settings={settings}
+                onPickPair={(sym, itv) => {
+                  setSymbol(sym);
+                  if ((INTERVALS as readonly string[]).includes(itv)) setIntervalTf(itv as Interval);
+                }}
+                pushToast={pushToast}
               />
               <p className="px-1 pb-1 text-[10px] leading-snug text-zinc-700">{t(lang, "footer.note")}</p>
             </div>

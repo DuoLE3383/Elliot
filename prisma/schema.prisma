@@ -83,3 +83,36 @@ model FinetuneRun {
 
   @@index([symbol, interval, createdAt])
 }
+
+// ─── Auto trade (dry-run) — one row per opened position ─────────────────────
+// The auto engine scans every watched pair × timeframe, ranks them by the
+// XGBoost model's predicted win quality (auc/acc/confidence) and opens ONE
+// paper position at a time on the best candidate with a virtual capital.
+
+model AutoTrade {
+  id            String    @id @default(cuid())
+  symbol        String
+  interval      String
+  side          String // LONG | SHORT
+  entryPrice    Float
+  entryTime     DateTime  @default(now())
+  slPct         Float
+  tpPct         Float
+  leverage      Float     @default(1)
+  status        String    @default("open") // open | closed
+  exitPrice     Float?
+  exitTime      DateTime?
+  /** signed ROE % = price move × leverage (liquidation-safe) */
+  pnlPct        Float?
+  exitKind      String? // tp | sl | manual
+  prob          Float?
+  acc           Float?
+  auc           Float?
+  score         Float?
+  capitalBefore Float?
+  capitalAfter  Float?
+  createdAt     DateTime  @default(now())
+
+  @@index([status, createdAt])
+  @@index([symbol, interval])
+}
