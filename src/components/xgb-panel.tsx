@@ -4,8 +4,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { t, type Lang } from "@/lib/i18n";
+import type { RunRow } from "@/lib/history";
 import type { XgbResult } from "@/lib/xgb";
-import { BrainCircuit, Cpu, Sparkles } from "lucide-react";
+import { BrainCircuit, CheckCircle2, Cpu, History, Sparkles } from "lucide-react";
 
 interface Props {
   lang: Lang;
@@ -17,6 +18,8 @@ interface Props {
   result: XgbResult | null;
   /** result was trained on a different pair/interval */
   stale: boolean;
+  /** persisted train/finetune runs for the CURRENT pair+interval (newest first) */
+  runs: RunRow[];
   onTrain: () => void;
   onApply: () => void;
 }
@@ -33,7 +36,7 @@ function Tile({ label, value, valueClass }: { label: string; value: string; valu
 const biasClass = (bias: string) =>
   bias === "LONG" ? "text-emerald-400" : bias === "SHORT" ? "text-rose-400" : "text-zinc-300";
 
-export function XgbPanel({ lang, candles, busy, progress, result, stale, onTrain, onApply }: Props) {
+export function XgbPanel({ lang, candles, busy, progress, result, stale, runs, onTrain, onApply }: Props) {
   const enough = candles >= 200;
   const s = result?.suggestion;
   const pct = (v: number) => `${(v * 100).toFixed(0)}%`;
@@ -172,6 +175,50 @@ export function XgbPanel({ lang, candles, busy, progress, result, stale, onTrain
             </Button>
           </>
         )}
+
+        {/* finetune history — every run persisted per pair+interval+time */}
+        <div className="border-t border-zinc-800 pt-2">
+          <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+            <History className="h-3 w-3" />
+            {t(lang, "xgb.history")}
+            {runs.length > 0 && <span className="font-mono text-zinc-600">· {runs.length}</span>}
+          </p>
+          <p className="mt-0.5 text-[10px] text-zinc-600">{t(lang, "xgb.history.sub")}</p>
+          {runs.length === 0 ? (
+            <p className="mt-1.5 text-[11px] text-zinc-600">{t(lang, "xgb.history.empty")}</p>
+          ) : (
+            <div className="rail-scroll mt-1.5 max-h-32 space-y-1 overflow-y-auto pr-0.5">
+              {runs.map((r) => (
+                <div
+                  key={r.id}
+                  className="flex items-center gap-2 rounded-md border border-zinc-800/80 bg-zinc-950/40 px-2 py-1.5 text-[11px]"
+                >
+                  <Badge
+                    variant="outline"
+                    className={
+                      r.kind === "finetune"
+                        ? "shrink-0 border-teal-800 bg-teal-950/40 px-1.5 text-[9px] uppercase text-teal-300"
+                        : "shrink-0 border-zinc-700 bg-zinc-900 px-1.5 text-[9px] uppercase text-zinc-400"
+                    }
+                  >
+                    {t(lang, r.kind === "finetune" ? "xgb.kind.finetune" : "xgb.kind.train")}
+                  </Badge>
+                  <span className="shrink-0 text-zinc-500">
+                    {new Date(r.createdAt).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      day: "2-digit",
+                      month: "2-digit",
+                    })}
+                  </span>
+                  <span className="ml-auto shrink-0 font-mono text-zinc-300">{r.acc.toFixed(1)}%</span>
+                  <span className="shrink-0 font-mono text-zinc-500">AUC {r.auc.toFixed(2)}</span>
+                  {r.applied && <CheckCircle2 className="h-3 w-3 shrink-0 text-teal-500" title={t(lang, "xgb.run.applied")} />}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <p className="border-t border-zinc-800 pt-2 text-[10px] leading-relaxed text-zinc-600">
           {t(lang, "xgb.disclaimer")}

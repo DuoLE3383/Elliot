@@ -30,3 +30,56 @@ model Post {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// ─── Elliott terminal — XGBoost suggestions & finetune history ──────────────
+// One row per (pair, interval, time) — every train produces a finetune run
+// AND a strategy suggestion; outcomes are scored once the horizon expires.
+
+model Suggestion {
+  id          String    @id @default(cuid())
+  symbol      String // e.g. BTCUSDT
+  interval    String // e.g. 5m
+  bias        String // LONG | SHORT | NEUTRAL
+  prob        Float // P(price up at horizon), 0..1
+  confidence  Float // |2p−1|, 0..1
+  slPct       Float
+  tpPct       Float
+  atrKey      Float
+  atrPeriod   Int
+  smaFilter   Boolean
+  smaPeriod   Int
+  acc         Float // model accuracy at train time, %
+  auc         Float // model AUC at train time, 0..1
+  horizonBars Int // prediction horizon (bars ahead)
+  entryPrice  Float // close of the last closed candle when suggested
+  applied     Boolean   @default(false)
+  appliedAt   DateTime?
+  outcome     String? // null = pending; win | loss | flat
+  exitPrice   Float?
+  pnlPct      Float? // signed % move in the suggested direction
+  resolvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([symbol, interval, createdAt])
+  @@index([outcome])
+}
+
+model FinetuneRun {
+  id         String   @id @default(cuid())
+  symbol     String
+  interval   String
+  kind       String   @default("train") // train | finetune
+  samples    Int
+  valSamples Int
+  acc        Float
+  auc        Float
+  logloss    Float
+  trees      Int
+  horizon    Int
+  importance String // JSON [{name, gain}]
+  params     String // JSON XgbParams
+  applied    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([symbol, interval, createdAt])
+}

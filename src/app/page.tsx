@@ -9,6 +9,7 @@ import { SignalDock } from "@/components/panels";
 import { PriceChart } from "@/components/price-chart";
 import { RailContext } from "@/components/rail-context";
 import { SettingsDialog } from "@/components/settings-dialog";
+import { SuggestionHistory } from "@/components/suggestions";
 import { TickerStrip } from "@/components/ticker-strip";
 import { Watchlist } from "@/components/watchlist";
 import { WyckoffPanel } from "@/components/wyckoff-panel";
@@ -18,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtCompact } from "@/lib/market";
+import { fetchRuns, markApplied, resolveBatch, saveRun, saveSuggestion, type RunRow } from "@/lib/history";
 import { fmtPct, fmtPrice, fmtTime, symbolLabel, t, type Lang } from "@/lib/i18n";
 import { kpiFrom, papersFrom } from "@/lib/papers";
 import { signalsFrom } from "@/lib/signals";
@@ -111,6 +113,13 @@ export default function Home() {
   const [xgb, setXgb] = useState<XgbResult | null>(null);
   const [xgbBusy, setXgbBusy] = useState(false);
   const [xgbProgress, setXgbProgress] = useState(0);
+  // ── persisted suggestion/finetune rows (SQLite via /api/*) ─────
+  const [xgbSavedId, setXgbSavedId] = useState<string | null>(null);
+  const [xgbRunId, setXgbRunId] = useState<string | null>(null);
+  /** persisted train/finetune runs for the current pair+interval (newest first) */
+  const [xgbRuns, setXgbRuns] = useState<RunRow[]>([]);
+  /** bumped after any DB mutation → history lists reload */
+  const [histRefresh, setHistRefresh] = useState(0);
   // ── market context (ticker strip + watchlist sparklines) ────────────────────
   const [tickers, setTickers] = useState<Record<string, Ticker>>({});
   const [minis, setMinis] = useState<Record<string, Kline[]>>({});
@@ -130,6 +139,9 @@ export default function Home() {
       setToasts((list) => list.filter((x) => x.id !== id));
     }, 7000);
   }, []);
+
+  /** DB mutated → history lists (tab Đề xuất, XgbPanel runs) reload */
+  const bumpHist = useCallback(() => setHistRefresh((k) => k + 1), []);
 
   // ── localStorage hydration (client only, after first paint) ────────────────
   useEffect(() => {
@@ -433,12 +445,54 @@ export default function Home() {
         kind: "xgb",
         text: t(lang, "toast.xgbDone", { acc: res.acc.toFixed(1), auc: res.auc.toFixed(2) }),
       });
+      // persist run + suggestion per (pair, interval, time) — outcomes are
+      // scored later by resolve-batch once the horizon bars have elapsed
+      const entryPrice = klines.length >= 2 ? klines[klines.length - 2].c : 0;
+      const [saved, runSaved] = await Promise.all([
+        saveSuggestion({
+          symbol,
+          interval,
+          bias: res.suggestion.bias,
+          prob: res.suggestion.prob,
+          confidence: res.suggestion.confidence,
+          slPct: res.suggestion.slPct,
+          tpPct: res.suggestion.tpPct,
+          atrKey: res.suggestion.atrKey,
+          atrPeriod: res.suggestion.atrPeriod,
+          smaFilter: res.suggestion.smaFilter,
+          smaPeriod: res.suggestion.smaPeriod,
+          acc: res.acc,
+          auc: res.auc,
+          horizonBars: res.horizon,
+          entryPrice,
+        }),
+        saveRun({
+          symbol,
+          interval,
+          samples: res.samples,
+          valSamples: res.valSamples,
+          acc: res.acc,
+          auc: res.auc,
+          logloss: res.logloss,
+          trees: res.trees,
+          horizon: res.horizon,
+          importance: res.importance,
+          params: {},
+        }),
+      ]);
+      setXgbSavedId(saved?.id ?? null);
+      setXgbRunId(runSaved?.id ?? null);
+      pushToast({
+        kind: "xgb",
+        text: saved && runSaved ? t(lang, "sg.saved") : t(lang, "sg.saveFail"),
+      });
+      bumpHist();
     } catch {
       pushToast({ kind: "error", text: t(lang, "toast.xgbFail") });
     } finally {
       setXgbBusy(false);
     }
-  }, [xgbBusy, klines, settings, key, interval, lang, pushToast]);
+  }, [xgbBusy, klines, settings, key, interval, symbol, lang, pushToast, bumpHist]);
 
   const applyXgb = useCallback(() => {
     if (!xgb) return;
@@ -462,9 +516,47 @@ export default function Home() {
     });
     prevKeyRef.current = "";
     pushToast({ kind: "xgb", text: t(lang, "xgb.applied") });
-  }, [xgb, lang, pushToast]);
+    // mark the persisted rows as applied (fire-and-forget)
+    if (xgbSavedId) void markApplied("suggestion", xgbSavedId).then((ok) => ok && bumpHist());
+    if (xgbRunId) void markApplied("run", xgbRunId).then((ok) => ok && bumpHist());
+  }, [xgb, lang, pushToast, xgbSavedId, xgbRunId, bumpHist]);
 
   const xgbStale = xgb != null && xgb.key !== key;
+
+  // persisted finetune runs for the current pair+interval — reload on switch/mutation
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const list = await fetchRuns({ symbol, interval, limit: 20 });
+        if (alive) setXgbRuns(list);
+      } catch {
+        if (alive) setXgbRuns([]);
+      }
+    };
+    void load();
+    return () => {
+      alive = false;
+    };
+  }, [symbol, interval, histRefresh]);
+
+  // ── outcome scoring — feed fresh prices every 60s; the server scores any
+  // pending suggestion whose horizon has elapsed (win/loss per direction) ──
+  const resolveStale = useCallback(async () => {
+    const prices: Record<string, number> = {};
+    if (klines.length) prices[symbol] = klines[klines.length - 1].c;
+    for (const [sym, ks] of Object.entries(minis)) {
+      if (ks.length && prices[sym] == null) prices[sym] = ks[ks.length - 1].c;
+    }
+    const n = await resolveBatch(prices);
+    if (n > 0) bumpHist();
+  }, [klines, symbol, minis, bumpHist]);
+
+  useEffect(() => {
+    void resolveStale();
+    const id = window.setInterval(() => void resolveStale(), 60_000);
+    return () => window.clearInterval(id);
+  }, [resolveStale]);
 
   const pinnedIndex = useMemo(() => {
     if (pinnedTime == null || !engine) return null;
@@ -822,6 +914,12 @@ export default function Home() {
                     {t(lang, "tabs.journal")}
                   </TabsTrigger>
                   <TabsTrigger
+                    value="suggest"
+                    className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+                  >
+                    {t(lang, "tabs.suggest")}
+                  </TabsTrigger>
+                  <TabsTrigger
                     value="analysis"
                     className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
                   >
@@ -830,6 +928,9 @@ export default function Home() {
                 </TabsList>
                 <TabsContent value="journal" className="mt-2 lg:h-[200px] lg:overflow-y-auto rail-scroll">
                   <Journal lang={lang} papers={engine.papers} symbol={symbol} interval={interval} maxListClass="max-h-36" />
+                </TabsContent>
+                <TabsContent value="suggest" className="mt-2 lg:h-[200px] lg:overflow-y-auto rail-scroll">
+                  <SuggestionHistory lang={lang} symbol={symbol} interval={interval} refreshKey={histRefresh} />
                 </TabsContent>
                 <TabsContent value="analysis" className="mt-2 lg:h-[200px] lg:overflow-y-auto rail-scroll">
                   <DeepAnalysis
@@ -883,6 +984,7 @@ export default function Home() {
                 progress={xgbProgress}
                 result={xgb}
                 stale={xgbStale}
+                runs={xgbRuns}
                 onTrain={() => void trainXgb()}
                 onApply={applyXgb}
               />
