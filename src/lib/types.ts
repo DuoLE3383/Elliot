@@ -83,6 +83,8 @@ export interface EngineSettings {
   leverage: number;
   /** SMA trend gate — off = every confirmed signal trades immediately */
   smaFilter: boolean;
+  /** UT Bot engine — off pauses the simulation (journal recomputes to empty) */
+  utOn: boolean;
 }
 
 // Gate defaults OFF — entries were getting stuck "bị chặn" for whole sessions.
@@ -95,6 +97,7 @@ export const DEFAULT_SETTINGS: EngineSettings = {
   smaPeriod: 200,
   leverage: 1,
   smaFilter: false,
+  utOn: true,
 };
 
 export const PRESET_WIDE: EngineSettings = {
@@ -105,6 +108,7 @@ export const PRESET_WIDE: EngineSettings = {
   smaPeriod: 200,
   leverage: 1,
   smaFilter: false,
+  utOn: true,
 };
 
 /** "Đặt theo Pine gốc" — the original UT Bot Alerts strategy exits. */
@@ -116,7 +120,68 @@ export const PRESET_PINE: EngineSettings = {
   smaPeriod: 200,
   leverage: 1,
   smaFilter: false,
+  utOn: true,
 };
+
+// ─── Đề xuất chiến lược (strategy presets) ──────────────────────────────────
+// Presets never touch leverage — the user controls that separately.
+
+export const PRESET_SAFE: Omit<EngineSettings, "leverage"> = {
+  slPct: 4,
+  tpPct: 2,
+  atrKey: 3,
+  atrPeriod: 14,
+  smaPeriod: 200,
+  smaFilter: true,
+  utOn: true,
+};
+
+export const PRESET_BALANCED: Omit<EngineSettings, "leverage"> = {
+  slPct: 6,
+  tpPct: 3.2,
+  atrKey: 2,
+  atrPeriod: 10,
+  smaPeriod: 200,
+  smaFilter: false,
+  utOn: true,
+};
+
+export const PRESET_AGGRESSIVE: Omit<EngineSettings, "leverage"> = {
+  slPct: 2,
+  tpPct: 4,
+  atrKey: 1,
+  atrPeriod: 7,
+  smaPeriod: 50,
+  smaFilter: false,
+  utOn: true,
+};
+
+export type StrategyKey = "safe" | "balanced" | "aggressive";
+
+export const STRATEGY_PRESETS: { key: StrategyKey; settings: Omit<EngineSettings, "leverage"> }[] = [
+  { key: "safe", settings: PRESET_SAFE },
+  { key: "balanced", settings: PRESET_BALANCED },
+  { key: "aggressive", settings: PRESET_AGGRESSIVE },
+];
+
+/** Which strategy preset (if any) matches these settings — leverage ignored. */
+export function matchPreset(s: EngineSettings): StrategyKey | null {
+  for (const p of STRATEGY_PRESETS) {
+    const v = p.settings;
+    if (
+      s.slPct === v.slPct &&
+      s.tpPct === v.tpPct &&
+      s.atrKey === v.atrKey &&
+      s.atrPeriod === v.atrPeriod &&
+      s.smaPeriod === v.smaPeriod &&
+      s.smaFilter === v.smaFilter &&
+      s.utOn === v.utOn
+    ) {
+      return p.key;
+    }
+  }
+  return null;
+}
 
 /** Default pair chips (Binance USDT spot). Custom pairs are user-added. */
 export const SYMBOLS = [

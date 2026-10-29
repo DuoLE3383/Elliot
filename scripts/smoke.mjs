@@ -29,7 +29,10 @@ import { wyckoffFrom } from "../src/lib/wyckoff.ts";
 import { DEFAULT_WYCKOFF } from "../src/lib/types.ts";
 import { sessionOf, sessionStats, whaleDelta, volumeProfile, fmtCompact } from "../src/lib/market.ts";
 import { equityFrom } from "../src/lib/equity.ts";
-import { kpiFrom } from "../src/lib/papers.ts";
+import { kpiFrom, papersFrom as libPapersFrom } from "../src/lib/papers.ts";
+import { signalsFrom as libSignalsFrom } from "../src/lib/signals.ts";
+import { runXgb, FEATURE_NAMES } from "../src/lib/xgb.ts";
+import { DEFAULT_SETTINGS, matchPreset, PRESET_SAFE, PRESET_AGGRESSIVE, STRATEGY_PRESETS } from "../src/lib/types.ts";
 
 const HOSTS = ["https://api.binance.com", "https://data-api.binance.vision"];
 
@@ -689,6 +692,92 @@ function runEquitySuite(klines, symbol, interval, cfg) {
   check(Math.abs(kpiFrom(fakeFlip).flipNetPnl + 2) < 1e-9, "kpi: flipNetPnl sums flip trades only");
 }
 
+// ─── 9. XGBoost trainer + strategy tuner ──────────────────────────────
+function synthMomentumKlines(n = 480) {
+  // AR(1) returns (φ=0.55) — momentum is genuinely learnable, so the boosted
+  // trees MUST beat coin-flip on the validation slice
+  let price = 100;
+  let rPrev = 0;
+  let seed = 42;
+  const rnd = () => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed / 2147483648;
+  };
+  const ks = [];
+  for (let i = 0; i < n; i++) {
+    const r = 0.55 * rPrev + (rnd() - 0.5) * 0.01;
+    rPrev = r;
+    price = price * Math.exp(r);
+    const o = price * (1 + (rnd() - 0.5) * 0.001);
+    const h = Math.max(o, price) * (1 + rnd() * 0.002);
+    const l = Math.min(o, price) * (1 - rnd() * 0.002);
+    const v = 1000 + rnd() * 500;
+    ks.push({ t: 1700000000000 + i * 3600000, o, h, l, c: price, v, tb: v * (0.4 + rnd() * 0.2) });
+  }
+  return ks;
+}
+
+async function runXgbSuite(liveKlines, tag) {
+  const settings = { ...DEFAULT_SETTINGS, leverage: 1 };
+
+  // 9a. UT off semantics at lib level: no signals → engine never enters
+  {
+    const raw = libSignalsFrom(liveKlines, settings.atrKey, settings.atrPeriod, settings.smaPeriod);
+    const smaOk = raw.signals.map((s) => ({ ...s, smaOk: true }));
+    const withSignals = libPapersFrom(liveKlines, smaOk, raw.sma, "T", "1h", 6, 3.2, 1, false);
+    const withoutSignals = libPapersFrom(liveKlines, [], raw.sma, "T", "1h", 6, 3.2, 1, false);
+    check(
+      withSignals.papers.length > 0 && withoutSignals.papers.length === 0 && !withoutSignals.open && !withoutSignals.pending,
+      `${tag}: UT off (no signals) → engine never enters`,
+      `with=${withSignals.papers.length} without=${withoutSignals.papers.length}`,
+    );
+  }
+
+  // 9b. strategy presets + matchPreset
+  check(STRATEGY_PRESETS.length === 3, "xgb: 3 strategy presets");
+  check(matchPreset(DEFAULT_SETTINGS) === "balanced", "xgb: DEFAULT matches 'balanced'", matchPreset(DEFAULT_SETTINGS));
+  check(matchPreset({ ...DEFAULT_SETTINGS, ...PRESET_SAFE }) === "safe", "xgb: SAFE preset matches 'safe'");
+  check(matchPreset({ ...DEFAULT_SETTINGS, ...PRESET_AGGRESSIVE }) === "aggressive", "xgb: AGGRESSIVE preset matches");
+  check(matchPreset({ ...DEFAULT_SETTINGS, utOn: false }) === null, "xgb: UT off breaks preset match");
+
+  // 9c. synthetic momentum — model must find real signal
+  {
+    const res = await runXgb(synthMomentumKlines(), settings, "SYNTH-1h", "1h");
+    check(res.auc > 0.6, `xgb synth: AUC finds momentum signal (${res.auc.toFixed(2)})`);
+    check(res.acc >= 45 && res.acc <= 100, `xgb synth: accuracy sane (${res.acc.toFixed(1)}%)`);
+    check(res.samples + res.valSamples >= 300, `xgb synth: row count ${res.samples}/${res.valSamples}`);
+    check(
+      res.importance.length === 6 &&
+        res.importance.every((f, i) => f.gain >= 0 && f.gain <= 1 && (i === 0 || res.importance[i - 1].gain >= f.gain)) &&
+        res.importance.reduce((a, f) => a + f.gain, 0) <= 1.0001,
+      "xgb synth: importance sorted, bounded, ≤ 1",
+    );
+    const names = new Set(FEATURE_NAMES);
+    check(res.importance.every((f) => names.has(f.name)), "xgb synth: importance names valid");
+    const s = res.suggestion;
+    check(["LONG", "SHORT", "NEUTRAL"].includes(s.bias), `xgb synth: bias ${s.bias}`);
+    check(s.prob > 0 && s.prob < 1, `xgb synth: prob ${(s.prob).toFixed(3)}`);
+    check(s.slPct >= 1 && s.slPct <= 10, `xgb synth: SL ${s.slPct} clamped`);
+    check(s.tpPct > s.slPct, `xgb synth: TP ${s.tpPct} > SL ${s.slPct}`);
+    check([1, 1.5, 2, 3].includes(s.atrKey) && [7, 10, 14].includes(s.atrPeriod), `xgb synth: UT combo ${s.atrKey}/${s.atrPeriod}`);
+    check(!s.smaFilter || [50, 100, 150, 200].includes(s.smaPeriod), `xgb synth: gate period ${s.smaPeriod}`);
+    console.log(
+      `  xgb synth: acc=${res.acc.toFixed(1)}% auc=${res.auc.toFixed(2)} bias=${s.bias} p=${s.prob.toFixed(2)} SL ${s.slPct}/TP ${s.tpPct} ut=${s.atrKey}/${s.atrPeriod} sma=${s.smaFilter ? s.smaPeriod : "off"}`,
+    );
+  }
+
+  // 9d. live data — must train without throwing and stay in range
+  {
+    const res = await runXgb(liveKlines, settings, "BTCUSDT-1h", "1h");
+    check(res.acc > 0 && res.acc <= 100 && res.auc >= 0 && res.auc <= 1, `xgb live: metrics in range (acc ${res.acc.toFixed(1)} auc ${res.auc.toFixed(2)})`);
+    check(res.suggestion.tpPct > res.suggestion.slPct * 1.25, `xgb live: TP/SL ratio ≥ 1.25R (${res.suggestion.tpPct}/${res.suggestion.slPct})`);
+    check(res.horizon >= 3 && res.horizon <= 6, `xgb live: horizon ${res.horizon}`);
+    console.log(
+      `  xgb live : acc=${res.acc.toFixed(1)}% auc=${res.auc.toFixed(2)} trees=${res.trees} top=${res.importance[0].name}`,
+    );
+  }
+}
+
 async function main() {
   const symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"];
   // 30m / 4h added with the terminal rebuild — engine must hold on all five TFs
@@ -721,6 +810,13 @@ async function main() {
     }
   }
   runWyckoffSynthetic();
+  const btc1h = await fetchKlines("BTCUSDT", "1h").catch(() => null);
+  if (btc1h) {
+    await runXgbSuite(btc1h, "xgb");
+  } else {
+    failures++;
+    console.log("FETCH FAIL BTCUSDT 1h (xgb suite)");
+  }
   console.log("\n========== SUMMARY ==========");
   for (const s of summary) {
     console.log(

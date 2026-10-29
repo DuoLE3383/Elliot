@@ -12,6 +12,7 @@ import { SettingsDialog } from "@/components/settings-dialog";
 import { TickerStrip } from "@/components/ticker-strip";
 import { Watchlist } from "@/components/watchlist";
 import { WyckoffPanel } from "@/components/wyckoff-panel";
+import { XgbPanel } from "@/components/xgb-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,16 +31,20 @@ import {
   Kline,
   MAX_CUSTOM_PAIRS,
   Paper,
+  STRATEGY_PRESETS,
+  StrategyKey,
   SYMBOLS,
   Ticker,
   WyckoffSettings,
+  matchPreset,
 } from "@/lib/types";
+import { runXgb, type XgbResult } from "@/lib/xgb";
 import { ElliottLogo } from "@/components/logo";
-import { AlertTriangle, ArrowLeftRight, Landmark, RefreshCw, Settings2 } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, BrainCircuit, Landmark, RefreshCw, Settings2 } from "lucide-react";
 
 interface Toast {
   id: number;
-  kind: "entry" | "flip" | "error" | "wy";
+  kind: "entry" | "flip" | "error" | "wy" | "xgb";
   side?: Paper["side"];
   text: string;
 }
@@ -102,6 +107,10 @@ export default function Home() {
   const [pinnedTime, setPinnedTime] = useState<number | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // ── XGBoost trainer state ────────────────────────────────────────
+  const [xgb, setXgb] = useState<XgbResult | null>(null);
+  const [xgbBusy, setXgbBusy] = useState(false);
+  const [xgbProgress, setXgbProgress] = useState(0);
   // ── market context (ticker strip + watchlist sparklines) ────────────────────
   const [tickers, setTickers] = useState<Record<string, Ticker>>({});
   const [minis, setMinis] = useState<Record<string, Kline[]>>({});
@@ -227,10 +236,13 @@ export default function Home() {
   const engine = useMemo(() => {
     if (klines.length === 0) return null;
     const raw = signalsFrom(klines, settings.atrKey, settings.atrPeriod, settings.smaPeriod);
+    // UT off → no new signals at all (open positions still exit via SL/TP);
     // gate off → nothing is "blocked" anywhere in the UI
-    const signals = settings.smaFilter
-      ? raw.signals
-      : raw.signals.map((s) => ({ ...s, smaOk: true }));
+    const signals = !settings.utOn
+      ? []
+      : settings.smaFilter
+        ? raw.signals
+        : raw.signals.map((s) => ({ ...s, smaOk: true }));
     const res = papersFrom(
       klines,
       signals,
@@ -376,6 +388,83 @@ export default function Home() {
     });
     prevKeyRef.current = ""; // settings change → recompute without toast burst
   }, []);
+
+  /** flip the UT engine from the dock — same persistence discipline */
+  const toggleUt = useCallback((v: boolean) => {
+    setSettings((s) => {
+      const next = { ...s, utOn: v };
+      try {
+        localStorage.setItem("utp.settings", JSON.stringify(next));
+      } catch {
+        // storage blocked — the toggle still applies for this session
+      }
+      return next;
+    });
+    prevKeyRef.current = "";
+  }, []);
+
+  /** apply a strategy preset — leverage untouched, recomputes silently */
+  const applyPreset = useCallback((preset: StrategyKey) => {
+    const p = STRATEGY_PRESETS.find((x) => x.key === preset);
+    if (!p) return;
+    setSettings((s) => {
+      const next = { ...s, ...p.settings };
+      try {
+        localStorage.setItem("utp.settings", JSON.stringify(next));
+      } catch {
+        // storage blocked — the preset still applies for this session
+      }
+      return next;
+    });
+    prevKeyRef.current = "";
+  }, []);
+
+  const activePreset = useMemo(() => matchPreset(settings), [settings]);
+
+  // ── XGBoost train + apply ────────────────────────────────────────
+  const trainXgb = useCallback(async () => {
+    if (xgbBusy || klines.length < 200) return;
+    setXgbBusy(true);
+    setXgbProgress(0);
+    try {
+      const res = await runXgb(klines, settings, key, interval, (p) => setXgbProgress(p));
+      setXgb(res);
+      pushToast({
+        kind: "xgb",
+        text: t(lang, "toast.xgbDone", { acc: res.acc.toFixed(1), auc: res.auc.toFixed(2) }),
+      });
+    } catch {
+      pushToast({ kind: "error", text: t(lang, "toast.xgbFail") });
+    } finally {
+      setXgbBusy(false);
+    }
+  }, [xgbBusy, klines, settings, key, interval, lang, pushToast]);
+
+  const applyXgb = useCallback(() => {
+    if (!xgb) return;
+    const sg = xgb.suggestion;
+    setSettings((prev) => {
+      const next = {
+        ...prev,
+        slPct: sg.slPct,
+        tpPct: sg.tpPct,
+        atrKey: sg.atrKey,
+        atrPeriod: sg.atrPeriod,
+        smaFilter: sg.smaFilter,
+        smaPeriod: sg.smaPeriod,
+      };
+      try {
+        localStorage.setItem("utp.settings", JSON.stringify(next));
+      } catch {
+        // storage blocked — the suggestion still applies for this session
+      }
+      return next;
+    });
+    prevKeyRef.current = "";
+    pushToast({ kind: "xgb", text: t(lang, "xgb.applied") });
+  }, [xgb, lang, pushToast]);
+
+  const xgbStale = xgb != null && xgb.key !== key;
 
   const pinnedIndex = useMemo(() => {
     if (pinnedTime == null || !engine) return null;
@@ -707,8 +796,8 @@ export default function Home() {
                     <PriceChart
                       klines={klines}
                       sma={engine.sma}
-                      stop={engine.stop}
-                      trend={engine.trend}
+                      stop={settings.utOn ? engine.stop : undefined}
+                      trend={settings.utOn ? engine.trend : undefined}
                       signals={engine.signals}
                       papers={engine.papers}
                       openPaper={engine.open}
@@ -765,6 +854,12 @@ export default function Home() {
                 tpPct={settings.tpPct}
                 leverage={settings.leverage}
                 smaFilter={settings.smaFilter}
+                utOn={settings.utOn}
+                onToggleUt={toggleUt}
+                activePreset={activePreset}
+                onApplyPreset={applyPreset}
+                aiReady={xgb != null && !xgbStale}
+                onApplyAi={applyXgb}
                 latest={latestSignal}
                 confirmed={confirmedSignal}
                 gateLong={gateInfo.long}
@@ -781,6 +876,16 @@ export default function Home() {
               />
               <RailContext lang={lang} klines={klines} openPaper={engine.open} confirmed={confirmedSignal} />
               <WyckoffPanel lang={lang} wy={wyckoff} on={wySettings.enabled} sens={wySettings.sens} />
+              <XgbPanel
+                lang={lang}
+                candles={klines.length}
+                busy={xgbBusy}
+                progress={xgbProgress}
+                result={xgb}
+                stale={xgbStale}
+                onTrain={() => void trainXgb()}
+                onApply={applyXgb}
+              />
               <p className="px-1 pb-1 text-[10px] leading-snug text-zinc-700">{t(lang, "footer.note")}</p>
             </div>
           </>
@@ -804,17 +909,20 @@ export default function Home() {
                 ? "border-amber-600 bg-amber-950/90"
                 : toast.kind === "wy"
                   ? "border-violet-700 bg-violet-950/90"
-                  : toast.kind === "error"
-                    ? "border-rose-700 bg-rose-950/90"
-                    : toast.side === "LONG"
-                      ? "border-emerald-700 bg-emerald-950/90"
-                      : "border-rose-700 bg-rose-950/90"
+                  : toast.kind === "xgb"
+                    ? "border-teal-600 bg-teal-950/90"
+                    : toast.kind === "error"
+                      ? "border-rose-700 bg-rose-950/90"
+                      : toast.side === "LONG"
+                        ? "border-emerald-700 bg-emerald-950/90"
+                        : "border-rose-700 bg-rose-950/90"
             }`}
             role="status"
           >
             <p className="flex items-start gap-2 text-xs leading-relaxed text-zinc-100">
               {toast.kind === "flip" && <ArrowLeftRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />}
               {toast.kind === "wy" && <Landmark className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-400" />}
+              {toast.kind === "xgb" && <BrainCircuit className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-400" />}
               <span>{toast.text}</span>
             </p>
           </div>

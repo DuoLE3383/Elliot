@@ -7,8 +7,8 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { fmtPct, fmtPrice, fmtTime, t, type Lang } from "@/lib/i18n";
 import type { PendingEntry } from "@/lib/papers";
-import type { Paper, Signal } from "@/lib/types";
-import { ArrowLeftRight, Ban, CircleDot, CircleSlash, Crosshair, Gauge, Info, TrendingUp } from "lucide-react";
+import { STRATEGY_PRESETS, type Paper, type Signal, type StrategyKey } from "@/lib/types";
+import { ArrowLeftRight, Ban, Bot, CircleDot, CircleSlash, Crosshair, Gauge, Info, Sparkles, TrendingUp } from "lucide-react";
 
 interface Props {
   lang: Lang;
@@ -17,6 +17,18 @@ interface Props {
   tpPct: number;
   leverage: number;
   smaFilter: boolean;
+  /** UT Bot engine — off = no new signals, open positions still exit SL/TP */
+  utOn: boolean;
+  /** flip the UT engine on/off right from the dock */
+  onToggleUt: (v: boolean) => void;
+  /** currently matching strategy preset (null = custom) */
+  activePreset: StrategyKey | null;
+  /** apply a strategy preset (leverage untouched) */
+  onApplyPreset: (key: StrategyKey) => void;
+  /** XGBoost suggestion available → the AI chip is enabled */
+  aiReady: boolean;
+  /** apply the XGBoost-tuned parameters */
+  onApplyAi: () => void;
   /** newest signal including the forming candle (provisional) */
   latest?: Signal;
   /** newest confirmed signal (closed candle) */
@@ -70,6 +82,12 @@ export function SignalDock({
   tpPct,
   leverage,
   smaFilter,
+  utOn,
+  onToggleUt,
+  activePreset,
+  onApplyPreset,
+  aiReady,
+  onApplyAi,
   latest,
   confirmed,
   gateLong,
@@ -121,6 +139,26 @@ export function SignalDock({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base font-semibold text-zinc-100">{t(lang, "dock.title")}</CardTitle>
           <div className="flex flex-wrap items-center gap-1.5">
+            <Badge
+              variant="outline"
+              title={t(lang, "dock.ut.tip")}
+              className={
+                utOn
+                  ? "border-emerald-700 bg-emerald-950/60 text-emerald-400"
+                  : "border-zinc-700 bg-zinc-900 text-zinc-500"
+              }
+            >
+              <Bot className="mr-1 h-3 w-3" />
+              UT {utOn ? "ON" : t(lang, "dock.gate.off")}
+            </Badge>
+            <span title={t(lang, "dock.ut.tip")}>
+              <Switch
+                checked={utOn}
+                onCheckedChange={onToggleUt}
+                aria-label={t(lang, "dock.ut")}
+                className="data-[state=checked]:bg-emerald-600"
+              />
+            </span>
             {!smaFilter ? (
               <Badge
                 variant="outline"
@@ -170,6 +208,53 @@ export function SignalDock({
         </div>
       </CardHeader>
       <CardContent className="space-y-3 pt-0">
+        {/* ── UT off notice ─────────────────────────────────────────── */}
+        {!utOn && (
+          <p className="rounded-lg border border-dashed border-zinc-700 bg-zinc-950/60 px-3 py-2 text-[11px] leading-relaxed text-zinc-400">
+            {t(lang, "dock.ut.offNote")}
+          </p>
+        )}
+
+        {/* ── Đề xuất chiến lược (presets + AI) ───────────────────── */}
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+            {t(lang, "strat.title")}
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {STRATEGY_PRESETS.map((p) => (
+              <Button
+                key={p.key}
+                size="sm"
+                title={t(lang, `strat.${p.key}.tip`)}
+                variant={activePreset === p.key ? "default" : "outline"}
+                className={
+                  activePreset === p.key
+                    ? "h-7 border-emerald-600 bg-emerald-600 px-2.5 text-[11px] font-semibold text-zinc-950 hover:bg-emerald-500"
+                    : "h-7 border-zinc-700 px-2.5 text-[11px] text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+                }
+                onClick={() => onApplyPreset(p.key)}
+              >
+                {t(lang, `strat.${p.key}`)}
+              </Button>
+            ))}
+            <Button
+              size="sm"
+              variant={aiReady ? "default" : "outline"}
+              title={aiReady ? t(lang, "strat.ai.tip") : t(lang, "strat.aiNone")}
+              disabled={!aiReady}
+              className={
+                aiReady
+                  ? "h-7 border-teal-500 bg-teal-600 px-2.5 text-[11px] font-semibold text-zinc-950 hover:bg-teal-500"
+                  : "h-7 border-zinc-800 px-2.5 text-[11px] text-zinc-600"
+              }
+              onClick={onApplyAi}
+            >
+              <Sparkles className="mr-1 h-3 w-3" />
+              {t(lang, "strat.ai")}
+            </Button>
+          </div>
+        </div>
+
         {/* ── Open position ─────────────────────────────────────────── */}
         {openPaper ? (
           <div className="rounded-lg border border-zinc-700/80 bg-zinc-900 p-3">

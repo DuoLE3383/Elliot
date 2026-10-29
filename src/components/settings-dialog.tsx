@@ -69,10 +69,10 @@ export function SettingsDialog({ lang, open, onOpenChange, settings, onApply, wy
     return isFinite(n) && n > 0 ? n : fallback;
   };
 
-  // presets only touch SL/TP/ATR — leverage and the SMA gate stay as-is
+  // presets only touch SL/TP/ATR — leverage, SMA gate and UT stay as-is
   const choosePreset = (key: PresetKey) => {
     setPreset(key);
-    const keep = { leverage: draft.leverage, smaFilter: draft.smaFilter };
+    const keep = { leverage: draft.leverage, smaFilter: draft.smaFilter, utOn: draft.utOn };
     if (key === "wide") setDraft({ ...PRESET_WIDE, ...keep });
     if (key === "pine") setDraft({ ...PRESET_PINE, ...keep });
     if (key === "custom") setDraft({ ...DEFAULT_SETTINGS, ...keep });
@@ -87,6 +87,7 @@ export function SettingsDialog({ lang, open, onOpenChange, settings, onApply, wy
       smaPeriod: Math.min(400, Math.round(num(String(draft.smaPeriod), 200))),
       leverage: Math.max(1, Math.min(MAX_LEVERAGE, Math.round(num(String(draft.leverage), 1)))),
       smaFilter: draft.smaFilter,
+      utOn: draft.utOn,
     });
     onWyckoffApply({
       ...draftW,
@@ -157,6 +158,19 @@ export function SettingsDialog({ lang, open, onOpenChange, settings, onApply, wy
                 />
               </div>
             ))}
+          </div>
+
+          {/* UT Bot toggle */}
+          <div className="flex items-center justify-between gap-3 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2.5">
+            <div className="min-w-0">
+              <Label className="text-xs text-zinc-200">{t(lang, "dock.ut")}</Label>
+              <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">{t(lang, "dock.ut.desc")}</p>
+            </div>
+            <Switch
+              checked={draft.utOn}
+              onCheckedChange={(v) => setDraft((d) => ({ ...d, utOn: v }))}
+              className="data-[state=checked]:bg-emerald-600"
+            />
           </div>
 
           {/* SMA gate toggle */}
