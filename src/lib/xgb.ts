@@ -87,7 +87,7 @@ const PARAMS: XgbParams = {
 };
 
 /** Forward horizon per timeframe — "how many bars ahead do we predict". */
-const HORIZON: Record<string, number> = { "5m": 6, "15m": 5, "30m": 4, "1h": 4, "4h": 3, "1d": 2, "1w": 1 };
+const HORIZON: Record<string, number> = { "1m": 6, "5m": 6, "15m": 5, "30m": 4, "1h": 4, "4h": 3, "1d": 2, "1w": 1 };
 const WARMUP = 110; // longest lookback indicator is SMA100 (+ safety margin)
 const VAL_FRAC = 0.25; // chronological hold-out share
 // Progressive difficulty — every retrain makes the task harder so the model
