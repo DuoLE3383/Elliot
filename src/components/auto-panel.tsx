@@ -40,6 +40,7 @@ import {
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
 import type { EngineSettings, Ticker } from "@/lib/types";
 import { INTERVALS } from "@/lib/types";
+import { llmPing, llmReview, type LlmVerdict } from "@/lib/llm";
 import { Bot, KeyRound, ScanLine, Send, Square } from "lucide-react";
 
 interface Props {
@@ -59,6 +60,17 @@ interface Props {
 /** rescan when the snapshot is older than this */
 const SCAN_TTL = 30 * 60_000;
 const TOP_N = 6;
+
+/** last LLM risk-officer review, shown next to the config row */
+interface LlmLast {
+  symbol: string;
+  interval: string;
+  side: string;
+  verdict: "go" | "skip" | "down";
+  reason: string;
+  ms: number;
+  at: number;
+}
 
 /** humanize a seconds count — "45s" · "12m" · "2h 15m" · "3d 6h" (unit-neutral) */
 const fmtLeft = (s: number): string => {
@@ -158,6 +170,18 @@ const msgNear = (r: AutoTradeRow, price: number, kind: "tp" | "sl"): string => {
   ].join("\n");
 };
 
+const escHtml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** LLM veto notice — the pending entry was reviewed and rejected by the local model */
+const msgLlmVeto = (r: ScanRow, v: LlmVerdict): string =>
+  [
+    `🛑 <b>LLM VETO — setup bị chặn trước khi vào lệnh</b>`,
+    `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.bias)}`,
+    HR,
+    `🧠 Prob ${(r.prob * 100).toFixed(1)}% · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(1)}% · Score ${r.score.toFixed(1)}`,
+    `💬 ${escHtml(v.reasons.slice(0, 3).join(" · ")) || "—"}`,
+  ].join("\n");
+
 // hourly / daily digest builders (statLines · msgHourly · msgDaily) now live in
 // src/lib/autotrade.ts and run SERVER-SIDE via /api/autotrade/push — one sender
 // per boundary no matter how many tabs/devices are open (fixes duplicate 14:00
@@ -186,6 +210,9 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const [tgSaving, setTgSaving] = useState(false);
   const [status, setStatus] = useState<string>("");
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [llmTesting, setLlmTesting] = useState(false);
+  const [llmTest, setLlmTest] = useState<string | null>(null);
+  const [llmLast, setLlmLast] = useState<LlmLast | null>(null);
 
   // refs mirror props/state for the interval callbacks (no stale closures,
   // and the cycle interval is NOT reset every time a prop changes)
@@ -325,6 +352,24 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     }
   }, []);
 
+  // health probe for the LLM risk-officer config
+  const testLlm = useCallback(async () => {
+    setLlmTesting(true);
+    setLlmTest(null);
+    try {
+      const r = await llmPing(cfgRef.current.llmUrl);
+      if (mountedRef.current) {
+        setLlmTest(
+          r.ok
+            ? t(langRef.current, "auto.llm.test.ok", { detail: r.detail })
+            : t(langRef.current, "auto.llm.test.fail", { detail: r.detail }),
+        );
+      }
+    } finally {
+      if (mountedRef.current) setLlmTesting(false);
+    }
+  }, []);
+
   // ── one auto cycle: manage the open position, then maybe enter the best pick
   const runCycle = useCallback(async () => {
     if (busyRef.current) return;
@@ -371,6 +416,48 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
       }
       const price = tickersRef.current[best.symbol]?.price ?? 0;
       if (price <= 0) return; // no live price for that pair — wait for the next cycle
+
+      // 2.5) optional LLM risk officer — the local llama-server reviews the
+      // chosen setup before any entry. Fail-open: a dead/slow/misbehaving
+      // server never blocks trading, it just downgrades to the XGBoost flow.
+      if (c.llmEnabled) {
+        setStatus(t(langRef.current, "auto.llm.checking", { pair: best.symbol, tf: best.interval }));
+        const v = await llmReview(c.llmUrl, c.llmModel, {
+          symbol: best.symbol,
+          interval: best.interval,
+          side: best.bias as "LONG" | "SHORT", // isTradeable already excluded NEUTRAL
+          prob: best.prob,
+          confidence: best.confidence,
+          auc: best.auc,
+          acc: best.acc,
+          slPct: c.tpMode === "manual" ? c.slPct : best.slPct,
+          tpPct: c.tpMode === "manual" ? c.tpPct : best.tpPct,
+          leverage: leverageRef.current,
+          stakePct: c.riskPct,
+          horizon: best.horizon,
+          samples: best.samples,
+        });
+        if (mountedRef.current) {
+          setLlmLast({
+            symbol: best.symbol,
+            interval: best.interval,
+            side: best.bias,
+            verdict: v ? v.verdict : "down",
+            reason: v?.reasons[0] ?? "",
+            ms: v?.ms ?? 0,
+            at: Date.now(),
+          });
+        }
+        if (v && v.verdict === "skip") {
+          const why = v.reasons[0] ?? "—";
+          pushToast({ kind: "wy", text: t(langRef.current, "auto.llm.veto", { pair: best.symbol, tf: best.interval, reason: why }) });
+          void sendTelegram(msgLlmVeto(best, v));
+          setStatus(t(langRef.current, "auto.llm.veto", { pair: best.symbol, tf: best.interval, reason: why }));
+          return; // stay flat — the next cycle re-evaluates with a fresh scan
+        }
+        if (!v) setStatus(t(langRef.current, "auto.llm.down"));
+      }
+
       const capitalNow = (await refreshAuto())?.capital ?? c.capital;
       const trade = await openAutoTrade({
         symbol: best.symbol,
@@ -795,6 +882,76 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
               {t(lang, "auto.cfg.statNow")}
             </Button>
           </div>
+        </div>
+
+        {/* LLM risk officer (optional local llama-server) */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.llm.title")}>
+            <button
+              type="button"
+              onClick={() => updateCfg({ llmEnabled: !cfg.llmEnabled })}
+              aria-pressed={cfg.llmEnabled}
+              title={t(lang, "auto.llm.tip")}
+              className={`h-7 rounded-md border px-2 text-[11px] ${
+                cfg.llmEnabled
+                  ? "border-teal-700 bg-teal-950/40 text-teal-300"
+                  : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+              }`}
+            >
+              <Bot className="mr-1 inline h-3 w-3" />
+              {t(lang, "auto.llm.title")}
+            </button>
+            {cfg.llmEnabled && (
+              <>
+                <Input
+                  value={cfg.llmUrl}
+                  onChange={(e) => updateCfg({ llmUrl: e.target.value })}
+                  spellCheck={false}
+                  placeholder="http://127.0.0.8:8888"
+                  className="h-7 w-48 border-zinc-800 bg-zinc-950/60 px-1.5 font-mono text-[11px] text-zinc-300"
+                />
+                <Input
+                  value={cfg.llmModel}
+                  onChange={(e) => updateCfg({ llmModel: e.target.value })}
+                  spellCheck={false}
+                  placeholder="qwen2.5-7b-instruct"
+                  className="h-7 w-32 border-zinc-800 bg-zinc-950/60 px-1.5 font-mono text-[11px] text-zinc-300"
+                />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-[11px] text-zinc-400 hover:bg-zinc-800"
+                  disabled={llmTesting}
+                  onClick={() => void testLlm()}
+                >
+                  <Send className="mr-1 h-3 w-3" />
+                  {t(lang, "auto.llm.test")}
+                </Button>
+                {llmTest && <span className="max-w-[22rem] truncate text-[11px] text-zinc-500">{llmTest}</span>}
+              </>
+            )}
+          </div>
+          {llmLast && (
+            <span
+              className={`text-[11px] ${
+                llmLast.verdict === "skip"
+                  ? "text-rose-300"
+                  : llmLast.verdict === "go"
+                    ? "text-emerald-300/80"
+                    : "text-amber-300/80"
+              }`}
+            >
+              {llmLast.verdict === "skip"
+                ? `🛑 ${t(lang, "auto.llm.skip")}`
+                : llmLast.verdict === "go"
+                  ? `✅ ${t(lang, "auto.llm.go")}`
+                  : `⚠️ ${t(lang, "auto.llm.down")}`}
+              {" · "}
+              {llmLast.symbol} {llmLast.interval}
+              {llmLast.reason ? ` · ${llmLast.reason}` : ""}
+              {llmLast.ms > 0 ? ` · ${(llmLast.ms / 1000).toFixed(1)}s` : ""}
+            </span>
+          )}
         </div>
 
         {/* scan actions */}

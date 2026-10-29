@@ -64,3 +64,4 @@ upload/
 
 # but keep the example file
 !.env.example
+tool-results/

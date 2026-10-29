@@ -14,6 +14,7 @@
 import type { EngineSettings, Kline } from "./types";
 import { INTERVALS } from "./types";
 import { runXgb, type XgbBias, type XgbResult } from "./xgb";
+import { LLM_MODEL_DEFAULT, LLM_URL_DEFAULT } from "./llm";
 import { fmtPrice } from "./i18n";
 
 // ─── Scan rows ────────────────────────────────────────────────────────────────
@@ -543,6 +544,12 @@ export interface AutoConfig {
   statHourly: boolean;
   /** auto-post a stats digest to Telegram once a day */
   statDaily: boolean;
+  /** optional local LLM (llama-server, OpenAI-compatible) reviews every entry before it opens */
+  llmEnabled: boolean;
+  /** base URL of the llama-server endpoint, e.g. http://127.0.0.8:8888 */
+  llmUrl: string;
+  /** model name sent with each request (informational — the server binds one model) */
+  llmModel: string;
 }
 
 export const AUTO_DEFAULTS: AutoConfig = {
@@ -558,6 +565,9 @@ export const AUTO_DEFAULTS: AutoConfig = {
   cooldownMin: 30,
   statHourly: true,
   statDaily: true,
+  llmEnabled: false,
+  llmUrl: LLM_URL_DEFAULT,
+  llmModel: LLM_MODEL_DEFAULT,
 };
 export const COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
 export const RISK_CHOICES = [10, 25, 50, 100] as const;
@@ -595,6 +605,10 @@ export function loadAutoConfig(): AutoConfig {
         : AUTO_DEFAULTS.cooldownMin,
       statHourly: p.statHourly !== false,
       statDaily: p.statDaily !== false,
+      llmEnabled: p.llmEnabled === true,
+      llmUrl:
+        typeof p.llmUrl === "string" && /^https?:\/\/\S{1,120}$/.test(p.llmUrl.trim()) ? p.llmUrl.trim() : AUTO_DEFAULTS.llmUrl,
+      llmModel: typeof p.llmModel === "string" && p.llmModel.length <= 60 ? p.llmModel : AUTO_DEFAULTS.llmModel,
     };
   } catch {
     return AUTO_DEFAULTS;
