@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { t, type Lang } from "@/lib/i18n";
 import type { RunRow } from "@/lib/history";
+import { INTERVALS } from "@/lib/types";
 import type { XgbResult } from "@/lib/xgb";
 import { BrainCircuit, CheckCircle2, Cpu, History, Layers, Sparkles } from "lucide-react";
 
@@ -205,7 +206,7 @@ export function XgbPanel({ lang, candles, busy, progress, result, stale, runs, a
             title={t(lang, "xgb.trainAll.tip")}
           >
             <Layers className="mr-1.5 h-3.5 w-3.5" />
-            {t(lang, "xgb.trainAll", { n: String(allPairsCount) })}
+            {t(lang, "xgb.trainAll", { n: String(allPairsCount), m: String(INTERVALS.length) })}
           </Button>
           {allBusy && allTrain && (
             <>

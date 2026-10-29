@@ -64,6 +64,7 @@ export const INTERVAL_MS: Record<string, number> = {
   "1h": 3_600_000,
   "4h": 14_400_000,
   "1d": 86_400_000,
+  "1w": 604_800_000,
 };
 
 /** When the outcome of a suggestion can be scored: createdAt + horizon bars. */
