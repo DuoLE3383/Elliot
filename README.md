@@ -94,10 +94,17 @@ API key sàn **không cần thiết** — dữ liệu giá dùng endpoint public
 | `GET /api/ticker` | Giá 24h cho watchlist/ticker strip |
 | `GET/POST /api/autotrade` | Trạng thái & điều khiển máy auto-trade |
 | `POST /api/autotrade/push` | Webhook đẩy tín hiệu/digest từ server |
-| `GET/POST /api/telegram` | Gửi tin nhắn qua Telegram bot |
-| `POST /api/telegram/discover` | Dò chat_id khả dụng |
+| `GET/POST /api/telegram` | Gửi tin nhắn qua Telegram bot (GET trả trạng thái wiring) |
+| `POST /api/telegram/discover` | Dò chat_id khả dụng (getMe + getUpdates) |
+| `GET/POST/DELETE /api/telegram/token` | Nhập/xóa bot token ngay trong app (validate qua getMe) |
 | `GET/POST /api/finetune` | Lưu/đọc lịch sử finetune XGB |
 | `GET/POST /api/suggestions` | Đề xuất XGB + chấm điểm kết quả |
+
+## Deploy & bản quyền
+
+- Xem **[DEPLOY.md](DEPLOY.md)**: build pipeline cho CI (prisma generate đã fix), Dockerfile chạy độc lập, Railway/Render/Fly/VPS, và giới hạn thực tế khi chạy trên Cloudflare edge.
+- Bản production được **obfuscate tự động** lúc build (`scripts/obfuscate.mjs`) — server bundle không đọc được và không có sourcemap.
+- Phần mềm proprietary — xem [LICENSE](LICENSE).
 
 ## Lưu ý
 
