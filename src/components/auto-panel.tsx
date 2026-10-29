@@ -87,13 +87,15 @@ const msgOpen = (r: AutoTradeRow, equity: number): string => {
   const stake = (equity * (r.stakePct ?? 100)) / 100;
   const notional = stake * r.leverage;
   const rr = r.slPct > 0 ? r.tpPct / r.slPct : 0;
+  const slRoe = -(r.slPct * r.leverage);
+  const tpRoe = r.tpPct * r.leverage;
   return [
     `🤖 <b>AUTO OPEN (dry-run) · ${r.side === "LONG" ? "LONG 🟢" : "SHORT 🔴"}</b>`,
     `📌 <b>#${r.symbol}</b> · ${r.interval}`,
     HR,
     `🎯 Entry: <b>${fmtPrice(r.entryPrice)}</b>`,
-    `🛑 Stop Loss: <b>−${r.slPct.toFixed(1)}%</b> (${fmtPrice(slPrice(r.side, r.entryPrice, r.slPct))})`,
-    `🏁 Take Profit: <b>+${r.tpPct.toFixed(1)}%</b> (${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))})`,
+    `🛑 SL: <b>${fmtPrice(slPrice(r.side, r.entryPrice, r.slPct))}</b> · −${r.slPct.toFixed(1)}% giá (ROE ${slRoe.toFixed(1)}% @ ${levTxt(r.leverage)})`,
+    `🏁 TP: <b>${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(1)}% giá (ROE +${tpRoe.toFixed(1)}% @ ${levTxt(r.leverage)})`,
     `⚖️ Leverage ${levTxt(r.leverage)} · R:R 1:${rr.toFixed(2)}`,
     `📦 Stake: <b>${stake.toFixed(2)}</b> USDT · ${r.stakePct ?? 100}% equity · Notional ${notional.toFixed(2)} USDT`,
     `🧠 Prob ${((r.prob ?? 0) * 100).toFixed(1)}% · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(1)}% · Score ${(r.score ?? 0).toFixed(1)}`,
@@ -958,9 +960,15 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
                   · {t(lang, "auto.pos.notional")} {((((open.capitalBefore ?? capitalNow) * (open.stakePct ?? 100)) / 100) * open.leverage).toFixed(2)}
                 </span>
               </span>
-              <span className="text-zinc-500">SL / TP</span>
-              <span className="text-right font-mono">
-                <span className="text-rose-300">−{open.slPct.toFixed(1)}%</span> / <span className="text-emerald-300">+{open.tpPct.toFixed(1)}%</span> · ×{open.leverage}
+              <span className="text-zinc-500">SL</span>
+              <span className="text-right font-mono text-rose-300">
+                {fmtPrice(slPrice(open.side, open.entryPrice, open.slPct))} · −{open.slPct.toFixed(1)}%
+                <span className="text-zinc-500"> (ROE −{(open.slPct * open.leverage).toFixed(1)}%)</span>
+              </span>
+              <span className="text-zinc-500">TP</span>
+              <span className="text-right font-mono text-emerald-300">
+                {fmtPrice(tpPrice(open.side, open.entryPrice, open.tpPct))} · +{open.tpPct.toFixed(1)}%
+                <span className="text-zinc-500"> (ROE +{(open.tpPct * open.leverage).toFixed(1)}%)</span>
               </span>
               <span className="text-zinc-500">{t(lang, "auto.pos.uroe")}</span>
               {(() => {
