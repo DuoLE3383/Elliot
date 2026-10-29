@@ -62,6 +62,8 @@ export interface XgbResult {
   /** base horizon for the timeframe before difficulty extensions */
   horizonBase: number;
   suggestion: XgbSuggestion;
+  /** whale-footprint read-out at the last closed candle (see whaleOf) */
+  whale: WhaleReadout;
 }
 
 export interface XgbParams {
@@ -116,6 +118,9 @@ export const FEATURE_NAMES = [
   "volZ",
   "body",
   "wick",
+  "whaleVol",
+  "whaleAbsorb",
+  "whaleClv",
   "utTrend",
   "stopDist",
 ] as const;
@@ -195,6 +200,16 @@ function featuresAt(k: Kline[], i: number, ctx: XgbCtx): number[] | null {
       : trend === -1 && stop != null
         ? (stop - cur.c) / cur.c
         : 0;
+  const volZ = vs > 0 ? (cur.v - vm) / vs : 0;
+  // ── whale footprint features (all bounded, no lookahead) ──
+  // spike: volume z-score squeezed to 0..1 (5σ ≈ 0.63, 8σ+ = 1)
+  const spike = Math.min(Math.max(volZ, 0), 8) / 8;
+  // absorption: huge volume that produces almost NO body — a big player
+  // absorbing orders against the move (effort ≠ result)
+  const bodyAbs = Math.min(Math.abs((cur.c - cur.o) / denom), 1);
+  // close-location on high volume: +1 = closes at the high on a spike
+  // (accumulation), −1 = closes at the low on a spike (distribution)
+  const clv = ((cur.c - cur.l) - (cur.h - cur.c)) / denom;
   return [
     r1,
     r3,
@@ -204,9 +219,12 @@ function featuresAt(k: Kline[], i: number, ctx: XgbCtx): number[] | null {
     (cur.c - s20) / cur.c,
     (cur.c - s100) / cur.c,
     (cur.c - e50) / cur.c,
-    vs > 0 ? (cur.v - vm) / vs : 0,
+    volZ,
     (cur.c - cur.o) / denom,
     (cur.h - Math.max(cur.o, cur.c) - (Math.min(cur.o, cur.c) - cur.l)) / denom,
+    spike,
+    spike * (1 - bodyAbs),
+    spike * clv,
     trend,
     stopDist,
   ];
@@ -219,6 +237,39 @@ export interface Dataset {
   idx: number[];
   ctx: XgbCtx;
   horizon: number;
+}
+
+// ─── Whale read-out (filter + UI badge) ─────────────────────────────────────
+// "Whales" = single bars whose volume is many σ above the 20-bar norm. Such
+// bars are stop-hunt / absorption / news-flow territory — entries opened INTO
+// them get wicked out. Surfaced as both model features (above) and an
+// explicit gate in the auto-entry path.
+
+export type WhaleTag = "calm" | "watch" | "whale";
+
+export interface WhaleReadout {
+  /** volume z-score at the last closed candle (20-bar window) */
+  volZ: number;
+  /** 0..1 — how deep into whale territory (0 = below 2.5σ, 1 = 4σ+) */
+  risk: number;
+  tag: WhaleTag;
+}
+
+const WHALE_WATCH_Z = 2.5; // ≥ → "watch"
+const WHALE_HIT_Z = 4; // ≥ → "whale" — auto-entry skips these combos
+
+export function whaleOf(volZ: number): WhaleReadout {
+  const risk = Math.min(1, Math.max(0, (volZ - WHALE_WATCH_Z) / (WHALE_HIT_Z - WHALE_WATCH_Z)));
+  const tag: WhaleTag = volZ >= WHALE_HIT_Z ? "whale" : volZ >= WHALE_WATCH_Z ? "watch" : "calm";
+  return { volZ, risk, tag };
+}
+
+/** Volume z-score at bar i from the precomputed rolling vol mean/std. */
+export function volZAt(klines: Kline[], i: number, ctx: XgbCtx): number {
+  const vm = ctx.volMean[i];
+  const vs = ctx.volStd[i];
+  if (vm == null || vs == null || vs <= 0 || i < 0 || i >= klines.length) return 0;
+  return (klines[i].v - vm) / vs;
 }
 
 /**
@@ -627,6 +678,7 @@ export async function runXgb(
   const lastClosed = klines.length - 2;
   const featsNow = featuresAt(klines, lastClosed, ds.ctx);
   const probNow = featsNow ? predictProb(model, featsNow) : 0.5;
+  const whale = whaleOf(volZAt(klines, lastClosed, ds.ctx));
 
   const suggestion = suggestFrom(klines, settings, probNow, key.split("-")[0], interval, ds.ctx);
 
@@ -650,5 +702,6 @@ export async function runXgb(
     marginAtr,
     horizonBase,
     suggestion,
+    whale,
   };
 }

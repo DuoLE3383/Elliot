@@ -418,7 +418,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
         setStatus(t(langRef.current, "auto.scan.empty"));
         return;
       }
-      const { best, allInCooldown } = bestTradeableAvoid(current, c.minAuc, c.minAcc, st.trades, c.cooldownMin);
+      const { best, allInCooldown } = bestTradeableAvoid(current, c.minAuc, c.minAcc, st.trades, c.cooldownMin, c.whaleFilter);
       if (!best) {
         setStatus(allInCooldown ? t(langRef.current, "auto.cooldown.all") : t(langRef.current, "auto.rank.hint"));
         return;
@@ -917,8 +917,21 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
           </div>
         </div>
 
-        {/* LLM risk officer (optional local llama-server) */}
+        {/* whale filter + LLM risk officer (optional local llama-server) */}
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => updateCfg({ whaleFilter: !cfg.whaleFilter })}
+            aria-pressed={cfg.whaleFilter}
+            title={t(lang, "auto.whale.tip")}
+            className={`h-7 rounded-md border px-2 text-[11px] ${
+              cfg.whaleFilter
+                ? "border-sky-700 bg-sky-950/40 text-sky-300"
+                : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+            }`}
+          >
+            🐋 {t(lang, "auto.whale.title")}
+          </button>
           <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.llm.title")}>
             <button
               type="button"
@@ -1211,7 +1224,15 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
                       i === 0 ? "bg-teal-950/20" : ""
                     }`}
                   >
-                    <span className="truncate text-zinc-200">{r.symbol}</span>
+                    <span className="truncate text-zinc-200">
+                      {r.symbol}
+                      {r.whale?.tag === "whale" && (
+                        <span title={`🐋 volZ ${(r.whale.volZ ?? 0).toFixed(1)}σ`} className="ml-1 text-amber-400">🐋</span>
+                      )}
+                      {r.whale?.tag === "watch" && (
+                        <span title={`volZ ${(r.whale.volZ ?? 0).toFixed(1)}σ`} className="ml-1 text-zinc-600">🐋</span>
+                      )}
+                    </span>
                     <span className="text-zinc-500">{r.interval}</span>
                     <span className={sideClass(r.bias)}>{r.bias === "NEUTRAL" ? "—" : r.bias}</span>
                     <span className="text-right text-zinc-300">{(r.prob * 100).toFixed(1)}%</span>

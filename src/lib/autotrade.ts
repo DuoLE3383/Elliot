@@ -13,7 +13,7 @@
 
 import type { EngineSettings, Kline } from "./types";
 import { INTERVALS } from "./types";
-import { runXgb, type XgbBias, type XgbResult } from "./xgb";
+import { runXgb, type WhaleReadout, type WhaleTag, type XgbBias, type XgbResult } from "./xgb";
 import { LLM_MODEL_DEFAULT, LLM_URL_DEFAULT } from "./llm";
 import { fmtPrice } from "./i18n";
 
@@ -34,6 +34,8 @@ export interface ScanRow {
   valSamples: number;
   horizon: number;
   trainedAt: number;
+  /** whale footprint at the last closed candle — auto-entry skips "whale" */
+  whale: WhaleReadout;
 }
 
 /**
@@ -62,6 +64,7 @@ export function rowOf(res: XgbResult, symbol: string, interval: string): ScanRow
     valSamples: res.valSamples,
     horizon: res.horizon,
     trainedAt: Date.now(),
+    whale: res.whale ?? { volZ: 0, risk: 0, tag: "calm" as WhaleTag },
   };
 }
 
@@ -101,8 +104,13 @@ export function bestTradeableAvoid(
   minAcc: number,
   trades: AutoTradeRow[],
   cooldownMin: number,
+  whaleFilter = true,
 ): { best: ScanRow | null; allInCooldown: boolean } {
-  const cands = rankRows(rows.filter((r) => isTradeable(r, minAuc, minAcc)));
+  // whaleFilter (default on) skips combos whose last closed candle is a full
+  // whale bar (≥4σ volume) — entries opened into those get wicked out
+  const cands = rankRows(
+    rows.filter((r) => isTradeable(r, minAuc, minAcc) && (!whaleFilter || r.whale?.tag !== "whale")),
+  );
   const free = cands.find((r) => slCooldownLeft(trades, r.symbol, r.interval, cooldownMin) === 0) ?? null;
   return { best: free, allInCooldown: free == null && cands.length > 0 };
 }
@@ -582,6 +590,8 @@ export interface AutoConfig {
   llmUrl: string;
   /** model name sent with each request (informational — the server binds one model) */
   llmModel: string;
+  /** skip auto-entries whose last closed candle is a whale bar (≥4σ volume) */
+  whaleFilter: boolean;
 }
 
 export const AUTO_DEFAULTS: AutoConfig = {
@@ -600,6 +610,7 @@ export const AUTO_DEFAULTS: AutoConfig = {
   llmEnabled: false,
   llmUrl: LLM_URL_DEFAULT,
   llmModel: LLM_MODEL_DEFAULT,
+  whaleFilter: true,
 };
 export const COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
 export const RISK_CHOICES = [10, 25, 50, 100] as const;
@@ -641,6 +652,7 @@ export function loadAutoConfig(): AutoConfig {
       llmUrl:
         typeof p.llmUrl === "string" && /^https?:\/\/\S{1,120}$/.test(p.llmUrl.trim()) ? p.llmUrl.trim() : AUTO_DEFAULTS.llmUrl,
       llmModel: typeof p.llmModel === "string" && p.llmModel.length <= 60 ? p.llmModel : AUTO_DEFAULTS.llmModel,
+      whaleFilter: p.whaleFilter !== false,
     };
   } catch {
     return AUTO_DEFAULTS;
