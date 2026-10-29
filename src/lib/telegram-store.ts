@@ -6,8 +6,9 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
+import { dataFile } from "./data-dir";
 
-const FILE = path.join(process.cwd(), "db", "telegram.json");
+const FILE = dataFile("telegram.json");
 
 interface TgStore {
   chatId?: string;

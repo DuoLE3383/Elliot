@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
+import { dataFile } from "@/lib/data-dir";
 import { statLines } from "@/lib/autotrade";
 import { readAutoState } from "@/lib/autostate";
 import { tgSendMessage } from "@/lib/telegram-store";
@@ -17,7 +18,7 @@ import { tgSendMessage } from "@/lib/telegram-store";
 export const dynamic = "force-dynamic";
 
 /** persisted send markers — survive server restarts */
-const FILE = path.join(process.cwd(), "db", "autostat.json");
+const FILE = dataFile("autostat.json");
 /** digest labels follow the channel's language/country timezone */
 const TZ = "Asia/Ho_Chi_Minh";
 const at = (opts: Intl.DateTimeFormatOptions): string =>

@@ -491,7 +491,10 @@ export function SignalDock({
               <b className={latest.dir === "BUY" ? "text-emerald-400" : "text-rose-400"}>{latest.dir}</b>{" "}
               @ <span className="font-mono text-zinc-300">{fmtPrice(latest.price)}</span>
             </span>
-            <span>{t(lang, "dock.forming")}</span>
+            {/* the signal candle is closed once the confirmed list reaches it → "confirmed" */}
+            <span className={confirmed && latest.i === confirmed.i ? "text-emerald-400/80" : ""}>
+              {confirmed && latest.i === confirmed.i ? t(lang, "dock.confirmed") : t(lang, "dock.forming")}
+            </span>
           </div>
         )}
       </CardContent>

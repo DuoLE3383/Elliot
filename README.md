@@ -103,7 +103,7 @@ API key sàn **không cần thiết** — dữ liệu giá dùng endpoint public
 ## Deploy & bản quyền
 
 - Xem **[DEPLOY.md](DEPLOY.md)**: build pipeline cho CI (prisma generate đã fix), Dockerfile chạy độc lập, Railway/Render/Fly/VPS, và giới hạn thực tế khi chạy trên Cloudflare edge.
-- Bản production được **obfuscate tự động** lúc build (`scripts/obfuscate.mjs`) — server bundle không đọc được và không có sourcemap.
+- Bản production **không có sourcemap**; obfuscate server bundle khi cần bằng `bun run build:secure` (`scripts/postbuild.mjs`, opt-in qua `OBFUSCATE=1`).
 - Phần mềm proprietary — xem [LICENSE](LICENSE).
 
 ## Lưu ý

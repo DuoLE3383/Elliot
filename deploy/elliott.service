@@ -1,0 +1,32 @@
+[Unit]
+Description=Elliott Paper Trading (Next.js standalone)
+Documentation=https://github.com/DuoLE3383/Elliot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=elliott
+Group=elliott
+WorkingDirectory=/opt/elliott
+EnvironmentFile=/opt/elliott/.env
+# .env remains the source of truth for DATABASE_URL / DATA_DIR / TELEGRAM_*.
+# The two lines below are safe defaults in case .env is incomplete:
+Environment=NODE_ENV=production
+Environment=PORT=3000
+# Loopback bind — only cloudflared on the same host can reach the app
+Environment=HOSTNAME=127.0.0.1
+ExecStart=/usr/bin/node /opt/elliott/.next/standalone/server.js
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+# Light hardening — /etc /usr read-only; app dirs writable
+# (.next/cache is needed by Next for the fetch-revalidate cache)
+ProtectSystem=strict
+ReadWritePaths=/opt/elliott/data /opt/elliott/db /opt/elliott/.next
+PrivateTmp=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

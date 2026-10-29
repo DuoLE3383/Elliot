@@ -55,6 +55,7 @@ server.log
 
 # local runtime data & secrets (never push)
 db/
+data/
 
 # local tooling / workspace-only dirs
 skills/

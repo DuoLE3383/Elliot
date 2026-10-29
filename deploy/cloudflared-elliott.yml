@@ -1,0 +1,22 @@
+# ─── cloudflared ingress — elliott trên chính tunnel huyenbao.com ─────────────
+# Copy phần ingress dưới đây vào file config.yml của tunnel HIỆN CÓ trên VPS
+# (thường ở ~/.cloudflared/config.yml hoặc /etc/cloudflared/config.yml),
+# KHÔNG tạo tunnel mới. Rule đầu tiên khớp trước → elliott subdomain đi vào app.
+#
+# Sau khi sửa:  sudo systemctl restart cloudflared
+# (cloudflared không cần biết app nghe ở đâu khác — app bind 127.0.0.1:3000)
+
+tunnel: <TUNNEL-UUID-HIEN-CO>
+credentials-file: /etc/cloudflared/<TUNNEL-UUID-HIEN-CO>.json
+
+ingress:
+  # ── Elliott Paper Trading — frontend + API cùng origin ──
+  - hostname: elliott.huyenbao.com
+    service: http://localhost:3000
+
+  # ── các service hiện có của bạn giữ nguyên phía dưới ──
+  - hostname: huyenbao.com
+    service: http://localhost:8080        # ← sửa lại theo giá trị hiện có
+
+  # bắt buộc luôn có rule cuối
+  - service: http_status:404
