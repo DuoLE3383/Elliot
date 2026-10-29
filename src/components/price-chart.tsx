@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Kline, Paper, Signal } from "@/lib/types";
 import type { PendingEntry } from "@/lib/papers";
 import type { WyckoffEvent, WyckoffResult } from "@/lib/wyckoff";
-import { volumeProfile } from "@/lib/market";
-import { fmtPrice, t, type Lang } from "@/lib/i18n";
+import { volumeProfile, fmtCompact } from "@/lib/market";
+import { fmtPrice, fmtPct, t, type Lang } from "@/lib/i18n";
+import { equityFrom } from "@/lib/equity";
 import { Button } from "@/components/ui/button";
 import { Minus, Plus } from "lucide-react";
 
@@ -78,6 +79,8 @@ export function PriceChart({
   const [viewEndRaw, setViewEndRaw] = useState<number | null>(null);
   /** user zoom override — visible bar count (null = auto by width) */
   const [bars, setBars] = useState<number | null>(null);
+  /** hover crosshair — candle index + cursor y inside the plot */
+  const [hover, setHover] = useState<{ i: number; py: number } | null>(null);
   const dragRef = useRef<{ x: number; end: number } | null>(null);
 
   useEffect(() => {
@@ -135,7 +138,12 @@ export function PriceChart({
 
   const height = fill ? measuredH : width < 520 ? 280 : 360;
   const plotW = width - PAD_L - PAD_R;
-  const plotH = height - PAD_T - PAD_B;
+  // ── Equity pane (Đường cong vốn) — a small strip carved out of the plot bottom
+  const eq = useMemo(() => equityFrom(papers), [papers]);
+  const eqOn = eq.points.length >= 2;
+  const EQ_PANE = 58;
+  const eqPaneH = eqOn ? EQ_PANE : 0;
+  const plotH = height - PAD_T - PAD_B - eqPaneH;
   const cw = plotW / Math.max(1, viewEnd - viewStart + 1);
 
   const { minP, maxP } = useMemo(() => {
@@ -169,12 +177,19 @@ export function PriceChart({
 
   const x = (i: number) => PAD_L + (i - viewStart) * cw + cw / 2;
   const y = (p: number) => PAD_T + ((maxP - p) / (maxP - minP)) * plotH;
+  /** inverse of y() — price under the crosshair */
+  const priceAtY = (py: number) => minP + ((PAD_T + plotH - py) / plotH) * (maxP - minP);
 
   const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     dragRef.current = { x: e.clientX, end: viewEnd };
     (e.target as Element).setPointerCapture?.(e.pointerId);
   };
-  const onPointerMove = (e: React.PointerEvent<SVGGElement>) => {
+  const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    // hover crosshair (TradingView-style) — always tracked, pan continues on top
+    const rect = e.currentTarget.getBoundingClientRect();
+    const py = Math.max(PAD_T, Math.min(PAD_T + plotH, e.clientY - rect.top));
+    const i = Math.max(viewStart, Math.min(viewEnd, viewStart + Math.floor((e.clientX - rect.left - PAD_L) / cw)));
+    setHover((prev) => (prev && prev.i === i && Math.abs(prev.py - py) < 0.5 ? prev : { i, py }));
     const d = dragRef.current;
     if (!d) return;
     const shift = Math.round((d.x - e.clientX) / cw);
@@ -184,8 +199,37 @@ export function PriceChart({
   const onPointerUp = () => {
     dragRef.current = null;
   };
+  const onPointerLeave = () => {
+    dragRef.current = null;
+    setHover(null);
+  };
+
+  // ── Equity pane geometry (Đường cong vốn) ──────────────────────────────
+  const eqTop = PAD_T + plotH + 10;
+  const eqH = eqPaneH - 16;
+  const eqLo = Math.min(eq.trough, 0);
+  const eqHi = Math.max(eq.peak, eqLo + 0.5);
+  const eqY = (v: number) => eqTop + ((eqHi - v) / (eqHi - eqLo)) * eqH;
+  const eqX = (bar: number) => Math.max(PAD_L, Math.min(PAD_L + plotW, x(bar)));
+  // trades closed up to the viewed bar — the curve stays honest while panning back
+  const eqSeen = eqOn ? eq.points.filter((p) => p.bar <= viewEnd) : [];
+  const eqLine = (() => {
+    if (!eqOn || eqH <= 4) return null;
+    if (eqSeen.length === 0) {
+      const d = `M${PAD_L},${eqY(0).toFixed(1)} L${(PAD_L + plotW).toFixed(1)},${eqY(0).toFixed(1)}`;
+      return { d, area: `${d} Z`, endV: 0, endY: eqY(0) };
+    }
+    const pts = eqSeen;
+    let d = pts[0].bar > viewStart ? `M${PAD_L},${eqY(0).toFixed(1)} L${eqX(pts[0].bar).toFixed(1)},${eqY(pts[0].cum).toFixed(1)}` : `M${eqX(pts[0].bar).toFixed(1)},${eqY(pts[0].cum).toFixed(1)}`;
+    for (let k = 1; k < pts.length; k++) d += ` L${eqX(pts[k].bar).toFixed(1)},${eqY(pts[k].cum).toFixed(1)}`;
+    const endY = eqY(pts[pts.length - 1].cum);
+    d += ` L${(PAD_L + plotW).toFixed(1)},${endY.toFixed(1)}`; // flat extension to "now"
+    const area = `${d} L${(PAD_L + plotW).toFixed(1)},${eqY(0).toFixed(1)} L${PAD_L},${eqY(0).toFixed(1)} Z`;
+    return { d, area, endV: pts[pts.length - 1].cum, endY };
+  })();
 
   const sigInView = signals.filter((s) => s.i >= viewStart && s.i <= viewEnd);
+  const eqColor = eqLine ? (eqLine.endV >= 0 ? UP : DOWN) : UP;
   const papersInView = papers.filter(
     (p) => p.exitIndex !== undefined ? p.exitIndex >= viewStart || p.entryIndex <= viewEnd : p.entryIndex <= viewEnd,
   );
@@ -315,7 +359,7 @@ export function PriceChart({
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerLeave={onPointerUp}
+          onPointerLeave={onPointerLeave}
           role="img"
           aria-label={t(lang, "chart.title")}
         >
@@ -392,6 +436,38 @@ export function PriceChart({
                   />
                 );
               })}
+            </g>
+          )}
+
+          {/* ── Equity pane (Đường cong vốn) — cumulative ROE of closed trades ── */}
+          {eqOn && (
+            <g pointerEvents="none">
+              <defs>
+                <linearGradient id="eq-pane-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={eqColor} stopOpacity={0.25} />
+                  <stop offset="100%" stopColor={eqColor} stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <line x1={PAD_L} x2={PAD_L + plotW} y1={PAD_T + plotH + 4} y2={PAD_T + plotH + 4} stroke={GRID} strokeWidth={1} />
+              <text x={PAD_L + 2} y={eqTop + 1} fill="#71717a" fontSize={9} fontFamily="ui-monospace, monospace">
+                {t(lang, "tabs.equity")} · {eq.count}
+              </text>
+              <line x1={PAD_L} x2={PAD_L + plotW} y1={eqY(0)} y2={eqY(0)} stroke="#3f3f46" strokeDasharray="4 4" strokeWidth={1} />
+              {eqLine && <path d={eqLine.area} fill="url(#eq-pane-fill)" />}
+              {eqLine && <path d={eqLine.d} fill="none" stroke={eqColor} strokeWidth={1.6} strokeLinejoin="round" />}
+              {eqLine && (
+                <text
+                  x={PAD_L + plotW}
+                  y={Math.max(eqTop + 8, eqLine.endY - 4)}
+                  textAnchor="end"
+                  fill={eqColor}
+                  fontSize={10}
+                  fontWeight={700}
+                  fontFamily="ui-monospace, monospace"
+                >
+                  {fmtPct(eqLine.endV)}
+                </text>
+              )}
             </g>
           )}
 
@@ -686,7 +762,52 @@ export function PriceChart({
               </g>
             );
           })}
+          {/* crosshair + price tag under the cursor (hover) */}
+          {hover && (
+            <g pointerEvents="none">
+              <line x1={x(hover.i)} x2={x(hover.i)} y1={PAD_T} y2={PAD_T + plotH} stroke="#52525b" strokeWidth={1} strokeDasharray="3 3" />
+              <line x1={PAD_L} x2={PAD_L + plotW} y1={hover.py} y2={hover.py} stroke="#52525b" strokeWidth={1} strokeDasharray="3 3" />
+              <rect x={PAD_L + plotW + 2} y={hover.py - 8} width={60} height={16} rx={3} fill="#52525b" />
+              <text x={PAD_L + plotW + 6} y={hover.py + 3.5} fill="#fafafa" fontSize={10} fontFamily="ui-monospace, monospace">
+                {fmtPrice(priceAtY(hover.py))}
+              </text>
+            </g>
+          )}
         </svg>
+
+        {/* TradingView-style OHLC readout for the hovered candle */}
+        {hover &&
+          klines[hover.i] &&
+          (() => {
+            const k = klines[hover.i];
+            const up = k.c >= k.o;
+            const chg = ((k.c - k.o) / k.o) * 100;
+            const cls = up ? "text-emerald-400" : "text-rose-400";
+            return (
+              <div className="pointer-events-none absolute left-2 top-1.5 z-10 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 rounded-md border border-zinc-800/80 bg-zinc-950/85 px-2 py-1 font-mono text-[10.5px] leading-none backdrop-blur-sm">
+                <span className="text-zinc-500">{timeLabel(k.t)}</span>
+                <span className="text-zinc-500">
+                  O <b className={cls}>{fmtPrice(k.o)}</b>
+                </span>
+                <span className="text-zinc-500">
+                  H <b className={cls}>{fmtPrice(k.h)}</b>
+                </span>
+                <span className="text-zinc-500">
+                  L <b className={cls}>{fmtPrice(k.l)}</b>
+                </span>
+                <span className="text-zinc-500">
+                  C <b className={cls}>{fmtPrice(k.c)}</b>
+                </span>
+                <b className={cls}>
+                  {chg >= 0 ? "+" : ""}
+                  {chg.toFixed(2)}%
+                </b>
+                <span className="text-zinc-500">
+                  {t(lang, "chart.ohlc.vol")} <b className="text-zinc-300">{fmtCompact(k.v)}</b>
+                </span>
+              </div>
+            );
+          })()}
       </div>
 
       {/* legend + zoom controls + hint */}
@@ -757,6 +878,12 @@ export function PriceChart({
           <span className="-ml-2.5 inline-block h-2.5 w-2.5 rounded-sm bg-rose-500/40 ring-1 ring-rose-500/50" />
           {t(lang, "chart.legend.vp")}
         </span>
+        {eqOn && (
+          <span className="flex items-center gap-1.5" title={t(lang, "equity.title")}>
+            <span className="inline-block h-0.5 w-4 rounded bg-gradient-to-r from-emerald-400 to-rose-400" />
+            {t(lang, "tabs.equity")}
+          </span>
+        )}
         {wyOn && (
           <>
             <span className="flex items-center gap-1.5">

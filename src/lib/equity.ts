@@ -13,6 +13,8 @@ export interface EquityPoint {
   cum: number;
   /** this trade was a winner */
   win: boolean;
+  /** bar index the trade closed on — lets the chart map the curve onto the time axis */
+  bar: number;
 }
 
 export interface EquityResult {
@@ -44,6 +46,7 @@ export function equityFrom(papers: Paper[]): EquityResult {
       time: p.exitTime ?? p.entryTime,
       cum,
       win: (p.pnlPct ?? 0) > 0,
+      bar: p.exitIndex ?? p.entryIndex,
     });
   }
   return { points, peak, trough, last: cum, count: points.length };
