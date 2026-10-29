@@ -33,6 +33,8 @@ import {
   telegramStatus,
   telegramCreateLink,
   telegramDiag,
+  telegramStartMint,
+  telegramStartCheck,
   AUTO_DEFAULTS,
   type AutoConfig,
   type AutoState,
@@ -197,6 +199,10 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const [tgLinkOpen, setTgLinkOpen] = useState(false); // standalone connect-link card
   const [tgDiag, setTgDiag] = useState<TgDiag | null>(null); // network diagnosis result
   const [tgDiagBusy, setTgDiagBusy] = useState(false);
+  const [tgStartUrl, setTgStartUrl] = useState<string | null>(null); // t.me?start= deep link
+  const [tgStartBusy, setTgStartBusy] = useState(false);
+  const [tgStartBound, setTgStartBound] = useState<string | null>(null); // bound chat id
+  const [tgStartTries, setTgStartTries] = useState(0); // polls since mint (timeout hint)
   const [tgBase, setTgBase] = useState<TgApiBase | null>(null); // effective API origin (proxy?)
   const [tgBaseInput, setTgBaseInput] = useState("");
   const [tgSavingBase, setTgSavingBase] = useState(false);
@@ -764,6 +770,56 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     }
   };
 
+  // mint the t.me/<bot>?start=<token> deep link — click → Telegram opens → START
+  const createStartLink = async () => {
+    if (tgStartBusy) return;
+    setTgStartBusy(true);
+    const r = await telegramStartMint();
+    if (mountedRef.current) {
+      setTgStartBusy(false);
+      if (r.ok && r.url) {
+        setTgStartUrl(r.url);
+        setTgStartBound(null);
+        setTgStartTries(0);
+        void navigator.clipboard?.writeText(r.url).catch(() => {}); // convenience copy
+      } else {
+        pushToast({ kind: "error", text: t(lang, "auto.tg.start.bad", { detail: r.detail ?? "?" }) });
+      }
+    }
+  };
+
+  // while a START link is pending, poll for the "/start <token>" every 4 s —
+  // stops on bind or when the card unmounts; ~2 min before the timeout hint
+  useEffect(() => {
+    if (!tgStartUrl || tgStartBound) return;
+    let stop = false;
+    let tries = 0;
+    const tick = async () => {
+      if (stop) return;
+      tries += 1;
+      const r = await telegramStartCheck();
+      if (stop) return;
+      if (r.ok && r.bound) {
+        setTgStartBound(r.chatId ?? "?");
+        void telegramStatus().then((s) => {
+          if (!mountedRef.current) return;
+          setTgChatId(s.chatId);
+          setTgTokenSrc(s.tokenSource ?? null);
+        });
+        pushToast({ kind: "entry", text: t(lang, "auto.tg.start.done", { id: r.chatId ?? "?" }) });
+        return; // bound — no more polling
+      }
+      setTgStartTries(tries);
+    };
+    void tick();
+    const iv = window.setInterval(() => void tick(), 4000);
+    return () => {
+      stop = true;
+      window.clearInterval(iv);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tgStartUrl, tgStartBound]);
+
   // persist the Telegram API origin (Cloudflare Worker proxy) — "" clears
   const saveBase = async () => {
     if (tgSavingBase) return;
@@ -1126,6 +1182,63 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
               </Button>
               <span className="text-[10px] text-zinc-600">{t(lang, "auto.tg.link.expires")}</span>
             </div>
+
+            {/* chat binding via t.me START — the requested click-and-connect flow */}
+            <div className="space-y-1.5 border-t border-zinc-800 pt-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">💬 {t(lang, "auto.tg.start.title")}</p>
+                <p className="text-[11px] leading-relaxed text-zinc-400">{t(lang, "auto.tg.start.hint")}</p>
+                {tgStartUrl && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Input
+                      readOnly
+                      value={tgStartUrl}
+                      onFocus={(e) => e.currentTarget.select()}
+                      className="h-8 min-w-[40%] flex-1 border-sky-800 bg-zinc-950/60 font-mono text-[10px] text-sky-200"
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 shrink-0 border-sky-700 px-2 text-[11px] text-sky-300 hover:bg-sky-950/40"
+                      onClick={() => void navigator.clipboard?.writeText(tgStartUrl).catch(() => {})}
+                    >
+                      <Copy className="mr-1 h-3 w-3" />
+                      {t(lang, "auto.tg.link.copy")}
+                    </Button>
+                    <a
+                      href={tgStartUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex h-8 shrink-0 items-center rounded-md border border-sky-700 px-2 text-[11px] font-medium text-sky-300 hover:bg-sky-950/40"
+                    >
+                      <Send className="mr-1 h-3 w-3" />
+                      {t(lang, "auto.tg.start.open")}
+                    </a>
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 border-sky-700 text-[11px] text-sky-300 hover:bg-sky-950/40"
+                    disabled={tgStartBusy}
+                    onClick={() => void createStartLink()}
+                  >
+                    <Link2 className="mr-1.5 h-3 w-3" />
+                    {tgStartBusy ? "…" : tgStartUrl ? t(lang, "auto.tg.start.again") : t(lang, "auto.tg.start.create")}
+                  </Button>
+                  {tgStartUrl && !tgStartBound && (
+                    <span className="text-[10px] text-zinc-500">{t(lang, "auto.tg.start.waiting")}</span>
+                  )}
+                  {tgStartBound && (
+                    <span className="text-[11px] font-medium text-emerald-300">
+                      ✅ {t(lang, "auto.tg.start.done", { id: tgStartBound })}
+                    </span>
+                  )}
+                </div>
+                {tgStartUrl && !tgStartBound && tgStartTries >= 30 && (
+                  <p className="text-[10px] text-amber-400">{t(lang, "auto.tg.start.timeout")}</p>
+                )}
+              </div>
             {tgTokenSrc == null && (
               <p className="text-[11px] text-amber-400">⚠ {t(lang, "auto.tg.link.needToken")}</p>
             )}

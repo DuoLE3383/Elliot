@@ -21,6 +21,12 @@ interface TgConnect {
   createdAt: number;
 }
 
+/** pending t.me/<bot>?start=<token> deep link — binds the sender's chat */
+interface TgStartLink {
+  token: string;
+  createdAt: number;
+}
+
 interface TgStore {
   chatId?: string;
   botToken?: string;
@@ -32,6 +38,8 @@ interface TgStore {
   verified?: boolean;
   /** pending one-time connect link (auto-connect via ?tg=… URL) */
   connect?: TgConnect;
+  /** pending t.me?start= deep link (auto-bind chat via START button) */
+  start?: TgStartLink;
 }
 
 function readStore(): TgStore {
@@ -128,6 +136,38 @@ export function popConnectLink(secret: string): { token: string; bot: string | n
   }
   writeStore({ connect: undefined }); // burn it — one-time use
   return { token: c.token, bot: c.bot ?? null, verified: c.verified !== false };
+}
+
+// ─── t.me?start= deep links (click → Telegram opens → press START → bind) ────
+// The panel mints https://t.me/<bot>?start=<token>. The user taps it, presses
+// START, and the app's next getUpdates scan sees "/start <token>" and binds
+// that chat as the notification target — zero pasting, no chat ID hunting.
+
+const START_TTL_MS = 30 * 60_000;
+
+/** Mint a fresh START deep link (replaces any previous pending one). */
+export function createStartLink(): string {
+  const token = randomBytes(16).toString("hex"); // 128-bit
+  writeStore({ start: { token, createdAt: Date.now() } });
+  return token;
+}
+
+/**
+ * Try to consume "/start <param>": timing-safe match + TTL → burn the link
+ * (one-time) and return true. Wrong/expired/missing → false, nothing touched.
+ */
+export function popStartLink(param: string): boolean {
+  const s = readStore().start;
+  if (!s?.token || !param) return false;
+  const a = Buffer.from(param);
+  const b = Buffer.from(s.token);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return false;
+  if (Date.now() - s.createdAt > START_TTL_MS) {
+    writeStore({ start: undefined }); // expired → clean up
+    return false;
+  }
+  writeStore({ start: undefined }); // burn it — one-time use
+  return true;
 }
 
 /** Effective chat id: runtime override first, then the .env default. */

@@ -556,6 +556,48 @@ export async function telegramDiag(): Promise<TgDiag | null> {
   }
 }
 
+/** Mint the t.me/<bot>?start=<token> deep link (binds the chat on START). */
+export async function telegramStartMint(): Promise<{ ok: boolean; url?: string; bot?: string; detail?: string }> {
+  try {
+    const res = await fetch("/api/telegram/deeplink", {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ action: "mint" }),
+    });
+    const json = (await res.json().catch(() => null)) as
+      | { ok?: boolean; url?: string; bot?: string; error?: string; detail?: string }
+      | null;
+    if (!res.ok || !json) return { ok: false, detail: json?.error ?? json?.detail ?? `HTTP ${res.status}` };
+    return { ok: true, url: json.url, bot: json.bot };
+  } catch {
+    return { ok: false, detail: "network" };
+  }
+}
+
+/** Scan getUpdates for the pending "/start <token>" — binds the chat on match. */
+export async function telegramStartCheck(): Promise<{
+  ok: boolean;
+  bound?: boolean;
+  chatId?: string;
+  name?: string | null;
+  detail?: string;
+}> {
+  try {
+    const res = await fetch("/api/telegram/deeplink", {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ action: "check" }),
+    });
+    const json = (await res.json().catch(() => null)) as
+      | { ok?: boolean; bound?: boolean; chatId?: string; name?: string | null; error?: string; detail?: string }
+      | null;
+    if (!res.ok || !json) return { ok: false, detail: json?.error ?? json?.detail ?? `HTTP ${res.status}` };
+    return { ok: true, bound: json.bound ?? false, chatId: json.chatId, name: json.name };
+  } catch {
+    return { ok: false, detail: "network" };
+  }
+}
+
 /**
  * Fire-and-forget notification — resolves {ok:false, detail} instead of throwing.
  * `html: true` (default) sends with parse_mode HTML — templates must escape
