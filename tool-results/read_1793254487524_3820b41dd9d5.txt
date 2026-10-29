@@ -1,0 +1,965 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import { useCallback, useEffect, useRef, useState } from "react";
+     4→     4→import { Badge } from "@/components/ui/badge";
+     5→     5→import { Button } from "@/components/ui/button";
+     6→     6→import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+     7→     7→import { Input } from "@/components/ui/input";
+     8→     8→import { Switch } from "@/components/ui/switch";
+     9→     9→import {
+    10→    10→  bestTradeableAvoid,
+    11→    11→  closeAutoTrade,
+    12→    12→  COOLDOWN_CHOICES,
+    13→    13→  fetchAutoState,
+    14→    14→  liquidationHit,
+    15→    15→  loadAutoConfig,
+    16→    16→  nearHit,
+    17→    17→  openAutoTrade,
+    18→    18→  roeOf,
+    19→    19→  saveAutoConfig,
+    20→    20→  scanAll,
+    21→    21→  sendTelegram,
+    22→    22→  slTpHit,
+    23→    23→  telegramConfigured,
+    24→    24→  telegramDiscover,
+    25→    25→  telegramSaveChat,
+    26→    26→  telegramStatus,
+    27→    27→  AUTO_DEFAULTS,
+    28→    28→  type AutoState,
+    29→    29→  type AutoTradeRow,
+    30→    30→  type ComboStat,
+    31→    31→  type ScanRow,
+    32→    32→  type TgChat,
+    33→    33→} from "@/lib/autotrade";
+    34→    34→import { fmtPrice, t, type Lang } from "@/lib/i18n";
+    35→    35→import type { EngineSettings, Ticker } from "@/lib/types";
+    36→    36→import { INTERVALS } from "@/lib/types";
+    37→    37→import { Bot, ScanLine, Send, Square } from "lucide-react";
+    38→    38→
+    39→    39→interface Props {
+    40→    40→  lang: Lang;
+    41→    41→  /** every watched pair (defaults + user customs) */
+    42→    42→  pairs: string[];
+    43→    43→  /** user leverage — applied to dry-run positions */
+    44→    44→  leverage: number;
+    45→    45→  /** live ticker prices (refreshed by the page every 30s) */
+    46→    46→  tickers: Record<string, Ticker>;
+    47→    47→  /** user engine settings — passed through to the trainer */
+    48→    48→  settings: EngineSettings;
+    49→    49→  onPickPair: (symbol: string, interval: string) => void;
+    50→    50→  pushToast: (toast: { kind: "entry" | "flip" | "error" | "wy" | "xgb"; text: string }) => void;
+    51→    51→}
+    52→    52→
+    53→    53→/** rescan when the snapshot is older than this */
+    54→    54→const SCAN_TTL = 30 * 60_000;
+    55→    55→const TOP_N = 6;
+    56→    56→const CYCLES = [5, 10, 15, 30];
+    57→    57→
+    58→    58→// ─── Telegram message builders (channel language: Vietnamese) ────────────────
+    59→    59→
+    60→    60→const msgOpen = (r: AutoTradeRow, capital: number): string =>
+    61→    61→  [
+    62→    62→    "🤖 AUTO MỞ LỆNH (dry-run)",
+    63→    63→    `#${r.symbol} · ${r.interval} · ${r.side}`,
+    64→    64→    `Vào: ${fmtPrice(r.entryPrice)}`,
+    65→    65→    `SL −${r.slPct.toFixed(1)}% · TP +${r.tpPct.toFixed(1)}% · đòn bẩy ×${r.leverage % 1 === 0 ? r.leverage : r.leverage.toFixed(1)}`,
+    66→    66→    `Prob ${(r.prob != null ? r.prob * 100 : 0).toFixed(1)}% · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(1)}% · Điểm ${(r.score ?? 0).toFixed(1)}`,
+    67→    67→    `Vốn: ${capital.toFixed(2)} USDT`,
+    68→    68→  ].join("\n");
+    69→    69→
+    70→    70→const kindVi = (k: string | null): string => (k === "tp" ? "CHẠM TP ✅" : k === "sl" ? "CẮT LỖ 🔻" : "ĐÓNG THỦ CÔNG");
+    71→    71→
+    72→    72→const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPnlPct: number): string =>
+    73→    73→  [
+    74→    74→    `🤖 AUTO ĐÓNG LỆNH · ${kindVi(r.exitKind)}`,
+    75→    75→    `#${r.symbol} ${r.interval} ${r.side}`,
+    76→    76→    `Ra: ${fmtPrice(r.exitPrice ?? 0)} · ROE ${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}%`,
+    77→    77→    `Vốn: ${(r.capitalBefore ?? 0).toFixed(2)} → ${(r.capitalAfter ?? 0).toFixed(2)} USDT`,
+    78→    78→    `Tổng: ${closed} lệnh · win ${winRate.toFixed(0)}% · net ROE ${netPnlPct >= 0 ? "+" : ""}${netPnlPct.toFixed(1)}%`,
+    79→    79→  ].join("\n");
+    80→    80→
+    81→    81→const msgScan = (rows: ScanRow[], nPairs: number, nTf: number): string => {
+    82→    82→  const top3 = rows
+    83→    83→    .slice(0, 3)
+    84→    84→    .map((r) => `${r.symbol} ${r.interval} (${r.score.toFixed(1)})`)
+    85→    85→    .join(" · ");
+    86→    86→  const best = rows[0];
+    87→    87→  return [
+    88→    88→    "📊 AUTO QUÉT XONG",
+    89→    89→    `${nPairs} pair × ${nTf} khung = ${nPairs * nTf} combo · ${rows.length} hợp lệ`,
+    90→    90→    best
+    91→    91→      ? `Tốt nhất: #${best.symbol} ${best.interval} ${best.bias} · AUC ${best.auc.toFixed(2)} · ACC ${best.acc.toFixed(1)}% · Điểm ${best.score.toFixed(1)}`
+    92→    92→      : "Không có combo hợp lệ",
+    93→    93→    top3 ? `Top 3: ${top3}` : "",
+    94→    94→  ]
+    95→    95→    .filter(Boolean)
+    96→    96→    .join("\n");
+    97→    97→};
+    98→    98→
+    99→    99→const TEST_MSG = "✅ Elliott terminal — kết nối Telegram OK.\nAuto trade (dry-run) sẽ báo mở/đóng lệnh và kết quả quét tại kênh này.";
+   100→   100→
+   101→   101→const msgNear = (r: AutoTradeRow, price: number, kind: "tp" | "sl"): string => {
+   102→   102→  const dir = r.side === "SHORT" ? -1 : 1;
+   103→   103→  const targetPrice =
+   104→   104→    kind === "tp" ? r.entryPrice * (1 + (dir * Math.abs(r.tpPct)) / 100) : r.entryPrice * (1 - (dir * Math.abs(r.slPct)) / 100);
+   105→   105→  const awayPct = price > 0 ? Math.abs((targetPrice - price) / price) * 100 : 0;
+   106→   106→  const roe = roeOf(r.side, r.entryPrice, price, r.leverage);
+   107→   107→  return [
+   108→   108→    kind === "tp" ? "⚠️ AUTO SẮP CHẠM TP" : "⚠️ AUTO SẮP CHẠM SL",
+   109→   109→    `#${r.symbol} ${r.interval} ${r.side}`,
+   110→   110→    `Giá: ${fmtPrice(price)} · cách ${kind === "tp" ? "TP" : "SL"} ${awayPct.toFixed(2)}%`,
+   111→   111→    `ROE: ${roe >= 0 ? "+" : ""}${roe.toFixed(1)}% · đòn bẩy ×${r.leverage % 1 === 0 ? r.leverage : r.leverage.toFixed(1)}`,
+   112→   112→  ].join("\n");
+   113→   113→};
+   114→   114→
+   115→   115→const statLines = (st: AutoState, sinceMs: number, title: string): string[] => {
+   116→   116→  const recent = st.trades.filter((x) => x.status === "closed" && x.exitTime && new Date(x.exitTime).getTime() >= sinceMs);
+   117→   117→  const wins = recent.filter((x) => (x.pnlPct ?? 0) > 0).length;
+   118→   118→  const net = recent.reduce((a, x) => a + (x.pnlPct ?? 0), 0);
+   119→   119→  const lines = [
+   120→   120→    title,
+   121→   121→    `Khoảng qua: ${recent.length} lệnh · win ${recent.length ? Math.round((wins / recent.length) * 100) : 0}% · ROE ${net >= 0 ? "+" : ""}${net.toFixed(2)}%`,
+   122→   122→  ];
+   123→   123→  if (st.open) lines.push(`Đang mở: #${st.open.symbol} ${st.open.interval} ${st.open.side} @ ${fmtPrice(st.open.entryPrice)}`);
+   124→   124→  lines.push(`Tổng: ${st.stats.closed} lệnh · win ${st.stats.winRate.toFixed(0)}% · vốn ${st.capital != null ? `${st.capital.toFixed(2)} USDT` : "?"}`);
+   125→   125→  const best = (st.byCombo ?? []).filter((c) => c.closed >= 3).sort((a, b) => b.winRate - a.winRate)[0];
+   126→   126→  if (best) lines.push(`Tốt nhất: #${best.symbol} ${best.interval} · win ${best.winRate.toFixed(0)}% (${best.closed} lệnh)`);
+   127→   127→  return lines;
+   128→   128→};
+   129→   129→
+   130→   130→const pad2 = (n: number): string => String(n).padStart(2, "0");
+   131→   131→
+   132→   132→const msgHourly = (st: AutoState, now: Date): string =>
+   133→   133→  statLines(st, now.getTime() - 3_600_000, `⏰ AUTO BÁO CÁO GIỜ · ${pad2(now.getHours())}:00`).join("\n");
+   134→   134→
+   135→   135→const msgDaily = (st: AutoState, now: Date): string =>
+   136→   136→  statLines(st, now.getTime() - 86_400_000, `📅 AUTO BÁO CÁO NGÀY · ${pad2(now.getDate())}/${pad2(now.getMonth() + 1)}`).join("\n");
+   137→   137→
+   138→   138→// ─── Component ────────────────────────────────────────────────────────────────
+   139→   139→
+   140→   140→export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair, pushToast }: Props) {
+   141→   141→  const [cfg, setCfg] = useState<AutoConfig>(loadAutoConfigSafe());
+   142→   142→  const [rows, setRows] = useState<ScanRow[]>([]);
+   143→   143→  const [scanAt, setScanAt] = useState<number | null>(null);
+   144→   144→  const [scanning, setScanning] = useState<{ done: number; total: number; current: string } | null>(null);
+   145→   145→  const [auto, setAuto] = useState<AutoState | null>(null);
+   146→   146→  const [tgConfigured, setTgConfigured] = useState<boolean | null>(null);
+   147→   147→  const [tgState, setTgState] = useState<"idle" | "sending" | "ok" | "fail">("idle");
+   148→   148→  const [tgDetail, setTgDetail] = useState<string | null>(null);
+   149→   149→  const [tgHelp, setTgHelp] = useState(false); // step-by-step connect guide (chat not found)
+   150→   150→  const [tgChatId, setTgChatId] = useState<string | null>(null); // effective channel
+   151→   151→  const [tgChats, setTgChats] = useState<TgChat[] | null>(null); // discover result
+   152→   152→  const [tgDiscovering, setTgDiscovering] = useState(false);
+   153→   153→  const [tgSaving, setTgSaving] = useState(false);
+   154→   154→  const [status, setStatus] = useState<string>("");
+   155→   155→  const [countdown, setCountdown] = useState<number | null>(null);
+   156→   156→
+   157→   157→  // refs mirror props/state for the interval callbacks (no stale closures,
+   158→   158→  // and the cycle interval is NOT reset every time a prop changes)
+   159→   159→  const cfgRef = useRef(cfg);
+   160→   160→  const rowsRef = useRef(rows);
+   161→   161→  const scanAgeRef = useRef(scanAt);
+   162→   162→  const tickersRef = useRef(tickers);
+   163→   163→  const pairsRef = useRef(pairs);
+   164→   164→  const settingsRef = useRef(settings);
+   165→   165→  const leverageRef = useRef(leverage);
+   166→   166→  const langRef = useRef(lang);
+   167→   167→  const busyRef = useRef(false);
+   168→   168→  const scanBusyRef = useRef(false);
+   169→   169→  const closingRef = useRef(false);
+   170→   170→  const mountedRef = useRef(true);
+   171→   171→  const nextAtRef = useRef<number>(0);
+   172→   172→  // near-hit warning state — one shot per side per position (persisted so a
+   173→   173→  // page reload does not re-warn about the same position)
+   174→   174→  const warnedRef = useRef<{ id: string; tp: boolean; sl: boolean }>({ id: "", tp: false, sl: false });
+   175→   175→  const statBusyRef = useRef(false);
+   176→   176→  const lastHourRef = useRef("");
+   177→   177→  const lastDayRef = useRef("");
+   178→   178→
+   179→   179→  useEffect(() => {
+   180→   180→    cfgRef.current = cfg;
+   181→   181→  }, [cfg]);
+   182→   182→  useEffect(() => {
+   183→   183→    rowsRef.current = rows;
+   184→   184→  }, [rows]);
+   185→   185→  useEffect(() => {
+   186→   186→    scanAgeRef.current = scanAt;
+   187→   187→  }, [scanAt]);
+   188→   188→  useEffect(() => {
+   189→   189→    tickersRef.current = tickers;
+   190→   190→  }, [tickers]);
+   191→   191→  useEffect(() => {
+   192→   192→    pairsRef.current = pairs;
+   193→   193→  }, [pairs]);
+   194→   194→  useEffect(() => {
+   195→   195→    settingsRef.current = settings;
+   196→   196→  }, [settings]);
+   197→   197→  useEffect(() => {
+   198→   198→    leverageRef.current = leverage;
+   199→   199→  }, [leverage]);
+   200→   200→  useEffect(() => {
+   201→   201→    langRef.current = lang;
+   202→   202→  }, [lang]);
+   203→   203→  useEffect(() => {
+   204→   204→    mountedRef.current = true;
+   205→   205→    return () => {
+   206→   206→      mountedRef.current = false;
+   207→   207→    };
+   208→   208→  }, []);
+   209→   209→
+   210→   210→  const refreshAuto = useCallback(async (): Promise<AutoState | null> => {
+   211→   211→    try {
+   212→   212→      const st = await fetchAutoState();
+   213→   213→      if (mountedRef.current) setAuto(st);
+   214→   214→      return st;
+   215→   215→    } catch {
+   216→   216→      return null;
+   217→   217→    }
+   218→   218→  }, []);
+   219→   219→
+   220→   220→  // mirror for the 15s watcher (no stale closures)
+   221→   221→  const autoRef = useRef<AutoState | null>(null);
+   222→   222→  useEffect(() => {
+   223→   223→    autoRef.current = auto;
+   224→   224→  }, [auto]);
+   225→   225→
+   226→   226→  /** Close an open dry-run position — shared by the cycle and the intra-cycle watcher. */
+   227→   227→  const closeOpen = useCallback(
+   228→   228→    async (open: AutoTradeRow, price: number, kind: "sl" | "tp" | "manual"): Promise<AutoTradeRow | null> => {
+   229→   229→      if (closingRef.current) return null;
+   230→   230→      closingRef.current = true;
+   231→   231→      try {
+   232→   232→        const closed = await closeAutoTrade(open.id, price, kind);
+   233→   233→        if (closed && mountedRef.current) {
+   234→   234→          const st = await refreshAuto(); // stats now include this close
+   235→   235→          pushToast({
+   236→   236→            kind: "flip",
+   237→   237→            text: t(langRef.current, "auto.closed", { pair: closed.symbol, tf: closed.interval, pnl: (closed.pnlPct ?? 0).toFixed(2) }),
+   238→   238→          });
+   239→   239→          void sendTelegram(msgClose(closed, st?.stats.closed ?? 0, st?.stats.winRate ?? 0, st?.stats.netPnlPct ?? 0));
+   240→   240→        }
+   241→   241→        return closed;
+   242→   242→      } finally {
+   243→   243→        closingRef.current = false;
+   244→   244→      }
+   245→   245→    },
+   246→   246→    [refreshAuto, pushToast],
+   247→   247→  );
+   248→   248→
+   249→   249→  // initial load — position book + telegram configuration probe
+   250→   250→  useEffect(() => {
+   251→   251→    void refreshAuto();
+   252→   252→    void telegramConfigured().then((ok) => mountedRef.current && setTgConfigured(ok));
+   253→   253→    void telegramStatus().then((s) => mountedRef.current && setTgChatId(s.chatId));
+   254→   254→    // start clocks at the CURRENT hour/day so the first digest goes out at the
+   255→   255→    // next boundary, not the second the app opens
+   256→   256→    const now = new Date();
+   257→   257→    lastHourRef.current = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours()}`;
+   258→   258→    lastDayRef.current = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+   259→   259→    try {
+   260→   260→      const raw = localStorage.getItem("utp.auto.warn");
+   261→   261→      if (raw) warnedRef.current = JSON.parse(raw) as { id: string; tp: boolean; sl: boolean };
+   262→   262→    } catch {
+   263→   263→      // stale/corrupt flag — start fresh
+   264→   264→    }
+   265→   265→  }, [refreshAuto]);
+   266→   266→
+   267→   267→  const doScan = useCallback(async (): Promise<ScanRow[]> => {
+   268→   268→    if (scanBusyRef.current) return rowsRef.current;
+   269→   269→    scanBusyRef.current = true;
+   270→   270→    setScanning({ done: 0, total: pairsRef.current.length * INTERVALS.length, current: "" });
+   271→   271→    try {
+   272→   272→      const out = await scanAll({
+   273→   273→        pairs: pairsRef.current,
+   274→   274→        settings: settingsRef.current,
+   275→   275→        onProgress: (p) => mountedRef.current && setScanning(p),
+   276→   276→      });
+   277→   277→      if (mountedRef.current) {
+   278→   278→        setRows(out);
+   279→   279→        setScanAt(Date.now());
+   280→   280→      }
+   281→   281→      if (out.length > 0) {
+   282→   282→        void sendTelegram(msgScan(out, pairsRef.current.length, INTERVALS.length));
+   283→   283→      }
+   284→   284→      return out;
+   285→   285→    } finally {
+   286→   286→      scanBusyRef.current = false;
+   287→   287→      if (mountedRef.current) setScanning(null);
+   288→   288→    }
+   289→   289→  }, []);
+   290→   290→
+   291→   291→  // ── one auto cycle: manage the open position, then maybe enter the best pick
+   292→   292→  const runCycle = useCallback(async () => {
+   293→   293→    if (busyRef.current) return;
+   294→   294→    busyRef.current = true;
+   295→   295→    const c = cfgRef.current;
+   296→   296→    try {
+   297→   297→      const st = await refreshAuto();
+   298→   298→      if (!st) {
+   299→   299→        setStatus("DB error");
+   300→   300→        return;
+   301→   301→      }
+   302→   302→
+   303→   303→      // 1) manage the open position against the live price
+   304→   304→      if (st.open) {
+   305→   305→        const open = st.open;
+   306→   306→        const price = tickersRef.current[open.symbol]?.price ?? 0;
+   307→   307→        if (price > 0) {
+   308→   308→          const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
+   309→   309→          const liq = liquidationHit(open.side, price, open.entryPrice, open.leverage);
+   310→   310→          if (kind || liq) {
+   311→   311→            await closeOpen(open, price, liq ? "sl" : (kind ?? "sl"));
+   312→   312→          } else {
+   313→   313→            const roe = roeOf(open.side, open.entryPrice, price, open.leverage);
+   314→   314→            setStatus(`${open.symbol} ${open.interval} ${open.side} · ROE ${roe >= 0 ? "+" : ""}${roe.toFixed(2)}%`);
+   315→   315→          }
+   316→   316→        }
+   317→   317→        return; // one position at a time — no new entry while one is open
+   318→   318→      }
+   319→   319→
+   320→   320→      // 2) no open position → rank the scan and enter the best tradeable row
+   321→   321→      let current = rowsRef.current;
+   322→   322→      if (current.length === 0 || Date.now() - (scanAgeRef.current ?? 0) > SCAN_TTL) {
+   323→   323→        setStatus(t(langRef.current, "auto.scan.busy", { done: 0, total: pairsRef.current.length * INTERVALS.length, current: "…" }));
+   324→   324→        current = await doScan();
+   325→   325→      }
+   326→   326→      if (current.length === 0) {
+   327→   327→        setStatus(t(langRef.current, "auto.scan.empty"));
+   328→   328→        return;
+   329→   329→      }
+   330→   330→      const { best, allInCooldown } = bestTradeableAvoid(current, c.minAuc, c.minAcc, st.trades, c.cooldownMin);
+   331→   331→      if (!best) {
+   332→   332→        setStatus(allInCooldown ? t(langRef.current, "auto.cooldown.all") : t(langRef.current, "auto.rank.hint"));
+   333→   333→        return;
+   334→   334→      }
+   335→   335→      const price = tickersRef.current[best.symbol]?.price ?? 0;
+   336→   336→      if (price <= 0) return; // no live price for that pair — wait for the next cycle
+   337→   337→      const capitalNow = (await refreshAuto())?.capital ?? c.capital;
+   338→   338→      const trade = await openAutoTrade({
+   339→   339→        symbol: best.symbol,
+   340→   340→        interval: best.interval,
+   341→   341→        side: best.bias,
+   342→   342→        entryPrice: price,
+   343→   343→        slPct: best.slPct,
+   344→   344→        tpPct: best.tpPct,
+   345→   345→        leverage: leverageRef.current,
+   346→   346→        prob: best.prob,
+   347→   347→        acc: best.acc,
+   348→   348→        auc: best.auc,
+   349→   349→        score: best.score,
+   350→   350→        capitalBefore: capitalNow,
+   351→   351→      });
+   352→   352→      if (trade) {
+   353→   353→        pushToast({
+   354→   354→          kind: "entry",
+   355→   355→          text: t(langRef.current, "auto.opened", { side: trade.side, pair: trade.symbol, tf: trade.interval, price: fmtPrice(trade.entryPrice) }),
+   356→   356→        });
+   357→   357→        void sendTelegram(msgOpen(trade, capitalNow));
+   358→   358→        await refreshAuto();
+   359→   359→        setStatus(`${trade.symbol} ${trade.interval} ${trade.side} @ ${fmtPrice(trade.entryPrice)}`);
+   360→   360→      }
+   361→   361→    } finally {
+   362→   362→      busyRef.current = false;
+   363→   363→      nextAtRef.current = Date.now() + cfgRef.current.cycleMin * 60_000;
+   364→   364→    }
+   365→   365→  }, [closeOpen, doScan, pushToast, refreshAuto]);
+   366→   366→
+   367→   367→  // auto cycle — immediate tick on enable, then every cycleMin minutes
+   368→   368→  useEffect(() => {
+   369→   369→    if (!cfg.on) {
+   370→   370→      setCountdown(null);
+   371→   371→      return;
+   372→   372→    }
+   373→   373→    nextAtRef.current = Date.now() + 2_000;
+   374→   374→    void runCycle();
+   375→   375→    const id = window.setInterval(() => void runCycle(), cfg.cycleMin * 60_000);
+   376→   376→    return () => window.clearInterval(id);
+   377→   377→  }, [cfg.on, cfg.cycleMin, runCycle]);
+   378→   378→
+   379→   379→  // intra-cycle watcher — SL/TP/liquidation can hit BETWEEN cycles; this books
+   380→   380→  // them within ~15s from the live tickers instead of waiting for the next
+   381→   381→  // full cycle, then kicks a fresh entry a few seconds later. It also fires
+   382→   382→  // the one-shot "approaching TP/SL" Telegram warning (70% of the way there).
+   383→   383→  useEffect(() => {
+   384→   384→    if (!cfg.on) return;
+   385→   385→    const id = window.setInterval(() => {
+   386→   386→      const open = autoRef.current?.open;
+   387→   387→      if (!open || busyRef.current || closingRef.current) return;
+   388→   388→      const price = tickersRef.current[open.symbol]?.price ?? 0;
+   389→   389→      if (price <= 0) return;
+   390→   390→      const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
+   391→   391→      const liq = liquidationHit(open.side, price, open.entryPrice, open.leverage);
+   392→   392→      if (kind || liq) {
+   393→   393→        void closeOpen(open, price, liq ? "sl" : (kind ?? "sl")).then((closed) => {
+   394→   394→          if (closed && cfgRef.current.on) {
+   395→   395→            window.setTimeout(() => void runCycle(), 3_000);
+   396→   396→          }
+   397→   397→        });
+   398→   398→        return;
+   399→   399→      }
+   400→   400→      // near-hit warning — once per side per position
+   401→   401→      if (warnedRef.current.id !== open.id) {
+   402→   402→        warnedRef.current = { id: open.id, tp: false, sl: false };
+   403→   403→        try {
+   404→   404→          localStorage.setItem("utp.auto.warn", JSON.stringify(warnedRef.current));
+   405→   405→        } catch {
+   406→   406→          // storage blocked — flags live for this session only
+   407→   407→        }
+   408→   408→      }
+   409→   409→      const near = nearHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
+   410→   410→      if (near && !warnedRef.current[near]) {
+   411→   411→        warnedRef.current[near] = true;
+   412→   412→        try {
+   413→   413→          localStorage.setItem("utp.auto.warn", JSON.stringify(warnedRef.current));
+   414→   414→        } catch {
+   415→   415→          // storage blocked — flags live for this session only
+   416→   416→        }
+   417→   417→        void sendTelegram(msgNear(open, price, near));
+   418→   418→        pushToast({
+   419→   419→          kind: "wy",
+   420→   420→          text: t(
+   421→   421→            langRef.current,
+   422→   422→            near === "tp" ? "auto.near.tp" : "auto.near.sl",
+   423→   423→            { pair: open.symbol, tf: open.interval, roe: roeOf(open.side, open.entryPrice, price, open.leverage).toFixed(1) },
+   424→   424→          ),
+   425→   425→        });
+   426→   426→      }
+   427→   427→    }, 15_000);
+   428→   428→    return () => window.clearInterval(id);
+   429→   429→  }, [cfg.on, closeOpen, runCycle, pushToast]);
+   430→   430→
+   431→   431→  // hourly / daily Telegram digests — checked every minute; each boundary
+   432→   432→  // (top of the hour, calendar day) sends exactly one stats message.
+   433→   433→  // force=true → skip the boundary check (manual "send now" button).
+   434→   434→  const sendPeriodicStats = useCallback(async (force = false) => {
+   435→   435→    if (statBusyRef.current) return;
+   436→   436→    const c = cfgRef.current;
+   437→   437→    const now = new Date();
+   438→   438→    const hourKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours()}`;
+   439→   439→    const dayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+   440→   440→    if (force) {
+   441→   441→      statBusyRef.current = true;
+   442→   442→      try {
+   443→   443→        lastHourRef.current = hourKey;
+   444→   444→        lastDayRef.current = dayKey;
+   445→   445→        const st = await refreshAuto();
+   446→   446→        if (st) {
+   447→   447→          void sendTelegram(
+   448→   448→            statLines(st, now.getTime() - 86_400_000, `📊 AUTO THỐNG KÊ · ${pad2(now.getHours())}:${pad2(now.getMinutes())}`).join("\n"),
+   449→   449→          );
+   450→   450→        }
+   451→   451→      } finally {
+   452→   452→        statBusyRef.current = false;
+   453→   453→      }
+   454→   454→      return;
+   455→   455→    }
+   456→   456→    const dueHour = c.statHourly && lastHourRef.current !== hourKey;
+   457→   457→    const dueDay = c.statDaily && lastDayRef.current !== dayKey;
+   458→   458→    if (!dueHour && !dueDay) return;
+   459→   459→    statBusyRef.current = true;
+   460→   460→    try {
+   461→   461→      const st = await refreshAuto();
+   462→   462→      if (!st) return;
+   463→   463→      if (dueHour) {
+   464→   464→        lastHourRef.current = hourKey;
+   465→   465→        void sendTelegram(msgHourly(st, now));
+   466→   466→      }
+   467→   467→      if (dueDay) {
+   468→   468→        lastDayRef.current = dayKey;
+   469→   469→        void sendTelegram(msgDaily(st, now));
+   470→   470→      }
+   471→   471→    } finally {
+   472→   472→      statBusyRef.current = false;
+   473→   473→    }
+   474→   474→  }, [refreshAuto]);
+   475→   475→
+   476→   476→  useEffect(() => {
+   477→   477→    const id = window.setInterval(() => void sendPeriodicStats(), 60_000);
+   478→   478→    return () => window.clearInterval(id);
+   479→   479→  }, [sendPeriodicStats]);
+   480→   480→
+   481→   481→  // 1 s countdown to the next cycle
+   482→   482→  useEffect(() => {
+   483→   483→    if (!cfg.on) return;
+   484→   484→    const id = window.setInterval(() => {
+   485→   485→      const left = Math.max(0, Math.round((nextAtRef.current - Date.now()) / 1000));
+   486→   486→      setCountdown(left);
+   487→   487→    }, 1000);
+   488→   488→    return () => window.clearInterval(id);
+   489→   489→  }, [cfg.on]);
+   490→   490→
+   491→   491→  const updateCfg = (patch: Partial<AutoConfig>) => {
+   492→   492→    setCfg((prev) => {
+   493→   493→      const next = { ...prev, ...patch };
+   494→   494→      saveAutoConfig(next);
+   495→   495→      return next;
+   496→   496→    });
+   497→   497→  };
+   498→   498→
+   499→   499→  const checkTg = async () => {
+   500→   500→    setTgState("sending");
+   501→   501→    setTgDetail(null);
+   502→   502→    const r = await sendTelegram(TEST_MSG);
+   503→   503→    if (r.ok) {
+   504→   504→      setTgState("ok");
+   505→   505→      setTgHelp(false);
+   506→   506→      setTgChats(null);
+   507→   507→      pushToast({ kind: "xgb", text: t(lang, "auto.tg.sent") });
+   508→   508→    } else {
+   509→   509→      setTgState("fail");
+   510→   510→      setTgDetail(r.detail ?? null);
+   511→   511→      if (/chat not found/i.test(r.detail ?? "")) {
+   512→   512→        setTgHelp(true); // persistent in-panel guide — a toast disappears too fast
+   513→   513→        void telegramStatus().then((s) => mountedRef.current && setTgChatId(s.chatId)); // refresh possibly-stale channel label
+   514→   514→      }
+   515→   515→      pushToast({
+   516→   516→        kind: "error",
+   517→   517→        text: /chat not found/i.test(r.detail ?? "")
+   518→   518→          ? t(lang, "auto.err.chat")
+   519→   519→          : t(lang, "auto.tg.err", { detail: r.detail ?? "?" }),
+   520→   520→      });
+   521→   521→    }
+   522→   522→  };
+   523→   523→
+   524→   524→  // ask the bot which chats it can see → user picks the real channel
+   525→   525→  const discoverChats = async () => {
+   526→   526→    setTgDiscovering(true);
+   527→   527→    const d = await telegramDiscover();
+   528→   528→    if (mountedRef.current) {
+   529→   529→      setTgChats(d.chats);
+   530→   530→      if (d.bot) setTgDetail(d.bot);
+   531→   531→    }
+   532→   532→    setTgDiscovering(false);
+   533→   533→  };
+   534→   534→
+   535→   535→  // persist the picked chat id, then re-test immediately
+   536→   536→  const applyChat = async (id: string) => {
+   537→   537→    setTgSaving(true);
+   538→   538→    const saved = await telegramSaveChat(id);
+   539→   539→    if (saved && mountedRef.current) {
+   540→   540→      setTgChatId(id);
+   541→   541→      pushToast({ kind: "xgb", text: t(lang, "auto.tg.help.saved", { id }) });
+   542→   542→      setTgSaving(false);
+   543→   543→      void checkTg();
+   544→   544→      return;
+   545→   545→    }
+   546→   546→    setTgSaving(false);
+   547→   547→    pushToast({ kind: "error", text: t(lang, "auto.tg.err", { detail: "save failed" }) });
+   548→   548→  };
+   549→   549→
+   550→   550→  const closeNow = async () => {
+   551→   551→    const open = auto?.open;
+   552→   552→    if (!open || busyRef.current) return;
+   553→   553→    const price = tickers[open.symbol]?.price ?? open.entryPrice;
+   554→   554→    const closed = await closeAutoTrade(open.id, price, "manual");
+   555→   555→    if (closed) {
+   556→   556→      pushToast({
+   557→   557→        kind: "flip",
+   558→   558→        text: t(lang, "auto.closed", { pair: closed.symbol, tf: closed.interval, pnl: (closed.pnlPct ?? 0).toFixed(2) }),
+   559→   559→      });
+   560→   560→      void sendTelegram(msgClose(closed, auto?.stats.closed ?? 0, auto?.stats.winRate ?? 0, auto?.stats.netPnlPct ?? 0));
+   561→   561→      await refreshAuto();
+   562→   562→    }
+   563→   563→  };
+   564→   564→
+   565→   565→  const capitalNow = auto?.capital ?? cfg.capital;
+   566→   566→  const open = auto?.open ?? null;
+   567→   567→  const best = rows.length > 0 ? rows[0] : null;
+   568→   568→  const closedHist = (auto?.trades ?? []).filter((x) => x.status === "closed").slice(0, 4);
+   569→   569→  const sideClass = (side: string) => (side === "LONG" ? "text-emerald-400" : "text-rose-400");
+   570→   570→
+   571→   571→  return (
+   572→   572→    <Card className="border-zinc-800 bg-zinc-900/60">
+   573→   573→      <CardHeader className="pb-2">
+   574→   574→        <div className="flex flex-wrap items-center justify-between gap-2">
+   575→   575→          <CardTitle className="flex items-center gap-1.5 text-base font-semibold text-zinc-100">
+   576→   576→            <Bot className="h-4 w-4 text-teal-400" />
+   577→   577→            {t(lang, "auto.title")}
+   578→   578→            {cfg.on && <span className="ml-1 inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-400" aria-hidden />}
+   579→   579→          </CardTitle>
+   580→   580→          <div className="flex items-center gap-2">
+   581→   581→            {tgConfigured != null && (
+   582→   582→              <span
+   583→   583→                className={`h-2 w-2 rounded-full ${tgConfigured ? "bg-teal-400" : "bg-zinc-600"}`}
+   584→   584→                title={tgConfigured ? t(lang, "auto.tg.ok") : t(lang, "auto.tg.none")}
+   585→   585→                aria-hidden
+   586→   586→              />
+   587→   587→            )}
+   588→   588→            <Switch checked={cfg.on} onCheckedChange={(v) => updateCfg({ on: v })} aria-label={t(lang, "auto.on")} />
+   589→   589→          </div>
+   590→   590→        </div>
+   591→   591→        <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">{t(lang, "auto.sub")}</p>
+   592→   592→      </CardHeader>
+   593→   593→
+   594→   594→      <CardContent className="space-y-3 pt-0">
+   595→   595→        {/* config */}
+   596→   596→        <div className="flex flex-wrap items-center gap-2">
+   597→   597→          <label className="flex items-center gap-1.5 text-[11px] text-zinc-500">
+   598→   598→            {t(lang, "auto.cfg.capital")}
+   599→   599→            <Input
+   600→   600→              type="number"
+   601→   601→              min={1}
+   602→   602→              value={cfg.capital}
+   603→   603→              onChange={(e) => updateCfg({ capital: Math.max(1, Number(e.target.value) || 0) })}
+   604→   604→              className="h-7 w-24 border-zinc-800 bg-zinc-950/60 px-2 font-mono text-xs text-zinc-100"
+   605→   605→            />
+   606→   606→          </label>
+   607→   607→          <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.cycle")}>
+   608→   608→            <span className="mr-0.5 text-[11px] text-zinc-500">{t(lang, "auto.cfg.cycle")}</span>
+   609→   609→            {CYCLES.map((m) => (
+   610→   610→              <button
+   611→   611→                key={m}
+   612→   612→                type="button"
+   613→   613→                onClick={() => updateCfg({ cycleMin: m })}
+   614→   614→                className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
+   615→   615→                  cfg.cycleMin === m
+   616→   616→                    ? "border-teal-700 bg-teal-950/40 text-teal-300"
+   617→   617→                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+   618→   618→                }`}
+   619→   619→              >
+   620→   620→                {m}
+   621→   621→              </button>
+   622→   622→            ))}
+   623→   623→            <span className="text-[11px] text-zinc-600">{t(lang, "auto.cfg.cycleUnit")}</span>
+   624→   624→          </div>
+   625→   625→          <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.cooldown")}>
+   626→   626→            <span className="mr-0.5 text-[11px] text-zinc-500">{t(lang, "auto.cfg.cooldown")}</span>
+   627→   627→            {COOLDOWN_CHOICES.map((m) => (
+   628→   628→              <button
+   629→   629→                key={m}
+   630→   630→                type="button"
+   631→   631→                onClick={() => updateCfg({ cooldownMin: m })}
+   632→   632→                className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
+   633→   633→                  cfg.cooldownMin === m
+   634→   634→                    ? "border-teal-700 bg-teal-950/40 text-teal-300"
+   635→   635→                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+   636→   636→                }`}
+   637→   637→              >
+   638→   638→                {m === 0 ? t(lang, "auto.cfg.cooldownOff") : m}
+   639→   639→              </button>
+   640→   640→            ))}
+   641→   641→            <span className="text-[11px] text-zinc-600">{t(lang, "auto.cfg.cooldownUnit")}</span>
+   642→   642→          </div>
+   643→   643→          <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.stats")}>
+   644→   644→            <span className="mr-0.5 text-[11px] text-zinc-500">{t(lang, "auto.cfg.stats")}</span>
+   645→   645→            {([
+   646→   646→              ["statHourly", "auto.cfg.statHourly"],
+   647→   647→              ["statDaily", "auto.cfg.statDaily"],
+   648→   648→            ] as const).map(([key, ikey]) => (
+   649→   649→              <button
+   650→   650→                key={key}
+   651→   651→                type="button"
+   652→   652→                onClick={() => updateCfg({ [key]: !cfg[key] })}
+   653→   653→                aria-pressed={cfg[key]}
+   654→   654→                className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
+   655→   655→                  cfg[key]
+   656→   656→                    ? "border-teal-700 bg-teal-950/40 text-teal-300"
+   657→   657→                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+   658→   658→                }`}
+   659→   659→              >
+   660→   660→                {t(lang, ikey)}
+   661→   661→              </button>
+   662→   662→            ))}
+   663→   663→            <Button
+   664→   664→              size="sm"
+   665→   665→              variant="ghost"
+   666→   666→              className="h-7 px-2 text-[11px] text-zinc-400 hover:bg-zinc-800"
+   667→   667→              disabled={tgState === "sending"}
+   668→   668→              title={t(lang, "auto.cfg.statNowTip")}
+   669→   669→              onClick={() => void sendPeriodicStats(true)}
+   670→   670→            >
+   671→   671→              <Send className="mr-1 h-3 w-3" />
+   672→   672→              {t(lang, "auto.cfg.statNow")}
+   673→   673→            </Button>
+   674→   674→          </div>
+   675→   675→        </div>
+   676→   676→        <p className="text-[11px] text-zinc-600">{t(lang, "auto.cfg.min", { auc: cfg.minAuc.toFixed(2), acc: cfg.minAcc })}</p>
+   677→   677→
+   678→   678→        {/* scan actions */}
+   679→   679→        <div className="flex flex-wrap items-center gap-2">
+   680→   680→          <Button
+   681→   681→            size="sm"
+   682→   682→            className="h-8 bg-teal-600 text-zinc-950 hover:bg-teal-500 disabled:opacity-50"
+   683→   683→            disabled={scanning != null || pairs.length === 0}
+   684→   684→            onClick={() => void doScan()}
+   685→   685→          >
+   686→   686→            <ScanLine className="mr-1.5 h-3.5 w-3.5" />
+   687→   687→            {t(lang, "auto.scan")} ({pairs.length}×{INTERVALS.length})
+   688→   688→          </Button>
+   689→   689→          <Button size="sm" variant="outline" className="h-8 border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800" disabled={tgState === "sending"} onClick={() => void checkTg()}>
+   690→   690→            <Send className="mr-1.5 h-3 w-3" />
+   691→   691→            {t(lang, "auto.tg.check")}
+   692→   692→          </Button>
+   693→   693→          {scanAt != null && !scanning && (
+   694→   694→            <span className="text-[11px] text-zinc-600">
+   695→   695→              {t(lang, "auto.scan.ago", { time: new Date(scanAt).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit" }) })}
+   696→   696→            </span>
+   697→   697→          )}
+   698→   698→        </div>
+   699→   699→
+   700→   700→        {/* telegram connect guide — appears when the channel is unreachable */}
+   701→   701→        {tgHelp && (
+   702→   702→          <div className="space-y-2 rounded-lg border border-teal-800/50 bg-teal-950/20 p-2.5">
+   703→   703→            <div className="flex flex-wrap items-center justify-between gap-1.5">
+   704→   704→              <p className="text-[11px] font-semibold uppercase tracking-wide text-teal-300">{t(lang, "auto.tg.help.title")}</p>
+   705→   705→              {tgChatId && <span className="font-mono text-[10px] text-zinc-500">{t(lang, "auto.tg.current", { id: tgChatId })}</span>}
+   706→   706→            </div>
+   707→   707→            <ol className="list-decimal space-y-0.5 pl-4 text-[11px] leading-relaxed text-zinc-400">
+   708→   708→              <li>{t(lang, "auto.tg.help.s1")}</li>
+   709→   709→              <li>{t(lang, "auto.tg.help.s2")}</li>
+   710→   710→              <li>{t(lang, "auto.tg.help.s3")}</li>
+   711→   711→            </ol>
+   712→   712→            {tgDetail && <p className="font-mono text-[10px] text-zinc-500">{tgDetail}</p>}
+   713→   713→            <div className="flex items-center gap-2">
+   714→   714→              <Button
+   715→   715→                size="sm"
+   716→   716→                variant="outline"
+   717→   717→                className="h-7 border-teal-700 text-[11px] text-teal-300 hover:bg-teal-950/40"
+   718→   718→                disabled={tgDiscovering}
+   719→   719→                onClick={() => void discoverChats()}
+   720→   720→              >
+   721→   721→                <ScanLine className="mr-1.5 h-3 w-3" />
+   722→   722→                {tgDiscovering ? t(lang, "auto.tg.help.finding") : t(lang, "auto.tg.help.find")}
+   723→   723→              </Button>
+   724→   724→              <Button size="sm" variant="ghost" className="h-7 text-[11px] text-zinc-400 hover:bg-zinc-800" onClick={() => setTgHelp(false)}>
+   725→   725→                {t(lang, "auto.tg.help.hide")}
+   726→   726→              </Button>
+   727→   727→            </div>
+   728→   728→            {tgChats != null &&
+   729→   729→              (tgChats.length === 0 ? (
+   730→   730→                <p className="text-[11px] leading-relaxed text-zinc-500">{t(lang, "auto.tg.help.none")}</p>
+   731→   731→              ) : (
+   732→   732→                <div className="space-y-1">
+   733→   733→                  <p className="text-[10px] uppercase tracking-wide text-zinc-500">{t(lang, "auto.tg.help.found", { n: tgChats.length })}</p>
+   734→   734→                  {tgChats.map((c) => (
+   735→   735→                    <div key={c.id} className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-1">
+   736→   736→                      <span className="truncate text-[11px] text-zinc-200">{c.title}</span>
+   737→   737→                      <span className="shrink-0 font-mono text-[10px] text-zinc-500">{c.id}</span>
+   738→   738→                      <span className="shrink-0 text-[9px] uppercase text-zinc-600">{c.type}</span>
+   739→   739→                      {c.id === tgChatId ? (
+   740→   740→                        <span className="ml-auto shrink-0 text-[10px] text-teal-400">{t(lang, "auto.tg.help.active")}</span>
+   741→   741→                      ) : (
+   742→   742→                        <Button
+   743→   743→                          size="sm"
+   744→   744→                          variant="outline"
+   745→   745→                          className="ml-auto h-6 shrink-0 border-teal-700 px-2 text-[10px] text-teal-300 hover:bg-teal-950/40"
+   746→   746→                          disabled={tgSaving}
+   747→   747→                          onClick={() => void applyChat(c.id)}
+   748→   748→                        >
+   749→   749→                          {t(lang, "auto.tg.help.use")}
+   750→   750→                        </Button>
+   751→   751→                      )}
+   752→   752→                    </div>
+   753→   753→                  ))}
+   754→   754→                </div>
+   755→   755→              ))}
+   756→   756→          </div>
+   757→   757→        )}
+   758→   758→        {scanning && (
+   759→   759→          <div className="space-y-1">
+   760→   760→            <p className="font-mono text-[11px] text-teal-300">
+   761→   761→              {t(lang, "auto.scan.busy", { done: scanning.done, total: scanning.total, current: scanning.current })}
+   762→   762→            </p>
+   763→   763→            <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
+   764→   764→              <div className="h-full rounded-full bg-teal-500 transition-all" style={{ width: `${scanning.total ? (scanning.done / scanning.total) * 100 : 0}%` }} />
+   765→   765→            </div>
+   766→   766→          </div>
+   767→   767→        )}
+   768→   768→        {cfg.on && countdown != null && (
+   769→   769→          <p className="text-[11px] text-zinc-500">
+   770→   770→            {t(lang, "auto.cycle.next", { s: countdown })} {status && <span className="font-mono text-zinc-400">· {status}</span>}
+   771→   771→          </p>
+   772→   772→        )}
+   773→   773→        {!cfg.on && status && <p className="font-mono text-[11px] text-zinc-500">{status}</p>}
+   774→   774→
+   775→   775→        {/* best pick + ranking */}
+   776→   776→        {best ? (
+   777→   777→          <div className="space-y-1.5">
+   778→   778→            <div className="flex items-center justify-between rounded-lg border border-teal-800/60 bg-teal-950/20 px-2.5 py-1.5">
+   779→   779→              <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-teal-400">
+   780→   780→                {t(lang, "auto.best")}
+   781→   781→              </span>
+   782→   782→              <button
+   783→   783→                type="button"
+   784→   784→                className="font-mono text-xs font-bold text-zinc-100 hover:text-teal-300"
+   785→   785→                onClick={() => onPickPair(best.symbol, best.interval)}
+   786→   786→              >
+   787→   787→                {best.symbol} {best.interval} <span className={sideClass(best.bias)}>{best.bias}</span> · {best.score.toFixed(1)}
+   788→   788→              </button>
+   789→   789→            </div>
+   790→   790→            <div className="overflow-hidden rounded-lg border border-zinc-800">
+   791→   791→              <div className="grid grid-cols-[1fr_26px_44px_44px_38px_38px_40px] gap-x-1 border-b border-zinc-800 bg-zinc-950/60 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
+   792→   792→                <span>{t(lang, "auto.col.pair")}</span>
+   793→   793→                <span>{t(lang, "auto.col.tf")}</span>
+   794→   794→                <span>{t(lang, "auto.col.side")}</span>
+   795→   795→                <span className="text-right">{t(lang, "auto.col.prob")}</span>
+   796→   796→                <span className="text-right">{t(lang, "auto.col.auc")}</span>
+   797→   797→                <span className="text-right">{t(lang, "auto.col.acc")}</span>
+   798→   798→                <span className="text-right">{t(lang, "auto.col.score")}</span>
+   799→   799→              </div>
+   800→   800→              {rows.slice(0, TOP_N).map((r, i) => {
+   801→   801→                const tradeable = r.bias !== "NEUTRAL" && r.auc >= cfg.minAuc && r.acc >= cfg.minAcc;
+   802→   802→                return (
+   803→   803→                  <button
+   804→   804→                    key={`${r.symbol}-${r.interval}`}
+   805→   805→                    type="button"
+   806→   806→                    onClick={() => onPickPair(r.symbol, r.interval)}
+   807→   807→                    className={`grid w-full grid-cols-[1fr_26px_44px_44px_38px_38px_40px] items-center gap-x-1 px-2 py-1 text-left font-mono text-[10px] hover:bg-zinc-800/60 ${
+   808→   808→                      i === 0 ? "bg-teal-950/20" : ""
+   809→   809→                    }`}
+   810→   810→                  >
+   811→   811→                    <span className="truncate text-zinc-200">{r.symbol}</span>
+   812→   812→                    <span className="text-zinc-500">{r.interval}</span>
+   813→   813→                    <span className={sideClass(r.bias)}>{r.bias === "NEUTRAL" ? "—" : r.bias}</span>
+   814→   814→                    <span className="text-right text-zinc-300">{(r.prob * 100).toFixed(1)}%</span>
+   815→   815→                    <span className={`text-right ${r.auc >= cfg.minAuc ? "text-emerald-400" : "text-zinc-500"}`}>{r.auc.toFixed(2)}</span>
+   816→   816→                    <span className={`text-right ${r.acc >= cfg.minAcc ? "text-emerald-400" : "text-zinc-500"}`}>{r.acc.toFixed(0)}%</span>
+   817→   817→                    <span className={`text-right font-bold ${tradeable ? "text-teal-300" : "text-zinc-600"}`}>{r.score.toFixed(1)}</span>
+   818→   818→                  </button>
+   819→   819→                );
+   820→   820→              })}
+   821→   821→            </div>
+   822→   822→            <p className="text-[10px] leading-snug text-zinc-600">{t(lang, "auto.rank.hint")}</p>
+   823→   823→          </div>
+   824→   824→        ) : (
+   825→   825→          !scanning && <p className="text-[11px] text-zinc-600">{t(lang, "auto.scan.empty")}</p>
+   826→   826→        )}
+   827→   827→
+   828→   828→        {/* open position */}
+   829→   829→        {open ? (
+   830→   830→          <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-2.5">
+   831→   831→            <div className="flex items-center justify-between">
+   832→   832→              <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">{t(lang, "auto.pos.open")}</span>
+   833→   833→              <Badge variant="outline" className={`border-zinc-700 font-mono ${sideClass(open.side)}`}>
+   834→   834→                {open.side}
+   835→   835→              </Badge>
+   836→   836→            </div>
+   837→   837→            <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+   838→   838→              <span className="text-zinc-500">{t(lang, "auto.col.pair")}</span>
+   839→   839→              <span className="text-right font-mono text-zinc-200">
+   840→   840→                {open.symbol} · {open.interval}
+   841→   841→              </span>
+   842→   842→              <span className="text-zinc-500">{t(lang, "auto.pos.entry")}</span>
+   843→   843→              <span className="text-right font-mono text-zinc-200">{fmtPrice(open.entryPrice)}</span>
+   844→   844→              <span className="text-zinc-500">SL / TP</span>
+   845→   845→              <span className="text-right font-mono">
+   846→   846→                <span className="text-rose-300">−{open.slPct.toFixed(1)}%</span> / <span className="text-emerald-300">+{open.tpPct.toFixed(1)}%</span> · ×{open.leverage}
+   847→   847→              </span>
+   848→   848→              <span className="text-zinc-500">{t(lang, "auto.pos.uroe")}</span>
+   849→   849→              {(() => {
+   850→   850→                const live = tickers[open.symbol]?.price ?? open.entryPrice;
+   851→   851→                const roe = roeOf(open.side, open.entryPrice, live, open.leverage);
+   852→   852→                return (
+   853→   853→                  <span className={`text-right font-mono font-bold ${roe >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+   854→   854→                    {roe >= 0 ? "+" : ""}
+   855→   855→                    {roe.toFixed(2)}%
+   856→   856→                  </span>
+   857→   857→                );
+   858→   858→              })()}
+   859→   859→            </div>
+   860→   860→            <Button size="sm" variant="outline" className="mt-2 h-7 w-full border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800" onClick={() => void closeNow()}>
+   861→   861→              <Square className="mr-1.5 h-3 w-3" />
+   862→   862→              {t(lang, "auto.pos.close")}
+   863→   863→            </Button>
+   864→   864→          </div>
+   865→   865→        ) : (
+   866→   866→          rows.length > 0 && <p className="text-[11px] text-zinc-600">{t(lang, "auto.pos.none")}</p>
+   867→   867→        )}
+   868→   868→
+   869→   869→        {/* capital + stats */}
+   870→   870→        <div className="grid grid-cols-3 gap-2">
+   871→   871→          <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
+   872→   872→            <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">{t(lang, "auto.capital.now")}</p>
+   873→   873→            <p className="mt-0.5 truncate font-mono text-sm font-bold text-zinc-100">{capitalNow.toFixed(2)}</p>
+   874→   874→            <p className="truncate text-[9px] text-zinc-600">{t(lang, "auto.capital.start", { n: cfg.capital })}</p>
+   875→   875→          </div>
+   876→   876→          <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
+   877→   877→            <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">Net ROE</p>
+   878→   878→            <p className={`mt-0.5 truncate font-mono text-sm font-bold ${(auto?.stats.netPnlPct ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+   879→   879→              {(auto?.stats.netPnlPct ?? 0) >= 0 ? "+" : ""}
+   880→   880→              {(auto?.stats.netPnlPct ?? 0).toFixed(1)}%
+   881→   881→            </p>
+   882→   882→            <p className="truncate text-[9px] text-zinc-600">{t(lang, "auto.stats.trades", { n: auto?.stats.closed ?? 0 })}</p>
+   883→   883→          </div>
+   884→   884→          <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
+   885→   885→            <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">Win</p>
+   886→   886→            <p className="mt-0.5 truncate font-mono text-sm font-bold text-zinc-100">{(auto?.stats.winRate ?? 0).toFixed(0)}%</p>
+   887→   887→            <p className="truncate text-[9px] text-zinc-600">
+   888→   888→              {auto?.stats.wins ?? 0}/{auto?.stats.closed ?? 0}
+   889→   889→            </p>
+   890→   890→          </div>
+   891→   891→        </div>
+   892→   892→
+   893→   893→        {/* win-rate by pair × timeframe */}
+   894→   894→        {(auto?.byCombo?.length ?? 0) > 0 && (
+   895→   895→          <div className="border-t border-zinc-800 pt-2">
+   896→   896→            <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">{t(lang, "auto.combo.title")}</p>
+   897→   897→            <div className="mt-1.5 overflow-hidden rounded-lg border border-zinc-800">
+   898→   898→              <div className="grid grid-cols-[1fr_30px_44px_44px_54px] gap-x-1 border-b border-zinc-800 bg-zinc-950/60 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
+   899→   899→                <span>{t(lang, "auto.col.pair")}</span>
+   900→   900→                <span>{t(lang, "auto.col.tf")}</span>
+   901→   901→                <span className="text-right">{t(lang, "auto.combo.col.trades")}</span>
+   902→   902→                <span className="text-right">{t(lang, "auto.combo.col.win")}</span>
+   903→   903→                <span className="text-right">{t(lang, "auto.combo.col.net")}</span>
+   904→   904→              </div>
+   905→   905→              <div className="rail-scroll max-h-36 overflow-y-auto">
+   906→   906→                {(auto?.byCombo ?? []).map((c: ComboStat) => (
+   907→   907→                  <button
+   908→   908→                    key={`${c.symbol}-${c.interval}`}
+   909→   909→                    type="button"
+   910→   910→                    onClick={() => onPickPair(c.symbol, c.interval)}
+   911→   911→                    className="grid w-full grid-cols-[1fr_30px_44px_44px_54px] items-center gap-x-1 px-2 py-1 text-left font-mono text-[10px] hover:bg-zinc-800/60"
+   912→   912→                  >
+   913→   913→                    <span className="truncate text-zinc-200">{c.symbol}</span>
+   914→   914→                    <span className="text-zinc-500">{c.interval}</span>
+   915→   915→                    <span className="text-right text-zinc-400">{c.closed}</span>
+   916→   916→                    <span className={`text-right font-bold ${c.winRate >= 50 ? "text-emerald-400" : "text-rose-400"}`}>{c.winRate.toFixed(0)}%</span>
+   917→   917→                    <span className={`text-right ${(c.netPnlPct ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+   918→   918→                      {c.netPnlPct >= 0 ? "+" : ""}
+   919→   919→                      {c.netPnlPct.toFixed(1)}%
+   920→   920→                    </span>
+   921→   921→                  </button>
+   922→   922→                ))}
+   923→   923→              </div>
+   924→   924→            </div>
+   925→   925→            <p className="mt-1 text-[10px] leading-snug text-zinc-600">{t(lang, "auto.combo.hint")}</p>
+   926→   926→          </div>
+   927→   927→        )}
+   928→   928→
+   929→   929→        {/* history */}
+   930→   930→        <div className="border-t border-zinc-800 pt-2">
+   931→   931→          <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">{t(lang, "auto.hist")}</p>
+   932→   932→          {closedHist.length === 0 ? (
+   933→   933→            <p className="mt-1 text-[11px] text-zinc-600">{t(lang, "auto.hist.empty")}</p>
+   934→   934→          ) : (
+   935→   935→            <div className="rail-scroll mt-1.5 max-h-28 space-y-1 overflow-y-auto pr-0.5">
+   936→   936→              {closedHist.map((r) => (
+   937→   937→                <div key={r.id} className="flex items-center gap-2 rounded-md border border-zinc-800/80 bg-zinc-950/40 px-2 py-1 text-[10px]">
+   938→   938→                  <span className="shrink-0 text-zinc-500">
+   939→   939→                    {new Date(r.exitTime ?? r.createdAt).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}
+   940→   940→                  </span>
+   941→   941→                  <span className="truncate font-mono text-zinc-300">
+   942→   942→                    {r.symbol} {r.interval}
+   943→   943→                  </span>
+   944→   944→                  <span className={`shrink-0 font-mono ${sideClass(r.side)}`}>{r.side}</span>
+   945→   945→                  <span className={`ml-auto shrink-0 font-mono font-bold ${(r.pnlPct ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+   946→   946→                    {(r.pnlPct ?? 0) >= 0 ? "+" : ""}
+   947→   947→                    {(r.pnlPct ?? 0).toFixed(2)}%
+   948→   948→                  </span>
+   949→   949→                  <span className="shrink-0 font-mono text-zinc-600">{r.exitKind === "tp" ? "TP" : r.exitKind === "sl" ? "SL" : "…"}</span>
+   950→   950→                </div>
+   951→   951→              ))}
+   952→   952→            </div>
+   953→   953→          )}
+   954→   954→        </div>
+   955→   955→      </CardContent>
+   956→   956→    </Card>
+   957→   957→  );
+   958→   958→}
+   959→   959→
+   960→   960→/** localStorage read guarded for SSR — AutoPanel mounts client-only anyway. */
+   961→   961→function loadAutoConfigSafe() {
+   962→   962→  if (typeof window === "undefined") return AUTO_DEFAULTS;
+   963→   963→  return loadAutoConfig();
+   964→   964→}
+   965→   965→
