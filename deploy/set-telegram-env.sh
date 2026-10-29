@@ -18,7 +18,9 @@
 # ══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
-APP_DIR="${APP_DIR:-/opt/elliott}"
+# Repo = thư mục chứa script này (deploy/..) — chạy đúng từ mọi nơi repo được
+# clone (/opt/elliott, ~/Elliot, …). Ghi đè thủ công: APP_DIR=/path bash …
+APP_DIR="${APP_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 ENV_FILE="$APP_DIR/.env"
 
 log() { printf '\033[1;36m▸ %s\033[0m\n' "$*"; }

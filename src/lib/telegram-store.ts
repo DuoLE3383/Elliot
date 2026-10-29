@@ -223,16 +223,47 @@ function normalizeApiBase(raw: string): string | null {
 }
 
 /**
+ * Loopback origins that point at THIS app. A real Telegram proxy never shares
+ * the app's own port (the Bot API path /bot<token>/… doesn't exist here), so
+ * loopback + same-port can only be the classic footgun
+ * TELEGRAM_API_BASE=http://localhost:3000 → the app calls itself and every
+ * send dies with "fetch failed" / HTTP 404. Ignore those, warn loudly.
+ * A loopback base on a DIFFERENT port (local proxy mock in e2e tests) is kept.
+ */
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"]);
+
+function isSelfCall(base: string): boolean {
+  try {
+    const u = new URL(base);
+    if (!LOOPBACK_HOSTS.has(u.hostname.toLowerCase())) return false;
+    const port = u.port || (u.protocol === "https:" ? "443" : "80");
+    return port === (process.env.PORT || "3000");
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Effective Telegram API origin: runtime override (Cloudflare Worker proxy),
- * then TELEGRAM_API_BASE env, then the official api.telegram.org.
- * A proxy fixes persistent 503/429 seen from some VPS / ISP routes — the
- * Worker's clean Cloudflare egress talks to Telegram instead of your server.
+ * then TELEGRAM_API_BASE env, then the official api.telegram.org — skipping
+ * any base that is a self-call (see LOOPBACK_HOSTS above).
  */
 export function effectiveApiBase(): { base: string; source: "store" | "env" | "default" } {
-  const stored = normalizeApiBase(readStore().apiBase ?? "");
-  if (stored) return { base: stored, source: "store" };
-  const env = normalizeApiBase(process.env.TELEGRAM_API_BASE ?? "");
-  if (env) return { base: env, source: "env" };
+  const candidates: Array<{ raw: string; source: "store" | "env" }> = [
+    { raw: readStore().apiBase ?? "", source: "store" },
+    { raw: process.env.TELEGRAM_API_BASE ?? "", source: "env" },
+  ];
+  for (const { raw, source } of candidates) {
+    const base = normalizeApiBase(raw);
+    if (!base) continue;
+    if (isSelfCall(base)) {
+      console.warn(
+        `[telegram] ignoring ${source} API base ${base} — it points at this app itself (self-call footgun); falling back to ${TG_API_BASE_DEFAULT}`,
+      );
+      continue;
+    }
+    return { base, source };
+  }
   return { base: TG_API_BASE_DEFAULT, source: "default" };
 }
 
@@ -268,6 +299,27 @@ export interface TgApiResult {
   json: TgApiJson | null;
   status: number; // 0 = network error / timeout
   detail?: string; // set when the call ultimately failed (after all retries)
+}
+
+/**
+ * Extract the REAL reason a fetch died. Node wraps network failures as a bare
+ * "TypeError: fetch failed" and buries the useful bit (ENOTFOUND = DNS fail,
+ * ECONNREFUSED = nothing listening, ECONNRESET / ETIMEDOUT / ENETUNREACH =
+ * route blocked or firewall) inside `.cause`. Walk the cause chain and join
+ * the codes/messages so logs and the panel show WHY instead of "fetch failed".
+ */
+export function describeFetchError(e: unknown): string {
+  const parts: string[] = [];
+  let cur: unknown = e;
+  for (let depth = 0; depth < 4 && cur instanceof Error; depth++) {
+    const err = cur as NodeJS.ErrnoException;
+    const add =
+      err.code ||
+      (err.message && err.message !== "fetch failed" ? err.message.slice(0, 120) : "");
+    if (add && !parts.includes(add)) parts.push(add);
+    cur = (err as { cause?: unknown }).cause;
+  }
+  return parts.join(" · ") || "fetch failed";
 }
 
 /**
@@ -307,7 +359,9 @@ export async function tgApi(
         await sleep(600 * 3 ** (i - 1));
         continue;
       }
-      return { json: null, status: 0, detail: e instanceof Error ? e.message : "fetch failed" };
+      const detail = `fetch failed (${describeFetchError(e)})`;
+      console.error(`[telegram] ${method} via ${base} failed after ${i} attempt(s): ${detail}`);
+      return { json: null, status: 0, detail };
     }
   }
 }

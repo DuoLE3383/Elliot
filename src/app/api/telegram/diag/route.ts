@@ -11,7 +11,12 @@
 import { NextResponse } from "next/server";
 import https from "node:https";
 import { promises as dns } from "node:dns";
-import { effectiveApiBase, effectiveToken, TG_API_BASE_DEFAULT } from "@/lib/telegram-store";
+import {
+  describeFetchError,
+  effectiveApiBase,
+  effectiveToken,
+  TG_API_BASE_DEFAULT,
+} from "@/lib/telegram-store";
 
 export const dynamic = "force-dynamic";
 
@@ -64,7 +69,7 @@ async function probeBase(base: string, token: string | null, timeoutMs = 8000): 
     await res.arrayBuffer().catch(() => null); // drain — connection reuse
     return { status: res.status, ms: Date.now() - t0 };
   } catch (e) {
-    return { status: 0, ms: Date.now() - t0, err: e instanceof Error ? e.message : "fetch failed" };
+    return { status: 0, ms: Date.now() - t0, err: describeFetchError(e) };
   }
 }
 

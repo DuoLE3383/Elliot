@@ -49,7 +49,7 @@ sudo cloudflared tunnel route dns <TUNNEL-UUID> elliott.huyenbao.com
 sudo systemctl restart cloudflared
 ```
 
-→ **https://elliott.huyenbao.com** chạy app hoàn chỉnh. Update sau này: `sudo bash /opt/elliott/deploy/update.sh` (pull → build → restart, **không bao giờ mất data** vì SQLite + JSON nằm ngoài thư mục code). Xem log: `journalctl -u elliott -f`.
+→ **https://elliott.huyenbao.com** chạy app hoàn chỉnh. Update sau này: `cd` vào thư mục repo (bất kể clone ở đâu — `/opt/elliott`, `~/Elliot`, …) rồi `sudo bash deploy/update.sh` (pull → build → restart, **không bao giờ mất data** vì SQLite + JSON nằm ngoài thư mục code; script tự suy repo theo vị trí của nó, hoặc ép đường dẫn bằng `sudo APP_DIR=/đường/dẫn bash deploy/update.sh`). Xem log: `journalctl -u elliott -f`.
 
 ### ⚠️ Lưu ý vận hành quan trọng
 
@@ -135,6 +135,26 @@ docker exec elliott bunx prisma db push   # chỉ tạo bảng, không phá data
 4. Không cần nhập lại token — token vẫn nằm ở server app, Worker chỉ chuyển tiếp path verbatim và **không lưu gì**
 
 Kiểm tra Worker sống: `curl https://<worker-url>/health` → `ok`.
+
+### “fetch failed” ≠ 503 — server KHÔNG kết nối nổi tới Telegram
+
+`Telegram error: fetch failed` nghĩa là server không mở được kết nối nào tới Bot API (khác hẳn 503 — kết nối được nhưng Telegram từ chối). Log server bản mới sẽ chỉ nguyên nhân thật thay vì chỉ “fetch failed”:
+
+```
+[telegram] sendMessage via https://api.telegram.org failed after 3 attempt(s): fetch failed (ECONNRESET)
+```
+
+- `ENOTFOUND` → DNS hỏng; `ECONNREFUSED` → có proxy/localhost sai (bản mới **tự bỏ qua** API base trỏ vào chính app, ví dụ `http://localhost:3000`, kèm cảnh báo);
+- `ECONNRESET` / `ETIMEDOUT` / `ENETUNREACH` → đường mạng bị chặn/throttle → làm mục **🔍 Chẩn đoán mạng** ở trên; nếu verdict là `blocked` → bắt buộc dùng Worker proxy (bước 1-4 phía trên) rồi ghi URL Worker vào `.env`: `sudo bash deploy/set-telegram-env.sh - - https://<worker>.workers.dev`.
+
+Test nhanh từ VPS (không cần token):
+
+```bash
+curl -sS -m 8 https://api.telegram.org/          # vào được = mạng OK
+# hết hạn/timeout/reset → VPS bị chặn Telegram → dùng Worker proxy ở trên
+```
+
+Lưu ý cấu hình sẵn trong app (không cần làm gì): tự đọc `.env` kể cả khi chạy standalone tay, tự ưu tiên **IPv4-first** (né VPS có IPv6 hỏng), tự retry 3 lần với backoff.
 
 ## 7. Bảo vệ source code (đã bật)
 
