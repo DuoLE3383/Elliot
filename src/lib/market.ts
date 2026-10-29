@@ -45,6 +45,34 @@ export function sessionBar(s: SessionDef): { left: number; width: number } {
   return { left: s.from / 24, width: span / 24 };
 }
 
+const pad2 = (n: number): string => String(n).padStart(2, "0");
+
+/** UTC range label for one session, e.g. Sydney → "21:00–06:00" (wraps midnight). */
+export function sessionHours(s: SessionDef): string {
+  return `${pad2(s.from)}:00–${pad2(s.to)}:00`;
+}
+
+/**
+ * Same range shifted into the viewer's timezone. `tzOffsetMin` is the value of
+ * Date#getTimezoneOffset() (UTC − local minutes, e.g. GMT+7 → -420), so a UTC
+ * 21:00 open in GMT+7 renders as 04:00.
+ */
+export function sessionHoursLocal(s: SessionDef, tzOffsetMin: number): string {
+  const shift = (h: number): string => {
+    const mins = (((h * 60 - tzOffsetMin) % 1440) + 1440) % 1440;
+    return `${pad2(Math.floor(mins / 60))}:00`;
+  };
+  return `${shift(s.from)}–${shift(s.to)}`;
+}
+
+/** "GMT+7" / "GMT-4:30" style label from a getTimezoneOffset() value. */
+export function gmtLabel(tzOffsetMin: number): string {
+  const abs = Math.abs(tzOffsetMin);
+  const h = Math.floor(abs / 60);
+  const m = abs % 60;
+  return `GMT${tzOffsetMin <= 0 ? "+" : "-"}${h}${m ? `:${pad2(m)}` : ""}`;
+}
+
 export interface SessionStat {
   key: SessionKey;
   /** share of up-closes among the session's closed candles in the window, % */
