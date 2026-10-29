@@ -25,32 +25,20 @@ import {
   slTpHit,
   TP_MODES,
   telegramConfigured,
-  telegramDiscover,
-  telegramGetBase,
-  telegramSaveBase,
-  telegramSaveChat,
-  telegramSaveToken,
   telegramStatus,
-  telegramCreateLink,
-  telegramDiag,
-  telegramStartMint,
-  telegramStartCheck,
   AUTO_DEFAULTS,
   type AutoConfig,
   type AutoState,
   type AutoTradeRow,
   type ComboStat,
   type ScanRow,
-  type TgApiBase,
-  type TgChat,
-  type TgDiag,
 } from "@/lib/autotrade";
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
 import type { EngineSettings, Ticker } from "@/lib/types";
 import { INTERVALS } from "@/lib/types";
 import { llmReviewViaApi, type LlmVerdict } from "@/lib/llm";
 import { buildTopCoinsMessage, loadBcastState, saveBcastState } from "@/lib/scan-broadcast";
-import { Bot, Copy, KeyRound, Link2, ScanLine, Send, Square } from "lucide-react";
+import { Bot, ScanLine, Send, Square } from "lucide-react";
 
 interface Props {
   lang: Lang;
@@ -184,31 +172,8 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const [tgConfigured, setTgConfigured] = useState<boolean | null>(null);
   const [tgState, setTgState] = useState<"idle" | "sending" | "ok" | "fail">("idle");
   const [tgDetail, setTgDetail] = useState<string | null>(null);
-  const [tgHelp, setTgHelp] = useState(false); // step-by-step connect guide (chat not found)
   const [tgChatId, setTgChatId] = useState<string | null>(null); // effective channel
-  const [tgChatSrc, setTgChatSrc] = useState<"store" | "env" | null>(null); // where the channel id came from
-  const [tgChats, setTgChats] = useState<TgChat[] | null>(null); // discover result
-  const [tgTokenOpen, setTgTokenOpen] = useState(false); // paste-your-own-token box
-  const [tgTokenInput, setTgTokenInput] = useState("");
-  const [tgSavingToken, setTgSavingToken] = useState(false);
-  const [tgBotUser, setTgBotUser] = useState<string | null>(null); // @username from getMe
-  const [tgTokenSrc, setTgTokenSrc] = useState<"store" | "env" | null>(null);
-  const [tgVerified, setTgVerified] = useState<boolean | null>(null); // stored-but-unverified support
-  const [tgLink, setTgLink] = useState<string | null>(null); // one-time ?tg= connect link
-  const [tgLinkBusy, setTgLinkBusy] = useState(false);
-  const [tgLinkCopied, setTgLinkCopied] = useState(false);
-  const [tgLinkOpen, setTgLinkOpen] = useState(false); // standalone connect-link card
-  const [tgDiag, setTgDiag] = useState<TgDiag | null>(null); // network diagnosis result
-  const [tgDiagBusy, setTgDiagBusy] = useState(false);
-  const [tgStartUrl, setTgStartUrl] = useState<string | null>(null); // t.me?start= deep link
-  const [tgStartBusy, setTgStartBusy] = useState(false);
-  const [tgStartBound, setTgStartBound] = useState<string | null>(null); // bound chat id
-  const [tgStartTries, setTgStartTries] = useState(0); // polls since mint (timeout hint)
-  const [tgBase, setTgBase] = useState<TgApiBase | null>(null); // effective API origin (proxy?)
-  const [tgBaseInput, setTgBaseInput] = useState("");
-  const [tgSavingBase, setTgSavingBase] = useState(false);
-  const [tgDiscovering, setTgDiscovering] = useState(false);
-  const [tgSaving, setTgSaving] = useState(false);
+  const [tgChatSrc, setTgChatSrc] = useState<"env" | null>(null); // where the channel id came from
   const [status, setStatus] = useState<string>("");
   const [countdown, setCountdown] = useState<number | null>(null);
   const [llmLast, setLlmLast] = useState<LlmLast | null>(null);
@@ -311,14 +276,9 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     void telegramConfigured().then((ok) => mountedRef.current && setTgConfigured(ok));
     void telegramStatus().then((s) => {
       if (!mountedRef.current) return;
+      setTgConfigured(s.configured);
       setTgChatId(s.chatId);
       setTgChatSrc(s.source ?? null);
-      setTgTokenSrc(s.tokenSource ?? null);
-      setTgVerified(s.verified ?? null);
-      if (s.bot) setTgBotUser(s.bot);
-    });
-    void telegramGetBase().then((b) => {
-      if (mountedRef.current && b) setTgBase(b);
     });
     // start clocks at the CURRENT hour/day so the first digest goes out at the
     // next boundary, not the second the app opens
@@ -659,24 +619,18 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     const r = await sendTelegram(TEST_MSG);
     if (r.ok) {
       setTgState("ok");
-      setTgHelp(false);
-      setTgChats(null);
       pushToast({ kind: "xgb", text: t(lang, "auto.tg.sent") });
     } else {
       setTgState("fail");
       const busy = /telegram_busy|HTTP 50\d|Overload/i.test(r.detail ?? "");
       setTgDetail(busy ? t(lang, "auto.tg.busy") : r.detail ?? null);
-      if (/telegram_not_configured/i.test(r.detail ?? "")) {
-        setTgTokenOpen(true); // no token yet → show the paste-token box first
-      }
       if (/chat not found/i.test(r.detail ?? "")) {
-        setTgHelp(true); // persistent in-panel guide — a toast disappears too fast
+        // refresh the possibly-stale channel label under the guide
         void telegramStatus().then((s) => {
           if (!mountedRef.current) return;
           setTgChatId(s.chatId);
           setTgChatSrc(s.source ?? null);
-          setTgTokenSrc(s.tokenSource ?? null);
-        }); // refresh possibly-stale channel label
+        });
       }
       pushToast({
         kind: "error",
@@ -687,174 +641,6 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
             : t(lang, "auto.tg.err", { detail: r.detail ?? "?" }),
       });
     }
-  };
-
-  // ask the bot which chats it can see → user picks the real channel
-  const discoverChats = async () => {
-    setTgDiscovering(true);
-    const d = await telegramDiscover();
-    if (mountedRef.current) {
-      setTgChats(d.chats);
-      if (d.bot) setTgDetail(d.bot);
-      if (d.bot) setTgBotUser(d.bot); // confirm the username the channel admin must search
-    }
-    setTgDiscovering(false);
-  };
-
-  // validate + persist a pasted bot token (getMe checked server-side first),
-  // then immediately probe the wiring so the guide can take over
-  const saveToken = async () => {
-    const token = tgTokenInput.trim();
-    if (!token || tgSavingToken) return;
-    setTgSavingToken(true);
-    setTgDetail(null);
-    const r = await telegramSaveToken(token);
-    if (!mountedRef.current) return;
-    setTgSavingToken(false);
-    if (r.ok) {
-      setTgBotUser(r.bot ?? null);
-      setTgTokenSrc("store");
-      setTgConfigured(true);
-      setTgVerified(r.verified !== false);
-      setTgTokenInput("");
-      pushToast(
-        r.verified === false
-          ? { kind: "wy", text: t(lang, "auto.tg.token.savedUnv") }
-          : { kind: "xgb", text: t(lang, "auto.tg.token.saved", { bot: r.bot ?? "?" }) },
-      );
-      void checkTg(); // will succeed or open the channel guide (chat not found)
-    } else {
-      const busy = /telegram_busy|HTTP 50\d|Overload/i.test(r.detail ?? "");
-      const msg = busy
-        ? t(lang, "auto.tg.token.busy", { detail: r.detail ?? "?" })
-        : t(lang, "auto.tg.token.bad", { detail: r.detail ?? "?" });
-      setTgDetail(msg);
-      pushToast({ kind: "error", text: msg });
-    }
-  };
-
-  // mint a one-time ?tg= auto-connect link bound to the current bot token
-  const createLink = async () => {
-    if (tgLinkBusy) return;
-    setTgLinkBusy(true);
-    const r = await telegramCreateLink();
-    if (mountedRef.current) {
-      setTgLinkBusy(false);
-      if (r.ok && r.url) {
-        setTgLink(r.url);
-        setTgLinkCopied(false);
-        void navigator.clipboard?.writeText(r.url).then(() => setTgLinkCopied(true)).catch(() => {});
-      } else {
-        pushToast({ kind: "error", text: t(lang, "auto.tg.link.bad", { detail: r.detail ?? "?" }) });
-      }
-    }
-  };
-
-  const copyLink = async () => {
-    if (!tgLink) return;
-    try {
-      await navigator.clipboard.writeText(tgLink);
-      setTgLinkCopied(true);
-      window.setTimeout(() => mountedRef.current && setTgLinkCopied(false), 2000);
-    } catch {
-      // clipboard blocked — the URL stays selectable in the input
-    }
-  };
-
-  // server-side diagnosis: DNS + forced IPv4/IPv6 + effective base — stops the guessing
-  const runDiag = async () => {
-    if (tgDiagBusy) return;
-    setTgDiagBusy(true);
-    const d = await telegramDiag();
-    if (mountedRef.current) {
-      setTgDiagBusy(false);
-      setTgDiag(d);
-      if (!d) pushToast({ kind: "error", text: t(lang, "auto.tg.diag.fail") });
-    }
-  };
-
-  // mint the t.me/<bot>?start=<token> deep link — click → Telegram opens → START
-  const createStartLink = async () => {
-    if (tgStartBusy) return;
-    setTgStartBusy(true);
-    const r = await telegramStartMint();
-    if (mountedRef.current) {
-      setTgStartBusy(false);
-      if (r.ok && r.url) {
-        setTgStartUrl(r.url);
-        setTgStartBound(null);
-        setTgStartTries(0);
-        void navigator.clipboard?.writeText(r.url).catch(() => {}); // convenience copy
-      } else {
-        pushToast({ kind: "error", text: t(lang, "auto.tg.start.bad", { detail: r.detail ?? "?" }) });
-      }
-    }
-  };
-
-  // while a START link is pending, poll for the "/start <token>" every 4 s —
-  // stops on bind or when the card unmounts; ~2 min before the timeout hint
-  useEffect(() => {
-    if (!tgStartUrl || tgStartBound) return;
-    let stop = false;
-    let tries = 0;
-    const tick = async () => {
-      if (stop) return;
-      tries += 1;
-      const r = await telegramStartCheck();
-      if (stop) return;
-      if (r.ok && r.bound) {
-        setTgStartBound(r.chatId ?? "?");
-        void telegramStatus().then((s) => {
-          if (!mountedRef.current) return;
-          setTgChatId(s.chatId);
-          setTgChatSrc(s.source ?? null);
-          setTgTokenSrc(s.tokenSource ?? null);
-        });
-        pushToast({ kind: "entry", text: t(lang, "auto.tg.start.done", { id: r.chatId ?? "?" }) });
-        return; // bound — no more polling
-      }
-      setTgStartTries(tries);
-    };
-    void tick();
-    const iv = window.setInterval(() => void tick(), 4000);
-    return () => {
-      stop = true;
-      window.clearInterval(iv);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tgStartUrl, tgStartBound]);
-
-  // persist the Telegram API origin (Cloudflare Worker proxy) — "" clears
-  const saveBase = async () => {
-    if (tgSavingBase) return;
-    setTgSavingBase(true);
-    const r = await telegramSaveBase(tgBaseInput.trim());
-    if (!mountedRef.current) return;
-    setTgSavingBase(false);
-    if (r) {
-      setTgBase(r);
-      setTgBaseInput("");
-      pushToast({ kind: "xgb", text: t(lang, "auto.tg.base.saved", { base: r.apiBase }) });
-      void checkTg(); // re-test through the new origin right away
-    } else {
-      pushToast({ kind: "error", text: t(lang, "auto.tg.base.bad") });
-    }
-  };
-
-  // persist the picked chat id, then re-test immediately
-  const applyChat = async (id: string) => {
-    setTgSaving(true);
-    const saved = await telegramSaveChat(id);
-    if (saved && mountedRef.current) {
-      setTgChatId(id);
-      setTgChatSrc("store");
-      pushToast({ kind: "xgb", text: t(lang, "auto.tg.help.saved", { id }) });
-      setTgSaving(false);
-      void checkTg();
-      return;
-    }
-    setTgSaving(false);
-    pushToast({ kind: "error", text: t(lang, "auto.tg.err", { detail: "save failed" }) });
   };
 
   const closeNow = async () => {
@@ -1115,24 +901,6 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
             <Send className="mr-1.5 h-3 w-3" />
             {t(lang, "auto.tg.check")}
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className={`h-8 border-zinc-700 text-[11px] hover:bg-zinc-800 ${tgLinkOpen ? "border-teal-700 text-teal-300" : "text-zinc-300"}`}
-            onClick={() => setTgLinkOpen((v) => !v)}
-          >
-            <Link2 className="mr-1.5 h-3 w-3" />
-            {t(lang, "auto.tg.link.btn")}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800"
-            onClick={() => setTgTokenOpen((v) => !v)}
-          >
-            <KeyRound className="mr-1.5 h-3 w-3" />
-            {tgTokenSrc ? t(lang, "auto.tg.token.change") : t(lang, "auto.tg.token.open")}
-          </Button>
           {scanAt != null && !scanning && (
             <span className="text-[11px] text-zinc-600">
               {t(lang, "auto.scan.ago", { time: new Date(scanAt).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit" }) })}
@@ -1140,326 +908,26 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
           )}
         </div>
 
-        {/* one-time ?tg= link — connect any other device without pasting the token */}
-        {tgLinkOpen && (
+        {/* telegram hint — shown after a failed test send; config lives in .env */}
+        {tgState === "fail" && (
           <div className="space-y-1.5 rounded-lg border border-teal-800/50 bg-teal-950/20 p-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-1.5">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-teal-300">🔗 {t(lang, "auto.tg.link.title")}</p>
-              <button
-                className="text-[11px] text-zinc-500 hover:text-zinc-300"
-                onClick={() => setTgLinkOpen(false)}
-                aria-label="close"
-              >
-                ✕
-              </button>
-            </div>
-            <p className="text-[11px] leading-relaxed text-zinc-400">{t(lang, "auto.tg.link.hint")}</p>
-            {tgLink && (
-              <div className="flex items-center gap-1.5">
-                <Input
-                  readOnly
-                  value={tgLink}
-                  onFocus={(e) => e.currentTarget.select()}
-                  className="h-8 flex-1 border-teal-800 bg-zinc-950/60 font-mono text-[10px] text-teal-200"
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 shrink-0 border-teal-700 px-2 text-[11px] text-teal-300 hover:bg-teal-950/40"
-                  onClick={() => void copyLink()}
-                >
-                  <Copy className="mr-1 h-3 w-3" />
-                  {tgLinkCopied ? t(lang, "auto.tg.link.copied") : t(lang, "auto.tg.link.copy")}
-                </Button>
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 border-teal-700 text-[11px] text-teal-300 hover:bg-teal-950/40"
-                disabled={tgLinkBusy || tgTokenSrc == null}
-                title={tgTokenSrc == null ? t(lang, "auto.tg.link.needToken") : undefined}
-                onClick={() => void createLink()}
-              >
-                <Link2 className="mr-1.5 h-3 w-3" />
-                {tgLinkBusy ? "…" : tgLink ? t(lang, "auto.tg.link.again") : t(lang, "auto.tg.link.create")}
-              </Button>
-              <span className="text-[10px] text-zinc-600">{t(lang, "auto.tg.link.expires")}</span>
-            </div>
-
-            {/* chat binding via t.me START — the requested click-and-connect flow */}
-            <div className="space-y-1.5 border-t border-zinc-800 pt-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">💬 {t(lang, "auto.tg.start.title")}</p>
-                <p className="text-[11px] leading-relaxed text-zinc-400">{t(lang, "auto.tg.start.hint")}</p>
-                {tgStartUrl && (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Input
-                      readOnly
-                      value={tgStartUrl}
-                      onFocus={(e) => e.currentTarget.select()}
-                      className="h-8 min-w-[40%] flex-1 border-sky-800 bg-zinc-950/60 font-mono text-[10px] text-sky-200"
-                    />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-8 shrink-0 border-sky-700 px-2 text-[11px] text-sky-300 hover:bg-sky-950/40"
-                      onClick={() => void navigator.clipboard?.writeText(tgStartUrl).catch(() => {})}
-                    >
-                      <Copy className="mr-1 h-3 w-3" />
-                      {t(lang, "auto.tg.link.copy")}
-                    </Button>
-                    <a
-                      href={tgStartUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex h-8 shrink-0 items-center rounded-md border border-sky-700 px-2 text-[11px] font-medium text-sky-300 hover:bg-sky-950/40"
-                    >
-                      <Send className="mr-1 h-3 w-3" />
-                      {t(lang, "auto.tg.start.open")}
-                    </a>
-                  </div>
-                )}
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 border-sky-700 text-[11px] text-sky-300 hover:bg-sky-950/40"
-                    disabled={tgStartBusy}
-                    onClick={() => void createStartLink()}
-                  >
-                    <Link2 className="mr-1.5 h-3 w-3" />
-                    {tgStartBusy ? "…" : tgStartUrl ? t(lang, "auto.tg.start.again") : t(lang, "auto.tg.start.create")}
-                  </Button>
-                  {tgStartUrl && !tgStartBound && (
-                    <span className="text-[10px] text-zinc-500">{t(lang, "auto.tg.start.waiting")}</span>
-                  )}
-                  {tgStartBound && (
-                    <span className="text-[11px] font-medium text-emerald-300">
-                      ✅ {t(lang, "auto.tg.start.done", { id: tgStartBound })}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-teal-300">
+                {t(lang, "auto.tg.help.title")}
+              </p>
+              {tgChatId && (
+                <span className="flex items-center gap-1">
+                  <span className="font-mono text-[10px] text-zinc-500">{t(lang, "auto.tg.current", { id: tgChatId })}</span>
+                  {tgChatSrc === "env" && (
+                    <span className="rounded bg-sky-950 px-1.5 py-0.5 font-mono text-[9px] text-sky-400" title={t(lang, "auto.tg.env.hint")}>
+                      .env
                     </span>
                   )}
-                </div>
-                {tgStartUrl && !tgStartBound && tgStartTries >= 30 && (
-                  <p className="text-[10px] text-amber-400">{t(lang, "auto.tg.start.timeout")}</p>
-                )}
-              </div>
-            {tgTokenSrc == null && (
-              <p className="text-[11px] text-amber-400">⚠ {t(lang, "auto.tg.link.needToken")}</p>
-            )}
-          </div>
-        )}
-
-        {/* telegram bot-token setup — paste your own token, no .env edit */}
-        {tgTokenOpen && (
-          <div className="space-y-2 rounded-lg border border-amber-800/50 bg-amber-950/20 p-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-1.5">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-300">{t(lang, "auto.tg.token.title")}</p>
-              <span className="flex items-center gap-1.5">
-                {tgVerified === false && (
-                  <span className="rounded bg-amber-950 px-1.5 py-0.5 text-[10px] font-bold text-amber-400" title={t(lang, "auto.tg.unverifiedTip")}>
-                    ⚠ {t(lang, "auto.tg.unverified")}
-                  </span>
-                )}
-                {tgTokenSrc && (
-                  <span className="font-mono text-[10px] text-zinc-500">
-                    {t(lang, "auto.tg.token.set", { src: tgTokenSrc === "store" ? "runtime" : ".env" })}
-                    {tgBotUser && <span className="ml-1 text-teal-400">@{tgBotUser}</span>}
-                  </span>
-                )}
-              </span>
-            </div>
-            <p className="text-[11px] leading-relaxed text-zinc-400">{t(lang, "auto.tg.token.how")}</p>
-            <div className="flex items-center gap-1.5">
-              <Input
-                type="password"
-                autoComplete="off"
-                className="h-8 flex-1 border-zinc-700 bg-zinc-950/60 font-mono text-[11px] text-zinc-200 placeholder:text-zinc-600"
-                placeholder={t(lang, "auto.tg.token.ph")}
-                value={tgTokenInput}
-                onChange={(e) => setTgTokenInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && void saveToken()}
-              />
-              <Button
-                size="sm"
-                className="h-8 shrink-0 bg-amber-600 text-zinc-950 hover:bg-amber-500 disabled:opacity-50"
-                disabled={tgSavingToken || tgTokenInput.trim().length === 0}
-                onClick={() => void saveToken()}
-              >
-                {tgSavingToken ? t(lang, "auto.tg.token.saving") : t(lang, "auto.tg.token.save")}
-              </Button>
-            </div>
-            <p className="text-[10px] leading-relaxed text-zinc-500">{t(lang, "auto.tg.env.hint")}</p>
-            {tgBotUser && (
-              <a
-                href={`https://t.me/${tgBotUser}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-400 underline decoration-sky-700 underline-offset-2 hover:text-sky-300"
-              >
-                <Send className="h-3 w-3" />
-                {t(lang, "auto.tg.openbot", { bot: tgBotUser })}
-              </a>
-            )}
-
-            {/* anti-503 — route Bot-API calls through a Cloudflare Worker proxy */}
-            <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/50 p-2">
-              <div className="flex flex-wrap items-center justify-between gap-1">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">{t(lang, "auto.tg.base.title")}</p>
-                {tgBase && (
-                  <span className="max-w-[55%] truncate font-mono text-[10px] text-zinc-500">
-                    {tgBase.source === "default" ? t(lang, "auto.tg.base.default") : tgBase.apiBase}
-                  </span>
-                )}
-              </div>
-              <p className="text-[11px] leading-relaxed text-zinc-400">{t(lang, "auto.tg.base.hint")}</p>
-              <div className="flex items-center gap-1.5">
-                <Input
-                  type="text"
-                  autoComplete="off"
-                  className="h-8 flex-1 border-zinc-700 bg-zinc-950/60 font-mono text-[11px] text-zinc-200 placeholder:text-zinc-600"
-                  placeholder={t(lang, "auto.tg.base.ph")}
-                  value={tgBaseInput}
-                  onChange={(e) => setTgBaseInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && void saveBase()}
-                />
-                <Button
-                  size="sm"
-                  className="h-8 shrink-0 bg-zinc-700 text-zinc-100 hover:bg-zinc-600 disabled:opacity-50"
-                  disabled={tgSavingBase}
-                  onClick={() => void saveBase()}
-                >
-                  {t(lang, "auto.tg.base.save")}
-                </Button>
-              </div>
-              <div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800"
-                  disabled={tgDiagBusy}
-                  onClick={() => void runDiag()}
-                >
-                  🔍 {tgDiagBusy ? "…" : t(lang, "auto.tg.diag.btn")}
-                </Button>
-              </div>
-              {tgDiag && (
-                <div className="space-y-1 rounded-md border border-zinc-800 bg-zinc-950/70 p-2 font-mono text-[10px]">
-                  <p className="text-zinc-400">
-                    {t(lang, "auto.tg.diag.dns")}:{" "}
-                    <span className="text-zinc-200">A×{tgDiag.dns.a.length} · AAAA×{tgDiag.dns.aaaa.length}</span>
-                  </p>
-                  <p className="flex items-center justify-between gap-2">
-                    <span className="text-zinc-400">{t(lang, "auto.tg.diag.v4")}</span>
-                    <span className={tgDiag.v4.status > 0 ? "text-emerald-400" : "text-rose-400"}>
-                      {tgDiag.v4.status > 0
-                        ? `HTTP ${tgDiag.v4.status} · ${tgDiag.v4.ms}ms`
-                        : `✗ ${tgDiag.v4.err ?? "fail"} · ${tgDiag.v4.ms}ms`}
-                    </span>
-                  </p>
-                  <p className="flex items-center justify-between gap-2">
-                    <span className="text-zinc-400">{t(lang, "auto.tg.diag.v6")}</span>
-                    <span className={tgDiag.v6.status > 0 ? "text-emerald-400" : "text-rose-400"}>
-                      {tgDiag.v6.status > 0
-                        ? `HTTP ${tgDiag.v6.status} · ${tgDiag.v6.ms}ms`
-                        : `✗ ${tgDiag.v6.err ?? "fail"} · ${tgDiag.v6.ms}ms`}
-                    </span>
-                  </p>
-                  <p className="flex items-center justify-between gap-2">
-                    <span className="text-zinc-400">{t(lang, "auto.tg.diag.eff")}</span>
-                    <span
-                      className={
-                        tgDiag.eff.status === 200
-                          ? "text-emerald-400"
-                          : tgDiag.eff.status > 0
-                            ? "text-amber-400"
-                            : "text-rose-400"
-                      }
-                    >
-                      {tgDiag.eff.status > 0
-                        ? `HTTP ${tgDiag.eff.status} · ${tgDiag.eff.ms}ms`
-                        : `✗ ${tgDiag.eff.err ?? "fail"} · ${tgDiag.eff.ms}ms`}
-                    </span>
-                  </p>
-                  <p
-                    className={
-                      tgDiag.verdict === "ok" || tgDiag.verdict === "proxy-ok"
-                        ? "text-emerald-300"
-                        : "text-amber-300"
-                    }
-                  >
-                    → {t(lang, `auto.tg.diag.v_${tgDiag.verdict.replace("-", "")}`)}
-                  </p>
-                </div>
+                </span>
               )}
             </div>
+            <p className="text-[11px] leading-relaxed text-zinc-400">{t(lang, "auto.tg.env.hint")}</p>
             {tgDetail && <p className="font-mono text-[10px] text-zinc-500">{tgDetail}</p>}
-          </div>
-        )}
-
-        {/* telegram connect guide — appears when the channel is unreachable */}
-        {tgHelp && (
-          <div className="space-y-2 rounded-lg border border-teal-800/50 bg-teal-950/20 p-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-1.5">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-teal-300">{t(lang, "auto.tg.help.title")}</p>
-              <span className="flex items-center gap-1.5">
-                {tgChatId && <span className="font-mono text-[10px] text-zinc-500">{t(lang, "auto.tg.current", { id: tgChatId })}</span>}
-                {tgChatSrc === "env" && (
-                  <span className="rounded bg-sky-950 px-1.5 py-0.5 font-mono text-[9px] text-sky-400" title={t(lang, "auto.tg.env.hint")}>
-                    .env
-                  </span>
-                )}
-              </span>
-            </div>
-            <ol className="list-decimal space-y-0.5 pl-4 text-[11px] leading-relaxed text-zinc-400">
-              <li>{t(lang, "auto.tg.help.s1")}</li>
-              <li>{t(lang, "auto.tg.help.s2")}</li>
-              <li>{t(lang, "auto.tg.help.s3")}</li>
-            </ol>
-            {tgDetail && <p className="font-mono text-[10px] text-zinc-500">{tgDetail}</p>}
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 border-teal-700 text-[11px] text-teal-300 hover:bg-teal-950/40"
-                disabled={tgDiscovering}
-                onClick={() => void discoverChats()}
-              >
-                <ScanLine className="mr-1.5 h-3 w-3" />
-                {tgDiscovering ? t(lang, "auto.tg.help.finding") : t(lang, "auto.tg.help.find")}
-              </Button>
-              <Button size="sm" variant="ghost" className="h-7 text-[11px] text-zinc-400 hover:bg-zinc-800" onClick={() => setTgHelp(false)}>
-                {t(lang, "auto.tg.help.hide")}
-              </Button>
-            </div>
-            {tgChats != null &&
-              (tgChats.length === 0 ? (
-                <p className="text-[11px] leading-relaxed text-zinc-500">{t(lang, "auto.tg.help.none")}</p>
-              ) : (
-                <div className="space-y-1">
-                  <p className="text-[10px] uppercase tracking-wide text-zinc-500">{t(lang, "auto.tg.help.found", { n: tgChats.length })}</p>
-                  {tgChats.map((c) => (
-                    <div key={c.id} className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-1">
-                      <span className="truncate text-[11px] text-zinc-200">{c.title}</span>
-                      <span className="shrink-0 font-mono text-[10px] text-zinc-500">{c.id}</span>
-                      <span className="shrink-0 text-[9px] uppercase text-zinc-600">{c.type}</span>
-                      {c.id === tgChatId ? (
-                        <span className="ml-auto shrink-0 text-[10px] text-teal-400">{t(lang, "auto.tg.help.active")}</span>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="ml-auto h-6 shrink-0 border-teal-700 px-2 text-[10px] text-teal-300 hover:bg-teal-950/40"
-                          disabled={tgSaving}
-                          onClick={() => void applyChat(c.id)}
-                        >
-                          {t(lang, "auto.tg.help.use")}
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ))}
           </div>
         )}
         {scanning && (

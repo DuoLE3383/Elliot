@@ -9,7 +9,7 @@
 #
 #  Data an toàn tuyệt đối vì:
 #   • SQLite nằm ở <repo>/data/custom.db (DATABASE_URL tuyệt đối trong .env)
-#   • telegram.json + autostat.json ở <repo>/data/ (DATA_DIR)
+#   • autostat.json ở <repo>/data/ (DATA_DIR)
 #   • git reset chỉ chạm code, không đụng thư mục data/
 # ══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail

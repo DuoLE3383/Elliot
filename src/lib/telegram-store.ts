@@ -1,181 +1,21 @@
-// ─── Telegram runtime settings store (server-only) ─────────────────────────────
-// Bot token + chat id live in .env as defaults, but the user can override both
-// at runtime from the Auto panel ("Token" → paste token; "Tìm kênh" → "Dùng kênh
-// này") without touching .env or restarting the dev server. Overrides persist
-// to db/telegram.json (git-ignored) so they survive restarts too.
+// ─── Telegram notifications — env-only config (server-only) ───────────────────
+// ONE path, zero UI: TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID come from .env and
+// every notification (auto-trade opens/closes, digests, top-coin broadcast,
+// test sends) goes to that channel. Deliberately nothing else — no runtime
+// overrides, no connect links, no pasted tokens. Change the channel by editing
+// .env (helper: deploy/set-telegram-env.sh) and restarting the app.
+//
+// TELEGRAM_CHAT_ID accepts every shape a user plausibly pastes:
+//   -1001234567890   numeric id (required for PRIVATE channels)
+//   @airealtime / https://t.me/airealtime / airealtime → @airealtime
+// TELEGRAM_API_BASE (optional) points at a Cloudflare Worker proxy for VPS
+// routes that cannot reach api.telegram.org (deploy/tg-proxy-worker.js).
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { randomBytes, timingSafeEqual } from "crypto";
-import path from "path";
-import { dataFile } from "./data-dir";
-
-const FILE = dataFile("telegram.json");
-
-interface TgConnect {
-  /** one-time secret carried in the ?tg= connect link (never the token itself) */
-  secret: string;
-  /** the bot token handed to the consuming device */
-  token: string;
-  bot?: string;
-  verified?: boolean;
-  createdAt: number;
-}
-
-/** pending t.me/<bot>?start=<token> deep link — binds the sender's chat */
-interface TgStartLink {
-  token: string;
-  createdAt: number;
-}
-
-interface TgStore {
-  chatId?: string;
-  botToken?: string;
-  /** alternate Telegram Bot API origin (Cloudflare Worker proxy) — fights 503s */
-  apiBase?: string;
-  /** @username from the last successful getMe (display only) */
-  bot?: string;
-  /** false = stored but never verified against Telegram (network was down) */
-  verified?: boolean;
-  /** pending one-time connect link (auto-connect via ?tg=… URL) */
-  connect?: TgConnect;
-  /** pending t.me?start= deep link (auto-bind chat via START button) */
-  start?: TgStartLink;
-}
-
-function readStore(): TgStore {
-  try {
-    if (!existsSync(FILE)) return {};
-    const json = JSON.parse(readFileSync(FILE, "utf8")) as TgStore;
-    return json && typeof json === "object" ? json : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeStore(patch: Partial<TgStore>): void {
-  try {
-    mkdirSync(path.dirname(FILE), { recursive: true });
-    const next = { ...readStore(), ...patch };
-    for (const k of Object.keys(next) as Array<keyof TgStore>) {
-      if (next[k] == null || next[k] === "") delete next[k];
-    }
-    writeFileSync(FILE, JSON.stringify(next, null, 2) + "\n", "utf8");
-  } catch {
-    // best-effort — env fallback still works
-  }
-}
-
-export function getStoredChatId(): string | null {
-  const id = readStore().chatId;
-  return typeof id === "string" && id ? id : null;
-}
-
-export function setStoredChatId(id: string): void {
-  writeStore({ chatId: id });
-}
-
-export function clearStoredChatId(): void {
-  writeStore({ chatId: "" });
-}
-
-export function getStoredToken(): string | null {
-  const t = readStore().botToken;
-  return typeof t === "string" && t ? t : null;
-}
-
-/** Persist the runtime token together with its verification metadata. */
-export function setStoredToken(token: string, meta?: { bot?: string | null; verified?: boolean }): void {
-  writeStore({
-    botToken: token.trim(),
-    bot: meta?.bot ?? "",
-    verified: meta?.verified ?? false,
-  });
-}
-
-/** Display metadata of the STORED token (null fields when the token came from env). */
-export function getStoredTokenMeta(): { bot: string | null; verified: boolean | null } {
-  const s = readStore();
-  if (!s.botToken) return { bot: null, verified: null };
-  return {
-    bot: typeof s.bot === "string" && s.bot ? s.bot : null,
-    verified: s.verified === undefined ? null : s.verified === true,
-  };
-}
-
-export function clearStoredToken(): void {
-  writeStore({ botToken: "", bot: "", verified: false });
-}
-
-// ─── One-time connect links (?tg=<secret> auto-connect) ───────────────────────
-// The panel can mint a short-lived link so another device (phone, fresh VPS
-// install) connects Telegram WITHOUT pasting the bot token: the secret is
-// stored server-side and swapped for the real token exactly once, then dies.
-
-const CONNECT_TTL_MS = 30 * 60_000;
-
-/** Mint a fresh one-time connect link bound to the current effective token. */
-export function createConnectLink(token: string, bot: string | null, verified: boolean): string {
-  const secret = randomBytes(16).toString("hex"); // 128-bit — not guessable
-  writeStore({ connect: { secret, token, bot: bot ?? undefined, verified, createdAt: Date.now() } });
-  return secret;
-}
-
-/**
- * Consume a connect secret: valid, unused, <30 min old → return the bound
- * token and DELETE the link (one-time). Anything else → null.
- */
-export function popConnectLink(secret: string): { token: string; bot: string | null; verified: boolean } | null {
-  const c = readStore().connect;
-  if (!c || !c.token) return null;
-  const a = Buffer.from(secret);
-  const b = Buffer.from(c.secret ?? "");
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  if (Date.now() - c.createdAt > CONNECT_TTL_MS) {
-    writeStore({ connect: undefined }); // expired → clean up
-    return null;
-  }
-  writeStore({ connect: undefined }); // burn it — one-time use
-  return { token: c.token, bot: c.bot ?? null, verified: c.verified !== false };
-}
-
-// ─── t.me?start= deep links (click → Telegram opens → press START → bind) ────
-// The panel mints https://t.me/<bot>?start=<token>. The user taps it, presses
-// START, and the app's next getUpdates scan sees "/start <token>" and binds
-// that chat as the notification target — zero pasting, no chat ID hunting.
-
-const START_TTL_MS = 30 * 60_000;
-
-/** Mint a fresh START deep link (replaces any previous pending one). */
-export function createStartLink(): string {
-  const token = randomBytes(16).toString("hex"); // 128-bit
-  writeStore({ start: { token, createdAt: Date.now() } });
-  return token;
-}
-
-/**
- * Try to consume "/start <param>": timing-safe match + TTL → burn the link
- * (one-time) and return true. Wrong/expired/missing → false, nothing touched.
- */
-export function popStartLink(param: string): boolean {
-  const s = readStore().start;
-  if (!s?.token || !param) return false;
-  const a = Buffer.from(param);
-  const b = Buffer.from(s.token);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return false;
-  if (Date.now() - s.createdAt > START_TTL_MS) {
-    writeStore({ start: undefined }); // expired → clean up
-    return false;
-  }
-  writeStore({ start: undefined }); // burn it — one-time use
-  return true;
-}
+const TG_API_BASE_DEFAULT = "https://api.telegram.org";
 
 /**
  * Accept every shape a user plausibly pastes as a chat id and return the form
- * the Bot API understands, or null when unparseable:
- *   -1001234567890   → as-is (numeric chat id — works for ANY channel/group)
- *   @airealtime      → as-is (public channel username)
- *   https://t.me/airealtime / t.me/airealtime / airealtime → @airealtime
+ * the Bot API understands, or null when unparseable.
  * @username form only works for PUBLIC channels — private ones need the -100 id.
  */
 export function normalizeChatId(raw: string): string | null {
@@ -189,25 +29,19 @@ export function normalizeChatId(raw: string): string | null {
   return username ? `@${username}` : null;
 }
 
-/** Effective chat id: runtime override first, then the .env default. */
-export function effectiveChatId(): { id: string | null; source: "store" | "env" | null } {
-  const stored = normalizeChatId(getStoredChatId() ?? "");
-  if (stored) return { id: stored, source: "store" };
+/** Effective chat id — .env only. */
+export function effectiveChatId(): { id: string | null; source: "env" | null } {
   const env = normalizeChatId(process.env.TELEGRAM_CHAT_ID ?? "");
-  if (env) return { id: env, source: "env" };
-  return { id: null, source: null };
+  return env ? { id: env, source: "env" } : { id: null, source: null };
 }
 
-/** Effective bot token: runtime override first, then the .env default. */
-export function effectiveToken(): { token: string | null; source: "store" | "env" | null } {
-  const stored = getStoredToken();
-  if (stored) return { token: stored, source: "store" };
+/** Effective bot token — .env only. */
+export function effectiveToken(): { token: string | null; source: "env" | null } {
   const env = process.env.TELEGRAM_BOT_TOKEN ?? "";
-  if (env) return { token: env, source: "env" };
-  return { token: null, source: null };
+  return env ? { token: env, source: "env" } : { token: null, source: null };
 }
 
-export const TG_API_BASE_DEFAULT = "https://api.telegram.org";
+// ─── API origin ────────────────────────────────────────────────────────────────
 
 /** Sanitize a custom API base — http(s) URL, no trailing slash, no path. */
 function normalizeApiBase(raw: string): string | null {
@@ -228,7 +62,6 @@ function normalizeApiBase(raw: string): string | null {
  * loopback + same-port can only be the classic footgun
  * TELEGRAM_API_BASE=http://localhost:3000 → the app calls itself and every
  * send dies with "fetch failed" / HTTP 404. Ignore those, warn loudly.
- * A loopback base on a DIFFERENT port (local proxy mock in e2e tests) is kept.
  */
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"]);
 
@@ -244,35 +77,18 @@ function isSelfCall(base: string): boolean {
 }
 
 /**
- * Effective Telegram API origin: runtime override (Cloudflare Worker proxy),
- * then TELEGRAM_API_BASE env, then the official api.telegram.org — skipping
- * any base that is a self-call (see LOOPBACK_HOSTS above).
+ * Effective Telegram API origin: TELEGRAM_API_BASE env, then the official
+ * api.telegram.org — skipping any base that is a self-call (see LOOPBACK_HOSTS).
  */
-export function effectiveApiBase(): { base: string; source: "store" | "env" | "default" } {
-  const candidates: Array<{ raw: string; source: "store" | "env" }> = [
-    { raw: readStore().apiBase ?? "", source: "store" },
-    { raw: process.env.TELEGRAM_API_BASE ?? "", source: "env" },
-  ];
-  for (const { raw, source } of candidates) {
-    const base = normalizeApiBase(raw);
-    if (!base) continue;
-    if (isSelfCall(base)) {
-      console.warn(
-        `[telegram] ignoring ${source} API base ${base} — it points at this app itself (self-call footgun); falling back to ${TG_API_BASE_DEFAULT}`,
-      );
-      continue;
-    }
-    return { base, source };
+export function effectiveApiBase(): { base: string; source: "env" | "default" } {
+  const base = normalizeApiBase(process.env.TELEGRAM_API_BASE ?? "");
+  if (base && !isSelfCall(base)) return { base, source: "env" };
+  if (base) {
+    console.warn(
+      `[telegram] ignoring env API base ${base} — it points at this app itself (self-call footgun); falling back to ${TG_API_BASE_DEFAULT}`,
+    );
   }
   return { base: TG_API_BASE_DEFAULT, source: "default" };
-}
-
-/** Set (or clear — empty string) the runtime API-base override. Returns null when invalid. */
-export function setStoredApiBase(raw: string): string | null {
-  const v = normalizeApiBase(raw);
-  if (raw.trim() && !v) return null;
-  writeStore({ apiBase: v ?? "" });
-  return v ?? TG_API_BASE_DEFAULT;
 }
 
 // ─── Server-side Telegram API core (shared, with retry) ───────────────────────

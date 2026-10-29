@@ -54,9 +54,7 @@ sudo systemctl restart cloudflared
 ### ⚠️ Lưu ý vận hành quan trọng
 
 - **Auto-trade (dry-run) chạy trong tab trình duyệt**, không phải trên server: engine quét + train XGB chạy client-side, server chỉ lưu trades + gửi Telegram. Muốn auto chạy 24/7 phải **giữ mở 1 tab** (desktop/điện thoại bất kỳ). Đây là design hiện tại — nếu muốn engine chạy server-side (không cần mở tab) là một tính năng mới cần triển khai thêm.
-- **Telegram — 2 cách cấu hình, chọn 1**:
-  - *Nhét cứng vào .env (khuyên dùng, 1 lệnh)*: `sudo bash deploy/set-telegram-env.sh "<BOT_TOKEN>" "<CHAT_ID>"` — ghi `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` vào `/opt/elliott/.env`, tự restart, tự verify. Xem cấu hình hiện tại: `sudo bash deploy/set-telegram-env.sh` (không đối số). Lấy CHAT_ID: thêm bot làm admin kênh → **forward 1 bài trong kênh cho bot** → panel Auto → "Tìm kênh" → id `-100…` hiện ra (forward được nhận diện từ bản 10/2025).
-  - *Dán trong app (runtime, không cần restart)*: panel Auto → Token bot Telegram — lưu vào `data/telegram.json`, ghi đè lên env.
+- **Telegram — 1 cách duy nhất (cố định trong .env)**: `sudo bash deploy/set-telegram-env.sh "<BOT_TOKEN>" "<CHAT_ID>"` — ghi `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` vào `.env` của repo, tự restart nếu có systemd, tự verify. Xem cấu hình hiện tại: `sudo bash deploy/set-telegram-env.sh` (không đối số). CHAT_ID chấp nhận id số (-100…), @username hoặc link https://t.me/… — app tự chuẩn hoá. Lấy id kênh private: thêm bot làm admin kênh rồi đọc id trong log/Telegram Bot API. Đổi token/kênh = chạy lại lệnh đó. Panel Auto chỉ còn nút **Kiểm tra Telegram** (gửi tin test vào kênh) — mọi cấu hình khác nằm hết trong .env.
 - VPS cấu hình tối thiểu thoải mái: 1 vCPU / 1 GB RAM (build tốn ~500 MB, có thể build trên máy khác rồi rsync `.next/standalone`).
 
 ## 2. Build pipeline (đã fix lỗi CI)
@@ -123,15 +121,22 @@ docker exec elliott bunx prisma db push   # chỉ tạo bảng, không phá data
 
 ## 6b. Fix lỗi Telegram 503 — proxy Bot API qua Cloudflare Worker (5 phút)
 
-**Chẩn đoán trước khi làm:** panel **Auto → Token → API base → 🔍 Chẩn đoán mạng** — app tự kiểm tra từ phía server: DNS (A/AAAA), kết nối **IPv4 ép cứng**, **IPv6 ép cứng** tới `api.telegram.org`, và API base đang dùng. Kết luận tự động: IPv6 hỏng (bản mới đã ưu tiên IPv4 — chỉ cần `update.sh`), đường mạng bị chặn cả 2 (→ bắt buộc dùng Worker bên dưới), Worker OK/hỏng, hay token sai.
+**Chẩn đoán trước khi làm:** gọi POST trên server (hoặc chỉ đọc log):
+
+```bash
+curl -sS -m 8 https://api.telegram.org/   # vào được JSON = mạng OK
+curl -sS -m 8 -X POST https://api.telegram.org/bot123:DEAD/getMe   # 401 = đường sống, token sai
+```
+
+App tự kiểm tra từ phía server mỗi lần gửi: DNS, **IPv4 ưu tiên trước** (né VPS IPv6 hỏng), retry 3 lần. Log server bản mới in rõ nguyên nhân: `[telegram] sendMessage via https://api.telegram.org failed after 3 attempt(s): fetch failed (ECONNRESET …)`. Kết luận: IPv6 hỏng (bản mới tự ưu tiên IPv4 — chỉ cần `update.sh`), đường mạng bị chặn cả 2 (→ bắt buộc dùng Worker bên dưới), hay token sai.
 
 **Triệu chứng:** panel Auto báo `Telegram is overloaded (503)` dù token hợp lệ — lặp lại nhiều ngày. Nguyên nhân: **đường mạng từ server app → api.telegram.org** bị nghẽn/throttled (rất thường gặp với IP VPS/datacenter và một số ISP), không phải lỗi token.
 
-**Cách chạy đã có sẵn trong app:** mọi call Bot API đi qua `tgApi()` (retry 3 lần, tôn trọng `retry_after`) và đọc origin từ "API base" — có thể trỏ sang 1 **Worker proxy trên chính account Cloudflare** của bạn:
+**Cách chạy đã có sẵn trong app:** mọi call Bot API đi qua `tgApi()` (retry 3 lần, tôn trọng `retry_after`) và đọc origin từ biến env `TELEGRAM_API_BASE` — có thể trỏ sang 1 **Worker proxy trên chính account Cloudflare** của bạn:
 
 1. Cloudflare Dashboard → **Workers & Pages → Create → Worker** → Deploy → **Edit code** → dán nguyên file [`deploy/tg-proxy-worker.js`](deploy/tg-proxy-worker.js) → Deploy
 2. Copy URL miễn phí `https://<tên-worker>.<account>.workers.dev` (hoặc gắn custom domain `tg.huyenbao.com` trong Settings → Domains & Routes)
-3. App → panel **Auto → Telegram → API base** → dán URL Worker → **Lưu** (panel tự test lại ngay). Xoá trắng + Lưu = về `api.telegram.org`
+3. Ghi vào .env: `sudo bash deploy/set-telegram-env.sh - - https://<tên-worker>.<account>.workers.dev` rồi restart app (xoá trắng = về `api.telegram.org`)
 4. Không cần nhập lại token — token vẫn nằm ở server app, Worker chỉ chuyển tiếp path verbatim và **không lưu gì**
 
 Kiểm tra Worker sống: `curl https://<worker-url>/health` → `ok`.
@@ -145,7 +150,7 @@ Kiểm tra Worker sống: `curl https://<worker-url>/health` → `ok`.
 ```
 
 - `ENOTFOUND` → DNS hỏng; `ECONNREFUSED` → có proxy/localhost sai (bản mới **tự bỏ qua** API base trỏ vào chính app, ví dụ `http://localhost:3000`, kèm cảnh báo);
-- `ECONNRESET` / `ETIMEDOUT` / `ENETUNREACH` → đường mạng bị chặn/throttle → làm mục **🔍 Chẩn đoán mạng** ở trên; nếu verdict là `blocked` → bắt buộc dùng Worker proxy (bước 1-4 phía trên) rồi ghi URL Worker vào `.env`: `sudo bash deploy/set-telegram-env.sh - - https://<worker>.workers.dev`.
+- `ECONNRESET` / `ETIMEDOUT` / `ENETUNREACH` → đường mạng bị chặn/throttle → làm mục **Chẩn đoán** ở trên; nếu bị chặn hẳn → dùng Worker proxy (bước 1-4 phía trên) rồi ghi URL Worker vào `.env`: `sudo bash deploy/set-telegram-env.sh - - https://<worker>.workers.dev`.
 
 Test nhanh từ VPS (không cần token):
 

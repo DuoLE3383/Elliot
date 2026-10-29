@@ -37,20 +37,9 @@ import json,sys
 d=json.load(sys.stdin)
 print(json.dumps(d))
 assert d['configured'] is True, d
-assert d['tokenSource']=='env', d
 assert d['source']=='env', d
 assert d['chatId']=='@airealtime', d  # t.me link normalized to @username
-assert d['verified'] is True, d
 print('ENV_STATUS_OK')
-" || FAIL=1
-
-echo "== GET /api/telegram/token — source env, treated as verified"
-curl -s "http://$HOST/api/telegram/token" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-print(json.dumps(d))
-assert d['tokenSet'] is True and d['source']=='env' and d['verified'] is True, d
-print('ENV_TOKEN_OK')
 " || FAIL=1
 
 echo "== POST /api/telegram — env token+chat actually SEND (mock receives)"
@@ -64,14 +53,5 @@ print('ENV_SEND_OK')
 " || FAIL=1
 grep -q 'env-e2e' "$MOCKLOG" && echo "MOCK_GOT_MSG" || { echo "MOCK_MISSING_MSG"; FAIL=1; }
 grep -q '"chat_id":"@airealtime"' "$MOCKLOG" && echo "MOCK_GOT_MSG_NORMALIZED" || { echo "MOCK_MISSING_MSG"; FAIL=1; }
-
-echo "== POST /api/telegram/link — mint works off the env token too"
-curl -s -X POST "http://$HOST/api/telegram/link" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-print(json.dumps(d))
-assert d.get('ok') is True and d.get('url','').count('?tg=')==1, d
-print('ENV_MINT_OK')
-" || FAIL=1
 
 [ "$FAIL" = 0 ] && echo "ALL_ENV_E2E_OK" || { echo "ENV_E2E_FAILED"; exit 1; }

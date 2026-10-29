@@ -1,5 +1,5 @@
 // ─── Runtime data dir for server-side JSON state (server-only) ───────────────
-// Runtime-mutable state that is NOT in SQLite (telegram.json, autostat.json)
+// Runtime-mutable state that is NOT in SQLite (autostat.json)
 // lives in one directory. Default `db/` keeps local/dev behaviour identical;
 // on hosts with a dedicated persistent disk set DATA_DIR=/var/lib/elliott (or
 // similar) in .env / systemd and EVERYTHING — DATABASE_URL included — points

@@ -1,23 +1,21 @@
-// ─── /api/telegram — relay notifications to the user's Telegram channel ──────
-// GET  → { configured, chatId, source, tokenSource } — effective wiring
-// POST { text } → sendMessage to the effective channel (runtime store → .env)
+// ─── /api/telegram — notification relay (config comes ONLY from .env) ─────────
+// GET  → { configured, chatId, source } — the env wiring
+// POST { text } → sendMessage to the configured channel
+// Configure with deploy/set-telegram-env.sh (writes TELEGRAM_BOT_TOKEN +
+// TELEGRAM_CHAT_ID into .env) and restart the app.
 
 import { NextRequest, NextResponse } from "next/server";
-import { effectiveChatId, effectiveToken, getStoredTokenMeta, tgSendMessage } from "@/lib/telegram-store";
+import { effectiveChatId, effectiveToken, tgSendMessage } from "@/lib/telegram-store";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   const chat = effectiveChatId();
   const tok = effectiveToken();
-  const meta = getStoredTokenMeta();
   return NextResponse.json({
     configured: Boolean(tok.token && chat.id),
     chatId: chat.id,
     source: chat.source,
-    tokenSource: tok.source,
-    verified: tok.source === "store" ? meta.verified !== false : tok.token != null,
-    bot: tok.source === "store" ? meta.bot : null,
   });
 }
 

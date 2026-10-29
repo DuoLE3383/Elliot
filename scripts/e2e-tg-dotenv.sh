@@ -46,7 +46,6 @@ import json,sys
 d=json.load(sys.stdin)
 print(json.dumps(d))
 assert d['configured'] is True, d
-assert d['tokenSource']=='env', d
 assert d['source']=='env', d
 assert d['chatId']=='@airealtime', d
 print('DOTENV_LOADED_OK')
