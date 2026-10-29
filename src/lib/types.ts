@@ -203,7 +203,7 @@ export type Interval = (typeof INTERVALS)[number];
 
 export const KLINE_LIMIT = 500;
 
-export const MAX_CUSTOM_PAIRS = 10;
+export const MAX_CUSTOM_PAIRS = 20;
 export const MAX_LEVERAGE = 125;
 
 /** Binance 24hr ticker snapshot (from /api/ticker). */

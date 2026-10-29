@@ -51,7 +51,7 @@ import { AlertTriangle, ArrowLeftRight, BrainCircuit, ChevronRight, Eye, EyeOff,
 
 interface Toast {
   id: number;
-  kind: "entry" | "flip" | "error" | "wy" | "xgb";
+  kind: "entry" | "flip" | "error" | "warn" | "wy" | "xgb";
   side?: Paper["side"];
   text: string;
 }
@@ -671,6 +671,14 @@ export default function Home() {
         pushToast({ kind: "error", text: t(lang, "toast.badPair", { sym }) });
         return;
       }
+      // when the list is full the append silently drops the OLDEST custom pair
+      // — surface that loudly instead of quietly losing a pair
+      if (!customPairs.includes(sym) && customPairs.length >= MAX_CUSTOM_PAIRS) {
+        pushToast({
+          kind: "warn",
+          text: t(lang, "toast.pairReplaced", { sym, old: customPairs[0] ?? sym }),
+        });
+      }
       setCustomPairs((list) =>
         list.includes(sym) ? list : [...list, sym].slice(-MAX_CUSTOM_PAIRS),
       );
@@ -681,7 +689,7 @@ export default function Home() {
     } finally {
       setCheckingPair(false);
     }
-  }, [pairInput, checkingPair, allPairs, lang, pushToast]);
+  }, [pairInput, checkingPair, allPairs, customPairs, lang, pushToast]);
 
   const removePair = useCallback(
     (sym: string) => {
@@ -1212,20 +1220,23 @@ export default function Home() {
             className={`pointer-events-auto rounded-lg border px-3.5 py-2.5 shadow-lg backdrop-blur ${
               toast.kind === "flip"
                 ? "border-zinc-600 bg-zinc-950/90"
-                : toast.kind === "wy"
-                  ? "border-violet-700 bg-violet-950/90"
-                  : toast.kind === "xgb"
-                    ? "border-teal-600 bg-teal-950/90"
-                    : toast.kind === "error"
-                      ? "border-rose-700 bg-rose-950/90"
-                      : toast.side === "LONG"
-                        ? "border-emerald-700 bg-emerald-950/90"
-                        : "border-rose-700 bg-rose-950/90"
+                : toast.kind === "warn"
+                  ? "border-amber-600 bg-amber-950/90"
+                  : toast.kind === "wy"
+                    ? "border-violet-700 bg-violet-950/90"
+                    : toast.kind === "xgb"
+                      ? "border-teal-600 bg-teal-950/90"
+                      : toast.kind === "error"
+                        ? "border-rose-700 bg-rose-950/90"
+                        : toast.side === "LONG"
+                          ? "border-emerald-700 bg-emerald-950/90"
+                          : "border-rose-700 bg-rose-950/90"
             }`}
             role="status"
           >
             <p className="flex items-start gap-2 text-xs leading-relaxed text-zinc-100">
               {toast.kind === "flip" && <ArrowLeftRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-400" />}
+              {toast.kind === "warn" && <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />}
               {toast.kind === "wy" && <Landmark className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-400" />}
               {toast.kind === "xgb" && <BrainCircuit className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-400" />}
               <span>{toast.text}</span>
