@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { comboStats } from "@/lib/autotrade";
 
 export const dynamic = "force-dynamic";
 
@@ -90,6 +91,11 @@ const serialize = (r: {
 
 export async function GET() {
   const rows = await db.autoTrade.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
+  // win-rate table aggregates the ENTIRE closed history, not just the last 200
+  const allClosed = await db.autoTrade.findMany({
+    where: { status: "closed" },
+    select: { symbol: true, interval: true, status: true, pnlPct: true },
+  });
   const trades = rows.map(serialize);
   const open = trades.find((t) => t.status === "open") ?? null;
   const closed = trades.filter((t) => t.status === "closed");
@@ -99,6 +105,7 @@ export async function GET() {
     trades,
     open,
     capital,
+    byCombo: comboStats(allClosed),
     stats: {
       closed: closed.length,
       wins,

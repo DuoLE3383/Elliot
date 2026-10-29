@@ -186,6 +186,56 @@ export function liquidationHit(side: string, price: number, entry: number, lever
   return move <= -(100 / leverage);
 }
 
+/** Warn once the price has covered this share of the way to TP/SL (0..1). */
+export const NEAR_FRAC = 0.7;
+
+/** "tp" | "sl" | null — price is INSIDE the near-hit band but has NOT crossed yet. */
+export function nearHit(side: string, price: number, entry: number, slPct: number, tpPct: number): "tp" | "sl" | null {
+  if (!entry || !price) return null;
+  const roe = roeOf(side, entry, price, 1); // price-move % (no leverage)
+  const tp = Math.abs(tpPct);
+  const sl = Math.abs(slPct);
+  if (roe >= tp * NEAR_FRAC && roe < tp) return "tp";
+  if (roe <= -sl * NEAR_FRAC && roe > -sl) return "sl";
+  return null;
+}
+
+// ─── Per-combo win-rate stats ────────────────────────────────────────────────
+
+export interface ComboStat {
+  symbol: string;
+  interval: string;
+  closed: number;
+  wins: number;
+  /** wins / closed, % (1 decimal) */
+  winRate: number;
+  /** sum of ROE % over closed trades */
+  netPnlPct: number;
+  /** netPnlPct / closed */
+  avgPnlPct: number;
+}
+
+/** Aggregate closed trades into per (pair × timeframe) win-rate rows. */
+export function comboStats(rows: Pick<AutoTradeRow, "symbol" | "interval" | "status" | "pnlPct">[]): ComboStat[] {
+  const map = new Map<string, ComboStat>();
+  for (const r of rows) {
+    if (r.status !== "closed") continue;
+    const key = `${r.symbol}|${r.interval}`;
+    const s = map.get(key) ?? { symbol: r.symbol, interval: r.interval, closed: 0, wins: 0, winRate: 0, netPnlPct: 0, avgPnlPct: 0 };
+    s.closed += 1;
+    if ((r.pnlPct ?? 0) > 0) s.wins += 1;
+    s.netPnlPct += r.pnlPct ?? 0;
+    map.set(key, s);
+  }
+  const out = [...map.values()];
+  for (const s of out) {
+    s.netPnlPct = Math.round(s.netPnlPct * 100) / 100;
+    s.winRate = s.closed > 0 ? Math.round((s.wins / s.closed) * 1000) / 10 : 0;
+    s.avgPnlPct = s.closed > 0 ? Math.round((s.netPnlPct / s.closed) * 100) / 100 : 0;
+  }
+  return out.sort((a, b) => b.closed - a.closed || b.winRate - a.winRate);
+}
+
 // ─── Position book (SQLite via /api/autotrade) ────────────────────────────────
 
 export interface AutoTradeRow {
@@ -224,6 +274,8 @@ export interface AutoState {
   open: AutoTradeRow | null;
   capital: number | null;
   stats: AutoStats;
+  /** win-rate table grouped by pair × timeframe (all closed history) */
+  byCombo?: ComboStat[];
 }
 
 const jsonHeaders = { "Content-Type": "application/json" };
@@ -394,9 +446,13 @@ export interface AutoConfig {
   minAcc: number;
   /** wait after an SL exit on the same combo, minutes (0 = off) */
   cooldownMin: number;
+  /** auto-post a stats digest to Telegram at the top of every hour */
+  statHourly: boolean;
+  /** auto-post a stats digest to Telegram once a day */
+  statDaily: boolean;
 }
 
-export const AUTO_DEFAULTS: AutoConfig = { on: false, capital: 1000, cycleMin: 5, minAuc: 0.55, minAcc: 55, cooldownMin: 30 };
+export const AUTO_DEFAULTS: AutoConfig = { on: false, capital: 1000, cycleMin: 5, minAuc: 0.55, minAcc: 55, cooldownMin: 30, statHourly: true, statDaily: true };
 export const COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
 
 export function loadAutoConfig(): AutoConfig {
@@ -413,6 +469,8 @@ export function loadAutoConfig(): AutoConfig {
       cooldownMin: COOLDOWN_CHOICES.includes(p.cooldownMin as 0 | 15 | 30 | 60)
         ? (p.cooldownMin as number)
         : AUTO_DEFAULTS.cooldownMin,
+      statHourly: p.statHourly !== false,
+      statDaily: p.statDaily !== false,
     };
   } catch {
     return AUTO_DEFAULTS;

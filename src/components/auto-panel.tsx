@@ -13,6 +13,7 @@ import {
   fetchAutoState,
   liquidationHit,
   loadAutoConfig,
+  nearHit,
   openAutoTrade,
   roeOf,
   saveAutoConfig,
@@ -26,11 +27,13 @@ import {
   AUTO_DEFAULTS,
   type AutoState,
   type AutoTradeRow,
+  type ComboStat,
   type ScanRow,
   type TgChat,
 } from "@/lib/autotrade";
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
 import type { EngineSettings, Ticker } from "@/lib/types";
+import { INTERVALS } from "@/lib/types";
 import { Bot, ScanLine, Send, Square } from "lucide-react";
 
 interface Props {
@@ -95,6 +98,43 @@ const msgScan = (rows: ScanRow[], nPairs: number, nTf: number): string => {
 
 const TEST_MSG = "✅ Elliott terminal — kết nối Telegram OK.\nAuto trade (dry-run) sẽ báo mở/đóng lệnh và kết quả quét tại kênh này.";
 
+const msgNear = (r: AutoTradeRow, price: number, kind: "tp" | "sl"): string => {
+  const dir = r.side === "SHORT" ? -1 : 1;
+  const targetPrice =
+    kind === "tp" ? r.entryPrice * (1 + (dir * Math.abs(r.tpPct)) / 100) : r.entryPrice * (1 - (dir * Math.abs(r.slPct)) / 100);
+  const awayPct = price > 0 ? Math.abs((targetPrice - price) / price) * 100 : 0;
+  const roe = roeOf(r.side, r.entryPrice, price, r.leverage);
+  return [
+    kind === "tp" ? "⚠️ AUTO SẮP CHẠM TP" : "⚠️ AUTO SẮP CHẠM SL",
+    `#${r.symbol} ${r.interval} ${r.side}`,
+    `Giá: ${fmtPrice(price)} · cách ${kind === "tp" ? "TP" : "SL"} ${awayPct.toFixed(2)}%`,
+    `ROE: ${roe >= 0 ? "+" : ""}${roe.toFixed(1)}% · đòn bẩy ×${r.leverage % 1 === 0 ? r.leverage : r.leverage.toFixed(1)}`,
+  ].join("\n");
+};
+
+const statLines = (st: AutoState, sinceMs: number, title: string): string[] => {
+  const recent = st.trades.filter((x) => x.status === "closed" && x.exitTime && new Date(x.exitTime).getTime() >= sinceMs);
+  const wins = recent.filter((x) => (x.pnlPct ?? 0) > 0).length;
+  const net = recent.reduce((a, x) => a + (x.pnlPct ?? 0), 0);
+  const lines = [
+    title,
+    `Khoảng qua: ${recent.length} lệnh · win ${recent.length ? Math.round((wins / recent.length) * 100) : 0}% · ROE ${net >= 0 ? "+" : ""}${net.toFixed(2)}%`,
+  ];
+  if (st.open) lines.push(`Đang mở: #${st.open.symbol} ${st.open.interval} ${st.open.side} @ ${fmtPrice(st.open.entryPrice)}`);
+  lines.push(`Tổng: ${st.stats.closed} lệnh · win ${st.stats.winRate.toFixed(0)}% · vốn ${st.capital != null ? `${st.capital.toFixed(2)} USDT` : "?"}`);
+  const best = (st.byCombo ?? []).filter((c) => c.closed >= 3).sort((a, b) => b.winRate - a.winRate)[0];
+  if (best) lines.push(`Tốt nhất: #${best.symbol} ${best.interval} · win ${best.winRate.toFixed(0)}% (${best.closed} lệnh)`);
+  return lines;
+};
+
+const pad2 = (n: number): string => String(n).padStart(2, "0");
+
+const msgHourly = (st: AutoState, now: Date): string =>
+  statLines(st, now.getTime() - 3_600_000, `⏰ AUTO BÁO CÁO GIỜ · ${pad2(now.getHours())}:00`).join("\n");
+
+const msgDaily = (st: AutoState, now: Date): string =>
+  statLines(st, now.getTime() - 86_400_000, `📅 AUTO BÁO CÁO NGÀY · ${pad2(now.getDate())}/${pad2(now.getMonth() + 1)}`).join("\n");
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair, pushToast }: Props) {
@@ -129,6 +169,12 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const closingRef = useRef(false);
   const mountedRef = useRef(true);
   const nextAtRef = useRef<number>(0);
+  // near-hit warning state — one shot per side per position (persisted so a
+  // page reload does not re-warn about the same position)
+  const warnedRef = useRef<{ id: string; tp: boolean; sl: boolean }>({ id: "", tp: false, sl: false });
+  const statBusyRef = useRef(false);
+  const lastHourRef = useRef("");
+  const lastDayRef = useRef("");
 
   useEffect(() => {
     cfgRef.current = cfg;
@@ -205,12 +251,23 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     void refreshAuto();
     void telegramConfigured().then((ok) => mountedRef.current && setTgConfigured(ok));
     void telegramStatus().then((s) => mountedRef.current && setTgChatId(s.chatId));
+    // start clocks at the CURRENT hour/day so the first digest goes out at the
+    // next boundary, not the second the app opens
+    const now = new Date();
+    lastHourRef.current = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours()}`;
+    lastDayRef.current = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+    try {
+      const raw = localStorage.getItem("utp.auto.warn");
+      if (raw) warnedRef.current = JSON.parse(raw) as { id: string; tp: boolean; sl: boolean };
+    } catch {
+      // stale/corrupt flag — start fresh
+    }
   }, [refreshAuto]);
 
   const doScan = useCallback(async (): Promise<ScanRow[]> => {
     if (scanBusyRef.current) return rowsRef.current;
     scanBusyRef.current = true;
-    setScanning({ done: 0, total: pairsRef.current.length * 5, current: "" });
+    setScanning({ done: 0, total: pairsRef.current.length * INTERVALS.length, current: "" });
     try {
       const out = await scanAll({
         pairs: pairsRef.current,
@@ -222,7 +279,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
         setScanAt(Date.now());
       }
       if (out.length > 0) {
-        void sendTelegram(msgScan(out, pairsRef.current.length, 5));
+        void sendTelegram(msgScan(out, pairsRef.current.length, INTERVALS.length));
       }
       return out;
     } finally {
@@ -263,7 +320,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
       // 2) no open position → rank the scan and enter the best tradeable row
       let current = rowsRef.current;
       if (current.length === 0 || Date.now() - (scanAgeRef.current ?? 0) > SCAN_TTL) {
-        setStatus(t(langRef.current, "auto.scan.busy", { done: 0, total: pairsRef.current.length * 5, current: "…" }));
+        setStatus(t(langRef.current, "auto.scan.busy", { done: 0, total: pairsRef.current.length * INTERVALS.length, current: "…" }));
         current = await doScan();
       }
       if (current.length === 0) {
@@ -321,7 +378,8 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
 
   // intra-cycle watcher — SL/TP/liquidation can hit BETWEEN cycles; this books
   // them within ~15s from the live tickers instead of waiting for the next
-  // full cycle, then kicks a fresh entry a few seconds later
+  // full cycle, then kicks a fresh entry a few seconds later. It also fires
+  // the one-shot "approaching TP/SL" Telegram warning (70% of the way there).
   useEffect(() => {
     if (!cfg.on) return;
     const id = window.setInterval(() => {
@@ -337,10 +395,88 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
             window.setTimeout(() => void runCycle(), 3_000);
           }
         });
+        return;
+      }
+      // near-hit warning — once per side per position
+      if (warnedRef.current.id !== open.id) {
+        warnedRef.current = { id: open.id, tp: false, sl: false };
+        try {
+          localStorage.setItem("utp.auto.warn", JSON.stringify(warnedRef.current));
+        } catch {
+          // storage blocked — flags live for this session only
+        }
+      }
+      const near = nearHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
+      if (near && !warnedRef.current[near]) {
+        warnedRef.current[near] = true;
+        try {
+          localStorage.setItem("utp.auto.warn", JSON.stringify(warnedRef.current));
+        } catch {
+          // storage blocked — flags live for this session only
+        }
+        void sendTelegram(msgNear(open, price, near));
+        pushToast({
+          kind: "wy",
+          text: t(
+            langRef.current,
+            near === "tp" ? "auto.near.tp" : "auto.near.sl",
+            { pair: open.symbol, tf: open.interval, roe: roeOf(open.side, open.entryPrice, price, open.leverage).toFixed(1) },
+          ),
+        });
       }
     }, 15_000);
     return () => window.clearInterval(id);
-  }, [cfg.on, closeOpen, runCycle]);
+  }, [cfg.on, closeOpen, runCycle, pushToast]);
+
+  // hourly / daily Telegram digests — checked every minute; each boundary
+  // (top of the hour, calendar day) sends exactly one stats message.
+  // force=true → skip the boundary check (manual "send now" button).
+  const sendPeriodicStats = useCallback(async (force = false) => {
+    if (statBusyRef.current) return;
+    const c = cfgRef.current;
+    const now = new Date();
+    const hourKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours()}`;
+    const dayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+    if (force) {
+      statBusyRef.current = true;
+      try {
+        lastHourRef.current = hourKey;
+        lastDayRef.current = dayKey;
+        const st = await refreshAuto();
+        if (st) {
+          void sendTelegram(
+            statLines(st, now.getTime() - 86_400_000, `📊 AUTO THỐNG KÊ · ${pad2(now.getHours())}:${pad2(now.getMinutes())}`).join("\n"),
+          );
+        }
+      } finally {
+        statBusyRef.current = false;
+      }
+      return;
+    }
+    const dueHour = c.statHourly && lastHourRef.current !== hourKey;
+    const dueDay = c.statDaily && lastDayRef.current !== dayKey;
+    if (!dueHour && !dueDay) return;
+    statBusyRef.current = true;
+    try {
+      const st = await refreshAuto();
+      if (!st) return;
+      if (dueHour) {
+        lastHourRef.current = hourKey;
+        void sendTelegram(msgHourly(st, now));
+      }
+      if (dueDay) {
+        lastDayRef.current = dayKey;
+        void sendTelegram(msgDaily(st, now));
+      }
+    } finally {
+      statBusyRef.current = false;
+    }
+  }, [refreshAuto]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => void sendPeriodicStats(), 60_000);
+    return () => window.clearInterval(id);
+  }, [sendPeriodicStats]);
 
   // 1 s countdown to the next cycle
   useEffect(() => {
@@ -504,6 +640,38 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
             ))}
             <span className="text-[11px] text-zinc-600">{t(lang, "auto.cfg.cooldownUnit")}</span>
           </div>
+          <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.stats")}>
+            <span className="mr-0.5 text-[11px] text-zinc-500">{t(lang, "auto.cfg.stats")}</span>
+            {([
+              ["statHourly", "auto.cfg.statHourly"],
+              ["statDaily", "auto.cfg.statDaily"],
+            ] as const).map(([key, ikey]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => updateCfg({ [key]: !cfg[key] })}
+                aria-pressed={cfg[key]}
+                className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
+                  cfg[key]
+                    ? "border-teal-700 bg-teal-950/40 text-teal-300"
+                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                }`}
+              >
+                {t(lang, ikey)}
+              </button>
+            ))}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-[11px] text-zinc-400 hover:bg-zinc-800"
+              disabled={tgState === "sending"}
+              title={t(lang, "auto.cfg.statNowTip")}
+              onClick={() => void sendPeriodicStats(true)}
+            >
+              <Send className="mr-1 h-3 w-3" />
+              {t(lang, "auto.cfg.statNow")}
+            </Button>
+          </div>
         </div>
         <p className="text-[11px] text-zinc-600">{t(lang, "auto.cfg.min", { auc: cfg.minAuc.toFixed(2), acc: cfg.minAcc })}</p>
 
@@ -516,7 +684,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
             onClick={() => void doScan()}
           >
             <ScanLine className="mr-1.5 h-3.5 w-3.5" />
-            {t(lang, "auto.scan")} ({pairs.length}×5)
+            {t(lang, "auto.scan")} ({pairs.length}×{INTERVALS.length})
           </Button>
           <Button size="sm" variant="outline" className="h-8 border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800" disabled={tgState === "sending"} onClick={() => void checkTg()}>
             <Send className="mr-1.5 h-3 w-3" />
@@ -721,6 +889,42 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
             </p>
           </div>
         </div>
+
+        {/* win-rate by pair × timeframe */}
+        {(auto?.byCombo?.length ?? 0) > 0 && (
+          <div className="border-t border-zinc-800 pt-2">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">{t(lang, "auto.combo.title")}</p>
+            <div className="mt-1.5 overflow-hidden rounded-lg border border-zinc-800">
+              <div className="grid grid-cols-[1fr_30px_44px_44px_54px] gap-x-1 border-b border-zinc-800 bg-zinc-950/60 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
+                <span>{t(lang, "auto.col.pair")}</span>
+                <span>{t(lang, "auto.col.tf")}</span>
+                <span className="text-right">{t(lang, "auto.combo.col.trades")}</span>
+                <span className="text-right">{t(lang, "auto.combo.col.win")}</span>
+                <span className="text-right">{t(lang, "auto.combo.col.net")}</span>
+              </div>
+              <div className="rail-scroll max-h-36 overflow-y-auto">
+                {(auto?.byCombo ?? []).map((c: ComboStat) => (
+                  <button
+                    key={`${c.symbol}-${c.interval}`}
+                    type="button"
+                    onClick={() => onPickPair(c.symbol, c.interval)}
+                    className="grid w-full grid-cols-[1fr_30px_44px_44px_54px] items-center gap-x-1 px-2 py-1 text-left font-mono text-[10px] hover:bg-zinc-800/60"
+                  >
+                    <span className="truncate text-zinc-200">{c.symbol}</span>
+                    <span className="text-zinc-500">{c.interval}</span>
+                    <span className="text-right text-zinc-400">{c.closed}</span>
+                    <span className={`text-right font-bold ${c.winRate >= 50 ? "text-emerald-400" : "text-rose-400"}`}>{c.winRate.toFixed(0)}%</span>
+                    <span className={`text-right ${(c.netPnlPct ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                      {c.netPnlPct >= 0 ? "+" : ""}
+                      {c.netPnlPct.toFixed(1)}%
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className="mt-1 text-[10px] leading-snug text-zinc-600">{t(lang, "auto.combo.hint")}</p>
+          </div>
+        )}
 
         {/* history */}
         <div className="border-t border-zinc-800 pt-2">
