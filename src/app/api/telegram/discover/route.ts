@@ -10,6 +10,7 @@ import {
   effectiveChatId,
   effectiveToken,
   getStoredTokenMeta,
+  normalizeChatId,
   setStoredChatId,
   setStoredToken,
   tgApi,
@@ -117,9 +118,10 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
-  const id = typeof body.chatId === "string" ? body.chatId.trim() : "";
-  // channels / supergroups look like -100XXXXXXXXXX — reject private/group ids
-  if (!/^-100\d{7,}$/.test(id)) {
+  const raw = typeof body.chatId === "string" ? body.chatId.trim() : "";
+  // accept -100… numeric ids AND public-channel handles: @name / t.me/name / name
+  const id = normalizeChatId(raw);
+  if (!id) {
     return NextResponse.json({ error: "invalid_chat_id" }, { status: 400 });
   }
   setStoredChatId(id);

@@ -23,7 +23,7 @@ HOST=127.0.0.1:$PORT
 PORT=$PORT HOSTNAME=127.0.0.1 \
   DATABASE_URL="file:$SCRATCH/e2e.db" DATA_DIR="$SCRATCH" \
   TELEGRAM_BOT_TOKEN="987654321:AAEhENV_E2E_TOKEN_NOT_REAL_000000" \
-  TELEGRAM_CHAT_ID="-1001999999999" \
+  TELEGRAM_CHAT_ID="https://t.me/airealtime" \
   TELEGRAM_API_BASE="http://127.0.0.1:$MOCKP" \
   node .next/standalone/server.js >/tmp/elliot-e2e-env.log 2>&1 &
 SRV=$!
@@ -39,7 +39,7 @@ print(json.dumps(d))
 assert d['configured'] is True, d
 assert d['tokenSource']=='env', d
 assert d['source']=='env', d
-assert d['chatId']=='-1001999999999', d
+assert d['chatId']=='@airealtime', d  # t.me link normalized to @username
 assert d['verified'] is True, d
 print('ENV_STATUS_OK')
 " || FAIL=1
@@ -63,7 +63,7 @@ assert d.get('ok') is True, d
 print('ENV_SEND_OK')
 " || FAIL=1
 grep -q 'env-e2e' "$MOCKLOG" && echo "MOCK_GOT_MSG" || { echo "MOCK_MISSING_MSG"; FAIL=1; }
-grep -o '"chat_id":"[^"]*"' "$MOCKLOG" | head -1
+grep -q '"chat_id":"@airealtime"' "$MOCKLOG" && echo "MOCK_GOT_MSG_NORMALIZED" || { echo "MOCK_MISSING_MSG"; FAIL=1; }
 
 echo "== POST /api/telegram/link — mint works off the env token too"
 curl -s -X POST "http://$HOST/api/telegram/link" | python3 -c "

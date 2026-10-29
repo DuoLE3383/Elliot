@@ -67,13 +67,23 @@ if [[ "$TOKEN" != "-" ]]; then
   ok "TELEGRAM_BOT_TOKEN đã ghi vào .env"
 fi
 if [[ "$CHAT" != "-" ]]; then
-  [[ "$CHAT" =~ ^-?[0-9]{5,}$ ]] || die "CHAT_ID phải là số (kênh/supergroup dạng -100…)"
-  upsert TELEGRAM_CHAT_ID "$CHAT"
-  ok "TELEGRAM_CHAT_ID đã ghi vào .env"
+  # chấp nhận: id số (-100…) | @username | https://t.me/username (app tự chuẩn hoá)
+  if [[ "$CHAT" =~ ^-?[0-9]{5,}$ ]] || [[ "$CHAT" =~ ^@?[A-Za-z0-9_]{5,64}$ ]] || [[ "$CHAT" =~ ^https?://t\.me/[A-Za-z0-9_]{3,64}/?$ ]]; then
+    upsert TELEGRAM_CHAT_ID "$CHAT"
+    ok "TELEGRAM_CHAT_ID đã ghi vào .env"
+  else
+    die "CHAT_ID phải là id số (-100…), @username, hoặc link https://t.me/…"
+  fi
 fi
-if [[ "$BASE" != "-" && -n "$BASE" ]]; then
-  upsert TELEGRAM_API_BASE "$BASE"
-  ok "TELEGRAM_API_BASE đã ghi vào .env"
+if [[ "$BASE" != "-" ]]; then
+  if [[ "$BASE" == "clear" ]]; then
+    upsert TELEGRAM_API_BASE ""
+    ok "TELEGRAM_API_BASE đã XOÁ — dùng lại api.telegram.org chính chủ"
+  elif [[ -n "$BASE" ]]; then
+    [[ "$BASE" =~ ^https?:// ]] || die "API_BASE phải là http(s) URL, gõ 'clear' để xoá, hoặc '-' để giữ nguyên"
+    upsert TELEGRAM_API_BASE "$BASE"
+    ok "TELEGRAM_API_BASE đã ghi vào .env"
+  fi
 fi
 chmod 600 "$ENV_FILE"
 

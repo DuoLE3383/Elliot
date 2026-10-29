@@ -170,11 +170,30 @@ export function popStartLink(param: string): boolean {
   return true;
 }
 
+/**
+ * Accept every shape a user plausibly pastes as a chat id and return the form
+ * the Bot API understands, or null when unparseable:
+ *   -1001234567890   → as-is (numeric chat id — works for ANY channel/group)
+ *   @airealtime      → as-is (public channel username)
+ *   https://t.me/airealtime / t.me/airealtime / airealtime → @airealtime
+ * @username form only works for PUBLIC channels — private ones need the -100 id.
+ */
+export function normalizeChatId(raw: string): string | null {
+  const v = raw.trim();
+  if (!v) return null;
+  if (/^-?\d{5,}$/.test(v)) return v; // numeric id (incl. -100…)
+  const m =
+    v.match(/^(?:https?:\/\/)?t\.me\/([A-Za-z0-9_]{3,64})\/?$/i) ??
+    v.match(/^@([A-Za-z0-9_]{3,64})$/);
+  const username = m?.[1] ?? (/^[A-Za-z0-9_]{5,64}$/.test(v) ? v : null);
+  return username ? `@${username}` : null;
+}
+
 /** Effective chat id: runtime override first, then the .env default. */
 export function effectiveChatId(): { id: string | null; source: "store" | "env" | null } {
-  const stored = getStoredChatId();
+  const stored = normalizeChatId(getStoredChatId() ?? "");
   if (stored) return { id: stored, source: "store" };
-  const env = process.env.TELEGRAM_CHAT_ID ?? "";
+  const env = normalizeChatId(process.env.TELEGRAM_CHAT_ID ?? "");
   if (env) return { id: env, source: "env" };
   return { id: null, source: null };
 }
