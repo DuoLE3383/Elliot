@@ -10,6 +10,7 @@ import {
   bestTradeableAvoid,
   closeAutoTrade,
   COOLDOWN_CHOICES,
+  CYCLE_CHOICES,
   fetchAutoState,
   liquidationHit,
   loadAutoConfig,
@@ -53,7 +54,19 @@ interface Props {
 /** rescan when the snapshot is older than this */
 const SCAN_TTL = 30 * 60_000;
 const TOP_N = 6;
-const CYCLES = [5, 10, 15, 30];
+
+/** humanize a seconds count — "45s" · "12m" · "2h 15m" · "3d 6h" (unit-neutral) */
+const fmtLeft = (s: number): string => {
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  if (h < 24) return rm ? `${h}h ${rm}m` : `${h}h`;
+  const d = Math.floor(h / 24);
+  const rh = h % 24;
+  return rh ? `${d}d ${rh}h` : `${d}d`;
+};
 
 // ─── Telegram message builders (channel language: Vietnamese) ────────────────
 
@@ -606,21 +619,21 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
           </label>
           <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.cycle")}>
             <span className="mr-0.5 text-[11px] text-zinc-500">{t(lang, "auto.cfg.cycle")}</span>
-            {CYCLES.map((m) => (
+            {CYCLE_CHOICES.map((c) => (
               <button
-                key={m}
+                key={c.m}
                 type="button"
-                onClick={() => updateCfg({ cycleMin: m })}
+                onClick={() => updateCfg({ cycleMin: c.m })}
                 className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
-                  cfg.cycleMin === m
+                  cfg.cycleMin === c.m
                     ? "border-teal-700 bg-teal-950/40 text-teal-300"
                     : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
                 }`}
               >
-                {m}
+                {c.label}
               </button>
             ))}
-            <span className="text-[11px] text-zinc-600">{t(lang, "auto.cfg.cycleUnit")}</span>
+            {cfg.cycleMin < 60 && <span className="text-[11px] text-zinc-600">{t(lang, "auto.cfg.cycleUnit")}</span>}
           </div>
           <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.cooldown")}>
             <span className="mr-0.5 text-[11px] text-zinc-500">{t(lang, "auto.cfg.cooldown")}</span>
@@ -767,7 +780,10 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
         )}
         {cfg.on && countdown != null && (
           <p className="text-[11px] text-zinc-500">
-            {t(lang, "auto.cycle.next", { s: countdown })} {status && <span className="font-mono text-zinc-400">· {status}</span>}
+            {countdown < 120
+              ? t(lang, "auto.cycle.next", { s: countdown })
+              : t(lang, "auto.cycle.nextH", { t: fmtLeft(countdown) })}
+            {status && <span className="font-mono text-zinc-400">· {status}</span>}
           </p>
         )}
         {!cfg.on && status && <p className="font-mono text-[11px] text-zinc-500">{status}</p>}

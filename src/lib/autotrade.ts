@@ -455,6 +455,18 @@ export interface AutoConfig {
 export const AUTO_DEFAULTS: AutoConfig = { on: false, capital: 1000, cycleMin: 5, minAuc: 0.55, minAcc: 55, cooldownMin: 30, statHourly: true, statDaily: true };
 export const COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
 
+/** auto-trade rescan cycle choices — minutes + display label ("1w" = 1 tuần) */
+export const CYCLE_CHOICES = [
+  { m: 5, label: "5" },
+  { m: 10, label: "10" },
+  { m: 15, label: "15" },
+  { m: 30, label: "30" },
+  { m: 60, label: "1h" },
+  { m: 240, label: "4h" },
+  { m: 1440, label: "1d" },
+  { m: 10080, label: "1w" },
+] as const;
+
 export function loadAutoConfig(): AutoConfig {
   try {
     const raw = localStorage.getItem(AUTO_LS_KEY);
@@ -463,7 +475,7 @@ export function loadAutoConfig(): AutoConfig {
     return {
       on: p.on === true,
       capital: typeof p.capital === "number" && p.capital > 0 ? p.capital : AUTO_DEFAULTS.capital,
-      cycleMin: [5, 10, 15, 30].includes(p.cycleMin as number) ? (p.cycleMin as number) : AUTO_DEFAULTS.cycleMin,
+      cycleMin: CYCLE_CHOICES.some((c) => c.m === p.cycleMin) ? (p.cycleMin as number) : AUTO_DEFAULTS.cycleMin,
       minAuc: typeof p.minAuc === "number" ? Math.min(0.8, Math.max(0.5, p.minAuc)) : AUTO_DEFAULTS.minAuc,
       minAcc: typeof p.minAcc === "number" ? Math.min(80, Math.max(50, p.minAcc)) : AUTO_DEFAULTS.minAcc,
       cooldownMin: COOLDOWN_CHOICES.includes(p.cooldownMin as 0 | 15 | 30 | 60)
