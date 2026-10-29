@@ -23,7 +23,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtCompact } from "@/lib/market";
-import { fetchRunCount, fetchRuns, markApplied, resolveBatch, saveRun, saveSuggestion, type RunRow } from "@/lib/history";
+import { fetchRunCount, fetchRuns, markApplied, resolveBatch, saveRun, saveSuggestion, type RunRow, type SuggestionRow } from "@/lib/history";
 import { fetchKlines, scoreOf, sendTelegram } from "@/lib/autotrade";
 import { fmtPct, fmtPrice, fmtTime, symbolLabel, t, type Lang } from "@/lib/i18n";
 import { kpiFrom, papersFrom } from "@/lib/papers";
@@ -73,7 +73,7 @@ async function persistXgbResult(
   sym: string,
   itv: string,
   ks: Kline[],
-): Promise<[boolean, boolean]> {
+): Promise<[SuggestionRow | null, RunRow | null]> {
   const entryPrice = ks.length >= 2 ? ks[ks.length - 2].c : 0;
   return Promise.all([
     saveSuggestion({

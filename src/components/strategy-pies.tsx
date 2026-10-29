@@ -100,12 +100,13 @@ export function StrategyPies({ lang, klines, leverage }: Props) {
       const res = papersFrom(klines, signals, raw.sma, "pies", "pies", cfg.slPct, cfg.tpPct, cfg.leverage, cfg.smaFilter);
       const k = kpiFrom(res.papers);
       const closed = res.papers.filter((x) => x.status === "closed");
-      const slices: Slice[] = [
+      const allSlices: Slice[] = [
         { key: "tp", n: closed.filter((x) => x.exitKind === "tp" && !x.liquidated).length },
         { key: "sl", n: closed.filter((x) => x.exitKind === "sl" && !x.liquidated).length },
         { key: "liq", n: closed.filter((x) => x.liquidated).length },
         { key: "flip", n: closed.filter((x) => x.exitKind === "flip").length },
-      ].filter((s) => s.n > 0);
+      ];
+      const slices = allSlices.filter((s) => s.n > 0);
       return { key: p.key, k, slices };
     });
   }, [klines, leverage]);

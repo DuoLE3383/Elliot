@@ -254,7 +254,7 @@ export function SuggestionHistory({ lang, symbol, interval, refreshKey }: Props)
                     <tr key={s.id} className="text-zinc-300 hover:bg-zinc-900/70">
                       <td className="whitespace-nowrap px-3 py-2 text-zinc-400">
                         {fmtTime(new Date(s.createdAt).getTime(), lang)}
-                        {s.applied && <Database className="ml-1.5 inline h-3 w-3 text-teal-500" title={t(lang, "sg.appliedBadge")} />}
+                        {s.applied && <span title={t(lang, "sg.appliedBadge")}><Database className="ml-1.5 inline h-3 w-3 text-teal-500" /></span>}
                       </td>
                       {scope === "all" && (
                         <td className="whitespace-nowrap px-3 py-2 font-mono text-zinc-300">

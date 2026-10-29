@@ -29,6 +29,7 @@ import {
   telegramSaveChat,
   telegramStatus,
   AUTO_DEFAULTS,
+  type AutoConfig,
   type AutoState,
   type AutoTradeRow,
   type ComboStat,

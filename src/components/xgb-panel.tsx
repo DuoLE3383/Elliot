@@ -269,7 +269,7 @@ export function XgbPanel({ lang, candles, busy, progress, result, stale, runs, a
                   >
                     Lv{r.params?.lv ?? 0}
                   </span>
-                  {r.applied && <CheckCircle2 className="h-3 w-3 shrink-0 text-teal-500" title={t(lang, "xgb.run.applied")} />}
+                  {r.applied && <span title={t(lang, "xgb.run.applied")}><CheckCircle2 className="h-3 w-3 shrink-0 text-teal-500" /></span>}
                 </div>
               ))}
             </div>
