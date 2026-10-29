@@ -1,26 +1,27 @@
 // ─── /api/telegram — relay notifications to the user's Telegram channel ──────
-// GET  → { configured, chatId, source } — bot token + effective chat id
+// GET  → { configured, chatId, source, tokenSource } — effective wiring
 // POST { text } → sendMessage to the effective channel (runtime store → .env)
 
 import { NextRequest, NextResponse } from "next/server";
-import { effectiveChatId, tgSendMessage } from "@/lib/telegram-store";
+import { effectiveChatId, effectiveToken, tgSendMessage } from "@/lib/telegram-store";
 
 export const dynamic = "force-dynamic";
 
-const TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
-
 export async function GET() {
   const chat = effectiveChatId();
+  const tok = effectiveToken();
   return NextResponse.json({
-    configured: Boolean(TOKEN && chat.id),
+    configured: Boolean(tok.token && chat.id),
     chatId: chat.id,
     source: chat.source,
+    tokenSource: tok.source,
   });
 }
 
 export async function POST(req: NextRequest) {
+  const tok = effectiveToken();
   const chat = effectiveChatId();
-  if (!TOKEN || !chat.id) {
+  if (!tok.token || !chat.id) {
     return NextResponse.json({ error: "telegram_not_configured" }, { status: 503 });
   }
   let body: Record<string, unknown>;
@@ -38,7 +39,7 @@ export async function POST(req: NextRequest) {
 
   const r = await tgSendMessage(text, parseMode);
   if (r.ok) return NextResponse.json({ ok: true });
-  const configured = Boolean(TOKEN && effectiveChatId().id);
+  const configured = Boolean(effectiveToken().token && effectiveChatId().id);
   if (!configured) {
     return NextResponse.json({ error: "telegram_not_configured" }, { status: 503 });
   }

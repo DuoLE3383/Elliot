@@ -27,6 +27,7 @@ import {
   telegramConfigured,
   telegramDiscover,
   telegramSaveChat,
+  telegramSaveToken,
   telegramStatus,
   AUTO_DEFAULTS,
   type AutoConfig,
@@ -39,7 +40,7 @@ import {
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
 import type { EngineSettings, Ticker } from "@/lib/types";
 import { INTERVALS } from "@/lib/types";
-import { Bot, ScanLine, Send, Square } from "lucide-react";
+import { Bot, KeyRound, ScanLine, Send, Square } from "lucide-react";
 
 interface Props {
   lang: Lang;
@@ -176,6 +177,11 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const [tgHelp, setTgHelp] = useState(false); // step-by-step connect guide (chat not found)
   const [tgChatId, setTgChatId] = useState<string | null>(null); // effective channel
   const [tgChats, setTgChats] = useState<TgChat[] | null>(null); // discover result
+  const [tgTokenOpen, setTgTokenOpen] = useState(false); // paste-your-own-token box
+  const [tgTokenInput, setTgTokenInput] = useState("");
+  const [tgSavingToken, setTgSavingToken] = useState(false);
+  const [tgBotUser, setTgBotUser] = useState<string | null>(null); // @username from getMe
+  const [tgTokenSrc, setTgTokenSrc] = useState<"store" | "env" | null>(null);
   const [tgDiscovering, setTgDiscovering] = useState(false);
   const [tgSaving, setTgSaving] = useState(false);
   const [status, setStatus] = useState<string>("");
@@ -277,7 +283,11 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   useEffect(() => {
     void refreshAuto();
     void telegramConfigured().then((ok) => mountedRef.current && setTgConfigured(ok));
-    void telegramStatus().then((s) => mountedRef.current && setTgChatId(s.chatId));
+    void telegramStatus().then((s) => {
+      if (!mountedRef.current) return;
+      setTgChatId(s.chatId);
+      setTgTokenSrc(s.tokenSource ?? null);
+    });
     // start clocks at the CURRENT hour/day so the first digest goes out at the
     // next boundary, not the second the app opens
     const now = new Date();
@@ -529,9 +539,16 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     } else {
       setTgState("fail");
       setTgDetail(r.detail ?? null);
+      if (/telegram_not_configured/i.test(r.detail ?? "")) {
+        setTgTokenOpen(true); // no token yet → show the paste-token box first
+      }
       if (/chat not found/i.test(r.detail ?? "")) {
         setTgHelp(true); // persistent in-panel guide — a toast disappears too fast
-        void telegramStatus().then((s) => mountedRef.current && setTgChatId(s.chatId)); // refresh possibly-stale channel label
+        void telegramStatus().then((s) => {
+          if (!mountedRef.current) return;
+          setTgChatId(s.chatId);
+          setTgTokenSrc(s.tokenSource ?? null);
+        }); // refresh possibly-stale channel label
       }
       pushToast({
         kind: "error",
@@ -549,8 +566,32 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     if (mountedRef.current) {
       setTgChats(d.chats);
       if (d.bot) setTgDetail(d.bot);
+      if (d.bot) setTgBotUser(d.bot); // confirm the username the channel admin must search
     }
     setTgDiscovering(false);
+  };
+
+  // validate + persist a pasted bot token (getMe checked server-side first),
+  // then immediately probe the wiring so the guide can take over
+  const saveToken = async () => {
+    const token = tgTokenInput.trim();
+    if (!token || tgSavingToken) return;
+    setTgSavingToken(true);
+    setTgDetail(null);
+    const r = await telegramSaveToken(token);
+    if (!mountedRef.current) return;
+    setTgSavingToken(false);
+    if (r.ok) {
+      setTgBotUser(r.bot ?? null);
+      setTgTokenSrc("store");
+      setTgConfigured(true);
+      setTgTokenInput("");
+      pushToast({ kind: "xgb", text: t(lang, "auto.tg.token.saved", { bot: r.bot ?? "?" }) });
+      void checkTg(); // will succeed or open the channel guide (chat not found)
+    } else {
+      setTgDetail(t(lang, "auto.tg.token.bad", { detail: r.detail ?? "?" }));
+      pushToast({ kind: "error", text: t(lang, "auto.tg.token.bad", { detail: r.detail ?? "?" }) });
+    }
   };
 
   // persist the picked chat id, then re-test immediately
@@ -771,12 +812,57 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
             <Send className="mr-1.5 h-3 w-3" />
             {t(lang, "auto.tg.check")}
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800"
+            onClick={() => setTgTokenOpen((v) => !v)}
+          >
+            <KeyRound className="mr-1.5 h-3 w-3" />
+            {tgTokenSrc ? t(lang, "auto.tg.token.change") : t(lang, "auto.tg.token.open")}
+          </Button>
           {scanAt != null && !scanning && (
             <span className="text-[11px] text-zinc-600">
               {t(lang, "auto.scan.ago", { time: new Date(scanAt).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit" }) })}
             </span>
           )}
         </div>
+
+        {/* telegram bot-token setup — paste your own token, no .env edit */}
+        {tgTokenOpen && (
+          <div className="space-y-2 rounded-lg border border-amber-800/50 bg-amber-950/20 p-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-1.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-300">{t(lang, "auto.tg.token.title")}</p>
+              {tgTokenSrc && (
+                <span className="font-mono text-[10px] text-zinc-500">
+                  {t(lang, "auto.tg.token.set", { src: tgTokenSrc === "store" ? "runtime" : ".env" })}
+                  {tgBotUser && <span className="ml-1 text-teal-400">@{tgBotUser}</span>}
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] leading-relaxed text-zinc-400">{t(lang, "auto.tg.token.how")}</p>
+            <div className="flex items-center gap-1.5">
+              <Input
+                type="password"
+                autoComplete="off"
+                className="h-8 flex-1 border-zinc-700 bg-zinc-950/60 font-mono text-[11px] text-zinc-200 placeholder:text-zinc-600"
+                placeholder={t(lang, "auto.tg.token.ph")}
+                value={tgTokenInput}
+                onChange={(e) => setTgTokenInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && void saveToken()}
+              />
+              <Button
+                size="sm"
+                className="h-8 shrink-0 bg-amber-600 text-zinc-950 hover:bg-amber-500 disabled:opacity-50"
+                disabled={tgSavingToken || tgTokenInput.trim().length === 0}
+                onClick={() => void saveToken()}
+              >
+                {tgSavingToken ? t(lang, "auto.tg.token.saving") : t(lang, "auto.tg.token.save")}
+              </Button>
+            </div>
+            {tgDetail && <p className="font-mono text-[10px] text-zinc-500">{tgDetail}</p>}
+          </div>
+        )}
 
         {/* telegram connect guide — appears when the channel is unreachable */}
         {tgHelp && (

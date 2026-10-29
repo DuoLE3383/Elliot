@@ -364,6 +364,7 @@ export interface TgStatus {
   configured: boolean;
   chatId: string | null;
   source: "store" | "env" | null;
+  tokenSource?: "store" | "env" | null;
 }
 
 export interface TgChat {
@@ -385,10 +386,42 @@ export interface TgDiscover {
 export async function telegramStatus(): Promise<TgStatus> {
   try {
     const res = await fetch("/api/telegram");
-    if (!res.ok) return { configured: false, chatId: null, source: null };
+    if (!res.ok) return { configured: false, chatId: null, source: null, tokenSource: null };
     return (await res.json()) as TgStatus;
   } catch {
-    return { configured: false, chatId: null, source: null };
+    return { configured: false, chatId: null, source: null, tokenSource: null };
+  }
+}
+
+export interface TgTokenSave {
+  ok: boolean;
+  bot?: string | null;
+  detail?: string;
+}
+
+/** Validate + persist a bot token at runtime (getMe checked server-side first). */
+export async function telegramSaveToken(token: string): Promise<TgTokenSave> {
+  try {
+    const res = await fetch("/api/telegram/token", {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ token }),
+    });
+    const json = (await res.json().catch(() => null)) as { ok?: boolean; bot?: string | null; detail?: string } | null;
+    if (!res.ok || !json?.ok) return { ok: false, detail: json?.detail ?? `HTTP ${res.status}` };
+    return { ok: true, bot: json.bot ?? null };
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : "fetch failed" };
+  }
+}
+
+/** Remove the runtime token override (falls back to .env, if any). */
+export async function telegramClearToken(): Promise<boolean> {
+  try {
+    const res = await fetch("/api/telegram/token", { method: "DELETE" });
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 

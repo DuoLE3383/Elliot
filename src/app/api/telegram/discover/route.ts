@@ -6,11 +6,9 @@
 //        edit / server restart needed.
 
 import { NextRequest, NextResponse } from "next/server";
-import { effectiveChatId, setStoredChatId } from "@/lib/telegram-store";
+import { effectiveChatId, effectiveToken, setStoredChatId } from "@/lib/telegram-store";
 
 export const dynamic = "force-dynamic";
-
-const TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
 
 interface SeenChat {
   id: string;
@@ -36,14 +34,15 @@ function chatIdStr(chat: Record<string, unknown>): string | null {
 
 export async function GET() {
   const chat = effectiveChatId();
-  if (!TOKEN) {
-    return NextResponse.json({ ok: false, detail: "no token", chats: [], chatId: chat.id, source: chat.source });
+  const tok = effectiveToken();
+  if (!tok.token) {
+    return NextResponse.json({ ok: false, detail: "no token", bot: null, chats: [], chatId: chat.id, source: chat.source, tokenSource: tok.source });
   }
 
   try {
     const [meRes, upRes] = await Promise.all([
-      fetch(`https://api.telegram.org/bot${TOKEN}/getMe`, { signal: AbortSignal.timeout(8000) }),
-      fetch(`https://api.telegram.org/bot${TOKEN}/getUpdates?limit=100`, { signal: AbortSignal.timeout(8000) }),
+      fetch(`https://api.telegram.org/bot${tok.token}/getMe`, { signal: AbortSignal.timeout(8000) }),
+      fetch(`https://api.telegram.org/bot${tok.token}/getUpdates?limit=100`, { signal: AbortSignal.timeout(8000) }),
     ]);
     const me = (await meRes.json().catch(() => null)) as { ok?: boolean; result?: { username?: string } } | null;
     const ups = (await upRes.json().catch(() => null)) as {
@@ -55,7 +54,7 @@ export async function GET() {
     const bot = me?.ok ? (me.result?.username ?? null) : null;
     if (!ups || ups.ok !== true) {
       return NextResponse.json(
-        { ok: false, detail: ups?.description ?? "getUpdates failed", bot, chats: [], chatId: chat.id, source: chat.source },
+        { ok: false, detail: ups?.description ?? "getUpdates failed", bot, chats: [], chatId: chat.id, source: chat.source, tokenSource: tok.source },
         { status: 502 },
       );
     }
@@ -81,10 +80,11 @@ export async function GET() {
       chats: [...seen.values()],
       chatId: chat.id,
       source: chat.source,
+      tokenSource: tok.source,
     });
   } catch (e) {
     return NextResponse.json(
-      { ok: false, detail: e instanceof Error ? e.message : "fetch failed", chats: [], chatId: chat.id, source: chat.source },
+      { ok: false, detail: e instanceof Error ? e.message : "fetch failed", chats: [], chatId: chat.id, source: chat.source, tokenSource: tok.source },
       { status: 502 },
     );
   }

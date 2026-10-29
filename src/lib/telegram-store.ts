@@ -1,39 +1,66 @@
-// ─── Telegram runtime chat-id store (server-only) ─────────────────────────────
-// The chat id lives in .env as a default, but the user can override it at
-// runtime from the Auto panel ("Tìm kênh" → "Dùng kênh này") without touching
-// .env or restarting the dev server. The override is persisted to
-// db/telegram.json so it survives restarts too.
+// ─── Telegram runtime settings store (server-only) ─────────────────────────────
+// Bot token + chat id live in .env as defaults, but the user can override both
+// at runtime from the Auto panel ("Token" → paste token; "Tìm kênh" → "Dùng kênh
+// này") without touching .env or restarting the dev server. Overrides persist
+// to db/telegram.json (git-ignored) so they survive restarts too.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
 
 const FILE = path.join(process.cwd(), "db", "telegram.json");
 
-export function getStoredChatId(): string | null {
+interface TgStore {
+  chatId?: string;
+  botToken?: string;
+}
+
+function readStore(): TgStore {
   try {
-    if (!existsSync(FILE)) return null;
-    const json = JSON.parse(readFileSync(FILE, "utf8")) as { chatId?: string };
-    return typeof json.chatId === "string" && json.chatId ? json.chatId : null;
+    if (!existsSync(FILE)) return {};
+    const json = JSON.parse(readFileSync(FILE, "utf8")) as TgStore;
+    return json && typeof json === "object" ? json : {};
   } catch {
-    return null;
+    return {};
   }
+}
+
+function writeStore(patch: Partial<TgStore>): void {
+  try {
+    mkdirSync(path.dirname(FILE), { recursive: true });
+    const next = { ...readStore(), ...patch };
+    for (const k of Object.keys(next) as Array<keyof TgStore>) {
+      if (next[k] == null || next[k] === "") delete next[k];
+    }
+    writeFileSync(FILE, JSON.stringify(next, null, 2) + "\n", "utf8");
+  } catch {
+    // best-effort — env fallback still works
+  }
+}
+
+export function getStoredChatId(): string | null {
+  const id = readStore().chatId;
+  return typeof id === "string" && id ? id : null;
 }
 
 export function setStoredChatId(id: string): void {
-  try {
-    mkdirSync(path.dirname(FILE), { recursive: true });
-    writeFileSync(FILE, JSON.stringify({ chatId: id }, null, 2) + "\n", "utf8");
-  } catch {
-    // best-effort — the send fallback to env still works
-  }
+  writeStore({ chatId: id });
 }
 
 export function clearStoredChatId(): void {
-  try {
-    if (existsSync(FILE)) writeFileSync(FILE, JSON.stringify({}, null, 2) + "\n", "utf8");
-  } catch {
-    // ignore
-  }
+  writeStore({ chatId: "" });
+}
+
+export function getStoredToken(): string | null {
+  const t = readStore().botToken;
+  return typeof t === "string" && t ? t : null;
+}
+
+export function setStoredToken(token: string): void {
+  writeStore({ botToken: token.trim() });
+}
+
+export function clearStoredToken(): void {
+  writeStore({ botToken: "" });
 }
 
 /** Effective chat id: runtime override first, then the .env default. */
@@ -45,18 +72,26 @@ export function effectiveChatId(): { id: string | null; source: "store" | "env" 
   return { id: null, source: null };
 }
 
+/** Effective bot token: runtime override first, then the .env default. */
+export function effectiveToken(): { token: string | null; source: "store" | "env" | null } {
+  const stored = getStoredToken();
+  if (stored) return { token: stored, source: "store" };
+  const env = process.env.TELEGRAM_BOT_TOKEN ?? "";
+  if (env) return { token: env, source: "env" };
+  return { token: null, source: null };
+}
+
 // ─── Server-side sendMessage core (shared) ────────────────────────────────────
 // Used by the /api/telegram relay AND the /api/autotrade/push digest sender so
 // both go through the same token / chat-id resolution / error mapping.
 
-const TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
-
 /** Send one message to the effective channel. Resolves {ok,detail}, never throws. */
 export async function tgSendMessage(text: string, parseMode?: "HTML"): Promise<{ ok: boolean; detail?: string }> {
+  const tok = effectiveToken();
   const chat = effectiveChatId();
-  if (!TOKEN || !chat.id) return { ok: false, detail: "telegram_not_configured" };
+  if (!tok.token || !chat.id) return { ok: false, detail: "telegram_not_configured" };
   try {
-    const res = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${tok.token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: chat.id, text, parse_mode: parseMode, disable_web_page_preview: true }),
