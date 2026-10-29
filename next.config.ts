@@ -14,6 +14,13 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  // Belt & suspenders with images.unoptimized: keep sharp + its platform-native
+  // @img/* optional packages out of the standalone output. Some CI hosts
+  // (bun install --production) don't install every @img/* platform variant, and
+  // the tracer then dies with `ENOENT copyfile …/@img/sharp-libvips-*/README.md`.
+  outputFileTracingExcludes: {
+    "*": ["./node_modules/sharp/**", "./node_modules/@img/**"],
+  },
 };
 
 export default nextConfig;
