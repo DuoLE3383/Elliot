@@ -186,6 +186,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const [tgDetail, setTgDetail] = useState<string | null>(null);
   const [tgHelp, setTgHelp] = useState(false); // step-by-step connect guide (chat not found)
   const [tgChatId, setTgChatId] = useState<string | null>(null); // effective channel
+  const [tgChatSrc, setTgChatSrc] = useState<"store" | "env" | null>(null); // where the channel id came from
   const [tgChats, setTgChats] = useState<TgChat[] | null>(null); // discover result
   const [tgTokenOpen, setTgTokenOpen] = useState(false); // paste-your-own-token box
   const [tgTokenInput, setTgTokenInput] = useState("");
@@ -311,6 +312,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     void telegramStatus().then((s) => {
       if (!mountedRef.current) return;
       setTgChatId(s.chatId);
+      setTgChatSrc(s.source ?? null);
       setTgTokenSrc(s.tokenSource ?? null);
       setTgVerified(s.verified ?? null);
       if (s.bot) setTgBotUser(s.bot);
@@ -672,6 +674,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
         void telegramStatus().then((s) => {
           if (!mountedRef.current) return;
           setTgChatId(s.chatId);
+          setTgChatSrc(s.source ?? null);
           setTgTokenSrc(s.tokenSource ?? null);
         }); // refresh possibly-stale channel label
       }
@@ -804,6 +807,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
         void telegramStatus().then((s) => {
           if (!mountedRef.current) return;
           setTgChatId(s.chatId);
+          setTgChatSrc(s.source ?? null);
           setTgTokenSrc(s.tokenSource ?? null);
         });
         pushToast({ kind: "entry", text: t(lang, "auto.tg.start.done", { id: r.chatId ?? "?" }) });
@@ -843,6 +847,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     const saved = await telegramSaveChat(id);
     if (saved && mountedRef.current) {
       setTgChatId(id);
+      setTgChatSrc("store");
       pushToast({ kind: "xgb", text: t(lang, "auto.tg.help.saved", { id }) });
       setTgSaving(false);
       void checkTg();
@@ -1284,6 +1289,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
                 {tgSavingToken ? t(lang, "auto.tg.token.saving") : t(lang, "auto.tg.token.save")}
               </Button>
             </div>
+            <p className="text-[10px] leading-relaxed text-zinc-500">{t(lang, "auto.tg.env.hint")}</p>
             {tgBotUser && (
               <a
                 href={`https://t.me/${tgBotUser}`}
@@ -1396,7 +1402,14 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
           <div className="space-y-2 rounded-lg border border-teal-800/50 bg-teal-950/20 p-2.5">
             <div className="flex flex-wrap items-center justify-between gap-1.5">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-teal-300">{t(lang, "auto.tg.help.title")}</p>
-              {tgChatId && <span className="font-mono text-[10px] text-zinc-500">{t(lang, "auto.tg.current", { id: tgChatId })}</span>}
+              <span className="flex items-center gap-1.5">
+                {tgChatId && <span className="font-mono text-[10px] text-zinc-500">{t(lang, "auto.tg.current", { id: tgChatId })}</span>}
+                {tgChatSrc === "env" && (
+                  <span className="rounded bg-sky-950 px-1.5 py-0.5 font-mono text-[9px] text-sky-400" title={t(lang, "auto.tg.env.hint")}>
+                    .env
+                  </span>
+                )}
+              </span>
             </div>
             <ol className="list-decimal space-y-0.5 pl-4 text-[11px] leading-relaxed text-zinc-400">
               <li>{t(lang, "auto.tg.help.s1")}</li>

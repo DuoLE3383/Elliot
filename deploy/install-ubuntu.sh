@@ -72,6 +72,7 @@ DATA_DIR="$DATA_DIR"
 # Telegram (để trống thì nhập sau trong app → panel Auto → Token bot Telegram)
 TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
+TELEGRAM_API_BASE="${TELEGRAM_API_BASE:-}"
 EOF
   chown "$SERVICE_USER:$SERVICE_USER" "$APP_DIR/.env"
   chmod 600 "$APP_DIR/.env"
@@ -129,5 +130,10 @@ cat <<EOF
 
   Update sau này:  sudo bash $APP_DIR/deploy/update.sh
   Log:             journalctl -u elliott -f
+
+  Telegram — nhét cứng token + kênh vào .env (1 lệnh, khỏi dán trong app):
+    sudo bash $APP_DIR/deploy/set-telegram-env.sh "<BOT_TOKEN>" "<CHAT_ID>"
+  (lấy CHAT_ID: thêm bot làm admin kênh → forward 1 bài trong kênh cho bot
+   → panel Auto → "Tìm kênh" → id -100… hiện ra)
 ════════════════════════════════════════════════════════════════════════════
 EOF

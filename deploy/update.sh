@@ -27,6 +27,16 @@ cd "$APP_DIR"
 sudo -u "$SERVICE_USER" git fetch origin "$BRANCH"
 sudo -u "$SERVICE_USER" git reset --hard "origin/$BRANCH"
 
+# .env sống ngoài git — đảm bảo đủ key Telegram (giữ nguyên giá trị cũ nếu có)
+if [[ ! -f "$APP_DIR/.env" ]]; then
+  log "   .env thiếu — tạo mới"
+  printf 'DATABASE_URL="file:%s/custom.db"\nDATA_DIR="%s"\n' "$DATA_DIR" "$DATA_DIR" > "$APP_DIR/.env"
+fi
+for K in TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID TELEGRAM_API_BASE; do
+  grep -q "^$K=" "$APP_DIR/.env" || echo "$K=" >> "$APP_DIR/.env"
+done
+chmod 600 "$APP_DIR/.env"
+
 log "2/4 Cài deps mới (nếu package.json thay đổi)"
 sudo -u "$SERVICE_USER" -E env "PATH=$PATH" "HOME=/home/$SERVICE_USER" bun install
 

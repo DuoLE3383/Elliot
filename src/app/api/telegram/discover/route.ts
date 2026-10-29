@@ -68,10 +68,21 @@ export async function GET() {
     const updates = (ups.json.result ?? []) as Array<{
       my_chat_member?: { chat?: Record<string, unknown> };
       channel_post?: { chat?: Record<string, unknown> };
-      message?: { chat?: Record<string, unknown> };
+      message?: {
+        chat?: Record<string, unknown>;
+        /** user forwarded a post from their channel into the bot chat →
+            forward_from_chat reveals the REAL channel id (easiest way to
+            learn the -100… id to paste into TELEGRAM_CHAT_ID) */
+        forward_from_chat?: Record<string, unknown>;
+      };
     }>;
     for (const u of updates) {
-      for (const wrapped of [u.my_chat_member?.chat, u.channel_post?.chat, u.message?.chat]) {
+      for (const wrapped of [
+        u.my_chat_member?.chat,
+        u.channel_post?.chat,
+        u.message?.chat,
+        u.message?.forward_from_chat,
+      ]) {
         if (!wrapped) continue;
         const id = chatIdStr(wrapped);
         if (!id) continue;

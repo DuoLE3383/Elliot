@@ -54,7 +54,9 @@ sudo systemctl restart cloudflared
 ### ⚠️ Lưu ý vận hành quan trọng
 
 - **Auto-trade (dry-run) chạy trong tab trình duyệt**, không phải trên server: engine quét + train XGB chạy client-side, server chỉ lưu trades + gửi Telegram. Muốn auto chạy 24/7 phải **giữ mở 1 tab** (desktop/điện thoại bất kỳ). Đây là design hiện tại — nếu muốn engine chạy server-side (không cần mở tab) là một tính năng mới cần triển khai thêm.
-- Chỉ nhập Telegram token trong **panel Auto → Token bot Telegram** (lưu runtime, không cần sửa .env).
+- **Telegram — 2 cách cấu hình, chọn 1**:
+  - *Nhét cứng vào .env (khuyên dùng, 1 lệnh)*: `sudo bash deploy/set-telegram-env.sh "<BOT_TOKEN>" "<CHAT_ID>"` — ghi `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` vào `/opt/elliott/.env`, tự restart, tự verify. Xem cấu hình hiện tại: `sudo bash deploy/set-telegram-env.sh` (không đối số). Lấy CHAT_ID: thêm bot làm admin kênh → **forward 1 bài trong kênh cho bot** → panel Auto → "Tìm kênh" → id `-100…` hiện ra (forward được nhận diện từ bản 10/2025).
+  - *Dán trong app (runtime, không cần restart)*: panel Auto → Token bot Telegram — lưu vào `data/telegram.json`, ghi đè lên env.
 - VPS cấu hình tối thiểu thoải mái: 1 vCPU / 1 GB RAM (build tốn ~500 MB, có thể build trên máy khác rồi rsync `.next/standalone`).
 
 ## 2. Build pipeline (đã fix lỗi CI)
@@ -77,7 +79,7 @@ prisma generate            # tạo .prisma/client — BẮT BUỘC trên máy CI
 - **Build command:** `bun run build`
 - **Start command:** `bun run start` (hoặc `NODE_ENV=production bun .next/standalone/server.js`)
 - **Env bắt buộc:** `DATABASE_URL="file:/app/data/custom.db"` (đường dẫn tuyệt đối trên disk bền vững; kèm `DATA_DIR=/app/data` để telegram.json/autostat.json cùng chỗ)
-- **Env tùy chọn:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (hoặc nhập trong app → panel Auto → Token)
+- **Env Telegram (nhét cứng):** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_API_BASE` (tùy chọn — proxy chống 503, xem §6b). Env là fallback: giá trị dán trong panel Auto (runtime) vẫn thắng nếu có cả hai.
 - **Dữ liệu:** mount persistent volume cho thư mục data; platform rebuild không mất lịch sử trades
 
 ## 4. Docker (chạy độc lập bất kỳ đâu)
