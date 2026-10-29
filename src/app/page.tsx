@@ -21,7 +21,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtCompact } from "@/lib/market";
-import { fetchRuns, markApplied, resolveBatch, saveRun, saveSuggestion, type RunRow } from "@/lib/history";
+import { fetchRunCount, fetchRuns, markApplied, resolveBatch, saveRun, saveSuggestion, type RunRow } from "@/lib/history";
+import { fetchKlines, scoreOf, sendTelegram } from "@/lib/autotrade";
 import { fmtPct, fmtPrice, fmtTime, symbolLabel, t, type Lang } from "@/lib/i18n";
 import { kpiFrom, papersFrom } from "@/lib/papers";
 import { signalsFrom } from "@/lib/signals";
@@ -54,6 +55,57 @@ interface Toast {
 }
 
 const QUOTE_RE = /(USDT|USDC|FDUSD|TUSD|BUSD|BTC|ETH)$/;
+
+interface AllTrainState {
+  busy: boolean;
+  done: number;
+  total: number;
+  current: string;
+  saved: number;
+  best: { symbol: string; interval: string; acc: number; auc: number; score: number } | null;
+}
+
+/** Persist one train result (Suggestion + FinetuneRun) — shared by manual train and train-all. */
+async function persistXgbResult(
+  res: XgbResult,
+  sym: string,
+  itv: string,
+  ks: Kline[],
+): Promise<[boolean, boolean]> {
+  const entryPrice = ks.length >= 2 ? ks[ks.length - 2].c : 0;
+  return Promise.all([
+    saveSuggestion({
+      symbol: sym,
+      interval: itv,
+      bias: res.suggestion.bias,
+      prob: res.suggestion.prob,
+      confidence: res.suggestion.confidence,
+      slPct: res.suggestion.slPct,
+      tpPct: res.suggestion.tpPct,
+      atrKey: res.suggestion.atrKey,
+      atrPeriod: res.suggestion.atrPeriod,
+      smaFilter: res.suggestion.smaFilter,
+      smaPeriod: res.suggestion.smaPeriod,
+      acc: res.acc,
+      auc: res.auc,
+      horizonBars: res.horizon,
+      entryPrice,
+    }),
+    saveRun({
+      symbol: sym,
+      interval: itv,
+      samples: res.samples,
+      valSamples: res.valSamples,
+      acc: res.acc,
+      auc: res.auc,
+      logloss: res.logloss,
+      trees: res.trees,
+      horizon: res.horizon,
+      importance: res.importance,
+      params: { ...res.params, lv: res.difficulty, marginAtr: Number(res.marginAtr.toFixed(3)) },
+    }),
+  ]);
+}
 
 /** "pepe" → "PEPEUSDT", "PEPEUSDT" → "PEPEUSDT" */
 const normalizePair = (raw: string): string => {
@@ -122,6 +174,9 @@ export default function Home() {
   const [xgbRunId, setXgbRunId] = useState<string | null>(null);
   /** persisted train/finetune runs for the current pair+interval (newest first) */
   const [xgbRuns, setXgbRuns] = useState<RunRow[]>([]);
+  /** progress of a "train ALL pairs × all timeframes" pass (null = idle) */
+  const [allTrain, setAllTrain] = useState<AllTrainState | null>(null);
+  const allTrainBusyRef = useRef(false);
   /** bumped after any DB mutation → history lists reload */
   const [histRefresh, setHistRefresh] = useState(0);
   // ── market context (ticker strip + watchlist sparklines) ────────────────────
@@ -452,7 +507,7 @@ export default function Home() {
    */
   const trainXgb = useCallback(
     async (persist: boolean) => {
-      if (xgbBusy || klines.length < 200) return;
+      if (xgbBusy || allTrainBusyRef.current || klines.length < 200) return;
       setXgbBusy(true);
       setXgbProgress(0);
       try {
@@ -467,39 +522,7 @@ export default function Home() {
         });
         // persist run + suggestion per (pair, interval, time) — outcomes are
         // scored later by resolve-batch once the horizon bars have elapsed
-        const entryPrice = klines.length >= 2 ? klines[klines.length - 2].c : 0;
-        const [saved, runSaved] = await Promise.all([
-          saveSuggestion({
-            symbol,
-            interval,
-            bias: res.suggestion.bias,
-            prob: res.suggestion.prob,
-            confidence: res.suggestion.confidence,
-            slPct: res.suggestion.slPct,
-            tpPct: res.suggestion.tpPct,
-            atrKey: res.suggestion.atrKey,
-            atrPeriod: res.suggestion.atrPeriod,
-            smaFilter: res.suggestion.smaFilter,
-            smaPeriod: res.suggestion.smaPeriod,
-            acc: res.acc,
-            auc: res.auc,
-            horizonBars: res.horizon,
-            entryPrice,
-          }),
-          saveRun({
-            symbol,
-            interval,
-            samples: res.samples,
-            valSamples: res.valSamples,
-            acc: res.acc,
-            auc: res.auc,
-            logloss: res.logloss,
-            trees: res.trees,
-            horizon: res.horizon,
-            importance: res.importance,
-            params: { ...res.params, lv: res.difficulty, marginAtr: Number(res.marginAtr.toFixed(3)) },
-          }),
-        ]);
+        const [saved, runSaved] = await persistXgbResult(res, symbol, interval, klines);
         setXgbSavedId(saved?.id ?? null);
         setXgbRunId(runSaved?.id ?? null);
         pushToast({
@@ -657,6 +680,65 @@ export default function Home() {
     },
     [symbol],
   );
+
+  /**
+   * Train + persist EVERY watched pair × EVERY timeframe in one pass — the
+   * manual "Train" button only covers the current combo. Each combo keeps its
+   * own difficulty level (derived from its own persisted run count), and the
+   * whole batch is reported to the Telegram channel when it finishes.
+   */
+  const trainAllXgb = useCallback(async () => {
+    if (allTrainBusyRef.current || xgbBusy) return;
+    allTrainBusyRef.current = true;
+    const combos = allPairs.length * INTERVALS.length;
+    const init: AllTrainState = { busy: true, done: 0, total: combos, current: "", saved: 0, best: null };
+    setAllTrain(init);
+    let done = 0;
+    let saved = 0;
+    let best: AllTrainState["best"] = null;
+    try {
+      for (const sym of allPairs) {
+        for (const itv of INTERVALS) {
+          setAllTrain({ busy: true, done, total: combos, current: `${sym} ${itv}`, saved, best });
+          try {
+            const ks = await fetchKlines(sym, itv);
+            if (ks.length >= 260) {
+              // each combo grows its OWN difficulty from its own run history
+              const lv = Math.min(MAX_DIFFICULTY, await fetchRunCount(sym, itv));
+              const res = await runXgb(ks, settings, `${sym}-${itv}`, itv, undefined, lv);
+              const [, runSaved] = await persistXgbResult(res, sym, itv, ks);
+              if (runSaved) saved++;
+              const score = scoreOf(res);
+              if (!best || score > best.score) best = { symbol: sym, interval: itv, acc: res.acc, auc: res.auc, score };
+            }
+          } catch {
+            // bad pair / starved dataset → skip this combo, keep going
+          }
+          done++;
+          setAllTrain({ busy: true, done, total: combos, current: `${sym} ${itv}`, saved, best });
+        }
+      }
+    } finally {
+      allTrainBusyRef.current = false;
+      setAllTrain({ busy: false, done, total: combos, current: "", saved, best });
+      pushToast({ kind: "xgb", text: t(lang, "xgb.trainAll.done", { saved: String(saved), total: String(combos) }) });
+      bumpHist();
+    }
+    if (saved > 0) {
+      // channel convention is Vietnamese — matches the scan / open / close messages
+      void sendTelegram(
+        [
+          "🧠 TRAIN TOÀN BỘ XONG",
+          `${allPairs.length} pair × ${INTERVALS.length} khung · đã lưu ${saved}/${combos} combo`,
+          best
+            ? `Tốt nhất: #${best.symbol} ${best.interval} · ACC ${best.acc.toFixed(1)}% · AUC ${best.auc.toFixed(2)} · Điểm ${best.score.toFixed(1)}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      );
+    }
+  }, [xgbBusy, allPairs, settings, lang, pushToast, bumpHist]);
 
   const langLabel = lang === "vi" ? "EN" : "VI";
 
@@ -1029,7 +1111,10 @@ export default function Home() {
                 result={xgb}
                 stale={xgbStale}
                 runs={xgbRuns}
+                allTrain={allTrain}
+                allPairsCount={allPairs.length}
                 onTrain={() => void trainXgb(true)}
+                onTrainAll={() => void trainAllXgb()}
                 onApply={applyXgb}
               />
               <AutoPanel

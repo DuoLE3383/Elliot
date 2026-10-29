@@ -7,8 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
-  bestTradeable,
+  bestTradeableAvoid,
   closeAutoTrade,
+  COOLDOWN_CHOICES,
   fetchAutoState,
   liquidationHit,
   loadAutoConfig,
@@ -22,6 +23,7 @@ import {
   telegramDiscover,
   telegramSaveChat,
   telegramStatus,
+  AUTO_DEFAULTS,
   type AutoState,
   type AutoTradeRow,
   type ScanRow,
@@ -124,6 +126,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const langRef = useRef(lang);
   const busyRef = useRef(false);
   const scanBusyRef = useRef(false);
+  const closingRef = useRef(false);
   const mountedRef = useRef(true);
   const nextAtRef = useRef<number>(0);
 
@@ -167,6 +170,35 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
       return null;
     }
   }, []);
+
+  // mirror for the 15s watcher (no stale closures)
+  const autoRef = useRef<AutoState | null>(null);
+  useEffect(() => {
+    autoRef.current = auto;
+  }, [auto]);
+
+  /** Close an open dry-run position — shared by the cycle and the intra-cycle watcher. */
+  const closeOpen = useCallback(
+    async (open: AutoTradeRow, price: number, kind: "sl" | "tp" | "manual"): Promise<AutoTradeRow | null> => {
+      if (closingRef.current) return null;
+      closingRef.current = true;
+      try {
+        const closed = await closeAutoTrade(open.id, price, kind);
+        if (closed && mountedRef.current) {
+          const st = await refreshAuto(); // stats now include this close
+          pushToast({
+            kind: "flip",
+            text: t(langRef.current, "auto.closed", { pair: closed.symbol, tf: closed.interval, pnl: (closed.pnlPct ?? 0).toFixed(2) }),
+          });
+          void sendTelegram(msgClose(closed, st?.stats.closed ?? 0, st?.stats.winRate ?? 0, st?.stats.netPnlPct ?? 0));
+        }
+        return closed;
+      } finally {
+        closingRef.current = false;
+      }
+    },
+    [refreshAuto, pushToast],
+  );
 
   // initial load — position book + telegram configuration probe
   useEffect(() => {
@@ -219,15 +251,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
           const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
           const liq = liquidationHit(open.side, price, open.entryPrice, open.leverage);
           if (kind || liq) {
-            const closed = await closeAutoTrade(open.id, price, liq ? "sl" : (kind ?? "sl"));
-            if (closed) {
-              pushToast({
-                kind: "flip",
-                text: t(langRef.current, "auto.closed", { pair: closed.symbol, tf: closed.interval, pnl: (closed.pnlPct ?? 0).toFixed(2) }),
-              });
-              void sendTelegram(msgClose(closed, st.stats.closed + 1, st.stats.winRate, st.stats.netPnlPct));
-              await refreshAuto();
-            }
+            await closeOpen(open, price, liq ? "sl" : (kind ?? "sl"));
           } else {
             const roe = roeOf(open.side, open.entryPrice, price, open.leverage);
             setStatus(`${open.symbol} ${open.interval} ${open.side} · ROE ${roe >= 0 ? "+" : ""}${roe.toFixed(2)}%`);
@@ -246,9 +270,9 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
         setStatus(t(langRef.current, "auto.scan.empty"));
         return;
       }
-      const best = bestTradeable(current, c.minAuc, c.minAcc);
+      const { best, allInCooldown } = bestTradeableAvoid(current, c.minAuc, c.minAcc, st.trades, c.cooldownMin);
       if (!best) {
-        setStatus(t(langRef.current, "auto.rank.hint"));
+        setStatus(allInCooldown ? t(langRef.current, "auto.cooldown.all") : t(langRef.current, "auto.rank.hint"));
         return;
       }
       const price = tickersRef.current[best.symbol]?.price ?? 0;
@@ -281,7 +305,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
       busyRef.current = false;
       nextAtRef.current = Date.now() + cfgRef.current.cycleMin * 60_000;
     }
-  }, [doScan, pushToast, refreshAuto]);
+  }, [closeOpen, doScan, pushToast, refreshAuto]);
 
   // auto cycle — immediate tick on enable, then every cycleMin minutes
   useEffect(() => {
@@ -294,6 +318,29 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     const id = window.setInterval(() => void runCycle(), cfg.cycleMin * 60_000);
     return () => window.clearInterval(id);
   }, [cfg.on, cfg.cycleMin, runCycle]);
+
+  // intra-cycle watcher — SL/TP/liquidation can hit BETWEEN cycles; this books
+  // them within ~15s from the live tickers instead of waiting for the next
+  // full cycle, then kicks a fresh entry a few seconds later
+  useEffect(() => {
+    if (!cfg.on) return;
+    const id = window.setInterval(() => {
+      const open = autoRef.current?.open;
+      if (!open || busyRef.current || closingRef.current) return;
+      const price = tickersRef.current[open.symbol]?.price ?? 0;
+      if (price <= 0) return;
+      const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
+      const liq = liquidationHit(open.side, price, open.entryPrice, open.leverage);
+      if (kind || liq) {
+        void closeOpen(open, price, liq ? "sl" : (kind ?? "sl")).then((closed) => {
+          if (closed && cfgRef.current.on) {
+            window.setTimeout(() => void runCycle(), 3_000);
+          }
+        });
+      }
+    }, 15_000);
+    return () => window.clearInterval(id);
+  }, [cfg.on, closeOpen, runCycle]);
 
   // 1 s countdown to the next cycle
   useEffect(() => {
@@ -438,6 +485,24 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
               </button>
             ))}
             <span className="text-[11px] text-zinc-600">{t(lang, "auto.cfg.cycleUnit")}</span>
+          </div>
+          <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.cooldown")}>
+            <span className="mr-0.5 text-[11px] text-zinc-500">{t(lang, "auto.cfg.cooldown")}</span>
+            {COOLDOWN_CHOICES.map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => updateCfg({ cooldownMin: m })}
+                className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
+                  cfg.cooldownMin === m
+                    ? "border-teal-700 bg-teal-950/40 text-teal-300"
+                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                }`}
+              >
+                {m === 0 ? t(lang, "auto.cfg.cooldownOff") : m}
+              </button>
+            ))}
+            <span className="text-[11px] text-zinc-600">{t(lang, "auto.cfg.cooldownUnit")}</span>
           </div>
         </div>
         <p className="text-[11px] text-zinc-600">{t(lang, "auto.cfg.min", { auc: cfg.minAuc.toFixed(2), acc: cfg.minAcc })}</p>
@@ -690,6 +755,6 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
 
 /** localStorage read guarded for SSR — AutoPanel mounts client-only anyway. */
 function loadAutoConfigSafe() {
-  if (typeof window === "undefined") return { on: false, capital: 1000, cycleMin: 5, minAuc: 0.55, minAcc: 55 };
+  if (typeof window === "undefined") return AUTO_DEFAULTS;
   return loadAutoConfig();
 }

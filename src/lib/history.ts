@@ -144,6 +144,18 @@ export async function fetchRuns(params: { symbol?: string; interval?: string; li
   return json.runs;
 }
 
+/** Total persisted runs for a combo — drives the difficulty level of the next train. */
+export async function fetchRunCount(symbol: string, interval: string): Promise<number> {
+  try {
+    const res = await fetch(`/api/finetune?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=1&count=1`);
+    if (!res.ok) return 0;
+    const json = (await res.json()) as { count?: number };
+    return typeof json.count === "number" ? json.count : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export async function markApplied(kind: "suggestion" | "run", id: string): Promise<boolean> {
   try {
     const res = await fetch(kind === "suggestion" ? "/api/suggestions" : "/api/finetune", {

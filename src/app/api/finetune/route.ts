@@ -1,5 +1,7 @@
 // ─── /api/finetune — persisted XGBoost train / finetune run history ──────────
-// GET    ?symbol&interval&limit → latest runs (newest first)
+// GET    ?symbol&interval&limit → latest runs (newest first); &count=1 also
+//                                 returns the total persisted run count for
+//                                 the filter (used to derive difficulty lv)
 // POST                          → save one run; kind auto-set: the FIRST run
 //                                 for a (symbol, interval) is "train", every
 //                                 later one is a "finetune"
@@ -81,12 +83,14 @@ export async function GET(req: NextRequest) {
   const symbol = sp.get("symbol")?.toUpperCase().slice(0, 20) || undefined;
   const interval = sp.get("interval")?.slice(0, 8) || undefined;
   const limit = num(sp.get("limit"), 1, 200, 20);
+  const where = { ...(symbol ? { symbol } : {}), ...(interval ? { interval } : {}) };
   const rows = await db.finetuneRun.findMany({
-    where: { ...(symbol ? { symbol } : {}), ...(interval ? { interval } : {}) },
+    where,
     orderBy: { createdAt: "desc" },
     take: Math.floor(limit),
   });
-  return NextResponse.json({ runs: rows.map(serialize) });
+  const count = sp.get("count") === "1" ? await db.finetuneRun.count({ where }) : undefined;
+  return NextResponse.json({ runs: rows.map(serialize), ...(count != null ? { count } : {}) });
 }
 
 export async function POST(req: NextRequest) {

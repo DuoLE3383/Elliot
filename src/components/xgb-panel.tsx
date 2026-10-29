@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { t, type Lang } from "@/lib/i18n";
 import type { RunRow } from "@/lib/history";
 import type { XgbResult } from "@/lib/xgb";
-import { BrainCircuit, CheckCircle2, Cpu, History, Sparkles } from "lucide-react";
+import { BrainCircuit, CheckCircle2, Cpu, History, Layers, Sparkles } from "lucide-react";
 
 interface Props {
   lang: Lang;
@@ -20,7 +20,19 @@ interface Props {
   stale: boolean;
   /** persisted train/finetune runs for the CURRENT pair+interval (newest first) */
   runs: RunRow[];
+  /** progress of a train-ALL pass (null = idle) */
+  allTrain: {
+    busy: boolean;
+    done: number;
+    total: number;
+    current: string;
+    saved: number;
+    best: { symbol: string; interval: string; acc: number; auc: number; score: number } | null;
+  } | null;
+  /** watched pairs — shown on the train-all button */
+  allPairsCount: number;
   onTrain: () => void;
+  onTrainAll: () => void;
   onApply: () => void;
 }
 
@@ -36,10 +48,12 @@ function Tile({ label, value, valueClass }: { label: string; value: string; valu
 const biasClass = (bias: string) =>
   bias === "LONG" ? "text-emerald-400" : bias === "SHORT" ? "text-rose-400" : "text-zinc-300";
 
-export function XgbPanel({ lang, candles, busy, progress, result, stale, runs, onTrain, onApply }: Props) {
+export function XgbPanel({ lang, candles, busy, progress, result, stale, runs, allTrain, allPairsCount, onTrain, onTrainAll, onApply }: Props) {
   const enough = candles >= 200;
   const s = result?.suggestion;
   const pct = (v: number) => `${(v * 100).toFixed(0)}%`;
+  const allBusy = allTrain?.busy === true;
+  const allPct = allTrain && allTrain.total > 0 ? allTrain.done / allTrain.total : 0;
 
   return (
     <Card className="border-zinc-800 bg-zinc-900/60">
@@ -179,6 +193,37 @@ export function XgbPanel({ lang, candles, busy, progress, result, stale, runs, o
             </Button>
           </>
         )}
+
+        {/* train ALL watched pairs × all timeframes — one click, persisted */}
+        <div className="space-y-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 w-full border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+            disabled={allBusy || busy || !enough || allPairsCount === 0}
+            onClick={onTrainAll}
+            title={t(lang, "xgb.trainAll.tip")}
+          >
+            <Layers className="mr-1.5 h-3.5 w-3.5" />
+            {t(lang, "xgb.trainAll", { n: String(allPairsCount) })}
+          </Button>
+          {allBusy && allTrain && (
+            <>
+              <p className="truncate font-mono text-[11px] text-teal-300">
+                {t(lang, "xgb.trainAll.busy", { done: String(allTrain.done), total: String(allTrain.total), current: allTrain.current })}
+              </p>
+              <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
+                <div className="h-full rounded-full bg-teal-500 transition-all" style={{ width: `${allPct * 100}%` }} />
+              </div>
+            </>
+          )}
+          {allTrain && !allBusy && allTrain.saved > 0 && (
+            <p className="font-mono text-[10px] text-zinc-500">
+              {t(lang, "xgb.trainAll.last", { saved: String(allTrain.saved), total: String(allTrain.total) })}
+              {allTrain.best ? ` · #${allTrain.best.symbol} ${allTrain.best.interval}` : ""}
+            </p>
+          )}
+        </div>
 
         {/* finetune history — every run persisted per pair+interval+time */}
         <div className="border-t border-zinc-800 pt-2">

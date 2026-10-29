@@ -71,6 +71,40 @@ export const rankRows = (rows: ScanRow[]): ScanRow[] => [...rows].sort((a, b) =>
 export const bestTradeable = (rows: ScanRow[], minAuc: number, minAcc: number): ScanRow | null =>
   rankRows(rows.filter((r) => isTradeable(r, minAuc, minAcc)))[0] ?? null;
 
+/**
+ * Pick the best tradeable row whose combo is NOT in an SL cooldown. A combo
+ * that just stopped out tends to stay hostile — re-entering it immediately is
+ * how dry-run books bleed. Cooldown 0 disables the check entirely.
+ * trades must be newest-first (as /api/autotrade returns them).
+ */
+export function slCooldownLeft(
+  trades: AutoTradeRow[],
+  symbol: string,
+  interval: string,
+  cooldownMin: number,
+  now = Date.now(),
+): number {
+  if (cooldownMin <= 0) return 0;
+  const last = trades.find(
+    (t) => t.status === "closed" && t.exitKind === "sl" && t.symbol === symbol && t.interval === interval,
+  );
+  if (!last?.exitTime) return 0;
+  const end = new Date(last.exitTime).getTime() + cooldownMin * 60_000;
+  return Math.max(0, Math.ceil((end - now) / 60_000));
+}
+
+export function bestTradeableAvoid(
+  rows: ScanRow[],
+  minAuc: number,
+  minAcc: number,
+  trades: AutoTradeRow[],
+  cooldownMin: number,
+): { best: ScanRow | null; allInCooldown: boolean } {
+  const cands = rankRows(rows.filter((r) => isTradeable(r, minAuc, minAcc)));
+  const free = cands.find((r) => slCooldownLeft(trades, r.symbol, r.interval, cooldownMin) === 0) ?? null;
+  return { best: free, allInCooldown: free == null && cands.length > 0 };
+}
+
 // ─── Kline fetch + full scan ──────────────────────────────────────────────────
 
 const sleep = (ms = 0) => new Promise((r) => globalThis.setTimeout(r, ms));
@@ -358,9 +392,12 @@ export interface AutoConfig {
   minAuc: number;
   /** min validation accuracy % to trade a scan row */
   minAcc: number;
+  /** wait after an SL exit on the same combo, minutes (0 = off) */
+  cooldownMin: number;
 }
 
-export const AUTO_DEFAULTS: AutoConfig = { on: false, capital: 1000, cycleMin: 5, minAuc: 0.55, minAcc: 55 };
+export const AUTO_DEFAULTS: AutoConfig = { on: false, capital: 1000, cycleMin: 5, minAuc: 0.55, minAcc: 55, cooldownMin: 30 };
+export const COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
 
 export function loadAutoConfig(): AutoConfig {
   try {
@@ -373,6 +410,9 @@ export function loadAutoConfig(): AutoConfig {
       cycleMin: [5, 10, 15, 30].includes(p.cycleMin as number) ? (p.cycleMin as number) : AUTO_DEFAULTS.cycleMin,
       minAuc: typeof p.minAuc === "number" ? Math.min(0.8, Math.max(0.5, p.minAuc)) : AUTO_DEFAULTS.minAuc,
       minAcc: typeof p.minAcc === "number" ? Math.min(80, Math.max(50, p.minAcc)) : AUTO_DEFAULTS.minAcc,
+      cooldownMin: COOLDOWN_CHOICES.includes(p.cooldownMin as 0 | 15 | 30 | 60)
+        ? (p.cooldownMin as number)
+        : AUTO_DEFAULTS.cooldownMin,
     };
   } catch {
     return AUTO_DEFAULTS;
