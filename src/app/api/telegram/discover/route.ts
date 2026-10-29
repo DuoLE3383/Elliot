@@ -1,0 +1,107 @@
+// ─── /api/telegram/discover — find chats the bot can actually see ─────────────
+// GET  → getMe + getUpdates → every distinct chat visible to the bot, plus the
+//        currently effective chat id. Lets the UI verify the bot was really
+//        added to the channel and discover the REAL chat id without guessing.
+// POST { chatId } → persist a runtime override (db/telegram.json) — no .env
+//        edit / server restart needed.
+
+import { NextRequest, NextResponse } from "next/server";
+import { effectiveChatId, setStoredChatId } from "@/lib/telegram-store";
+
+export const dynamic = "force-dynamic";
+
+const TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
+
+interface SeenChat {
+  id: string;
+  title: string;
+  type: string;
+}
+
+function chatTitle(chat: Record<string, unknown>): string {
+  return (
+    (typeof chat.title === "string" && chat.title) ||
+    (typeof chat.username === "string" && `@${chat.username}`) ||
+    (typeof chat.first_name === "string" && chat.first_name) ||
+    "—"
+  );
+}
+
+function chatIdStr(chat: Record<string, unknown>): string | null {
+  const id = chat.id;
+  if (typeof id === "number" && Number.isFinite(id)) return String(id);
+  if (typeof id === "string") return id;
+  return null;
+}
+
+export async function GET() {
+  const chat = effectiveChatId();
+  if (!TOKEN) {
+    return NextResponse.json({ ok: false, detail: "no token", chats: [], chatId: chat.id, source: chat.source });
+  }
+
+  try {
+    const [meRes, upRes] = await Promise.all([
+      fetch(`https://api.telegram.org/bot${TOKEN}/getMe`, { signal: AbortSignal.timeout(8000) }),
+      fetch(`https://api.telegram.org/bot${TOKEN}/getUpdates?limit=100`, { signal: AbortSignal.timeout(8000) }),
+    ]);
+    const me = (await meRes.json().catch(() => null)) as { ok?: boolean; result?: { username?: string } } | null;
+    const ups = (await upRes.json().catch(() => null)) as {
+      ok?: boolean;
+      description?: string;
+      result?: Array<{ my_chat_member?: { chat?: Record<string, unknown> }; channel_post?: { chat?: Record<string, unknown> }; message?: { chat?: Record<string, unknown> } }>;
+    } | null;
+
+    const bot = me?.ok ? (me.result?.username ?? null) : null;
+    if (!ups || ups.ok !== true) {
+      return NextResponse.json(
+        { ok: false, detail: ups?.description ?? "getUpdates failed", bot, chats: [], chatId: chat.id, source: chat.source },
+        { status: 502 },
+      );
+    }
+
+    // collect distinct chats from every update shape we care about
+    const seen = new Map<string, SeenChat>();
+    for (const u of ups.result ?? []) {
+      for (const wrapped of [u.my_chat_member?.chat, u.channel_post?.chat, u.message?.chat]) {
+        if (!wrapped) continue;
+        const id = chatIdStr(wrapped);
+        if (!id) continue;
+        const type = typeof wrapped.type === "string" ? wrapped.type : "unknown";
+        // prefer group-like chats over private noise
+        if (!seen.has(id) || (type !== "private" && seen.get(id)?.type === "private")) {
+          seen.set(id, { id, title: chatTitle(wrapped), type });
+        }
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      bot,
+      chats: [...seen.values()],
+      chatId: chat.id,
+      source: chat.source,
+    });
+  } catch (e) {
+    return NextResponse.json(
+      { ok: false, detail: e instanceof Error ? e.message : "fetch failed", chats: [], chatId: chat.id, source: chat.source },
+      { status: 502 },
+    );
+  }
+}
+
+export async function POST(req: NextRequest) {
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: "invalid json" }, { status: 400 });
+  }
+  const id = typeof body.chatId === "string" ? body.chatId.trim() : "";
+  // channels / supergroups look like -100XXXXXXXXXX — reject private/group ids
+  if (!/^-100\d{7,}$/.test(id)) {
+    return NextResponse.json({ error: "invalid_chat_id" }, { status: 400 });
+  }
+  setStoredChatId(id);
+  return NextResponse.json({ ok: true, chatId: id, source: "store" });
+}

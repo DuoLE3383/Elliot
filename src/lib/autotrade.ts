@@ -269,6 +269,63 @@ export async function telegramConfigured(): Promise<boolean> {
   }
 }
 
+export interface TgStatus {
+  configured: boolean;
+  chatId: string | null;
+  source: "store" | "env" | null;
+}
+
+export interface TgChat {
+  id: string;
+  title: string;
+  type: string;
+}
+
+export interface TgDiscover {
+  ok: boolean;
+  detail?: string;
+  bot: string | null;
+  chats: TgChat[];
+  chatId: string | null;
+  source: TgStatus["source"];
+}
+
+/** Current telegram wiring (effective chat id included). */
+export async function telegramStatus(): Promise<TgStatus> {
+  try {
+    const res = await fetch("/api/telegram");
+    if (!res.ok) return { configured: false, chatId: null, source: null };
+    return (await res.json()) as TgStatus;
+  } catch {
+    return { configured: false, chatId: null, source: null };
+  }
+}
+
+/** Ask the bot which chats it can actually see (getUpdates snapshot). */
+export async function telegramDiscover(): Promise<TgDiscover> {
+  try {
+    const res = await fetch("/api/telegram/discover");
+    const json = (await res.json()) as TgDiscover;
+    return json;
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : "fetch failed", bot: null, chats: [], chatId: null, source: null };
+  }
+}
+
+/** Persist a runtime chat-id override (no .env edit / restart needed). */
+export async function telegramSaveChat(chatId: string): Promise<boolean> {
+  try {
+    const res = await fetch("/api/telegram/discover", {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ chatId }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** Fire-and-forget notification — resolves {ok:false, detail} instead of throwing. */
 export async function sendTelegram(text: string): Promise<{ ok: boolean; detail?: string }> {
   try {

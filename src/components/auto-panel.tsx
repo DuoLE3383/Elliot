@@ -19,9 +19,13 @@ import {
   sendTelegram,
   slTpHit,
   telegramConfigured,
+  telegramDiscover,
+  telegramSaveChat,
+  telegramStatus,
   type AutoState,
   type AutoTradeRow,
   type ScanRow,
+  type TgChat,
 } from "@/lib/autotrade";
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
 import type { EngineSettings, Ticker } from "@/lib/types";
@@ -100,6 +104,11 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const [tgConfigured, setTgConfigured] = useState<boolean | null>(null);
   const [tgState, setTgState] = useState<"idle" | "sending" | "ok" | "fail">("idle");
   const [tgDetail, setTgDetail] = useState<string | null>(null);
+  const [tgHelp, setTgHelp] = useState(false); // step-by-step connect guide (chat not found)
+  const [tgChatId, setTgChatId] = useState<string | null>(null); // effective channel
+  const [tgChats, setTgChats] = useState<TgChat[] | null>(null); // discover result
+  const [tgDiscovering, setTgDiscovering] = useState(false);
+  const [tgSaving, setTgSaving] = useState(false);
   const [status, setStatus] = useState<string>("");
   const [countdown, setCountdown] = useState<number | null>(null);
 
@@ -163,6 +172,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   useEffect(() => {
     void refreshAuto();
     void telegramConfigured().then((ok) => mountedRef.current && setTgConfigured(ok));
+    void telegramStatus().then((s) => mountedRef.current && setTgChatId(s.chatId));
   }, [refreshAuto]);
 
   const doScan = useCallback(async (): Promise<ScanRow[]> => {
@@ -309,10 +319,16 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     const r = await sendTelegram(TEST_MSG);
     if (r.ok) {
       setTgState("ok");
+      setTgHelp(false);
+      setTgChats(null);
       pushToast({ kind: "xgb", text: t(lang, "auto.tg.sent") });
     } else {
       setTgState("fail");
       setTgDetail(r.detail ?? null);
+      if (/chat not found/i.test(r.detail ?? "")) {
+        setTgHelp(true); // persistent in-panel guide — a toast disappears too fast
+        void telegramStatus().then((s) => mountedRef.current && setTgChatId(s.chatId)); // refresh possibly-stale channel label
+      }
       pushToast({
         kind: "error",
         text: /chat not found/i.test(r.detail ?? "")
@@ -320,6 +336,32 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
           : t(lang, "auto.tg.err", { detail: r.detail ?? "?" }),
       });
     }
+  };
+
+  // ask the bot which chats it can see → user picks the real channel
+  const discoverChats = async () => {
+    setTgDiscovering(true);
+    const d = await telegramDiscover();
+    if (mountedRef.current) {
+      setTgChats(d.chats);
+      if (d.bot) setTgDetail(d.bot);
+    }
+    setTgDiscovering(false);
+  };
+
+  // persist the picked chat id, then re-test immediately
+  const applyChat = async (id: string) => {
+    setTgSaving(true);
+    const saved = await telegramSaveChat(id);
+    if (saved && mountedRef.current) {
+      setTgChatId(id);
+      pushToast({ kind: "xgb", text: t(lang, "auto.tg.help.saved", { id }) });
+      setTgSaving(false);
+      void checkTg();
+      return;
+    }
+    setTgSaving(false);
+    pushToast({ kind: "error", text: t(lang, "auto.tg.err", { detail: "save failed" }) });
   };
 
   const closeNow = async () => {
@@ -421,6 +463,65 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
             </span>
           )}
         </div>
+
+        {/* telegram connect guide — appears when the channel is unreachable */}
+        {tgHelp && (
+          <div className="space-y-2 rounded-lg border border-teal-800/50 bg-teal-950/20 p-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-1.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-teal-300">{t(lang, "auto.tg.help.title")}</p>
+              {tgChatId && <span className="font-mono text-[10px] text-zinc-500">{t(lang, "auto.tg.current", { id: tgChatId })}</span>}
+            </div>
+            <ol className="list-decimal space-y-0.5 pl-4 text-[11px] leading-relaxed text-zinc-400">
+              <li>{t(lang, "auto.tg.help.s1")}</li>
+              <li>{t(lang, "auto.tg.help.s2")}</li>
+              <li>{t(lang, "auto.tg.help.s3")}</li>
+            </ol>
+            {tgDetail && <p className="font-mono text-[10px] text-zinc-500">{tgDetail}</p>}
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 border-teal-700 text-[11px] text-teal-300 hover:bg-teal-950/40"
+                disabled={tgDiscovering}
+                onClick={() => void discoverChats()}
+              >
+                <ScanLine className="mr-1.5 h-3 w-3" />
+                {tgDiscovering ? t(lang, "auto.tg.help.finding") : t(lang, "auto.tg.help.find")}
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 text-[11px] text-zinc-400 hover:bg-zinc-800" onClick={() => setTgHelp(false)}>
+                {t(lang, "auto.tg.help.hide")}
+              </Button>
+            </div>
+            {tgChats != null &&
+              (tgChats.length === 0 ? (
+                <p className="text-[11px] leading-relaxed text-zinc-500">{t(lang, "auto.tg.help.none")}</p>
+              ) : (
+                <div className="space-y-1">
+                  <p className="text-[10px] uppercase tracking-wide text-zinc-500">{t(lang, "auto.tg.help.found", { n: tgChats.length })}</p>
+                  {tgChats.map((c) => (
+                    <div key={c.id} className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-1">
+                      <span className="truncate text-[11px] text-zinc-200">{c.title}</span>
+                      <span className="shrink-0 font-mono text-[10px] text-zinc-500">{c.id}</span>
+                      <span className="shrink-0 text-[9px] uppercase text-zinc-600">{c.type}</span>
+                      {c.id === tgChatId ? (
+                        <span className="ml-auto shrink-0 text-[10px] text-teal-400">{t(lang, "auto.tg.help.active")}</span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="ml-auto h-6 shrink-0 border-teal-700 px-2 text-[10px] text-teal-300 hover:bg-teal-950/40"
+                          disabled={tgSaving}
+                          onClick={() => void applyChat(c.id)}
+                        >
+                          {t(lang, "auto.tg.help.use")}
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
+          </div>
+        )}
         {scanning && (
           <div className="space-y-1">
             <p className="font-mono text-[11px] text-teal-300">

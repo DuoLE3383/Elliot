@@ -1,20 +1,26 @@
 // ─── /api/telegram — relay notifications to the user's Telegram channel ──────
-// GET  → { configured } — whether bot token + chat id are set in the env
-// POST { text }         → sendMessage to the configured channel
+// GET  → { configured, chatId, source } — bot token + effective chat id
+// POST { text } → sendMessage to the effective channel (runtime store → .env)
 
 import { NextRequest, NextResponse } from "next/server";
+import { effectiveChatId } from "@/lib/telegram-store";
 
 export const dynamic = "force-dynamic";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
-const CHAT = process.env.TELEGRAM_CHAT_ID ?? "";
 
 export async function GET() {
-  return NextResponse.json({ configured: Boolean(TOKEN && CHAT) });
+  const chat = effectiveChatId();
+  return NextResponse.json({
+    configured: Boolean(TOKEN && chat.id),
+    chatId: chat.id,
+    source: chat.source,
+  });
 }
 
 export async function POST(req: NextRequest) {
-  if (!TOKEN || !CHAT) {
+  const chat = effectiveChatId();
+  if (!TOKEN || !chat.id) {
     return NextResponse.json({ error: "telegram_not_configured" }, { status: 503 });
   }
   let body: Record<string, unknown>;
@@ -32,7 +38,7 @@ export async function POST(req: NextRequest) {
     const res = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: CHAT, text, disable_web_page_preview: true }),
+      body: JSON.stringify({ chat_id: chat.id, text, disable_web_page_preview: true }),
       signal: AbortSignal.timeout(8000),
     });
     const json = (await res.json().catch(() => null)) as { ok?: boolean; description?: string } | null;
