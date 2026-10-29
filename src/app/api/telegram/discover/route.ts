@@ -6,7 +6,7 @@
 //        edit / server restart needed.
 
 import { NextRequest, NextResponse } from "next/server";
-import { effectiveChatId, effectiveToken, setStoredChatId } from "@/lib/telegram-store";
+import { effectiveChatId, effectiveToken, setStoredChatId, tgApi } from "@/lib/telegram-store";
 
 export const dynamic = "force-dynamic";
 
@@ -40,28 +40,25 @@ export async function GET() {
   }
 
   try {
-    const [meRes, upRes] = await Promise.all([
-      fetch(`https://api.telegram.org/bot${tok.token}/getMe`, { signal: AbortSignal.timeout(8000) }),
-      fetch(`https://api.telegram.org/bot${tok.token}/getUpdates?limit=100`, { signal: AbortSignal.timeout(8000) }),
-    ]);
-    const me = (await meRes.json().catch(() => null)) as { ok?: boolean; result?: { username?: string } } | null;
-    const ups = (await upRes.json().catch(() => null)) as {
-      ok?: boolean;
-      description?: string;
-      result?: Array<{ my_chat_member?: { chat?: Record<string, unknown> }; channel_post?: { chat?: Record<string, unknown> }; message?: { chat?: Record<string, unknown> } }>;
-    } | null;
+    // tgApi retries transient 429/5xx/network failures internally
+    const [me, ups] = await Promise.all([tgApi("getMe"), tgApi("getUpdates", { limit: 100 })]);
 
-    const bot = me?.ok ? (me.result?.username ?? null) : null;
-    if (!ups || ups.ok !== true) {
+    const bot = !me.detail ? (me.json?.result?.username ?? null) : null;
+    if (ups.detail || !ups.json) {
       return NextResponse.json(
-        { ok: false, detail: ups?.description ?? "getUpdates failed", bot, chats: [], chatId: chat.id, source: chat.source, tokenSource: tok.source },
+        { ok: false, detail: ups.detail ?? "getUpdates failed", bot, chats: [], chatId: chat.id, source: chat.source, tokenSource: tok.source },
         { status: 502 },
       );
     }
 
     // collect distinct chats from every update shape we care about
     const seen = new Map<string, SeenChat>();
-    for (const u of ups.result ?? []) {
+    const updates = (ups.json.result ?? []) as Array<{
+      my_chat_member?: { chat?: Record<string, unknown> };
+      channel_post?: { chat?: Record<string, unknown> };
+      message?: { chat?: Record<string, unknown> };
+    }>;
+    for (const u of updates) {
       for (const wrapped of [u.my_chat_member?.chat, u.channel_post?.chat, u.message?.chat]) {
         if (!wrapped) continue;
         const id = chatIdStr(wrapped);

@@ -5,7 +5,7 @@
 // DELETE         → remove the stored token (falls back to .env, if any).
 
 import { NextRequest, NextResponse } from "next/server";
-import { clearStoredToken, effectiveToken, setStoredToken } from "@/lib/telegram-store";
+import { clearStoredToken, effectiveToken, setStoredToken, tgApi } from "@/lib/telegram-store";
 
 export const dynamic = "force-dynamic";
 
@@ -27,17 +27,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "invalid_format", detail: "expected 123456789:AAE…" }, { status: 400 });
   }
 
-  // verify against Telegram before saving — instant feedback for a wrong token
+  // verify against Telegram before saving — instant feedback for a wrong token.
+  // tgApi retries transient 429/5xx/network hiccups internally; if Telegram is
+  // still busy we return a distinct "telegram_busy" error so the UI doesn't
+  // blame the token (a 503 from Telegram says nothing about token validity).
   let botUsername: string | null = null;
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${raw}/getMe`, { signal: AbortSignal.timeout(8000) });
-    const json = (await res.json().catch(() => null)) as { ok?: boolean; description?: string; result?: { username?: string } } | null;
-    if (!json || json.ok !== true) {
-      return NextResponse.json({ ok: false, error: "invalid_token", detail: json?.description ?? `HTTP ${res.status}` }, { status: 400 });
-    }
-    botUsername = json.result?.username ?? null;
-  } catch (e) {
-    return NextResponse.json({ ok: false, error: "unreachable", detail: e instanceof Error ? e.message : "fetch failed" }, { status: 502 });
+  const me = await tgApi("getMe");
+  if (!me.detail) {
+    botUsername = me.json?.result?.username ?? null;
+  } else if (me.status === 401 || /unauthorized|not found/i.test(me.detail)) {
+    return NextResponse.json({ ok: false, error: "invalid_token", detail: me.detail }, { status: 400 });
+  } else {
+    return NextResponse.json(
+      { ok: false, error: "telegram_busy", detail: `Telegram busy (${me.detail}) — token not yet verified, try Save again shortly` },
+      { status: 502 },
+    );
   }
 
   setStoredToken(raw);

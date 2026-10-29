@@ -82,29 +82,81 @@ export function effectiveToken(): { token: string | null; source: "store" | "env
   return { token: null, source: null };
 }
 
-// ─── Server-side sendMessage core (shared) ────────────────────────────────────
+// ─── Server-side Telegram API core (shared, with retry) ───────────────────────
 // Used by the /api/telegram relay AND the /api/autotrade/push digest sender so
 // both go through the same token / chat-id resolution / error mapping.
+//
+// Telegram regularly answers 429 (rate limit) and 500/502/503/504 (server-side
+// overload — much more common from VPS / datacenter IPs). Those are TRANSIENT:
+// retrying 2-3× with short backoff turns a visible "HTTP 503" failure into a
+// silent success. Permanent errors (400/401/403/404 — bad token, chat not
+// found, bot missing) must fail fast — no retry.
 
-/** Send one message to the effective channel. Resolves {ok,detail}, never throws. */
-export async function tgSendMessage(text: string, parseMode?: "HTML"): Promise<{ ok: boolean; detail?: string }> {
+const TG_RETRIABLE = new Set([429, 500, 502, 503, 504]);
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+export interface TgApiJson {
+  ok?: boolean;
+  description?: string;
+  parameters?: { retry_after?: number };
+  result?: { username?: string; id?: number };
+}
+
+export interface TgApiResult {
+  json: TgApiJson | null;
+  status: number; // 0 = network error / timeout
+  detail?: string; // set when the call ultimately failed (after all retries)
+}
+
+/**
+ * One Telegram Bot API call with up to 3 attempts (backoff 0.6s → 1.8s).
+ * 429 honours Telegram's own `retry_after` hint (capped at 5s so API routes
+ * never hang long). Resolves — never throws.
+ */
+export async function tgApi(
+  method: string,
+  body?: Record<string, unknown>,
+  attempts = 3,
+): Promise<TgApiResult> {
   const tok = effectiveToken();
-  const chat = effectiveChatId();
-  if (!tok.token || !chat.id) return { ok: false, detail: "telegram_not_configured" };
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${tok.token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chat.id, text, parse_mode: parseMode, disable_web_page_preview: true }),
-      signal: AbortSignal.timeout(8000),
-    });
-    const json = (await res.json().catch(() => null)) as { ok?: boolean; description?: string } | null;
-    if (!res.ok || json?.ok !== true) {
-      // e.g. 400 "chat not found" → the bot has not been added to the channel yet
-      return { ok: false, detail: json?.description ?? `HTTP ${res.status}` };
+  if (!tok.token) return { json: null, status: 0, detail: "telegram_not_configured" };
+  for (let i = 1; ; i++) {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${tok.token}/${method}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(8000),
+      });
+      const json = (await res.json().catch(() => null)) as TgApiJson | null;
+      if (res.ok && json?.ok === true) return { json, status: res.status };
+      if (TG_RETRIABLE.has(res.status) && i < attempts) {
+        const ra = json?.parameters?.retry_after; // 429: Telegram's own hint
+        const wait = typeof ra === "number" && ra > 0 ? Math.min(ra * 1000, 5000) : 600 * 3 ** (i - 1);
+        await sleep(wait);
+        continue;
+      }
+      return { json, status: res.status, detail: json?.description ?? `HTTP ${res.status}` };
+    } catch (e) {
+      // network error / timeout — transient too
+      if (i < attempts) {
+        await sleep(600 * 3 ** (i - 1));
+        continue;
+      }
+      return { json: null, status: 0, detail: e instanceof Error ? e.message : "fetch failed" };
     }
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, detail: e instanceof Error ? e.message : "fetch failed" };
   }
+}
+
+/** Send one message to the effective channel (with retry). Resolves {ok,detail}, never throws. */
+export async function tgSendMessage(text: string, parseMode?: "HTML"): Promise<{ ok: boolean; detail?: string }> {
+  const chat = effectiveChatId();
+  if (!chat.id) return { ok: false, detail: "telegram_not_configured" };
+  const r = await tgApi("sendMessage", {
+    chat_id: chat.id,
+    text,
+    parse_mode: parseMode,
+    disable_web_page_preview: true,
+  });
+  return r.detail ? { ok: false, detail: r.detail } : { ok: true };
 }

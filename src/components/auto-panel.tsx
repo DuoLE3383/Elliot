@@ -625,7 +625,8 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
       pushToast({ kind: "xgb", text: t(lang, "auto.tg.sent") });
     } else {
       setTgState("fail");
-      setTgDetail(r.detail ?? null);
+      const busy = /telegram_busy|HTTP 50\d|Overload/i.test(r.detail ?? "");
+      setTgDetail(busy ? t(lang, "auto.tg.busy") : r.detail ?? null);
       if (/telegram_not_configured/i.test(r.detail ?? "")) {
         setTgTokenOpen(true); // no token yet → show the paste-token box first
       }
@@ -641,7 +642,9 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
         kind: "error",
         text: /chat not found/i.test(r.detail ?? "")
           ? t(lang, "auto.err.chat")
-          : t(lang, "auto.tg.err", { detail: r.detail ?? "?" }),
+          : busy
+            ? t(lang, "auto.tg.busy")
+            : t(lang, "auto.tg.err", { detail: r.detail ?? "?" }),
       });
     }
   };
@@ -676,8 +679,12 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
       pushToast({ kind: "xgb", text: t(lang, "auto.tg.token.saved", { bot: r.bot ?? "?" }) });
       void checkTg(); // will succeed or open the channel guide (chat not found)
     } else {
-      setTgDetail(t(lang, "auto.tg.token.bad", { detail: r.detail ?? "?" }));
-      pushToast({ kind: "error", text: t(lang, "auto.tg.token.bad", { detail: r.detail ?? "?" }) });
+      const busy = /telegram_busy|HTTP 50\d|Overload/i.test(r.detail ?? "");
+      const msg = busy
+        ? t(lang, "auto.tg.token.busy", { detail: r.detail ?? "?" })
+        : t(lang, "auto.tg.token.bad", { detail: r.detail ?? "?" });
+      setTgDetail(msg);
+      pushToast({ kind: "error", text: msg });
     }
   };
 
