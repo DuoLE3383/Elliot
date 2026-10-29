@@ -667,11 +667,13 @@ export function PriceChart({
           {klines.slice(viewStart, viewEnd + 1).map((k, idx) => {
             const i = viewStart + idx;
             const up = k.c >= k.o;
-            // Wyckoff bar coloring overrides the candle color (Pine barcolor)
+            // Wyckoff barcolor tint applies only in "neon" style — the "normal"
+            // style ignores it so all-tinted stretches keep plain green/red
+            // candles (pivots, event labels & EMAs still show the phases)
             const tint = tintOf(i);
-            const color = tint === 1 ? WY_ACC_BAR : tint === -1 ? WY_DIST_BAR : up ? UP : DOWN;
             // "normal" style = every body filled (green up / red down); "neon" = hollow up-bodies
             const solid = candleStyle === "normal";
+            const color = !solid && tint === 1 ? WY_ACC_BAR : !solid && tint === -1 ? WY_DIST_BAR : up ? UP : DOWN;
             const bw = Math.max(2, cw * 0.62);
             const yo = y(k.o);
             const yc = y(k.c);
@@ -679,7 +681,7 @@ export function PriceChart({
             const h = Math.max(1.5, Math.abs(yc - yo));
             return (
               <g key={k.t}>
-                <line x1={x(i)} x2={x(i)} y1={y(k.h)} y2={y(k.l)} stroke={color} strokeWidth={1} opacity={tint !== 0 ? 0.9 : 1} />
+                <line x1={x(i)} x2={x(i)} y1={y(k.h)} y2={y(k.l)} stroke={color} strokeWidth={1} opacity={solid ? 1 : tint !== 0 ? 0.9 : 1} />
                 <rect
                   x={x(i) - bw / 2}
                   y={top}
@@ -688,7 +690,7 @@ export function PriceChart({
                   fill={solid ? color : up || tint !== 0 ? (tint !== 0 ? color : "transparent") : color}
                   stroke={color}
                   strokeWidth={1}
-                  opacity={tint !== 0 ? 0.85 : 1}
+                  opacity={solid ? 1 : tint !== 0 ? 0.85 : 1}
                 />
               </g>
             );

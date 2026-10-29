@@ -53,6 +53,8 @@ export interface XgbResult {
   horizon: number;
   /** feature importance by accumulated gain, share 0..1, sorted desc */
   importance: { name: string; gain: number }[];
+  /** hyperparameters actually used by this run — persisted with the run row */
+  params: XgbParams;
   suggestion: XgbSuggestion;
 }
 
@@ -592,6 +594,7 @@ export async function runXgb(
       .map((name, i) => ({ name, gain: imp[i] }))
       .sort((a, b) => b.gain - a.gain)
       .slice(0, 6),
+    params: model.params,
     suggestion,
   };
 }

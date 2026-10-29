@@ -484,7 +484,7 @@ export default function Home() {
           trees: res.trees,
           horizon: res.horizon,
           importance: res.importance,
-          params: {},
+          params: res.params,
         }),
       ]);
       setXgbSavedId(saved?.id ?? null);
