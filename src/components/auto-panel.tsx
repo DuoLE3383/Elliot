@@ -32,6 +32,7 @@ import {
   telegramSaveToken,
   telegramStatus,
   telegramCreateLink,
+  telegramDiag,
   AUTO_DEFAULTS,
   type AutoConfig,
   type AutoState,
@@ -40,6 +41,7 @@ import {
   type ScanRow,
   type TgApiBase,
   type TgChat,
+  type TgDiag,
 } from "@/lib/autotrade";
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
 import type { EngineSettings, Ticker } from "@/lib/types";
@@ -193,6 +195,8 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const [tgLinkBusy, setTgLinkBusy] = useState(false);
   const [tgLinkCopied, setTgLinkCopied] = useState(false);
   const [tgLinkOpen, setTgLinkOpen] = useState(false); // standalone connect-link card
+  const [tgDiag, setTgDiag] = useState<TgDiag | null>(null); // network diagnosis result
+  const [tgDiagBusy, setTgDiagBusy] = useState(false);
   const [tgBase, setTgBase] = useState<TgApiBase | null>(null); // effective API origin (proxy?)
   const [tgBaseInput, setTgBaseInput] = useState("");
   const [tgSavingBase, setTgSavingBase] = useState(false);
@@ -748,6 +752,18 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     }
   };
 
+  // server-side diagnosis: DNS + forced IPv4/IPv6 + effective base — stops the guessing
+  const runDiag = async () => {
+    if (tgDiagBusy) return;
+    setTgDiagBusy(true);
+    const d = await telegramDiag();
+    if (mountedRef.current) {
+      setTgDiagBusy(false);
+      setTgDiag(d);
+      if (!d) pushToast({ kind: "error", text: t(lang, "auto.tg.diag.fail") });
+    }
+  };
+
   // persist the Telegram API origin (Cloudflare Worker proxy) — "" clears
   const saveBase = async () => {
     if (tgSavingBase) return;
@@ -1197,6 +1213,66 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
                   {t(lang, "auto.tg.base.save")}
                 </Button>
               </div>
+              <div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                  disabled={tgDiagBusy}
+                  onClick={() => void runDiag()}
+                >
+                  🔍 {tgDiagBusy ? "…" : t(lang, "auto.tg.diag.btn")}
+                </Button>
+              </div>
+              {tgDiag && (
+                <div className="space-y-1 rounded-md border border-zinc-800 bg-zinc-950/70 p-2 font-mono text-[10px]">
+                  <p className="text-zinc-400">
+                    {t(lang, "auto.tg.diag.dns")}:{" "}
+                    <span className="text-zinc-200">A×{tgDiag.dns.a.length} · AAAA×{tgDiag.dns.aaaa.length}</span>
+                  </p>
+                  <p className="flex items-center justify-between gap-2">
+                    <span className="text-zinc-400">{t(lang, "auto.tg.diag.v4")}</span>
+                    <span className={tgDiag.v4.status > 0 ? "text-emerald-400" : "text-rose-400"}>
+                      {tgDiag.v4.status > 0
+                        ? `HTTP ${tgDiag.v4.status} · ${tgDiag.v4.ms}ms`
+                        : `✗ ${tgDiag.v4.err ?? "fail"} · ${tgDiag.v4.ms}ms`}
+                    </span>
+                  </p>
+                  <p className="flex items-center justify-between gap-2">
+                    <span className="text-zinc-400">{t(lang, "auto.tg.diag.v6")}</span>
+                    <span className={tgDiag.v6.status > 0 ? "text-emerald-400" : "text-rose-400"}>
+                      {tgDiag.v6.status > 0
+                        ? `HTTP ${tgDiag.v6.status} · ${tgDiag.v6.ms}ms`
+                        : `✗ ${tgDiag.v6.err ?? "fail"} · ${tgDiag.v6.ms}ms`}
+                    </span>
+                  </p>
+                  <p className="flex items-center justify-between gap-2">
+                    <span className="text-zinc-400">{t(lang, "auto.tg.diag.eff")}</span>
+                    <span
+                      className={
+                        tgDiag.eff.status === 200
+                          ? "text-emerald-400"
+                          : tgDiag.eff.status > 0
+                            ? "text-amber-400"
+                            : "text-rose-400"
+                      }
+                    >
+                      {tgDiag.eff.status > 0
+                        ? `HTTP ${tgDiag.eff.status} · ${tgDiag.eff.ms}ms`
+                        : `✗ ${tgDiag.eff.err ?? "fail"} · ${tgDiag.eff.ms}ms`}
+                    </span>
+                  </p>
+                  <p
+                    className={
+                      tgDiag.verdict === "ok" || tgDiag.verdict === "proxy-ok"
+                        ? "text-emerald-300"
+                        : "text-amber-300"
+                    }
+                  >
+                    → {t(lang, `auto.tg.diag.v_${tgDiag.verdict.replace("-", "")}`)}
+                  </p>
+                </div>
+              )}
             </div>
             {tgDetail && <p className="font-mono text-[10px] text-zinc-500">{tgDetail}</p>}
           </div>

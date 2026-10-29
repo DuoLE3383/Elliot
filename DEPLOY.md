@@ -121,6 +121,8 @@ docker exec elliott bunx prisma db push   # chỉ tạo bảng, không phá data
 
 ## 6b. Fix lỗi Telegram 503 — proxy Bot API qua Cloudflare Worker (5 phút)
 
+**Chẩn đoán trước khi làm:** panel **Auto → Token → API base → 🔍 Chẩn đoán mạng** — app tự kiểm tra từ phía server: DNS (A/AAAA), kết nối **IPv4 ép cứng**, **IPv6 ép cứng** tới `api.telegram.org`, và API base đang dùng. Kết luận tự động: IPv6 hỏng (bản mới đã ưu tiên IPv4 — chỉ cần `update.sh`), đường mạng bị chặn cả 2 (→ bắt buộc dùng Worker bên dưới), Worker OK/hỏng, hay token sai.
+
 **Triệu chứng:** panel Auto báo `Telegram is overloaded (503)` dù token hợp lệ — lặp lại nhiều ngày. Nguyên nhân: **đường mạng từ server app → api.telegram.org** bị nghẽn/throttled (rất thường gặp với IP VPS/datacenter và một số ISP), không phải lỗi token.
 
 **Cách chạy đã có sẵn trong app:** mọi call Bot API đi qua `tgApi()` (retry 3 lần, tôn trọng `retry_after`) và đọc origin từ "API base" — có thể trỏ sang 1 **Worker proxy trên chính account Cloudflare** của bạn:

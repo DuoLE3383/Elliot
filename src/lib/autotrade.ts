@@ -529,6 +529,33 @@ export async function telegramSaveBase(apiBase: string): Promise<TgApiBase | nul
   }
 }
 
+export interface TgProbe {
+  status: number; // 0 = no HTTP response (network error / timeout)
+  ms: number;
+  err?: string;
+}
+
+export interface TgDiag {
+  base: string;
+  source: "store" | "env" | "default";
+  dns: { a: string[]; aaaa: string[] };
+  v4: TgProbe;
+  v6: TgProbe;
+  eff: TgProbe;
+  verdict: "ok" | "ipv6" | "blocked" | "proxy-ok" | "proxy-bad" | "token";
+}
+
+/** Server-side Telegram path diagnosis (DNS / forced IPv4 / IPv6 / effective base). */
+export async function telegramDiag(): Promise<TgDiag | null> {
+  try {
+    const res = await fetch("/api/telegram/diag", { method: "POST" });
+    if (!res.ok) return null;
+    return (await res.json()) as TgDiag;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Fire-and-forget notification — resolves {ok:false, detail} instead of throwing.
  * `html: true` (default) sends with parse_mode HTML — templates must escape
