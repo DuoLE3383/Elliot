@@ -28,6 +28,52 @@ export function ema(klines: Kline[], period: number): (number | null)[] {
   return out;
 }
 
+/** EMA over a raw number series (used by MACD), same seeding rule as ema(). */
+function emaSeries(values: number[], period: number): (number | null)[] {
+  const out: (number | null)[] = new Array(values.length).fill(null);
+  if (values.length < period) return out;
+  let sum = 0;
+  for (let i = 0; i < period; i++) sum += values[i];
+  let prev = sum / period;
+  out[period - 1] = prev;
+  const k = 2 / (period + 1);
+  for (let i = period; i < values.length; i++) {
+    prev = values[i] * k + prev * (1 - k);
+    out[i] = prev;
+  }
+  return out;
+}
+
+/**
+ * Classic MACD(12, 26, 9): macd line = EMA12 − EMA26, signal = EMA9(macd),
+ * hist = macd − signal. All arrays aligned to kline index, null during warmup.
+ */
+export function macd(
+  klines: Kline[],
+  fast = 12,
+  slow = 26,
+  signal = 9,
+): { macd: (number | null)[]; sig: (number | null)[]; hist: (number | null)[] } {
+  const closes = klines.map((k) => k.c);
+  const f = emaSeries(closes, fast);
+  const s = emaSeries(closes, slow);
+  const macdLine: (number | null)[] = klines.map((_, i) => (f[i] != null && s[i] != null ? (f[i] as number) - (s[i] as number) : null));
+  // signal EMA runs on the compacted macd series (nulls dropped, order kept)
+  const compact = macdLine.filter((x): x is number => x != null);
+  const sigCompact = emaSeries(compact, signal);
+  const sigLine: (number | null)[] = new Array(klines.length).fill(null);
+  let ci = 0;
+  for (let i = 0; i < klines.length; i++) {
+    if (macdLine[i] == null) continue;
+    sigLine[i] = sigCompact[ci];
+    ci++;
+  }
+  const hist: (number | null)[] = klines.map((_, i) =>
+    macdLine[i] != null && sigLine[i] != null ? (macdLine[i] as number) - (sigLine[i] as number) : null,
+  );
+  return { macd: macdLine, sig: sigLine, hist };
+}
+
 /** Wilder RSI (0–100), aligned to kline index. */
 export function rsi(klines: Kline[], period: number): (number | null)[] {
   const out: (number | null)[] = new Array(klines.length).fill(null);

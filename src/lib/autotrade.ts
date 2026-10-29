@@ -629,6 +629,8 @@ export interface AutoConfig {
   llmModel: string;
   /** skip auto-entries whose last closed candle is a whale bar (≥4σ volume) */
   whaleFilter: boolean;
+  /** broadcast the "TOP coin tiềm năng" scan digest to Telegram every 5 min */
+  broadcast: boolean;
 }
 
 export const AUTO_DEFAULTS: AutoConfig = {
@@ -647,6 +649,7 @@ export const AUTO_DEFAULTS: AutoConfig = {
   llmUrl: LLM_URL_DEFAULT,
   llmModel: LLM_MODEL_DEFAULT,
   whaleFilter: true,
+  broadcast: true,
 };
 export const COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
 export const RISK_CHOICES = [10, 25, 50, 100] as const;
@@ -688,6 +691,7 @@ export function loadAutoConfig(): AutoConfig {
         typeof p.llmUrl === "string" && /^https?:\/\/\S{1,120}$/.test(p.llmUrl.trim()) ? p.llmUrl.trim() : AUTO_DEFAULTS.llmUrl,
       llmModel: typeof p.llmModel === "string" && p.llmModel.length <= 60 ? p.llmModel : AUTO_DEFAULTS.llmModel,
       whaleFilter: p.whaleFilter !== false,
+      broadcast: p.broadcast !== false,
     };
   } catch {
     return AUTO_DEFAULTS;

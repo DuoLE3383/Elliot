@@ -45,6 +45,7 @@ import { fmtPrice, t, type Lang } from "@/lib/i18n";
 import type { EngineSettings, Ticker } from "@/lib/types";
 import { INTERVALS } from "@/lib/types";
 import { llmReviewViaApi, type LlmVerdict } from "@/lib/llm";
+import { buildTopCoinsMessage, loadBcastState, saveBcastState } from "@/lib/scan-broadcast";
 import { Bot, Copy, KeyRound, Link2, ScanLine, Send, Square } from "lucide-react";
 
 interface Props {
@@ -134,29 +135,6 @@ const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPnlPct: n
     `💰 Equity: ${(r.capitalBefore ?? 0).toFixed(2)} → <b>${(r.capitalAfter ?? 0).toFixed(2)}</b> USDT`,
     `📈 Track record: ${closed} lệnh · Win rate ${winRate.toFixed(0)}% · Net ROE ${netPnlPct >= 0 ? "+" : ""}${netPnlPct.toFixed(1)}%`,
   ].join("\n");
-
-const msgScan = (rows: ScanRow[], nPairs: number, nTf: number): string => {
-  const medals = ["1️⃣", "2️⃣", "3️⃣"];
-  const top = rows
-    .slice(0, 3)
-    .map(
-      (r, i) =>
-        `${medals[i]} <b>${r.symbol}</b> ${r.interval} ${sideTxt(r.bias)} · Score <b>${r.score.toFixed(1)}</b>${
-          i === 0 ? ` · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(1)}%` : ""
-        }`,
-    )
-    .join("\n");
-  const best = rows[0];
-  return [
-    `📊 <b>AUTO SCAN · ${nPairs} pair × ${nTf} TF</b>`,
-    `✅ ${rows.length}/${nPairs * nTf} combo đạt chuẩn dữ liệu`,
-    HR,
-    best ? "🏆 <b>Top setups:</b>" : "Không có combo hợp lệ",
-    top,
-  ]
-    .filter(Boolean)
-    .join("\n");
-};
 
 const TEST_MSG =
   "✅ <b>Elliott Terminal — kết nối Telegram OK</b>\nAuto trade (dry-run) sẽ báo mở/đóng lệnh, cảnh báo sát TP/SL, kết quả quét và báo cáo thống kê tại kênh này.";
@@ -342,6 +320,33 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     }
   }, [refreshAuto]);
 
+  // ── TOP-coin broadcast — template "TOP coin tiềm năng" sent to Telegram ────
+  const lastBcastRef = useRef(0);
+  const sendTopCoins = useCallback(
+    async (rows: ScanRow[]) => {
+      if (rows.length === 0) return;
+      const state = loadBcastState();
+      const built = await buildTopCoinsMessage(rows, tickersRef.current, state);
+      if (!built) {
+        pushToast({ kind: "wy", text: t(langRef.current, "auto.bcast.none") });
+        return;
+      }
+      state.n += 1;
+      const now = Date.now();
+      for (const r of built.picked) state.seen[`${r.symbol}-${r.interval}`] = now;
+      saveBcastState(state);
+      const res = await sendTelegram(built.text);
+      if (mountedRef.current && !res.ok && !/telegram_not_configured/i.test(res.detail ?? "")) {
+        const busy = /telegram_busy|HTTP 50\d|Overload/i.test(res.detail ?? "");
+        pushToast({
+          kind: "error",
+          text: busy ? t(langRef.current, "auto.tg.busy") : t(langRef.current, "auto.tg.err", { detail: res.detail ?? "?" }),
+        });
+      }
+    },
+    [pushToast],
+  );
+
   const doScan = useCallback(async (): Promise<ScanRow[]> => {
     if (scanBusyRef.current) return rowsRef.current;
     scanBusyRef.current = true;
@@ -356,8 +361,9 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
         setRows(out);
         setScanAt(Date.now());
       }
-      if (out.length > 0) {
-        void sendTelegram(msgScan(out, pairsRef.current.length, INTERVALS.length));
+      if (out.length > 0 && Date.now() - lastBcastRef.current > 60_000) {
+        lastBcastRef.current = Date.now();
+        void sendTopCoins(out);
       }
       return out;
     } finally {
@@ -365,6 +371,28 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
       if (mountedRef.current) setScanning(null);
     }
   }, []);
+
+  // ── broadcast metronome — the TOP-coin digest goes out every 5 minutes ──────
+  // Reuses a fresh scan when one is younger than 4.5 min (avoids double sends
+  // with the auto cycle), otherwise triggers doScan() which broadcasts itself.
+  useEffect(() => {
+    if (!cfg.broadcast) return;
+    const tick = async () => {
+      if (busyRef.current || scanBusyRef.current) return;
+      const fresh = rowsRef.current.length > 0 && Date.now() - (scanAgeRef.current ?? 0) <= 4.5 * 60_000;
+      if (fresh) {
+        if (Date.now() - lastBcastRef.current > 4.5 * 60_000) {
+          lastBcastRef.current = Date.now();
+          await sendTopCoins(rowsRef.current);
+        }
+      } else {
+        await doScan(); // broadcasts on completion
+      }
+    };
+    void tick(); // enabling → first digest right away (empty rows → silent no-op)
+    const id = window.setInterval(() => void tick(), 5 * 60_000);
+    return () => window.clearInterval(id);
+  }, [cfg.broadcast, doScan, sendTopCoins]);
 
   // ── one auto cycle: manage the open position, then maybe enter the best pick
   const runCycle = useCallback(async () => {
@@ -953,6 +981,23 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
             }`}
           >
             🐋 {t(lang, "auto.whale.title")}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const v = !cfg.broadcast;
+              updateCfg({ broadcast: v });
+              if (v) void doScan(); // enabling → scan now, first digest lands in seconds
+            }}
+            aria-pressed={cfg.broadcast}
+            title={t(lang, "auto.bcast.tip")}
+            className={`h-7 rounded-md border px-2 text-[11px] ${
+              cfg.broadcast
+                ? "border-violet-700 bg-violet-950/40 text-violet-300"
+                : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+            }`}
+          >
+            📡 {t(lang, "auto.bcast.title")}
           </button>
           {llmLast && (
             <span
