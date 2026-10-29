@@ -47,6 +47,10 @@ interface Props {
   trend?: number[];
   /** stretch to fill the parent height (terminal layout) */
   fill?: boolean;
+  /** candle body style: "neon" = hollow up-bodies (default) · "normal" = filled green/red */
+  candleStyle?: "neon" | "normal";
+  /** style switch — omit to hide the toggle */
+  onCandleStyle?: (style: "neon" | "normal") => void;
 }
 
 const PAD_L = 8;
@@ -71,6 +75,8 @@ export function PriceChart({
   stop,
   trend,
   fill = false,
+  candleStyle = "neon",
+  onCandleStyle,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<HTMLDivElement>(null);
@@ -664,6 +670,8 @@ export function PriceChart({
             // Wyckoff bar coloring overrides the candle color (Pine barcolor)
             const tint = tintOf(i);
             const color = tint === 1 ? WY_ACC_BAR : tint === -1 ? WY_DIST_BAR : up ? UP : DOWN;
+            // "normal" style = every body filled (green up / red down); "neon" = hollow up-bodies
+            const solid = candleStyle === "normal";
             const bw = Math.max(2, cw * 0.62);
             const yo = y(k.o);
             const yc = y(k.c);
@@ -677,7 +685,7 @@ export function PriceChart({
                   y={top}
                   width={bw}
                   height={h}
-                  fill={up || tint !== 0 ? (tint !== 0 ? color : "transparent") : color}
+                  fill={solid ? color : up || tint !== 0 ? (tint !== 0 ? color : "transparent") : color}
                   stroke={color}
                   strokeWidth={1}
                   opacity={tint !== 0 ? 0.85 : 1}
@@ -844,8 +852,32 @@ export function PriceChart({
             </Button>
           )}
         </span>
+        {onCandleStyle && (
+          <Button
+            size="sm"
+            variant="outline"
+            className={`h-6 rounded-md border-zinc-700 px-2 text-[11px] ${
+              candleStyle === "normal"
+                ? "bg-zinc-100 text-zinc-900 hover:bg-zinc-200"
+                : "bg-transparent text-zinc-300 hover:bg-zinc-800"
+            }`}
+            title={
+              candleStyle === "normal"
+                ? t(lang, "chart.candle.toNeon")
+                : t(lang, "chart.candle.toNormal")
+            }
+            aria-label={t(lang, "chart.candle.style")}
+            onClick={() => onCandleStyle(candleStyle === "normal" ? "neon" : "normal")}
+          >
+            {candleStyle === "normal" ? t(lang, "chart.candle.normal") : t(lang, "chart.candle.neon")}
+          </Button>
+        )}
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm border border-emerald-500" />
+          <span
+            className={`inline-block h-2.5 w-2.5 rounded-sm ${
+              candleStyle === "normal" ? "bg-emerald-500" : "border border-emerald-500"
+            }`}
+          />
           {t(lang, "chart.legend.candles")}
         </span>
         <span className="flex items-center gap-1.5">

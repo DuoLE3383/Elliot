@@ -1,0 +1,1055 @@
+     1→"use client";
+     2→
+     3→import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+     4→import { DeepAnalysis } from "@/components/analysis";
+     5→import { Journal } from "@/components/journal";
+     6→import { KpiCards } from "@/components/kpi";
+     7→import { SessionsPanel } from "@/components/sessions";
+     8→import { SignalDock } from "@/components/panels";
+     9→import { PriceChart } from "@/components/price-chart";
+    10→import { RailContext } from "@/components/rail-context";
+    11→import { SettingsDialog } from "@/components/settings-dialog";
+    12→import { SuggestionHistory } from "@/components/suggestions";
+    13→import { TickerStrip } from "@/components/ticker-strip";
+    14→import { Watchlist } from "@/components/watchlist";
+    15→import { WyckoffPanel } from "@/components/wyckoff-panel";
+    16→import { XgbPanel } from "@/components/xgb-panel";
+    17→import { Button } from "@/components/ui/button";
+    18→import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+    19→import { Skeleton } from "@/components/ui/skeleton";
+    20→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    21→import { fmtCompact } from "@/lib/market";
+    22→import { fetchRuns, markApplied, resolveBatch, saveRun, saveSuggestion, type RunRow } from "@/lib/history";
+    23→import { fmtPct, fmtPrice, fmtTime, symbolLabel, t, type Lang } from "@/lib/i18n";
+    24→import { kpiFrom, papersFrom } from "@/lib/papers";
+    25→import { signalsFrom } from "@/lib/signals";
+    26→import { wyckoffFrom } from "@/lib/wyckoff";
+    27→import {
+    28→  DEFAULT_SETTINGS,
+    29→  DEFAULT_WYCKOFF,
+    30→  EngineSettings,
+    31→  INTERVALS,
+    32→  Interval,
+    33→  Kline,
+    34→  MAX_CUSTOM_PAIRS,
+    35→  Paper,
+    36→  STRATEGY_PRESETS,
+    37→  StrategyKey,
+    38→  SYMBOLS,
+    39→  Ticker,
+    40→  WyckoffSettings,
+    41→  matchPreset,
+    42→} from "@/lib/types";
+    43→import { runXgb, type XgbResult } from "@/lib/xgb";
+    44→import { ElliottLogo } from "@/components/logo";
+    45→import { AlertTriangle, ArrowLeftRight, BrainCircuit, Landmark, RefreshCw, Settings2 } from "lucide-react";
+    46→
+    47→interface Toast {
+    48→  id: number;
+    49→  kind: "entry" | "flip" | "error" | "wy" | "xgb";
+    50→  side?: Paper["side"];
+    51→  text: string;
+    52→}
+    53→
+    54→const QUOTE_RE = /(USDT|USDC|FDUSD|TUSD|BUSD|BTC|ETH)$/;
+    55→
+    56→/** "pepe" → "PEPEUSDT", "PEPEUSDT" → "PEPEUSDT" */
+    57→const normalizePair = (raw: string): string => {
+    58→  const s = raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    59→  if (!s) return "";
+    60→  return QUOTE_RE.test(s) ? s : `${s}USDT`;
+    61→};
+    62→
+    63→/** Live VN + UTC clocks — 1 Hz external "store", SSR-safe (server snapshot 0). */
+    64→function Clocks({ lang }: { lang: Lang }) {
+    65→  // seconds-precision snapshot keeps getSnapshot stable within a second
+    66→  const sec = useSyncExternalStore(
+    67→    (onStoreChange) => {
+    68→      const id = window.setInterval(onStoreChange, 1000);
+    69→      return () => window.clearInterval(id);
+    70→    },
+    71→    () => Math.floor(Date.now() / 1000),
+    72→    () => 0,
+    73→  );
+    74→  const fmt = (tz: string) =>
+    75→    sec === 0
+    76→      ? "--:--:--"
+    77→      : new Date(sec * 1000).toLocaleTimeString("en-GB", {
+    78→          hour: "2-digit",
+    79→          minute: "2-digit",
+    80→          second: "2-digit",
+    81→          hour12: false,
+    82→          timeZone: tz,
+    83→        });
+    84→  return (
+    85→    <div className="hidden flex-col items-end leading-tight lg:flex" aria-hidden>
+    86→      <span className="font-mono text-[11px] text-zinc-300">
+    87→        <span className="text-zinc-600">{t(lang, "header.clockVN")}</span> {fmt("Asia/Ho_Chi_Minh")}
+    88→      </span>
+    89→      <span className="font-mono text-[11px] text-zinc-500">
+    90→        <span className="text-zinc-600">{t(lang, "header.clockUTC")}</span> {fmt("UTC")}
+    91→      </span>
+    92→    </div>
+    93→  );
+    94→}
+    95→
+    96→export default function Home() {
+    97→  const [symbol, setSymbol] = useState<string>("BTCUSDT");
+    98→  const [interval, setIntervalTf] = useState<Interval>("5m");
+    99→  const [lang, setLang] = useState<Lang>("vi");
+   100→  const [settings, setSettings] = useState<EngineSettings>(DEFAULT_SETTINGS);
+   101→  const [wySettings, setWySettings] = useState<WyckoffSettings>(DEFAULT_WYCKOFF);
+   102→  const [customPairs, setCustomPairs] = useState<string[]>([]);
+   103→  const [pairInput, setPairInput] = useState("");
+   104→  const [checkingPair, setCheckingPair] = useState(false);
+   105→  const [klines, setKlines] = useState<Kline[]>([]);
+   106→  const [loading, setLoading] = useState(true);
+   107→  const [error, setError] = useState<string | null>(null);
+   108→  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+   109→  const [pinnedTime, setPinnedTime] = useState<number | null>(null);
+   110→  const [toasts, setToasts] = useState<Toast[]>([]);
+   111→  const [settingsOpen, setSettingsOpen] = useState(false);
+   112→  // ── XGBoost trainer state ────────────────────────────────────────
+   113→  const [xgb, setXgb] = useState<XgbResult | null>(null);
+   114→  const [xgbBusy, setXgbBusy] = useState(false);
+   115→  const [xgbProgress, setXgbProgress] = useState(0);
+   116→  // ── persisted suggestion/finetune rows (SQLite via /api/*) ─────
+   117→  const [xgbSavedId, setXgbSavedId] = useState<string | null>(null);
+   118→  const [xgbRunId, setXgbRunId] = useState<string | null>(null);
+   119→  /** persisted train/finetune runs for the current pair+interval (newest first) */
+   120→  const [xgbRuns, setXgbRuns] = useState<RunRow[]>([]);
+   121→  /** bumped after any DB mutation → history lists reload */
+   122→  const [histRefresh, setHistRefresh] = useState(0);
+   123→  // ── market context (ticker strip + watchlist sparklines) ────────────────────
+   124→  const [tickers, setTickers] = useState<Record<string, Ticker>>({});
+   125→  const [minis, setMinis] = useState<Record<string, Kline[]>>({});
+   126→
+   127→  const prevPapersRef = useRef<Map<string, Paper> | null>(null);
+   128→  const prevKeyRef = useRef<string>("");
+   129→  /** key of the kline data actually loaded — differs from the selected key mid-switch */
+   130→  const dataKeyRef = useRef<string>("");
+   131→  const toastSeq = useRef(0);
+   132→  /** localStorage has been read — saves are gated on this to avoid clobbering */
+   133→  const hydratedRef = useRef(false);
+   134→
+   135→  const pushToast = useCallback((toast: Omit<Toast, "id">) => {
+   136→    const id = ++toastSeq.current;
+   137→    setToasts((list) => [...list.slice(-3), { ...toast, id }]);
+   138→    window.setTimeout(() => {
+   139→      setToasts((list) => list.filter((x) => x.id !== id));
+   140→    }, 7000);
+   141→  }, []);
+   142→
+   143→  /** DB mutated → history lists (tab Đề xuất, XgbPanel runs) reload */
+   144→  const bumpHist = useCallback(() => setHistRefresh((k) => k + 1), []);
+   145→
+   146→  // ── localStorage hydration (client only, after first paint) ────────────────
+   147→  useEffect(() => {
+   148→    try {
+   149→      const s = localStorage.getItem("utp.settings");
+   150→      if (s) {
+   151→        let parsed = JSON.parse(s) as Partial<EngineSettings>;
+   152→        // one-time legacy fix (gate v2): saved settings from the old build ship
+   153→        // smaFilter: true, which kept fresh entries stuck behind the gate for
+   154→        // whole sessions — unblock every existing save exactly once
+   155→        if (localStorage.getItem("utp.gate.v2") !== "1") {
+   156→          localStorage.setItem("utp.gate.v2", "1");
+   157→          parsed = { ...parsed, smaFilter: false };
+   158→          localStorage.setItem("utp.settings", JSON.stringify(parsed));
+   159→        }
+   160→        setSettings({ ...DEFAULT_SETTINGS, ...parsed });
+   161→      }
+   162→      const w = localStorage.getItem("utp.wyckoff");
+   163→      if (w) {
+   164→        const pw = JSON.parse(w) as Partial<WyckoffSettings>;
+   165→        setWySettings((prev) => ({
+   166→          ...prev,
+   167→          ...pw,
+   168→          sens: typeof pw.sens === "number" ? Math.min(45, Math.max(5, Math.round(pw.sens))) : prev.sens,
+   169→          mode: pw.mode === "manual" ? "manual" : "auto",
+   170→          speed:
+   171→            pw.speed === "fast" || pw.speed === "normal" || pw.speed === "safe" ? pw.speed : "auto-tf",
+   172→        }));
+   173→      }
+   174→      const p = localStorage.getItem("utp.pairs");
+   175→      if (p) {
+   176→        const arr = JSON.parse(p);
+   177→        if (Array.isArray(arr)) {
+   178→          setCustomPairs(
+   179→            arr.filter((x: unknown): x is string => typeof x === "string").slice(0, MAX_CUSTOM_PAIRS),
+   180→          );
+   181→        }
+   182→      }
+   183→      const sym = localStorage.getItem("utp.symbol");
+   184→      if (sym && /^[A-Z0-9]{5,20}$/.test(sym)) setSymbol(sym);
+   185→      const itv = localStorage.getItem("utp.interval");
+   186→      if (itv && (INTERVALS as readonly string[]).includes(itv)) setIntervalTf(itv as Interval);
+   187→      const lg = localStorage.getItem("utp.lang");
+   188→      if (lg === "vi" || lg === "en") setLang(lg);
+   189→    } catch {
+   190→      // corrupted storage → keep defaults
+   191→    } finally {
+   192→      hydratedRef.current = true;
+   193→    }
+   194→  }, []);
+   195→
+   196→  useEffect(() => {
+   197→    if (hydratedRef.current) localStorage.setItem("utp.symbol", symbol);
+   198→  }, [symbol]);
+   199→  useEffect(() => {
+   200→    if (hydratedRef.current) localStorage.setItem("utp.interval", interval);
+   201→  }, [interval]);
+   202→  useEffect(() => {
+   203→    if (hydratedRef.current) localStorage.setItem("utp.lang", lang);
+   204→  }, [lang]);
+   205→  useEffect(() => {
+   206→    if (hydratedRef.current) localStorage.setItem("utp.pairs", JSON.stringify(customPairs));
+   207→  }, [customPairs]);
+   208→  useEffect(() => {
+   209→    if (hydratedRef.current) localStorage.setItem("utp.wyckoff", JSON.stringify(wySettings));
+   210→  }, [wySettings]);
+   211→
+   212→  const loadData = useCallback(async (sym: string, itv: Interval, announce: boolean) => {
+   213→    setLoading(true);
+   214→    try {
+   215→      const res = await fetch(`/api/klines?symbol=${encodeURIComponent(sym)}&interval=${itv}`);
+   216→      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+   217→      const json = (await res.json()) as { klines: Kline[] };
+   218→      dataKeyRef.current = `${sym}-${itv}`;
+   219→      setKlines(json.klines);
+   220→      setError(null);
+   221→      setUpdatedAt(Date.now());
+   222→
+   223→      if (announce) {
+   224→        // Toast diffing happens in a layout effect after engine recompute
+   225→      }
+   226→    } catch (e) {
+   227→      setError(e instanceof Error ? e.message : "fetch failed");
+   228→    } finally {
+   229→      setLoading(false);
+   230→    }
+   231→  }, []);
+   232→
+   233→  useEffect(() => {
+   234→    void loadData(symbol, interval, false);
+   235→    prevKeyRef.current = `${symbol}-${interval}`;
+   236→    prevPapersRef.current = null; // key switch → no toast burst
+   237→    setPinnedTime(null);
+   238→  }, [symbol, interval, loadData]);
+   239→
+   240→  useEffect(() => {
+   241→    const timer = window.setInterval(() => {
+   242→      void loadData(symbol, interval, true);
+   243→    }, 30000);
+   244→    return () => window.clearInterval(timer);
+   245→  }, [symbol, interval, loadData]);
+   246→
+   247→  const key = `${symbol}-${interval}`;
+   248→  const engine = useMemo(() => {
+   249→    if (klines.length === 0) return null;
+   250→    const raw = signalsFrom(klines, settings.atrKey, settings.atrPeriod, settings.smaPeriod);
+   251→    // UT off → no new signals at all (open positions still exit via SL/TP);
+   252→    // gate off → nothing is "blocked" anywhere in the UI
+   253→    const signals = !settings.utOn
+   254→      ? []
+   255→      : settings.smaFilter
+   256→        ? raw.signals
+   257→        : raw.signals.map((s) => ({ ...s, smaOk: true }));
+   258→    const res = papersFrom(
+   259→      klines,
+   260→      signals,
+   261→      raw.sma,
+   262→      symbol,
+   263→      interval,
+   264→      settings.slPct,
+   265→      settings.tpPct,
+   266→      settings.leverage,
+   267→      settings.smaFilter,
+   268→    );
+   269→    const confirmed = signals.filter((s) => s.i < klines.length - 1);
+   270→    return {
+   271→      signals,
+   272→      sma: raw.sma,
+   273→      stop: raw.stop,
+   274→      trend: raw.trend,
+   275→      ...res,
+   276→      confirmed,
+   277→    };
+   278→  }, [klines, settings, symbol, interval]);
+   279→
+   280→  // Toast diffing — announce new papers (entries) and flips
+   281→  useEffect(() => {
+   282→    if (!engine) return;
+   283→    // skip computes sourced from klines of a previous symbol/interval — those
+   284→    // fabricate fresh ids mid-switch and would spam toasts
+   285→    if (dataKeyRef.current !== key) return;
+   286→    const prev = prevPapersRef.current;
+   287→    const map = new Map(engine.papers.map((p) => [p.id, p]));
+   288→    prevPapersRef.current = map;
+   289→    if (!prev || prevKeyRef.current !== key) return;
+   290→
+   291→    let count = 0;
+   292→    for (const [id, p] of map) {
+   293→      if (prev.has(id) || count >= 3) continue;
+   294→      count++;
+   295→      if (p.flippedFrom && prev.get(p.flippedFrom)) {
+   296→        const old = prev.get(p.flippedFrom)!;
+   297→        pushToast({
+   298→          kind: "flip",
+   299→          side: p.side,
+   300→          text: t(lang, "toast.flip", {
+   301→            from: old.side,
+   302→            to: p.side,
+   303→            exit: fmtPrice(old.exit ?? p.entry),
+   304→            pnl: fmtPct(old.pnlPct ?? 0),
+   305→            entry: fmtPrice(p.entry),
+   306→          }),
+   307→        });
+   308→      } else {
+   309→        pushToast({
+   310→          kind: "entry",
+   311→          side: p.side,
+   312→          text: t(lang, "toast.newEntry", { side: p.side, price: fmtPrice(p.entry) }),
+   313→        });
+   314→      }
+   315→    }
+   316→  }, [engine, key, lang, pushToast]);
+   317→
+   318→  const stats = useMemo(() => kpiFrom(engine?.papers ?? []), [engine]);
+   319→
+   320→  // ── Wyckoff Schematic Auto Detect ─────────────────────────────────────
+   321→  const wyckoff = useMemo(() => {
+   322→    if (!wySettings.enabled || klines.length < 60) return null;
+   323→    try {
+   324→      return wyckoffFrom(klines, interval, wySettings);
+   325→    } catch {
+   326→      return null;
+   327→    }
+   328→  }, [klines, interval, wySettings]);
+   329→
+   330→  // Wyckoff event toasts — same dataKey discipline as paper toasts; keys use
+   331→  // candle TIME (stable across the sliding 500-candle window), and a cfg
+   332→  // signature reseeds silently whenever Wyckoff settings change
+   333→  const wySeenRef = useRef<{ key: string; cfg: string; seen: Set<string> }>({
+   334→    key: "",
+   335→    cfg: "",
+   336→    seen: new Set(),
+   337→  });
+   338→  useEffect(() => {
+   339→    if (!wyckoff) return;
+   340→    if (dataKeyRef.current !== key) return;
+   341→    const cfg = `${wySettings.mode}|${wySettings.speed}|${wySettings.sens}|${wySettings.reqPhaseC}`;
+   342→    const s = wySeenRef.current;
+   343→    if (s.key !== key || s.cfg !== cfg) {
+   344→      wySeenRef.current = {
+   345→        key,
+   346→        cfg,
+   347→        seen: new Set(wyckoff.events.map((e) => `${e.kind}-${e.time}-${e.dir}`)),
+   348→      };
+   349→      return;
+   350→    }
+   351→    let count = 0;
+   352→    for (const e of wyckoff.events) {
+   353→      const k = `${e.kind}-${e.time}-${e.dir}`;
+   354→      if (s.seen.has(k) || count >= 2) continue;
+   355→      s.seen.add(k);
+   356→      count++;
+   357→      pushToast({
+   358→        kind: "wy",
+   359→        text: t(lang, "toast.wyckoff", { event: e.kind, sym: symbolLabel(symbol), itv: interval }),
+   360→      });
+   361→    }
+   362→  }, [wyckoff, key, lang, symbol, interval, pushToast, wySettings]);
+   363→
+   364→  const lastClose = klines.length ? klines[klines.length - 1].c : 0;
+   365→  const latestSignal = engine?.signals.at(-1);
+   366→  const confirmedSignal = engine?.confirmed.at(-1);
+   367→  // DIRECTIONAL gate state — a close below the SMA blocks BUYs but NEVER SELLs
+   368→  const gateInfo = useMemo(() => {
+   369→    if (!engine || klines.length === 0) {
+   370→      return { long: true, short: true, sma: null as number | null };
+   371→    }
+   372→    const smaVal = engine.sma[klines.length - 1];
+   373→    if (smaVal == null) return { long: true, short: true, sma: null as number | null };
+   374→    return {
+   375→      long: lastClose > smaVal,
+   376→      short: lastClose < smaVal,
+   377→      sma: smaVal as number | null,
+   378→    };
+   379→  }, [engine, klines, lastClose]);
+   380→
+   381→  // unrealized ROE % of the open position (price move × leverage)
+   382→  const openPnl = useMemo(() => {
+   383→    const p = engine?.open;
+   384→    if (!p || !lastClose) return undefined;
+   385→    const pricePct =
+   386→      p.side === "LONG" ? ((lastClose - p.entry) / p.entry) * 100 : ((p.entry - lastClose) / p.entry) * 100;
+   387→    return pricePct * settings.leverage;
+   388→  }, [engine, lastClose, settings.leverage]);
+   389→
+   390→  /** flip the SMA gate from the dock — persists and recomputes silently */
+   391→  const toggleGate = useCallback((v: boolean) => {
+   392→    setSettings((s) => {
+   393→      const next = { ...s, smaFilter: v };
+   394→      try {
+   395→        localStorage.setItem("utp.settings", JSON.stringify(next));
+   396→      } catch {
+   397→        // storage blocked — the toggle still applies for this session
+   398→      }
+   399→      return next;
+   400→    });
+   401→    prevKeyRef.current = ""; // settings change → recompute without toast burst
+   402→  }, []);
+   403→
+   404→  /** flip the UT engine from the dock — same persistence discipline */
+   405→  const toggleUt = useCallback((v: boolean) => {
+   406→    setSettings((s) => {
+   407→      const next = { ...s, utOn: v };
+   408→      try {
+   409→        localStorage.setItem("utp.settings", JSON.stringify(next));
+   410→      } catch {
+   411→        // storage blocked — the toggle still applies for this session
+   412→      }
+   413→      return next;
+   414→    });
+   415→    prevKeyRef.current = "";
+   416→  }, []);
+   417→
+   418→  /** apply a strategy preset — leverage untouched, recomputes silently */
+   419→  const applyPreset = useCallback((preset: StrategyKey) => {
+   420→    const p = STRATEGY_PRESETS.find((x) => x.key === preset);
+   421→    if (!p) return;
+   422→    setSettings((s) => {
+   423→      const next = { ...s, ...p.settings };
+   424→      try {
+   425→        localStorage.setItem("utp.settings", JSON.stringify(next));
+   426→      } catch {
+   427→        // storage blocked — the preset still applies for this session
+   428→      }
+   429→      return next;
+   430→    });
+   431→    prevKeyRef.current = "";
+   432→  }, []);
+   433→
+   434→  const activePreset = useMemo(() => matchPreset(settings), [settings]);
+   435→
+   436→  // ── XGBoost train + apply ────────────────────────────────────────
+   437→  const trainXgb = useCallback(async () => {
+   438→    if (xgbBusy || klines.length < 200) return;
+   439→    setXgbBusy(true);
+   440→    setXgbProgress(0);
+   441→    try {
+   442→      const res = await runXgb(klines, settings, key, interval, (p) => setXgbProgress(p));
+   443→      setXgb(res);
+   444→      pushToast({
+   445→        kind: "xgb",
+   446→        text: t(lang, "toast.xgbDone", { acc: res.acc.toFixed(1), auc: res.auc.toFixed(2) }),
+   447→      });
+   448→      // persist run + suggestion per (pair, interval, time) — outcomes are
+   449→      // scored later by resolve-batch once the horizon bars have elapsed
+   450→      const entryPrice = klines.length >= 2 ? klines[klines.length - 2].c : 0;
+   451→      const [saved, runSaved] = await Promise.all([
+   452→        saveSuggestion({
+   453→          symbol,
+   454→          interval,
+   455→          bias: res.suggestion.bias,
+   456→          prob: res.suggestion.prob,
+   457→          confidence: res.suggestion.confidence,
+   458→          slPct: res.suggestion.slPct,
+   459→          tpPct: res.suggestion.tpPct,
+   460→          atrKey: res.suggestion.atrKey,
+   461→          atrPeriod: res.suggestion.atrPeriod,
+   462→          smaFilter: res.suggestion.smaFilter,
+   463→          smaPeriod: res.suggestion.smaPeriod,
+   464→          acc: res.acc,
+   465→          auc: res.auc,
+   466→          horizonBars: res.horizon,
+   467→          entryPrice,
+   468→        }),
+   469→        saveRun({
+   470→          symbol,
+   471→          interval,
+   472→          samples: res.samples,
+   473→          valSamples: res.valSamples,
+   474→          acc: res.acc,
+   475→          auc: res.auc,
+   476→          logloss: res.logloss,
+   477→          trees: res.trees,
+   478→          horizon: res.horizon,
+   479→          importance: res.importance,
+   480→          params: {},
+   481→        }),
+   482→      ]);
+   483→      setXgbSavedId(saved?.id ?? null);
+   484→      setXgbRunId(runSaved?.id ?? null);
+   485→      pushToast({
+   486→        kind: "xgb",
+   487→        text: saved && runSaved ? t(lang, "sg.saved") : t(lang, "sg.saveFail"),
+   488→      });
+   489→      bumpHist();
+   490→    } catch {
+   491→      pushToast({ kind: "error", text: t(lang, "toast.xgbFail") });
+   492→    } finally {
+   493→      setXgbBusy(false);
+   494→    }
+   495→  }, [xgbBusy, klines, settings, key, interval, symbol, lang, pushToast, bumpHist]);
+   496→
+   497→  const applyXgb = useCallback(() => {
+   498→    if (!xgb) return;
+   499→    const sg = xgb.suggestion;
+   500→    setSettings((prev) => {
+   501→      const next = {
+   502→        ...prev,
+   503→        slPct: sg.slPct,
+   504→        tpPct: sg.tpPct,
+   505→        atrKey: sg.atrKey,
+   506→        atrPeriod: sg.atrPeriod,
+   507→        smaFilter: sg.smaFilter,
+   508→        smaPeriod: sg.smaPeriod,
+   509→      };
+   510→      try {
+   511→        localStorage.setItem("utp.settings", JSON.stringify(next));
+   512→      } catch {
+   513→        // storage blocked — the suggestion still applies for this session
+   514→      }
+   515→      return next;
+   516→    });
+   517→    prevKeyRef.current = "";
+   518→    pushToast({ kind: "xgb", text: t(lang, "xgb.applied") });
+   519→    // mark the persisted rows as applied (fire-and-forget)
+   520→    if (xgbSavedId) void markApplied("suggestion", xgbSavedId).then((ok) => ok && bumpHist());
+   521→    if (xgbRunId) void markApplied("run", xgbRunId).then((ok) => ok && bumpHist());
+   522→  }, [xgb, lang, pushToast, xgbSavedId, xgbRunId, bumpHist]);
+   523→
+   524→  const xgbStale = xgb != null && xgb.key !== key;
+   525→
+   526→  // persisted finetune runs for the current pair+interval — reload on switch/mutation
+   527→  useEffect(() => {
+   528→    let alive = true;
+   529→    const load = async () => {
+   530→      try {
+   531→        const list = await fetchRuns({ symbol, interval, limit: 20 });
+   532→        if (alive) setXgbRuns(list);
+   533→      } catch {
+   534→        if (alive) setXgbRuns([]);
+   535→      }
+   536→    };
+   537→    void load();
+   538→    return () => {
+   539→      alive = false;
+   540→    };
+   541→  }, [symbol, interval, histRefresh]);
+   542→
+   543→  // ── outcome scoring — feed fresh prices every 60s; the server scores any
+   544→  // pending suggestion whose horizon has elapsed (win/loss per direction) ──
+   545→  const resolveStale = useCallback(async () => {
+   546→    const prices: Record<string, number> = {};
+   547→    if (klines.length) prices[symbol] = klines[klines.length - 1].c;
+   548→    for (const [sym, ks] of Object.entries(minis)) {
+   549→      if (ks.length && prices[sym] == null) prices[sym] = ks[ks.length - 1].c;
+   550→    }
+   551→    const n = await resolveBatch(prices);
+   552→    if (n > 0) bumpHist();
+   553→  }, [klines, symbol, minis, bumpHist]);
+   554→
+   555→  useEffect(() => {
+   556→    void resolveStale();
+   557→    const id = window.setInterval(() => void resolveStale(), 60_000);
+   558→    return () => window.clearInterval(id);
+   559→  }, [resolveStale]);
+   560→
+   561→  const pinnedIndex = useMemo(() => {
+   562→    if (pinnedTime == null || !engine) return null;
+   563→    const idx = engine.signals.findIndex((s) => s.t === pinnedTime);
+   564→    return idx >= 0 ? engine.signals[idx].i : null;
+   565→  }, [pinnedTime, engine]);
+   566→  const pinnedSig = pinnedTime != null ? engine?.signals.find((s) => s.t === pinnedTime) : undefined;
+   567→
+   568→  const handlePin = useCallback(
+   569→    (index: number | null) => {
+   570→      if (index == null || !engine) {
+   571→        setPinnedTime(null);
+   572→        return;
+   573→      }
+   574→      const sig = engine.signals.find((s) => s.i === index);
+   575→      setPinnedTime(sig ? sig.t : null);
+   576→    },
+   577→    [engine],
+   578→  );
+   579→
+   580→  // ── custom pairs ────────────────────────────────────────────────────────────
+   581→  const allPairs = useMemo(() => {
+   582→    const extra = customPairs.filter((c) => !(SYMBOLS as readonly string[]).includes(c));
+   583→    return [...SYMBOLS, ...extra];
+   584→  }, [customPairs]);
+   585→
+   586→  const addPair = useCallback(async () => {
+   587→    const sym = normalizePair(pairInput);
+   588→    if (!sym || checkingPair) return;
+   589→    if ((allPairs as string[]).includes(sym)) {
+   590→      setSymbol(sym);
+   591→      setPairInput("");
+   592→      return;
+   593→    }
+   594→    setCheckingPair(true);
+   595→    try {
+   596→      // probe Binance with a tiny request — the API route maps a 400 to "invalid symbol"
+   597→      const res = await fetch(`/api/klines?symbol=${encodeURIComponent(sym)}&interval=5m&limit=2`);
+   598→      if (!res.ok) {
+   599→        pushToast({ kind: "error", text: t(lang, "toast.badPair", { sym }) });
+   600→        return;
+   601→      }
+   602→      setCustomPairs((list) =>
+   603→        list.includes(sym) ? list : [...list, sym].slice(-MAX_CUSTOM_PAIRS),
+   604→      );
+   605→      setSymbol(sym);
+   606→      setPairInput("");
+   607→    } catch {
+   608→      pushToast({ kind: "error", text: t(lang, "toast.error") });
+   609→    } finally {
+   610→      setCheckingPair(false);
+   611→    }
+   612→  }, [pairInput, checkingPair, allPairs, lang, pushToast]);
+   613→
+   614→  const removePair = useCallback(
+   615→    (sym: string) => {
+   616→      setCustomPairs((list) => list.filter((x) => x !== sym));
+   617→      if (symbol === sym) setSymbol("BTCUSDT");
+   618→    },
+   619→    [symbol],
+   620→  );
+   621→
+   622→  const langLabel = lang === "vi" ? "EN" : "VI";
+   623→
+   624→  // ── live 24h tickers for the strip + watchlist (30s) ───────────────────────
+   625→  const pairListKey = allPairs.join(",");
+   626→  useEffect(() => {
+   627→    let alive = true;
+   628→    const load = async () => {
+   629→      try {
+   630→        const res = await fetch(`/api/ticker?symbols=${encodeURIComponent(pairListKey)}`);
+   631→        if (!res.ok) return;
+   632→        const json = (await res.json()) as { tickers: Ticker[] };
+   633→        if (!alive) return;
+   634→        const map: Record<string, Ticker> = {};
+   635→        for (const tk of json.tickers) map[tk.symbol] = tk;
+   636→        setTickers(map);
+   637→      } catch {
+   638→        // strip keeps previous values on transient failures
+   639→      }
+   640→    };
+   641→    void load();
+   642→    const id = window.setInterval(() => void load(), 30000);
+   643→    return () => {
+   644→      alive = false;
+   645→      window.clearInterval(id);
+   646→    };
+   647→  }, [pairListKey]);
+   648→
+   649→  // ── mini klines (48 candles) for watchlist sparklines + status (60s) ──────
+   650→  useEffect(() => {
+   651→    let alive = true;
+   652→    const syms = pairListKey.split(",").filter(Boolean);
+   653→    const load = async () => {
+   654→      const results = await Promise.allSettled(
+   655→        syms.map(async (sym) => {
+   656→          const res = await fetch(
+   657→            `/api/klines?symbol=${encodeURIComponent(sym)}&interval=${interval}&limit=48`,
+   658→          );
+   659→          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+   660→          const json = (await res.json()) as { klines: Kline[] };
+   661→          return [sym, json.klines] as const;
+   662→        }),
+   663→      );
+   664→      if (!alive) return;
+   665→      setMinis((prev) => {
+   666→        const next: Record<string, Kline[]> = { ...prev };
+   667→        for (const r of results) if (r.status === "fulfilled") next[r.value[0]] = r.value[1];
+   668→        for (const k of Object.keys(next)) if (!syms.includes(k)) delete next[k];
+   669→        return next;
+   670→      });
+   671→    };
+   672→    void load();
+   673→    const id = window.setInterval(() => void load(), 60000);
+   674→    return () => {
+   675→      alive = false;
+   676→      window.clearInterval(id);
+   677→    };
+   678→  }, [pairListKey, interval]);
+   679→
+   680→  const activeTicker = tickers[symbol];
+   681→  const tickerUp = (activeTicker?.changePct ?? 0) >= 0;
+   682→
+   683→  return (
+   684→    <div className="flex min-h-dvh flex-col bg-zinc-950 text-zinc-100 lg:h-dvh lg:min-h-0 lg:overflow-hidden">
+   685→      {/* ── Header — ELLIOTT terminal bar ──────────────────────────── */}
+   686→      <header className="shrink-0 border-b border-zinc-800 bg-zinc-950/95 backdrop-blur">
+   687→        <div className="flex h-12 items-center gap-2 px-3">
+   688→          <div className="flex min-w-0 items-center gap-2">
+   689→            <div className="flex h-8 shrink-0 items-center gap-2 rounded-lg border border-zinc-800 bg-gradient-to-b from-zinc-900 to-zinc-950 p-1.5 shadow-[0_0_18px_-6px_rgba(16,185,129,0.45)] lg:pr-3">
+   690→              <ElliottLogo className="h-6 w-6" />
+   691→              <span className="hidden text-sm font-black tracking-[0.24em] text-zinc-100 lg:inline">ELLIOTT</span>
+   692→            </div>
+   693→            <div className="hidden leading-tight xl:block">
+   694→              <p className="text-[11px] font-semibold text-zinc-300">UT Bot · Sóng · Cá voi</p>
+   695→              <p className="text-[10px] text-zinc-600">{t(lang, "app.subtitle")}</p>
+   696→            </div>
+   697→          </div>
+   698→
+   699→          {/* timeframes */}
+   700→          <div className="ml-1 flex shrink-0 overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+   701→            {INTERVALS.map((itv) => (
+   702→              <button
+   703→                key={itv}
+   704→                onClick={() => setIntervalTf(itv)}
+   705→                className={`shrink-0 rounded-md px-2 py-1 font-mono text-xs font-semibold transition sm:px-2.5 ${
+   706→                  interval === itv ? "bg-emerald-600 text-zinc-950" : "text-zinc-400 hover:text-zinc-200"
+   707→                }`}
+   708→              >
+   709→                <span className="sm:hidden">{itv}</span>
+   710→                <span className="hidden sm:inline">{t(lang, `itv.${itv}`)}</span>
+   711→              </button>
+   712→            ))}
+   713→          </div>
+   714→
+   715→          {/* live badge */}
+   716→          <span className="hidden shrink-0 items-center gap-1.5 rounded-full border border-emerald-900 bg-emerald-950/40 px-2.5 py-1 text-[11px] font-medium text-emerald-400 md:flex">
+   717→            <span className="relative flex h-2 w-2">
+   718→              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+   719→              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+   720→            </span>
+   721→            {t(lang, "header.live")}
+   722→          </span>
+   723→
+   724→          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+   725→            <Clocks lang={lang} />
+   726→            <Button
+   727→              size="sm"
+   728→              variant="outline"
+   729→              className="h-8 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800"
+   730→              onClick={() => setLang((l) => (l === "vi" ? "en" : "vi"))}
+   731→            >
+   732→              {langLabel}
+   733→            </Button>
+   734→            <Button
+   735→              size="sm"
+   736→              variant="outline"
+   737→              className="h-8 gap-1.5 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800"
+   738→              onClick={() => setSettingsOpen(true)}
+   739→            >
+   740→              <Settings2 className="h-3.5 w-3.5" />
+   741→              <span className="hidden sm:inline">{t(lang, "header.settings")}</span>
+   742→              {settings.leverage > 1 && (
+   743→                <span className="font-mono text-amber-400">×{settings.leverage}</span>
+   744→              )}
+   745→            </Button>
+   746→            <Button
+   747→              size="sm"
+   748→              className="h-8 gap-1.5 bg-zinc-100 px-2.5 text-xs text-zinc-900 hover:bg-zinc-200"
+   749→              disabled={loading}
+   750→              onClick={() => void loadData(symbol, interval, true)}
+   751→            >
+   752→              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+   753→              <span className="hidden sm:inline">{t(lang, "header.refresh")}</span>
+   754→            </Button>
+   755→          </div>
+   756→        </div>
+   757→      </header>
+   758→
+   759→      {/* ── Live ticker strip ──────────────────────────────────────── */}
+   760→      <TickerStrip lang={lang} pairs={allPairs} tickers={tickers} current={symbol} onSelect={setSymbol} />
+   761→
+   762→      {/* ── KPI row ────────────────────────────────────────────────── */}
+   763→      <div className="shrink-0 px-3 pt-3">
+   764→        {engine ? (
+   765→          <KpiCards
+   766→            lang={lang}
+   767→            stats={stats}
+   768→            openPaper={engine.open}
+   769→            leverage={settings.leverage}
+   770→            openPnl={openPnl}
+   771→            signals={engine.signals}
+   772→          />
+   773→        ) : (
+   774→          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
+   775→            {Array.from({ length: 5 }, (_, k) => (
+   776→              <Skeleton key={k} className="h-[76px] rounded-lg border border-zinc-800 bg-zinc-900" />
+   777→            ))}
+   778→          </div>
+   779→        )}
+   780→      </div>
+   781→
+   782→      {/* ── Main terminal grid ─────────────────────────────────────── */}
+   783→      <main className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-3 lg:grid lg:grid-cols-[276px_minmax(0,1fr)_324px] lg:overflow-hidden xl:grid-cols-[300px_minmax(0,1fr)_352px]">
+   784→        {error ? (
+   785→          <div className="lg:col-span-3">
+   786→            <Card className="border-rose-900 bg-rose-950/30">
+   787→              <CardContent className="flex flex-col items-center gap-3 p-10 text-center">
+   788→                <AlertTriangle className="h-8 w-8 text-rose-500" />
+   789→                <p className="text-sm font-semibold text-rose-300">{t(lang, "toast.error")}</p>
+   790→                <p className="font-mono text-xs text-rose-400/70">{error}</p>
+   791→                <Button
+   792→                  className="bg-rose-600 text-white hover:bg-rose-500"
+   793→                  onClick={() => void loadData(symbol, interval, true)}
+   794→                >
+   795→                  {t(lang, "error.retry")}
+   796→                </Button>
+   797→              </CardContent>
+   798→            </Card>
+   799→          </div>
+   800→        ) : !engine ? (
+   801→          <div className="space-y-3 lg:col-span-3">
+   802→            <Skeleton className="h-[420px] rounded-lg border border-zinc-800 bg-zinc-900" />
+   803→          </div>
+   804→        ) : (
+   805→          <>
+   806→            {/* ── LEFT: watchlist + sessions ─────────────────────────── */}
+   807→            <div className="rail-scroll order-3 flex min-h-0 flex-col gap-3 lg:order-1 lg:overflow-y-auto lg:pr-0.5">
+   808→              <Watchlist
+   809→                lang={lang}
+   810→                pairs={allPairs}
+   811→                cap={SYMBOLS.length + MAX_CUSTOM_PAIRS}
+   812→                current={symbol}
+   813→                tickers={tickers}
+   814→                minis={minis}
+   815→                atrKey={settings.atrKey}
+   816→                atrPeriod={settings.atrPeriod}
+   817→                smaPeriod={settings.smaPeriod}
+   818→                pairInput={pairInput}
+   819→                checkingPair={checkingPair}
+   820→                onPairInput={setPairInput}
+   821→                onAddPair={() => void addPair()}
+   822→                onRemovePair={removePair}
+   823→                onSelect={setSymbol}
+   824→                defaultPairs={SYMBOLS}
+   825→              />
+   826→              <SessionsPanel lang={lang} klines={klines} />
+   827→            </div>
+   828→
+   829→            {/* ── CENTER: chart + bottom tabs ────────────────────────── */}
+   830→            <div className="rail-scroll order-1 flex min-h-0 flex-col gap-3 lg:order-2 lg:overflow-y-auto lg:pr-0.5">
+   831→              {/* gap-3/py-3 override the Card defaults (gap-6/py-6) — reclaims ~72px
+   832→                  of chart height; on lg the card fills the WHOLE visible rail height
+   833→                  (h-full + flex-none) so the chart stretches down over the old tabs
+   834→                  area — Sổ giấy / Phân tích sit below the fold (scroll to reach).
+   835→                  lg:min-h keeps the chart usable on short viewports (the rail scrolls
+   836→                  instead of the card collapsing over the tabs) */}
+   837→              <Card className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden border-zinc-800 bg-zinc-900/60 py-3 lg:h-full lg:min-h-[460px] lg:flex-none">
+   838→                <CardHeader className="shrink-0 border-b border-zinc-800/70 px-3 py-2.5">
+   839→                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+   840→                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+   841→                      <CardTitle className="text-sm font-bold text-zinc-100">
+   842→                        {symbolLabel(symbol)}
+   843→                        <span className="ml-1.5 hidden font-mono text-[11px] font-normal text-zinc-500 sm:inline">
+   844→                          {symbol} · {interval}
+   845→                          {settings.leverage > 1 && (
+   846→                            <span className="ml-1 font-semibold text-amber-500">×{settings.leverage}</span>
+   847→                          )}
+   848→                        </span>
+   849→                      </CardTitle>
+   850→                      <span className="font-mono text-sm font-bold text-zinc-100">{fmtPrice(lastClose)}</span>
+   851→                      {activeTicker && (
+   852→                        <span
+   853→                          className={`font-mono text-[11px] font-semibold ${
+   854→                            tickerUp ? "text-emerald-400" : "text-rose-400"
+   855→                          }`}
+   856→                        >
+   857→                          {tickerUp ? "+" : ""}
+   858→                          {activeTicker.changePct.toFixed(2)}%
+   859→                        </span>
+   860→                      )}
+   861→                      <span className="text-[10px] text-zinc-600 sm:hidden">{interval}</span>
+   862→                    </div>
+   863→                    <div className="hidden items-center gap-3 font-mono text-[11px] text-zinc-500 md:flex">
+   864→                      {activeTicker?.high != null && (
+   865→                        <span>
+   866→                          {t(lang, "chart.ohlc.high")} <b className="font-semibold text-zinc-300">{fmtPrice(activeTicker.high)}</b>
+   867→                        </span>
+   868→                      )}
+   869→                      {activeTicker?.low != null && (
+   870→                        <span>
+   871→                          {t(lang, "chart.ohlc.low")} <b className="font-semibold text-zinc-300">{fmtPrice(activeTicker.low)}</b>
+   872→                        </span>
+   873→                      )}
+   874→                      {activeTicker?.quoteVolume != null && (
+   875→                        <span>
+   876→                          {t(lang, "chart.ohlc.vol")}{" "}
+   877→                          <b className="font-semibold text-zinc-300">{fmtCompact(activeTicker.quoteVolume)}</b>
+   878→                        </span>
+   879→                      )}
+   880→                      <span className="text-zinc-600">
+   881→                        {updatedAt ? `${t(lang, "header.updated")} ${fmtTime(updatedAt, lang)}` : t(lang, "header.loading")}
+   882→                      </span>
+   883→                    </div>
+   884→                  </div>
+   885→                </CardHeader>
+   886→                <CardContent className="flex min-h-0 flex-1 flex-col px-3 pb-2 pt-2">
+   887→                  <div className="h-[340px] shrink-0 sm:h-[400px] lg:h-auto lg:min-h-[300px] lg:flex-1 lg:shrink">
+   888→                    <PriceChart
+   889→                      klines={klines}
+   890→                      sma={engine.sma}
+   891→                      stop={settings.utOn ? engine.stop : undefined}
+   892→                      trend={settings.utOn ? engine.trend : undefined}
+   893→                      signals={engine.signals}
+   894→                      papers={engine.papers}
+   895→                      openPaper={engine.open}
+   896→                      pending={engine.pending}
+   897→                      pinnedIndex={pinnedIndex}
+   898→                      onPin={handlePin}
+   899→                      lang={lang}
+   900→                      wyckoff={wyckoff}
+   901→                      wyckoffOn={wySettings.enabled}
+   902→                      fill
+   903→                    />
+   904→                  </div>
+   905→                </CardContent>
+   906→              </Card>
+   907→
+   908→              <Tabs defaultValue="journal" className="shrink-0">
+   909→                <TabsList className="h-8 justify-start rounded-lg border border-zinc-800 bg-zinc-900 p-0.5">
+   910→                  <TabsTrigger
+   911→                    value="journal"
+   912→                    className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+   913→                  >
+   914→                    {t(lang, "tabs.journal")}
+   915→                  </TabsTrigger>
+   916→                  <TabsTrigger
+   917→                    value="suggest"
+   918→                    className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+   919→                  >
+   920→                    {t(lang, "tabs.suggest")}
+   921→                  </TabsTrigger>
+   922→                  <TabsTrigger
+   923→                    value="analysis"
+   924→                    className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+   925→                  >
+   926→                    {t(lang, "tabs.analysis")}
+   927→                  </TabsTrigger>
+   928→                </TabsList>
+   929→                <TabsContent value="journal" className="mt-2 lg:h-[200px] lg:overflow-y-auto rail-scroll">
+   930→                  <Journal lang={lang} papers={engine.papers} symbol={symbol} interval={interval} maxListClass="max-h-36" />
+   931→                </TabsContent>
+   932→                <TabsContent value="suggest" className="mt-2 lg:h-[200px] lg:overflow-y-auto rail-scroll">
+   933→                  <SuggestionHistory lang={lang} symbol={symbol} interval={interval} refreshKey={histRefresh} />
+   934→                </TabsContent>
+   935→                <TabsContent value="analysis" className="mt-2 lg:h-[200px] lg:overflow-y-auto rail-scroll">
+   936→                  <DeepAnalysis
+   937→                    lang={lang}
+   938→                    klines={klines}
+   939→                    smaFilter={settings.smaFilter}
+   940→                    smaPeriod={settings.smaPeriod}
+   941→                    gateLong={gateInfo.long}
+   942→                    gateShort={gateInfo.short}
+   943→                    smaValue={gateInfo.sma}
+   944→                  />
+   945→                </TabsContent>
+   946→              </Tabs>
+   947→            </div>
+   948→
+   949→            {/* ── RIGHT: dock + context + Wyckoff ────────────────────── */}
+   950→            <div className="rail-scroll order-2 flex min-h-0 flex-col gap-3 lg:order-3 lg:overflow-y-auto lg:pl-0.5">
+   951→              <SignalDock
+   952→                lang={lang}
+   953→                smaPeriod={settings.smaPeriod}
+   954→                slPct={settings.slPct}
+   955→                tpPct={settings.tpPct}
+   956→                leverage={settings.leverage}
+   957→                smaFilter={settings.smaFilter}
+   958→                utOn={settings.utOn}
+   959→                onToggleUt={toggleUt}
+   960→                activePreset={activePreset}
+   961→                onApplyPreset={applyPreset}
+   962→                aiReady={xgb != null && !xgbStale}
+   963→                onApplyAi={applyXgb}
+   964→                latest={latestSignal}
+   965→                confirmed={confirmedSignal}
+   966→                gateLong={gateInfo.long}
+   967→                gateShort={gateInfo.short}
+   968→                smaValue={gateInfo.sma}
+   969→                onToggleGate={toggleGate}
+   970→                openPaper={engine.open}
+   971→                pending={engine.pending}
+   972→                papers={engine.papers}
+   973→                pinnedIndex={pinnedIndex}
+   974→                lastClose={lastClose}
+   975→                onUnpin={() => setPinnedTime(null)}
+   976→                pinnedSig={pinnedSig}
+   977→              />
+   978→              <RailContext lang={lang} klines={klines} openPaper={engine.open} confirmed={confirmedSignal} />
+   979→              <WyckoffPanel lang={lang} wy={wyckoff} on={wySettings.enabled} sens={wySettings.sens} />
+   980→              <XgbPanel
+   981→                lang={lang}
+   982→                candles={klines.length}
+   983→                busy={xgbBusy}
+   984→                progress={xgbProgress}
+   985→                result={xgb}
+   986→                stale={xgbStale}
+   987→                runs={xgbRuns}
+   988→                onTrain={() => void trainXgb()}
+   989→                onApply={applyXgb}
+   990→              />
+   991→              <p className="px-1 pb-1 text-[10px] leading-snug text-zinc-700">{t(lang, "footer.note")}</p>
+   992→            </div>
+   993→          </>
+   994→        )}
+   995→      </main>
+   996→
+   997→      {/* ── Footer (mobile flow only — the terminal fills the screen) ── */}
+   998→      <footer className="shrink-0 border-t border-zinc-800 bg-zinc-950 py-2.5 lg:hidden">
+   999→        <p className="pb-[env(safe-area-inset-bottom)] text-center text-[11px] text-zinc-600">
+  1000→          {t(lang, "footer.note")}
+  1001→        </p>
+  1002→      </footer>
+  1003→
+  1004→      {/* ── Toasts ─────────────────────────────────────────────────── */}
+  1005→      <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2">
+  1006→        {toasts.map((toast) => (
+  1007→          <div
+  1008→            key={toast.id}
+  1009→            className={`pointer-events-auto rounded-lg border px-3.5 py-2.5 shadow-lg backdrop-blur ${
+  1010→              toast.kind === "flip"
+  1011→                ? "border-amber-600 bg-amber-950/90"
+  1012→                : toast.kind === "wy"
+  1013→                  ? "border-violet-700 bg-violet-950/90"
+  1014→                  : toast.kind === "xgb"
+  1015→                    ? "border-teal-600 bg-teal-950/90"
+  1016→                    : toast.kind === "error"
+  1017→                      ? "border-rose-700 bg-rose-950/90"
+  1018→                      : toast.side === "LONG"
+  1019→                        ? "border-emerald-700 bg-emerald-950/90"
+  1020→                        : "border-rose-700 bg-rose-950/90"
+  1021→            }`}
+  1022→            role="status"
+  1023→          >
+  1024→            <p className="flex items-start gap-2 text-xs leading-relaxed text-zinc-100">
+  1025→              {toast.kind === "flip" && <ArrowLeftRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />}
+  1026→              {toast.kind === "wy" && <Landmark className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-400" />}
+  1027→              {toast.kind === "xgb" && <BrainCircuit className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-400" />}
+  1028→              <span>{toast.text}</span>
+  1029→            </p>
+  1030→          </div>
+  1031→        ))}
+  1032→      </div>
+  1033→
+  1034→      <SettingsDialog
+  1035→        key={settingsOpen ? "dlg-on" : "dlg-off"}
+  1036→        lang={lang}
+  1037→        open={settingsOpen}
+  1038→        onOpenChange={setSettingsOpen}
+  1039→        settings={settings}
+  1040→        wyckoff={wySettings}
+  1041→        onWyckoffApply={(w) => setWySettings(w)}
+  1042→        onApply={(s) => {
+  1043→          setSettings(s);
+  1044→          try {
+  1045→            localStorage.setItem("utp.settings", JSON.stringify(s));
+  1046→          } catch {
+  1047→            // storage full/blocked — settings still apply for this session
+  1048→          }
+  1049→          prevKeyRef.current = ""; // settings change → recompute silently
+  1050→        }}
+  1051→      />
+  1052→    </div>
+  1053→  );
+  1054→}
+  1055→

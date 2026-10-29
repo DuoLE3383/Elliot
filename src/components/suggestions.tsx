@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fmtPct, fmtPrice, fmtTime, symbolLabel, t, type Lang } from "@/lib/i18n";
-import { fetchSuggestions, type SuggestionRow } from "@/lib/history";
-import { BrainCircuit, CheckCircle2, Clock3, Database, History, Sparkles } from "lucide-react";
+import { downloadCsv, fetchSuggestions, suggestionsToCsv, type SuggestionRow } from "@/lib/history";
+import { BrainCircuit, CheckCircle2, Clock3, Database, Download, History, Sparkles } from "lucide-react";
 
 type Scope = "pair" | "all";
 type Filter = "all" | "pending" | "win" | "loss" | "flat";
@@ -119,6 +119,18 @@ export function SuggestionHistory({ lang, symbol, interval, refreshKey }: Props)
     { key: "flat", label: t(lang, "sg.filter.flat") },
   ];
 
+  /** Export the rows currently visible (scope + filter applied) as a CSV download. */
+  const exportCsv = () => {
+    if (!filtered.length) return;
+    const d = new Date();
+    const pad = (x: number) => String(x).padStart(2, "0");
+    const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+    const base = scope === "pair" ? `de-xuat-${symbol}-${interval}` : "de-xuat-tat-ca";
+    downloadCsv(`${base}-${stamp}.csv`, suggestionsToCsv(filtered));
+  };
+
+  const exportable = rows != null && filtered.length > 0;
+
   return (
     <Card className="border-zinc-800 bg-zinc-900/60">
       <CardHeader className="pb-2">
@@ -151,6 +163,18 @@ export function SuggestionHistory({ lang, symbol, interval, refreshKey }: Props)
                 {t(lang, sc === "pair" ? "sg.scope.pair" : "sg.scope.all")}
               </Button>
             ))}
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!exportable}
+              className="h-7 rounded-full border-zinc-700 bg-transparent px-3 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-40"
+              title={exportable ? t(lang, "sg.export") : t(lang, "sg.export.empty")}
+              aria-label={t(lang, "sg.export")}
+              onClick={exportCsv}
+            >
+              <Download className="mr-1 h-3 w-3" />
+              {t(lang, "sg.export")}
+            </Button>
           </div>
         </div>
       </CardHeader>

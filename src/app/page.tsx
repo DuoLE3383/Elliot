@@ -97,6 +97,8 @@ export default function Home() {
   const [symbol, setSymbol] = useState<string>("BTCUSDT");
   const [interval, setIntervalTf] = useState<Interval>("5m");
   const [lang, setLang] = useState<Lang>("vi");
+  /** candle body style — "neon" hollow up-bodies (default) vs "normal" filled green/red */
+  const [candleStyle, setCandleStyle] = useState<"neon" | "normal">("neon");
   const [settings, setSettings] = useState<EngineSettings>(DEFAULT_SETTINGS);
   const [wySettings, setWySettings] = useState<WyckoffSettings>(DEFAULT_WYCKOFF);
   const [customPairs, setCustomPairs] = useState<string[]>([]);
@@ -186,6 +188,8 @@ export default function Home() {
       if (itv && (INTERVALS as readonly string[]).includes(itv)) setIntervalTf(itv as Interval);
       const lg = localStorage.getItem("utp.lang");
       if (lg === "vi" || lg === "en") setLang(lg);
+      const cs = localStorage.getItem("utp.candleStyle");
+      if (cs === "normal" || cs === "neon") setCandleStyle(cs);
     } catch {
       // corrupted storage → keep defaults
     } finally {
@@ -202,6 +206,9 @@ export default function Home() {
   useEffect(() => {
     if (hydratedRef.current) localStorage.setItem("utp.lang", lang);
   }, [lang]);
+  useEffect(() => {
+    if (hydratedRef.current) localStorage.setItem("utp.candleStyle", candleStyle);
+  }, [candleStyle]);
   useEffect(() => {
     if (hydratedRef.current) localStorage.setItem("utp.pairs", JSON.stringify(customPairs));
   }, [customPairs]);
@@ -540,8 +547,8 @@ export default function Home() {
     };
   }, [symbol, interval, histRefresh]);
 
-  // ── outcome scoring — feed fresh prices every 60s; the server scores any
-  // pending suggestion whose horizon has elapsed (win/loss per direction) ──
+  // ── outcome scoring — feed fresh prices every 5 minutes; the server scores
+  // any pending suggestion whose horizon has elapsed (win/loss per direction) ──
   const resolveStale = useCallback(async () => {
     const prices: Record<string, number> = {};
     if (klines.length) prices[symbol] = klines[klines.length - 1].c;
@@ -554,7 +561,7 @@ export default function Home() {
 
   useEffect(() => {
     void resolveStale();
-    const id = window.setInterval(() => void resolveStale(), 60_000);
+    const id = window.setInterval(() => void resolveStale(), 300_000);
     return () => window.clearInterval(id);
   }, [resolveStale]);
 
@@ -899,6 +906,8 @@ export default function Home() {
                       lang={lang}
                       wyckoff={wyckoff}
                       wyckoffOn={wySettings.enabled}
+                      candleStyle={candleStyle}
+                      onCandleStyle={setCandleStyle}
                       fill
                     />
                   </div>

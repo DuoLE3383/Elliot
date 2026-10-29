@@ -170,3 +170,56 @@ export async function resolveBatch(prices: Record<string, number>): Promise<numb
     return 0;
   }
 }
+
+// ─── CSV export (lịch sử đề xuất) ────────────────────────────────────────────
+
+/** Stable column order for the suggestion-history CSV. */
+const CSV_COLUMNS: { key: string; get: (s: SuggestionRow) => string | number }[] = [
+  { key: "createdAt", get: (s) => s.createdAt },
+  { key: "resolvedAt", get: (s) => s.resolvedAt ?? "" },
+  { key: "pair", get: (s) => s.symbol },
+  { key: "interval", get: (s) => s.interval },
+  { key: "bias", get: (s) => s.bias },
+  { key: "prob", get: (s) => s.prob },
+  { key: "confidence", get: (s) => s.confidence },
+  { key: "slPct", get: (s) => s.slPct },
+  { key: "tpPct", get: (s) => s.tpPct },
+  { key: "atrKey", get: (s) => s.atrKey },
+  { key: "atrPeriod", get: (s) => s.atrPeriod },
+  { key: "smaFilter", get: (s) => (s.smaFilter ? 1 : 0) },
+  { key: "smaPeriod", get: (s) => s.smaPeriod },
+  { key: "accPct", get: (s) => s.acc },
+  { key: "auc", get: (s) => s.auc },
+  { key: "horizonBars", get: (s) => s.horizonBars },
+  { key: "entryPrice", get: (s) => s.entryPrice },
+  { key: "applied", get: (s) => (s.applied ? 1 : 0) },
+  { key: "outcome", get: (s) => s.outcome ?? "" },
+  { key: "exitPrice", get: (s) => s.exitPrice ?? "" },
+  { key: "pnlPct", get: (s) => s.pnlPct ?? "" },
+  { key: "id", get: (s) => s.id },
+];
+
+function csvCell(v: string | number): string {
+  const s = String(v);
+  return /[",\n\r;]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
+}
+
+/** Serialize suggestion rows to RFC-4180 CSV — BOM prefix so Excel keeps UTF-8. */
+export function suggestionsToCsv(rows: SuggestionRow[]): string {
+  const header = CSV_COLUMNS.map((c) => c.key).join(",");
+  const body = rows.map((r) => CSV_COLUMNS.map((c) => csvCell(c.get(r))).join(",")).join("\r\n");
+  return `\uFEFF${header}\r\n${body}\r\n`;
+}
+
+/** Trigger a client-side CSV download (browser only). */
+export function downloadCsv(filename: string, csv: string): void {
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
