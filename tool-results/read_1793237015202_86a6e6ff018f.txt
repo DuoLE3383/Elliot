@@ -1,0 +1,842 @@
+     1→"use client";
+     2→
+     3→import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+     4→import { DeepAnalysis } from "@/components/analysis";
+     5→import { Journal } from "@/components/journal";
+     6→import { KpiCards } from "@/components/kpi";
+     7→import { SessionsPanel } from "@/components/sessions";
+     8→import { SignalDock } from "@/components/panels";
+     9→import { PriceChart } from "@/components/price-chart";
+    10→import { RailContext } from "@/components/rail-context";
+    11→import { SettingsDialog } from "@/components/settings-dialog";
+    12→import { TickerStrip } from "@/components/ticker-strip";
+    13→import { Watchlist } from "@/components/watchlist";
+    14→import { WyckoffPanel } from "@/components/wyckoff-panel";
+    15→import { Button } from "@/components/ui/button";
+    16→import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+    17→import { Skeleton } from "@/components/ui/skeleton";
+    18→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    19→import { fmtCompact } from "@/lib/market";
+    20→import { fmtPct, fmtPrice, fmtTime, symbolLabel, t, type Lang } from "@/lib/i18n";
+    21→import { kpiFrom, papersFrom } from "@/lib/papers";
+    22→import { signalsFrom } from "@/lib/signals";
+    23→import { wyckoffFrom } from "@/lib/wyckoff";
+    24→import {
+    25→  DEFAULT_SETTINGS,
+    26→  DEFAULT_WYCKOFF,
+    27→  EngineSettings,
+    28→  INTERVALS,
+    29→  Interval,
+    30→  Kline,
+    31→  MAX_CUSTOM_PAIRS,
+    32→  Paper,
+    33→  SYMBOLS,
+    34→  Ticker,
+    35→  WyckoffSettings,
+    36→} from "@/lib/types";
+    37→import { ElliottLogo } from "@/components/logo";
+    38→import { AlertTriangle, ArrowLeftRight, Landmark, RefreshCw, Settings2 } from "lucide-react";
+    39→
+    40→interface Toast {
+    41→  id: number;
+    42→  kind: "entry" | "flip" | "error" | "wy";
+    43→  side?: Paper["side"];
+    44→  text: string;
+    45→}
+    46→
+    47→const QUOTE_RE = /(USDT|USDC|FDUSD|TUSD|BUSD|BTC|ETH)$/;
+    48→
+    49→/** "pepe" → "PEPEUSDT", "PEPEUSDT" → "PEPEUSDT" */
+    50→const normalizePair = (raw: string): string => {
+    51→  const s = raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    52→  if (!s) return "";
+    53→  return QUOTE_RE.test(s) ? s : `${s}USDT`;
+    54→};
+    55→
+    56→/** Live VN + UTC clocks — 1 Hz external "store", SSR-safe (server snapshot 0). */
+    57→function Clocks({ lang }: { lang: Lang }) {
+    58→  // seconds-precision snapshot keeps getSnapshot stable within a second
+    59→  const sec = useSyncExternalStore(
+    60→    (onStoreChange) => {
+    61→      const id = window.setInterval(onStoreChange, 1000);
+    62→      return () => window.clearInterval(id);
+    63→    },
+    64→    () => Math.floor(Date.now() / 1000),
+    65→    () => 0,
+    66→  );
+    67→  const fmt = (tz: string) =>
+    68→    sec === 0
+    69→      ? "--:--:--"
+    70→      : new Date(sec * 1000).toLocaleTimeString("en-GB", {
+    71→          hour: "2-digit",
+    72→          minute: "2-digit",
+    73→          second: "2-digit",
+    74→          hour12: false,
+    75→          timeZone: tz,
+    76→        });
+    77→  return (
+    78→    <div className="hidden flex-col items-end leading-tight lg:flex" aria-hidden>
+    79→      <span className="font-mono text-[11px] text-zinc-300">
+    80→        <span className="text-zinc-600">{t(lang, "header.clockVN")}</span> {fmt("Asia/Ho_Chi_Minh")}
+    81→      </span>
+    82→      <span className="font-mono text-[11px] text-zinc-500">
+    83→        <span className="text-zinc-600">{t(lang, "header.clockUTC")}</span> {fmt("UTC")}
+    84→      </span>
+    85→    </div>
+    86→  );
+    87→}
+    88→
+    89→export default function Home() {
+    90→  const [symbol, setSymbol] = useState<string>("BTCUSDT");
+    91→  const [interval, setIntervalTf] = useState<Interval>("5m");
+    92→  const [lang, setLang] = useState<Lang>("vi");
+    93→  const [settings, setSettings] = useState<EngineSettings>(DEFAULT_SETTINGS);
+    94→  const [wySettings, setWySettings] = useState<WyckoffSettings>(DEFAULT_WYCKOFF);
+    95→  const [customPairs, setCustomPairs] = useState<string[]>([]);
+    96→  const [pairInput, setPairInput] = useState("");
+    97→  const [checkingPair, setCheckingPair] = useState(false);
+    98→  const [klines, setKlines] = useState<Kline[]>([]);
+    99→  const [loading, setLoading] = useState(true);
+   100→  const [error, setError] = useState<string | null>(null);
+   101→  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+   102→  const [pinnedTime, setPinnedTime] = useState<number | null>(null);
+   103→  const [toasts, setToasts] = useState<Toast[]>([]);
+   104→  const [settingsOpen, setSettingsOpen] = useState(false);
+   105→  // ── market context (ticker strip + watchlist sparklines) ────────────────────
+   106→  const [tickers, setTickers] = useState<Record<string, Ticker>>({});
+   107→  const [minis, setMinis] = useState<Record<string, Kline[]>>({});
+   108→
+   109→  const prevPapersRef = useRef<Map<string, Paper> | null>(null);
+   110→  const prevKeyRef = useRef<string>("");
+   111→  /** key of the kline data actually loaded — differs from the selected key mid-switch */
+   112→  const dataKeyRef = useRef<string>("");
+   113→  const toastSeq = useRef(0);
+   114→  /** localStorage has been read — saves are gated on this to avoid clobbering */
+   115→  const hydratedRef = useRef(false);
+   116→
+   117→  const pushToast = useCallback((toast: Omit<Toast, "id">) => {
+   118→    const id = ++toastSeq.current;
+   119→    setToasts((list) => [...list.slice(-3), { ...toast, id }]);
+   120→    window.setTimeout(() => {
+   121→      setToasts((list) => list.filter((x) => x.id !== id));
+   122→    }, 7000);
+   123→  }, []);
+   124→
+   125→  // ── localStorage hydration (client only, after first paint) ────────────────
+   126→  useEffect(() => {
+   127→    try {
+   128→      const s = localStorage.getItem("utp.settings");
+   129→      if (s) {
+   130→        let parsed = JSON.parse(s) as Partial<EngineSettings>;
+   131→        // one-time legacy fix (gate v2): saved settings from the old build ship
+   132→        // smaFilter: true, which kept fresh entries stuck behind the gate for
+   133→        // whole sessions — unblock every existing save exactly once
+   134→        if (localStorage.getItem("utp.gate.v2") !== "1") {
+   135→          localStorage.setItem("utp.gate.v2", "1");
+   136→          parsed = { ...parsed, smaFilter: false };
+   137→          localStorage.setItem("utp.settings", JSON.stringify(parsed));
+   138→        }
+   139→        setSettings({ ...DEFAULT_SETTINGS, ...parsed });
+   140→      }
+   141→      const w = localStorage.getItem("utp.wyckoff");
+   142→      if (w) {
+   143→        const pw = JSON.parse(w) as Partial<WyckoffSettings>;
+   144→        setWySettings((prev) => ({
+   145→          ...prev,
+   146→          ...pw,
+   147→          sens: typeof pw.sens === "number" ? Math.min(45, Math.max(5, Math.round(pw.sens))) : prev.sens,
+   148→          mode: pw.mode === "manual" ? "manual" : "auto",
+   149→          speed:
+   150→            pw.speed === "fast" || pw.speed === "normal" || pw.speed === "safe" ? pw.speed : "auto-tf",
+   151→        }));
+   152→      }
+   153→      const p = localStorage.getItem("utp.pairs");
+   154→      if (p) {
+   155→        const arr = JSON.parse(p);
+   156→        if (Array.isArray(arr)) {
+   157→          setCustomPairs(
+   158→            arr.filter((x: unknown): x is string => typeof x === "string").slice(0, MAX_CUSTOM_PAIRS),
+   159→          );
+   160→        }
+   161→      }
+   162→      const sym = localStorage.getItem("utp.symbol");
+   163→      if (sym && /^[A-Z0-9]{5,20}$/.test(sym)) setSymbol(sym);
+   164→      const itv = localStorage.getItem("utp.interval");
+   165→      if (itv && (INTERVALS as readonly string[]).includes(itv)) setIntervalTf(itv as Interval);
+   166→      const lg = localStorage.getItem("utp.lang");
+   167→      if (lg === "vi" || lg === "en") setLang(lg);
+   168→    } catch {
+   169→      // corrupted storage → keep defaults
+   170→    } finally {
+   171→      hydratedRef.current = true;
+   172→    }
+   173→  }, []);
+   174→
+   175→  useEffect(() => {
+   176→    if (hydratedRef.current) localStorage.setItem("utp.symbol", symbol);
+   177→  }, [symbol]);
+   178→  useEffect(() => {
+   179→    if (hydratedRef.current) localStorage.setItem("utp.interval", interval);
+   180→  }, [interval]);
+   181→  useEffect(() => {
+   182→    if (hydratedRef.current) localStorage.setItem("utp.lang", lang);
+   183→  }, [lang]);
+   184→  useEffect(() => {
+   185→    if (hydratedRef.current) localStorage.setItem("utp.pairs", JSON.stringify(customPairs));
+   186→  }, [customPairs]);
+   187→  useEffect(() => {
+   188→    if (hydratedRef.current) localStorage.setItem("utp.wyckoff", JSON.stringify(wySettings));
+   189→  }, [wySettings]);
+   190→
+   191→  const loadData = useCallback(async (sym: string, itv: Interval, announce: boolean) => {
+   192→    setLoading(true);
+   193→    try {
+   194→      const res = await fetch(`/api/klines?symbol=${encodeURIComponent(sym)}&interval=${itv}`);
+   195→      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+   196→      const json = (await res.json()) as { klines: Kline[] };
+   197→      dataKeyRef.current = `${sym}-${itv}`;
+   198→      setKlines(json.klines);
+   199→      setError(null);
+   200→      setUpdatedAt(Date.now());
+   201→
+   202→      if (announce) {
+   203→        // Toast diffing happens in a layout effect after engine recompute
+   204→      }
+   205→    } catch (e) {
+   206→      setError(e instanceof Error ? e.message : "fetch failed");
+   207→    } finally {
+   208→      setLoading(false);
+   209→    }
+   210→  }, []);
+   211→
+   212→  useEffect(() => {
+   213→    void loadData(symbol, interval, false);
+   214→    prevKeyRef.current = `${symbol}-${interval}`;
+   215→    prevPapersRef.current = null; // key switch → no toast burst
+   216→    setPinnedTime(null);
+   217→  }, [symbol, interval, loadData]);
+   218→
+   219→  useEffect(() => {
+   220→    const timer = window.setInterval(() => {
+   221→      void loadData(symbol, interval, true);
+   222→    }, 30000);
+   223→    return () => window.clearInterval(timer);
+   224→  }, [symbol, interval, loadData]);
+   225→
+   226→  const key = `${symbol}-${interval}`;
+   227→  const engine = useMemo(() => {
+   228→    if (klines.length === 0) return null;
+   229→    const raw = signalsFrom(klines, settings.atrKey, settings.atrPeriod, settings.smaPeriod);
+   230→    // gate off → nothing is "blocked" anywhere in the UI
+   231→    const signals = settings.smaFilter
+   232→      ? raw.signals
+   233→      : raw.signals.map((s) => ({ ...s, smaOk: true }));
+   234→    const res = papersFrom(
+   235→      klines,
+   236→      signals,
+   237→      raw.sma,
+   238→      symbol,
+   239→      interval,
+   240→      settings.slPct,
+   241→      settings.tpPct,
+   242→      settings.leverage,
+   243→      settings.smaFilter,
+   244→    );
+   245→    const confirmed = signals.filter((s) => s.i < klines.length - 1);
+   246→    return {
+   247→      signals,
+   248→      sma: raw.sma,
+   249→      stop: raw.stop,
+   250→      trend: raw.trend,
+   251→      ...res,
+   252→      confirmed,
+   253→    };
+   254→  }, [klines, settings, symbol, interval]);
+   255→
+   256→  // Toast diffing — announce new papers (entries) and flips
+   257→  useEffect(() => {
+   258→    if (!engine) return;
+   259→    // skip computes sourced from klines of a previous symbol/interval — those
+   260→    // fabricate fresh ids mid-switch and would spam toasts
+   261→    if (dataKeyRef.current !== key) return;
+   262→    const prev = prevPapersRef.current;
+   263→    const map = new Map(engine.papers.map((p) => [p.id, p]));
+   264→    prevPapersRef.current = map;
+   265→    if (!prev || prevKeyRef.current !== key) return;
+   266→
+   267→    let count = 0;
+   268→    for (const [id, p] of map) {
+   269→      if (prev.has(id) || count >= 3) continue;
+   270→      count++;
+   271→      if (p.flippedFrom && prev.get(p.flippedFrom)) {
+   272→        const old = prev.get(p.flippedFrom)!;
+   273→        pushToast({
+   274→          kind: "flip",
+   275→          side: p.side,
+   276→          text: t(lang, "toast.flip", {
+   277→            from: old.side,
+   278→            to: p.side,
+   279→            exit: fmtPrice(old.exit ?? p.entry),
+   280→            pnl: fmtPct(old.pnlPct ?? 0),
+   281→            entry: fmtPrice(p.entry),
+   282→          }),
+   283→        });
+   284→      } else {
+   285→        pushToast({
+   286→          kind: "entry",
+   287→          side: p.side,
+   288→          text: t(lang, "toast.newEntry", { side: p.side, price: fmtPrice(p.entry) }),
+   289→        });
+   290→      }
+   291→    }
+   292→  }, [engine, key, lang, pushToast]);
+   293→
+   294→  const stats = useMemo(() => kpiFrom(engine?.papers ?? []), [engine]);
+   295→
+   296→  // ── Wyckoff Schematic Auto Detect ─────────────────────────────────────
+   297→  const wyckoff = useMemo(() => {
+   298→    if (!wySettings.enabled || klines.length < 60) return null;
+   299→    try {
+   300→      return wyckoffFrom(klines, interval, wySettings);
+   301→    } catch {
+   302→      return null;
+   303→    }
+   304→  }, [klines, interval, wySettings]);
+   305→
+   306→  // Wyckoff event toasts — same dataKey discipline as paper toasts; keys use
+   307→  // candle TIME (stable across the sliding 500-candle window), and a cfg
+   308→  // signature reseeds silently whenever Wyckoff settings change
+   309→  const wySeenRef = useRef<{ key: string; cfg: string; seen: Set<string> }>({
+   310→    key: "",
+   311→    cfg: "",
+   312→    seen: new Set(),
+   313→  });
+   314→  useEffect(() => {
+   315→    if (!wyckoff) return;
+   316→    if (dataKeyRef.current !== key) return;
+   317→    const cfg = `${wySettings.mode}|${wySettings.speed}|${wySettings.sens}|${wySettings.reqPhaseC}`;
+   318→    const s = wySeenRef.current;
+   319→    if (s.key !== key || s.cfg !== cfg) {
+   320→      wySeenRef.current = {
+   321→        key,
+   322→        cfg,
+   323→        seen: new Set(wyckoff.events.map((e) => `${e.kind}-${e.time}-${e.dir}`)),
+   324→      };
+   325→      return;
+   326→    }
+   327→    let count = 0;
+   328→    for (const e of wyckoff.events) {
+   329→      const k = `${e.kind}-${e.time}-${e.dir}`;
+   330→      if (s.seen.has(k) || count >= 2) continue;
+   331→      s.seen.add(k);
+   332→      count++;
+   333→      pushToast({
+   334→        kind: "wy",
+   335→        text: t(lang, "toast.wyckoff", { event: e.kind, sym: symbolLabel(symbol), itv: interval }),
+   336→      });
+   337→    }
+   338→  }, [wyckoff, key, lang, symbol, interval, pushToast, wySettings]);
+   339→
+   340→  const lastClose = klines.length ? klines[klines.length - 1].c : 0;
+   341→  const latestSignal = engine?.signals.at(-1);
+   342→  const confirmedSignal = engine?.confirmed.at(-1);
+   343→  // DIRECTIONAL gate state — a close below the SMA blocks BUYs but NEVER SELLs
+   344→  const gateInfo = useMemo(() => {
+   345→    if (!engine || klines.length === 0) {
+   346→      return { long: true, short: true, sma: null as number | null };
+   347→    }
+   348→    const smaVal = engine.sma[klines.length - 1];
+   349→    if (smaVal == null) return { long: true, short: true, sma: null as number | null };
+   350→    return {
+   351→      long: lastClose > smaVal,
+   352→      short: lastClose < smaVal,
+   353→      sma: smaVal as number | null,
+   354→    };
+   355→  }, [engine, klines, lastClose]);
+   356→
+   357→  // unrealized ROE % of the open position (price move × leverage)
+   358→  const openPnl = useMemo(() => {
+   359→    const p = engine?.open;
+   360→    if (!p || !lastClose) return undefined;
+   361→    const pricePct =
+   362→      p.side === "LONG" ? ((lastClose - p.entry) / p.entry) * 100 : ((p.entry - lastClose) / p.entry) * 100;
+   363→    return pricePct * settings.leverage;
+   364→  }, [engine, lastClose, settings.leverage]);
+   365→
+   366→  /** flip the SMA gate from the dock — persists and recomputes silently */
+   367→  const toggleGate = useCallback((v: boolean) => {
+   368→    setSettings((s) => {
+   369→      const next = { ...s, smaFilter: v };
+   370→      try {
+   371→        localStorage.setItem("utp.settings", JSON.stringify(next));
+   372→      } catch {
+   373→        // storage blocked — the toggle still applies for this session
+   374→      }
+   375→      return next;
+   376→    });
+   377→    prevKeyRef.current = ""; // settings change → recompute without toast burst
+   378→  }, []);
+   379→
+   380→  const pinnedIndex = useMemo(() => {
+   381→    if (pinnedTime == null || !engine) return null;
+   382→    const idx = engine.signals.findIndex((s) => s.t === pinnedTime);
+   383→    return idx >= 0 ? engine.signals[idx].i : null;
+   384→  }, [pinnedTime, engine]);
+   385→  const pinnedSig = pinnedTime != null ? engine?.signals.find((s) => s.t === pinnedTime) : undefined;
+   386→
+   387→  const handlePin = useCallback(
+   388→    (index: number | null) => {
+   389→      if (index == null || !engine) {
+   390→        setPinnedTime(null);
+   391→        return;
+   392→      }
+   393→      const sig = engine.signals.find((s) => s.i === index);
+   394→      setPinnedTime(sig ? sig.t : null);
+   395→    },
+   396→    [engine],
+   397→  );
+   398→
+   399→  // ── custom pairs ────────────────────────────────────────────────────────────
+   400→  const allPairs = useMemo(() => {
+   401→    const extra = customPairs.filter((c) => !(SYMBOLS as readonly string[]).includes(c));
+   402→    return [...SYMBOLS, ...extra];
+   403→  }, [customPairs]);
+   404→
+   405→  const addPair = useCallback(async () => {
+   406→    const sym = normalizePair(pairInput);
+   407→    if (!sym || checkingPair) return;
+   408→    if ((allPairs as string[]).includes(sym)) {
+   409→      setSymbol(sym);
+   410→      setPairInput("");
+   411→      return;
+   412→    }
+   413→    setCheckingPair(true);
+   414→    try {
+   415→      // probe Binance with a tiny request — the API route maps a 400 to "invalid symbol"
+   416→      const res = await fetch(`/api/klines?symbol=${encodeURIComponent(sym)}&interval=5m&limit=2`);
+   417→      if (!res.ok) {
+   418→        pushToast({ kind: "error", text: t(lang, "toast.badPair", { sym }) });
+   419→        return;
+   420→      }
+   421→      setCustomPairs((list) =>
+   422→        list.includes(sym) ? list : [...list, sym].slice(-MAX_CUSTOM_PAIRS),
+   423→      );
+   424→      setSymbol(sym);
+   425→      setPairInput("");
+   426→    } catch {
+   427→      pushToast({ kind: "error", text: t(lang, "toast.error") });
+   428→    } finally {
+   429→      setCheckingPair(false);
+   430→    }
+   431→  }, [pairInput, checkingPair, allPairs, lang, pushToast]);
+   432→
+   433→  const removePair = useCallback(
+   434→    (sym: string) => {
+   435→      setCustomPairs((list) => list.filter((x) => x !== sym));
+   436→      if (symbol === sym) setSymbol("BTCUSDT");
+   437→    },
+   438→    [symbol],
+   439→  );
+   440→
+   441→  const langLabel = lang === "vi" ? "EN" : "VI";
+   442→
+   443→  // ── live 24h tickers for the strip + watchlist (30s) ───────────────────────
+   444→  const pairListKey = allPairs.join(",");
+   445→  useEffect(() => {
+   446→    let alive = true;
+   447→    const load = async () => {
+   448→      try {
+   449→        const res = await fetch(`/api/ticker?symbols=${encodeURIComponent(pairListKey)}`);
+   450→        if (!res.ok) return;
+   451→        const json = (await res.json()) as { tickers: Ticker[] };
+   452→        if (!alive) return;
+   453→        const map: Record<string, Ticker> = {};
+   454→        for (const tk of json.tickers) map[tk.symbol] = tk;
+   455→        setTickers(map);
+   456→      } catch {
+   457→        // strip keeps previous values on transient failures
+   458→      }
+   459→    };
+   460→    void load();
+   461→    const id = window.setInterval(() => void load(), 30000);
+   462→    return () => {
+   463→      alive = false;
+   464→      window.clearInterval(id);
+   465→    };
+   466→  }, [pairListKey]);
+   467→
+   468→  // ── mini klines (48 candles) for watchlist sparklines + status (60s) ──────
+   469→  useEffect(() => {
+   470→    let alive = true;
+   471→    const syms = pairListKey.split(",").filter(Boolean);
+   472→    const load = async () => {
+   473→      const results = await Promise.allSettled(
+   474→        syms.map(async (sym) => {
+   475→          const res = await fetch(
+   476→            `/api/klines?symbol=${encodeURIComponent(sym)}&interval=${interval}&limit=48`,
+   477→          );
+   478→          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+   479→          const json = (await res.json()) as { klines: Kline[] };
+   480→          return [sym, json.klines] as const;
+   481→        }),
+   482→      );
+   483→      if (!alive) return;
+   484→      setMinis((prev) => {
+   485→        const next: Record<string, Kline[]> = { ...prev };
+   486→        for (const r of results) if (r.status === "fulfilled") next[r.value[0]] = r.value[1];
+   487→        for (const k of Object.keys(next)) if (!syms.includes(k)) delete next[k];
+   488→        return next;
+   489→      });
+   490→    };
+   491→    void load();
+   492→    const id = window.setInterval(() => void load(), 60000);
+   493→    return () => {
+   494→      alive = false;
+   495→      window.clearInterval(id);
+   496→    };
+   497→  }, [pairListKey, interval]);
+   498→
+   499→  const activeTicker = tickers[symbol];
+   500→  const tickerUp = (activeTicker?.changePct ?? 0) >= 0;
+   501→
+   502→  return (
+   503→    <div className="flex min-h-dvh flex-col bg-zinc-950 text-zinc-100 lg:h-dvh lg:min-h-0 lg:overflow-hidden">
+   504→      {/* ── Header — ELLIOTT terminal bar ──────────────────────────── */}
+   505→      <header className="shrink-0 border-b border-zinc-800 bg-zinc-950/95 backdrop-blur">
+   506→        <div className="flex h-12 items-center gap-2 px-3">
+   507→          <div className="flex min-w-0 items-center gap-2">
+   508→            <div className="flex h-8 shrink-0 items-center gap-2 rounded-lg border border-zinc-800 bg-gradient-to-b from-zinc-900 to-zinc-950 p-1.5 shadow-[0_0_18px_-6px_rgba(16,185,129,0.45)] lg:pr-3">
+   509→              <ElliottLogo className="h-6 w-6" />
+   510→              <span className="hidden text-sm font-black tracking-[0.24em] text-zinc-100 lg:inline">ELLIOTT</span>
+   511→            </div>
+   512→            <div className="hidden leading-tight xl:block">
+   513→              <p className="text-[11px] font-semibold text-zinc-300">UT Bot · Sóng · Cá voi</p>
+   514→              <p className="text-[10px] text-zinc-600">{t(lang, "app.subtitle")}</p>
+   515→            </div>
+   516→          </div>
+   517→
+   518→          {/* timeframes */}
+   519→          <div className="ml-1 flex shrink-0 overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+   520→            {INTERVALS.map((itv) => (
+   521→              <button
+   522→                key={itv}
+   523→                onClick={() => setIntervalTf(itv)}
+   524→                className={`shrink-0 rounded-md px-2 py-1 font-mono text-xs font-semibold transition sm:px-2.5 ${
+   525→                  interval === itv ? "bg-emerald-600 text-zinc-950" : "text-zinc-400 hover:text-zinc-200"
+   526→                }`}
+   527→              >
+   528→                <span className="sm:hidden">{itv}</span>
+   529→                <span className="hidden sm:inline">{t(lang, `itv.${itv}`)}</span>
+   530→              </button>
+   531→            ))}
+   532→          </div>
+   533→
+   534→          {/* live badge */}
+   535→          <span className="hidden shrink-0 items-center gap-1.5 rounded-full border border-emerald-900 bg-emerald-950/40 px-2.5 py-1 text-[11px] font-medium text-emerald-400 md:flex">
+   536→            <span className="relative flex h-2 w-2">
+   537→              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+   538→              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+   539→            </span>
+   540→            {t(lang, "header.live")}
+   541→          </span>
+   542→
+   543→          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+   544→            <Clocks lang={lang} />
+   545→            <Button
+   546→              size="sm"
+   547→              variant="outline"
+   548→              className="h-8 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800"
+   549→              onClick={() => setLang((l) => (l === "vi" ? "en" : "vi"))}
+   550→            >
+   551→              {langLabel}
+   552→            </Button>
+   553→            <Button
+   554→              size="sm"
+   555→              variant="outline"
+   556→              className="h-8 gap-1.5 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800"
+   557→              onClick={() => setSettingsOpen(true)}
+   558→            >
+   559→              <Settings2 className="h-3.5 w-3.5" />
+   560→              <span className="hidden sm:inline">{t(lang, "header.settings")}</span>
+   561→              {settings.leverage > 1 && (
+   562→                <span className="font-mono text-amber-400">×{settings.leverage}</span>
+   563→              )}
+   564→            </Button>
+   565→            <Button
+   566→              size="sm"
+   567→              className="h-8 gap-1.5 bg-zinc-100 px-2.5 text-xs text-zinc-900 hover:bg-zinc-200"
+   568→              disabled={loading}
+   569→              onClick={() => void loadData(symbol, interval, true)}
+   570→            >
+   571→              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+   572→              <span className="hidden sm:inline">{t(lang, "header.refresh")}</span>
+   573→            </Button>
+   574→          </div>
+   575→        </div>
+   576→      </header>
+   577→
+   578→      {/* ── Live ticker strip ──────────────────────────────────────── */}
+   579→      <TickerStrip lang={lang} pairs={allPairs} tickers={tickers} current={symbol} onSelect={setSymbol} />
+   580→
+   581→      {/* ── KPI row ────────────────────────────────────────────────── */}
+   582→      <div className="shrink-0 px-3 pt-3">
+   583→        {engine ? (
+   584→          <KpiCards
+   585→            lang={lang}
+   586→            stats={stats}
+   587→            openPaper={engine.open}
+   588→            leverage={settings.leverage}
+   589→            openPnl={openPnl}
+   590→            signals={engine.signals}
+   591→          />
+   592→        ) : (
+   593→          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
+   594→            {Array.from({ length: 5 }, (_, k) => (
+   595→              <Skeleton key={k} className="h-[76px] rounded-lg border border-zinc-800 bg-zinc-900" />
+   596→            ))}
+   597→          </div>
+   598→        )}
+   599→      </div>
+   600→
+   601→      {/* ── Main terminal grid ─────────────────────────────────────── */}
+   602→      <main className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-3 lg:grid lg:grid-cols-[276px_minmax(0,1fr)_324px] lg:overflow-hidden xl:grid-cols-[300px_minmax(0,1fr)_352px]">
+   603→        {error ? (
+   604→          <div className="lg:col-span-3">
+   605→            <Card className="border-rose-900 bg-rose-950/30">
+   606→              <CardContent className="flex flex-col items-center gap-3 p-10 text-center">
+   607→                <AlertTriangle className="h-8 w-8 text-rose-500" />
+   608→                <p className="text-sm font-semibold text-rose-300">{t(lang, "toast.error")}</p>
+   609→                <p className="font-mono text-xs text-rose-400/70">{error}</p>
+   610→                <Button
+   611→                  className="bg-rose-600 text-white hover:bg-rose-500"
+   612→                  onClick={() => void loadData(symbol, interval, true)}
+   613→                >
+   614→                  {t(lang, "error.retry")}
+   615→                </Button>
+   616→              </CardContent>
+   617→            </Card>
+   618→          </div>
+   619→        ) : !engine ? (
+   620→          <div className="space-y-3 lg:col-span-3">
+   621→            <Skeleton className="h-[420px] rounded-lg border border-zinc-800 bg-zinc-900" />
+   622→          </div>
+   623→        ) : (
+   624→          <>
+   625→            {/* ── LEFT: watchlist + sessions ─────────────────────────── */}
+   626→            <div className="rail-scroll order-3 flex min-h-0 flex-col gap-3 lg:order-1 lg:overflow-y-auto lg:pr-0.5">
+   627→              <Watchlist
+   628→                lang={lang}
+   629→                pairs={allPairs}
+   630→                cap={SYMBOLS.length + MAX_CUSTOM_PAIRS}
+   631→                current={symbol}
+   632→                tickers={tickers}
+   633→                minis={minis}
+   634→                atrKey={settings.atrKey}
+   635→                atrPeriod={settings.atrPeriod}
+   636→                smaPeriod={settings.smaPeriod}
+   637→                pairInput={pairInput}
+   638→                checkingPair={checkingPair}
+   639→                onPairInput={setPairInput}
+   640→                onAddPair={() => void addPair()}
+   641→                onRemovePair={removePair}
+   642→                onSelect={setSymbol}
+   643→                defaultPairs={SYMBOLS}
+   644→              />
+   645→              <SessionsPanel lang={lang} klines={klines} />
+   646→            </div>
+   647→
+   648→            {/* ── CENTER: chart + bottom tabs ────────────────────────── */}
+   649→            <div className="rail-scroll order-1 flex min-h-0 flex-col gap-3 lg:order-2 lg:overflow-y-auto lg:pr-0.5">
+   650→              {/* gap-3/py-3 override the Card defaults (gap-6/py-6) — reclaims ~72px
+   651→                  of chart height; lg:min-h keeps the chart usable on short viewports
+   652→                  (the rail scrolls instead of the card collapsing over the tabs) */}
+   653→              <Card className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden border-zinc-800 bg-zinc-900/60 py-3 lg:min-h-[460px]">
+   654→                <CardHeader className="shrink-0 border-b border-zinc-800/70 px-3 py-2.5">
+   655→                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+   656→                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+   657→                      <CardTitle className="text-sm font-bold text-zinc-100">
+   658→                        {symbolLabel(symbol)}
+   659→                        <span className="ml-1.5 hidden font-mono text-[11px] font-normal text-zinc-500 sm:inline">
+   660→                          {symbol} · {interval}
+   661→                          {settings.leverage > 1 && (
+   662→                            <span className="ml-1 font-semibold text-amber-500">×{settings.leverage}</span>
+   663→                          )}
+   664→                        </span>
+   665→                      </CardTitle>
+   666→                      <span className="font-mono text-sm font-bold text-zinc-100">{fmtPrice(lastClose)}</span>
+   667→                      {activeTicker && (
+   668→                        <span
+   669→                          className={`font-mono text-[11px] font-semibold ${
+   670→                            tickerUp ? "text-emerald-400" : "text-rose-400"
+   671→                          }`}
+   672→                        >
+   673→                          {tickerUp ? "+" : ""}
+   674→                          {activeTicker.changePct.toFixed(2)}%
+   675→                        </span>
+   676→                      )}
+   677→                      <span className="text-[10px] text-zinc-600 sm:hidden">{interval}</span>
+   678→                    </div>
+   679→                    <div className="hidden items-center gap-3 font-mono text-[11px] text-zinc-500 md:flex">
+   680→                      {activeTicker?.high != null && (
+   681→                        <span>
+   682→                          {t(lang, "chart.ohlc.high")} <b className="font-semibold text-zinc-300">{fmtPrice(activeTicker.high)}</b>
+   683→                        </span>
+   684→                      )}
+   685→                      {activeTicker?.low != null && (
+   686→                        <span>
+   687→                          {t(lang, "chart.ohlc.low")} <b className="font-semibold text-zinc-300">{fmtPrice(activeTicker.low)}</b>
+   688→                        </span>
+   689→                      )}
+   690→                      {activeTicker?.quoteVolume != null && (
+   691→                        <span>
+   692→                          {t(lang, "chart.ohlc.vol")}{" "}
+   693→                          <b className="font-semibold text-zinc-300">{fmtCompact(activeTicker.quoteVolume)}</b>
+   694→                        </span>
+   695→                      )}
+   696→                      <span className="text-zinc-600">
+   697→                        {updatedAt ? `${t(lang, "header.updated")} ${fmtTime(updatedAt, lang)}` : t(lang, "header.loading")}
+   698→                      </span>
+   699→                    </div>
+   700→                  </div>
+   701→                </CardHeader>
+   702→                <CardContent className="flex min-h-0 flex-1 flex-col px-3 pb-2 pt-2">
+   703→                  <div className="h-[340px] shrink-0 sm:h-[400px] lg:h-auto lg:min-h-[300px] lg:flex-1 lg:shrink">
+   704→                    <PriceChart
+   705→                      klines={klines}
+   706→                      sma={engine.sma}
+   707→                      stop={engine.stop}
+   708→                      trend={engine.trend}
+   709→                      signals={engine.signals}
+   710→                      papers={engine.papers}
+   711→                      openPaper={engine.open}
+   712→                      pending={engine.pending}
+   713→                      pinnedIndex={pinnedIndex}
+   714→                      onPin={handlePin}
+   715→                      lang={lang}
+   716→                      wyckoff={wyckoff}
+   717→                      wyckoffOn={wySettings.enabled}
+   718→                      fill
+   719→                    />
+   720→                  </div>
+   721→                </CardContent>
+   722→              </Card>
+   723→
+   724→              <Tabs defaultValue="journal" className="shrink-0">
+   725→                <TabsList className="h-8 justify-start rounded-lg border border-zinc-800 bg-zinc-900 p-0.5">
+   726→                  <TabsTrigger
+   727→                    value="journal"
+   728→                    className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+   729→                  >
+   730→                    {t(lang, "tabs.journal")}
+   731→                  </TabsTrigger>
+   732→                  <TabsTrigger
+   733→                    value="analysis"
+   734→                    className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+   735→                  >
+   736→                    {t(lang, "tabs.analysis")}
+   737→                  </TabsTrigger>
+   738→                </TabsList>
+   739→                <TabsContent value="journal" className="mt-2 lg:h-[200px] lg:overflow-y-auto rail-scroll">
+   740→                  <Journal lang={lang} papers={engine.papers} symbol={symbol} interval={interval} maxListClass="max-h-36" />
+   741→                </TabsContent>
+   742→                <TabsContent value="analysis" className="mt-2 lg:h-[200px] lg:overflow-y-auto rail-scroll">
+   743→                  <DeepAnalysis
+   744→                    lang={lang}
+   745→                    klines={klines}
+   746→                    smaFilter={settings.smaFilter}
+   747→                    smaPeriod={settings.smaPeriod}
+   748→                    gateLong={gateInfo.long}
+   749→                    gateShort={gateInfo.short}
+   750→                    smaValue={gateInfo.sma}
+   751→                  />
+   752→                </TabsContent>
+   753→              </Tabs>
+   754→            </div>
+   755→
+   756→            {/* ── RIGHT: dock + context + Wyckoff ────────────────────── */}
+   757→            <div className="rail-scroll order-2 flex min-h-0 flex-col gap-3 lg:order-3 lg:overflow-y-auto lg:pl-0.5">
+   758→              <SignalDock
+   759→                lang={lang}
+   760→                smaPeriod={settings.smaPeriod}
+   761→                slPct={settings.slPct}
+   762→                tpPct={settings.tpPct}
+   763→                leverage={settings.leverage}
+   764→                smaFilter={settings.smaFilter}
+   765→                latest={latestSignal}
+   766→                confirmed={confirmedSignal}
+   767→                gateLong={gateInfo.long}
+   768→                gateShort={gateInfo.short}
+   769→                smaValue={gateInfo.sma}
+   770→                onToggleGate={toggleGate}
+   771→                openPaper={engine.open}
+   772→                pending={engine.pending}
+   773→                papers={engine.papers}
+   774→                pinnedIndex={pinnedIndex}
+   775→                lastClose={lastClose}
+   776→                onUnpin={() => setPinnedTime(null)}
+   777→                pinnedSig={pinnedSig}
+   778→              />
+   779→              <RailContext lang={lang} klines={klines} openPaper={engine.open} confirmed={confirmedSignal} />
+   780→              <WyckoffPanel lang={lang} wy={wyckoff} on={wySettings.enabled} sens={wySettings.sens} />
+   781→              <p className="px-1 pb-1 text-[10px] leading-snug text-zinc-700">{t(lang, "footer.note")}</p>
+   782→            </div>
+   783→          </>
+   784→        )}
+   785→      </main>
+   786→
+   787→      {/* ── Footer (mobile flow only — the terminal fills the screen) ── */}
+   788→      <footer className="shrink-0 border-t border-zinc-800 bg-zinc-950 py-2.5 lg:hidden">
+   789→        <p className="pb-[env(safe-area-inset-bottom)] text-center text-[11px] text-zinc-600">
+   790→          {t(lang, "footer.note")}
+   791→        </p>
+   792→      </footer>
+   793→
+   794→      {/* ── Toasts ─────────────────────────────────────────────────── */}
+   795→      <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2">
+   796→        {toasts.map((toast) => (
+   797→          <div
+   798→            key={toast.id}
+   799→            className={`pointer-events-auto rounded-lg border px-3.5 py-2.5 shadow-lg backdrop-blur ${
+   800→              toast.kind === "flip"
+   801→                ? "border-amber-600 bg-amber-950/90"
+   802→                : toast.kind === "wy"
+   803→                  ? "border-violet-700 bg-violet-950/90"
+   804→                  : toast.kind === "error"
+   805→                    ? "border-rose-700 bg-rose-950/90"
+   806→                    : toast.side === "LONG"
+   807→                      ? "border-emerald-700 bg-emerald-950/90"
+   808→                      : "border-rose-700 bg-rose-950/90"
+   809→            }`}
+   810→            role="status"
+   811→          >
+   812→            <p className="flex items-start gap-2 text-xs leading-relaxed text-zinc-100">
+   813→              {toast.kind === "flip" && <ArrowLeftRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />}
+   814→              {toast.kind === "wy" && <Landmark className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-400" />}
+   815→              <span>{toast.text}</span>
+   816→            </p>
+   817→          </div>
+   818→        ))}
+   819→      </div>
+   820→
+   821→      <SettingsDialog
+   822→        key={settingsOpen ? "dlg-on" : "dlg-off"}
+   823→        lang={lang}
+   824→        open={settingsOpen}
+   825→        onOpenChange={setSettingsOpen}
+   826→        settings={settings}
+   827→        wyckoff={wySettings}
+   828→        onWyckoffApply={(w) => setWySettings(w)}
+   829→        onApply={(s) => {
+   830→          setSettings(s);
+   831→          try {
+   832→            localStorage.setItem("utp.settings", JSON.stringify(s));
+   833→          } catch {
+   834→            // storage full/blocked — settings still apply for this session
+   835→          }
+   836→          prevKeyRef.current = ""; // settings change → recompute silently
+   837→        }}
+   838→      />
+   839→    </div>
+   840→  );
+   841→}
+   842→

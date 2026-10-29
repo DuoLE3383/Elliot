@@ -648,9 +648,12 @@ export default function Home() {
             {/* ── CENTER: chart + bottom tabs ────────────────────────── */}
             <div className="rail-scroll order-1 flex min-h-0 flex-col gap-3 lg:order-2 lg:overflow-y-auto lg:pr-0.5">
               {/* gap-3/py-3 override the Card defaults (gap-6/py-6) — reclaims ~72px
-                  of chart height; lg:min-h keeps the chart usable on short viewports
-                  (the rail scrolls instead of the card collapsing over the tabs) */}
-              <Card className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden border-zinc-800 bg-zinc-900/60 py-3 lg:min-h-[460px]">
+                  of chart height; on lg the card fills the WHOLE visible rail height
+                  (h-full + flex-none) so the chart stretches down over the old tabs
+                  area — Sổ giấy / Phân tích sit below the fold (scroll to reach).
+                  lg:min-h keeps the chart usable on short viewports (the rail scrolls
+                  instead of the card collapsing over the tabs) */}
+              <Card className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden border-zinc-800 bg-zinc-900/60 py-3 lg:h-full lg:min-h-[460px] lg:flex-none">
                 <CardHeader className="shrink-0 border-b border-zinc-800/70 px-3 py-2.5">
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">

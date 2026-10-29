@@ -1,0 +1,924 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+     4→     4→import type { Kline, Paper, Signal } from "@/lib/types";
+     5→     5→import type { PendingEntry } from "@/lib/papers";
+     6→     6→import type { WyckoffEvent, WyckoffResult } from "@/lib/wyckoff";
+     7→     7→import { volumeProfile, fmtCompact } from "@/lib/market";
+     8→     8→import { fmtPrice, fmtPct, t, type Lang } from "@/lib/i18n";
+     9→     9→import { equityFrom } from "@/lib/equity";
+    10→    10→import { Button } from "@/components/ui/button";
+    11→    11→import { Minus, Plus } from "lucide-react";
+    12→    12→
+    13→    13→const UP = "#10b981";
+    14→    14→const DOWN = "#f43f5e";
+    15→    15→const FLIP = "#f59e0b";
+    16→    16→const GRID = "#27272a";
+    17→    17→const TEXT = "#a1a1aa";
+    18→    18→// Wyckoff palette — mirrors the Pine original
+    19→    19→const WY_ACC = "#22c55e";
+    20→    20→const WY_DIST = "#ef4444";
+    21→    21→const WY_PHC = "#a855f7";
+    22→    22→const WY_ACC_BAR = "#84cc16"; // barcolor lime
+    23→    23→const WY_DIST_BAR = "#a855f7"; // barcolor purple
+    24→    24→const WY_PIVOT = "#f97316";
+    25→    25→const WY_EMA_F = "#14b8a6"; // teal
+    26→    26→const WY_EMA_S = "#ef4444"; // red
+    27→    27→// SMA band tolerance around the gate SMA (visual aid: how far price is from the gate)
+    28→    28→const BAND_PCT = 0.005;
+    29→    29→
+    30→    30→const wyEventColor = (e: WyckoffEvent) => (e.phaseC ? WY_PHC : e.dir === 1 ? WY_ACC : WY_DIST);
+    31→    31→
+    32→    32→interface Props {
+    33→    33→  klines: Kline[];
+    34→    34→  sma: (number | null)[];
+    35→    35→  signals: Signal[];
+    36→    36→  papers: Paper[];
+    37→    37→  openPaper?: Paper;
+    38→    38→  pending?: PendingEntry;
+    39→    39→  pinnedIndex: number | null;
+    40→    40→  onPin: (index: number | null) => void;
+    41→    41→  lang: Lang;
+    42→    42→  /** Wyckoff overlay (computed in page when enabled) */
+    43→    43→  wyckoff?: WyckoffResult | null;
+    44→    44→  wyckoffOn?: boolean;
+    45→    45→  /** UT Bot trailing stop + trend state (from signalsFrom) — "UT stop" overlay */
+    46→    46→  stop?: (number | null)[];
+    47→    47→  trend?: number[];
+    48→    48→  /** stretch to fill the parent height (terminal layout) */
+    49→    49→  fill?: boolean;
+    50→    50→}
+    51→    51→
+    52→    52→const PAD_L = 8;
+    53→    53→const PAD_R = 64;
+    54→    54→const PAD_T = 12;
+    55→    55→const PAD_B = 26;
+    56→    56→
+    57→    57→const autoBars = (w: number) => (w < 520 ? 52 : w < 768 ? 76 : 110);
+    58→    58→
+    59→    59→export function PriceChart({
+    60→    60→  klines,
+    61→    61→  sma,
+    62→    62→  signals,
+    63→    63→  papers,
+    64→    64→  openPaper,
+    65→    65→  pending,
+    66→    66→  pinnedIndex,
+    67→    67→  onPin,
+    68→    68→  lang,
+    69→    69→  wyckoff,
+    70→    70→  wyckoffOn,
+    71→    71→  stop,
+    72→    72→  trend,
+    73→    73→  fill = false,
+    74→    74→}: Props) {
+    75→    75→  const wrapRef = useRef<HTMLDivElement>(null);
+    76→    76→  const plotRef = useRef<HTMLDivElement>(null);
+    77→    77→  const [width, setWidth] = useState(900);
+    78→    78→  const [measuredH, setMeasuredH] = useState(360);
+    79→    79→  const [viewEndRaw, setViewEndRaw] = useState<number | null>(null);
+    80→    80→  /** user zoom override — visible bar count (null = auto by width) */
+    81→    81→  const [bars, setBars] = useState<number | null>(null);
+    82→    82→  /** hover crosshair — candle index + cursor y inside the plot */
+    83→    83→  const [hover, setHover] = useState<{ i: number; py: number } | null>(null);
+    84→    84→  const dragRef = useRef<{ x: number; end: number } | null>(null);
+    85→    85→
+    86→    86→  useEffect(() => {
+    87→    87→    const el = wrapRef.current;
+    88→    88→    const plot = plotRef.current;
+    89→    89→    if (!el) return;
+    90→    90→    const ro = new ResizeObserver((entries) => {
+    91→    91→      for (const en of entries) {
+    92→    92→        if (en.target === el) {
+    93→    93→          setWidth(Math.max(320, Math.floor(en.contentRect.width)));
+    94→    94→        } else if (en.target === plot) {
+    95→    95→          // floor of 160px keeps the plot usable — going lower would overflow the card
+    96→    96→          setMeasuredH(Math.max(160, Math.floor(en.contentRect.height)));
+    97→    97→        }
+    98→    98→      }
+    99→    99→    });
+   100→   100→    ro.observe(el);
+   101→   101→    if (plot) ro.observe(plot);
+   102→   102→    return () => ro.disconnect();
+   103→   103→  }, []);
+   104→   104→
+   105→   105→  // wheel zoom — native listener (passive: false) so preventDefault works
+   106→   106→  useEffect(() => {
+   107→   107→    const el = wrapRef.current;
+   108→   108→    if (!el) return;
+   109→   109→    const onWheel = (e: WheelEvent) => {
+   110→   110→      if (!e.deltaY) return;
+   111→   111→      e.preventDefault();
+   112→   112→      setBars((prev) => {
+   113→   113→        const base = prev ?? autoBars(width);
+   114→   114→        const next = e.deltaY > 0 ? base * 1.18 : base / 1.18;
+   115→   115→        return Math.max(24, Math.min(340, Math.round(next)));
+   116→   116→      });
+   117→   117→    };
+   118→   118→    el.addEventListener("wheel", onWheel, { passive: false });
+   119→   119→    return () => el.removeEventListener("wheel", onWheel);
+   120→   120→  }, [width]);
+   121→   121→
+   122→   122→  const n = klines.length;
+   123→   123→  const winSize = Math.max(20, Math.min(bars ?? autoBars(width), n || 1));
+   124→   124→  const viewEnd = Math.min(viewEndRaw ?? n - 1, n - 1);
+   125→   125→  const viewStart = Math.max(0, viewEnd - winSize + 1);
+   126→   126→
+   127→   127→  const zoom = useCallback(
+   128→   128→    (dir: 1 | -1) =>
+   129→   129→      setBars((prev) => {
+   130→   130→        const base = prev ?? autoBars(width);
+   131→   131→        const next = dir === 1 ? base / 1.35 : base * 1.35;
+   132→   132→        return Math.max(24, Math.min(340, Math.round(next)));
+   133→   133→      }),
+   134→   134→    [width],
+   135→   135→  );
+   136→   136→
+   137→   137→  const jumpLatest = useCallback(() => setViewEndRaw(null), []);
+   138→   138→
+   139→   139→  const height = fill ? measuredH : width < 520 ? 280 : 360;
+   140→   140→  const plotW = width - PAD_L - PAD_R;
+   141→   141→  // ── Equity pane (Đường cong vốn) — a small strip carved out of the plot bottom
+   142→   142→  const eq = useMemo(() => equityFrom(papers), [papers]);
+   143→   143→  const eqOn = eq.points.length >= 2;
+   144→   144→  const EQ_PANE = 58;
+   145→   145→  const eqPaneH = eqOn ? EQ_PANE : 0;
+   146→   146→  const plotH = height - PAD_T - PAD_B - eqPaneH;
+   147→   147→  const cw = plotW / Math.max(1, viewEnd - viewStart + 1);
+   148→   148→
+   149→   149→  const { minP, maxP } = useMemo(() => {
+   150→   150→    let lo = Infinity;
+   151→   151→    let hi = -Infinity;
+   152→   152→    for (let i = viewStart; i <= viewEnd && i < n; i++) {
+   153→   153→      const k = klines[i];
+   154→   154→      if (k.l < lo) lo = k.l;
+   155→   155→      if (k.h > hi) hi = k.h;
+   156→   156→      const s = sma[i];
+   157→   157→      if (s != null && s < lo) lo = s;
+   158→   158→      if (s != null && s > hi) hi = s;
+   159→   159→      const st = stop?.[i];
+   160→   160→      if (st != null && st < lo) lo = st;
+   161→   161→      if (st != null && st > hi) hi = st;
+   162→   162→    }
+   163→   163→    // NOTE: open SL/TP are deliberately NOT part of the scale — a wide 6% SL
+   164→   164→    // would squash the candles. Levels are clipped to the plot instead.
+   165→   165→    if (openPaper && openPaper.entry >= lo * 0.98 && openPaper.entry <= hi * 1.02) {
+   166→   166→      if (openPaper.entry < lo) lo = openPaper.entry;
+   167→   167→      if (openPaper.entry > hi) hi = openPaper.entry;
+   168→   168→    }
+   169→   169→    if (!isFinite(lo) || !isFinite(hi)) return { minP: 0, maxP: 1 };
+   170→   170→    if (hi === lo) {
+   171→   171→      hi += hi * 0.001 || 1;
+   172→   172→      lo -= lo * 0.001 || 1;
+   173→   173→    }
+   174→   174→    const pad = (hi - lo) * 0.06;
+   175→   175→    return { minP: lo - pad, maxP: hi + pad };
+   176→   176→  }, [klines, sma, stop, viewStart, viewEnd, n, openPaper]);
+   177→   177→
+   178→   178→  const x = (i: number) => PAD_L + (i - viewStart) * cw + cw / 2;
+   179→   179→  const y = (p: number) => PAD_T + ((maxP - p) / (maxP - minP)) * plotH;
+   180→   180→  /** inverse of y() — price under the crosshair */
+   181→   181→  const priceAtY = (py: number) => minP + ((PAD_T + plotH - py) / plotH) * (maxP - minP);
+   182→   182→
+   183→   183→  const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+   184→   184→    dragRef.current = { x: e.clientX, end: viewEnd };
+   185→   185→    (e.target as Element).setPointerCapture?.(e.pointerId);
+   186→   186→  };
+   187→   187→  const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+   188→   188→    // hover crosshair (TradingView-style) — always tracked, pan continues on top
+   189→   189→    const rect = e.currentTarget.getBoundingClientRect();
+   190→   190→    const py = Math.max(PAD_T, Math.min(PAD_T + plotH, e.clientY - rect.top));
+   191→   191→    const i = Math.max(viewStart, Math.min(viewEnd, viewStart + Math.floor((e.clientX - rect.left - PAD_L) / cw)));
+   192→   192→    setHover((prev) => (prev && prev.i === i && Math.abs(prev.py - py) < 0.5 ? prev : { i, py }));
+   193→   193→    const d = dragRef.current;
+   194→   194→    if (!d) return;
+   195→   195→    const shift = Math.round((d.x - e.clientX) / cw);
+   196→   196→    const end = Math.min(n - 1, Math.max(winSize - 1, d.end + shift));
+   197→   197→    setViewEndRaw(end >= n - 1 ? null : end);
+   198→   198→  };
+   199→   199→  const onPointerUp = () => {
+   200→   200→    dragRef.current = null;
+   201→   201→  };
+   202→   202→  const onPointerLeave = () => {
+   203→   203→    dragRef.current = null;
+   204→   204→    setHover(null);
+   205→   205→  };
+   206→   206→
+   207→   207→  // ── Equity pane geometry (Đường cong vốn) ──────────────────────────────
+   208→   208→  const eqTop = PAD_T + plotH + 10;
+   209→   209→  const eqH = eqPaneH - 16;
+   210→   210→  const eqLo = Math.min(eq.trough, 0);
+   211→   211→  const eqHi = Math.max(eq.peak, eqLo + 0.5);
+   212→   212→  const eqY = (v: number) => eqTop + ((eqHi - v) / (eqHi - eqLo)) * eqH;
+   213→   213→  const eqX = (bar: number) => Math.max(PAD_L, Math.min(PAD_L + plotW, x(bar)));
+   214→   214→  // trades closed up to the viewed bar — the curve stays honest while panning back
+   215→   215→  const eqSeen = eqOn ? eq.points.filter((p) => p.bar <= viewEnd) : [];
+   216→   216→  const eqLine = (() => {
+   217→   217→    if (!eqOn || eqH <= 4) return null;
+   218→   218→    if (eqSeen.length === 0) {
+   219→   219→      const d = `M${PAD_L},${eqY(0).toFixed(1)} L${(PAD_L + plotW).toFixed(1)},${eqY(0).toFixed(1)}`;
+   220→   220→      return { d, area: `${d} Z`, endV: 0, endY: eqY(0) };
+   221→   221→    }
+   222→   222→    const pts = eqSeen;
+   223→   223→    let d = pts[0].bar > viewStart ? `M${PAD_L},${eqY(0).toFixed(1)} L${eqX(pts[0].bar).toFixed(1)},${eqY(pts[0].cum).toFixed(1)}` : `M${eqX(pts[0].bar).toFixed(1)},${eqY(pts[0].cum).toFixed(1)}`;
+   224→   224→    for (let k = 1; k < pts.length; k++) d += ` L${eqX(pts[k].bar).toFixed(1)},${eqY(pts[k].cum).toFixed(1)}`;
+   225→   225→    const endY = eqY(pts[pts.length - 1].cum);
+   226→   226→    d += ` L${(PAD_L + plotW).toFixed(1)},${endY.toFixed(1)}`; // flat extension to "now"
+   227→   227→    const area = `${d} L${(PAD_L + plotW).toFixed(1)},${eqY(0).toFixed(1)} L${PAD_L},${eqY(0).toFixed(1)} Z`;
+   228→   228→    return { d, area, endV: pts[pts.length - 1].cum, endY };
+   229→   229→  })();
+   230→   230→
+   231→   231→  const sigInView = signals.filter((s) => s.i >= viewStart && s.i <= viewEnd);
+   232→   232→  const eqColor = eqLine ? (eqLine.endV >= 0 ? UP : DOWN) : UP;
+   233→   233→  const papersInView = papers.filter(
+   234→   234→    (p) => p.exitIndex !== undefined ? p.exitIndex >= viewStart || p.entryIndex <= viewEnd : p.entryIndex <= viewEnd,
+   235→   235→  );
+   236→   236→
+   237→   237→  // ── Volume profile over the visible window (buy/sell split via taker data) ─
+   238→   238→  const vp = useMemo(() => volumeProfile(klines, viewStart, viewEnd, 26), [klines, viewStart, viewEnd]);
+   239→   239→  const vpW = plotW * 0.16;
+   240→   240→
+   241→   241→  // ── Whale delta histogram over the visible window ────────────────────────
+   242→   242→  const whale = useMemo(() => {
+   243→   243→    let maxD = 0;
+   244→   244→    const rows: { i: number; d: number }[] = [];
+   245→   245→    for (let i = viewStart; i <= viewEnd && i < n; i++) {
+   246→   246→      const k = klines[i];
+   247→   247→      if (k.tb == null || k.v <= 0) continue;
+   248→   248→      const d = 2 * k.tb - k.v;
+   249→   249→      rows.push({ i, d });
+   250→   250→      if (Math.abs(d) > maxD) maxD = Math.abs(d);
+   251→   251→    }
+   252→   252→    return { rows, maxD };
+   253→   253→  }, [klines, viewStart, viewEnd, n]);
+   254→   254→  const whaleH = plotH * 0.2;
+   255→   255→
+   256→   256→  // ── Wyckoff layers (only when enabled) ─────────────────────────────────
+   257→   257→  const wyOn = !!wyckoffOn && !!wyckoff;
+   258→   258→  const wyBoxes = wyOn
+   259→   259→    ? wyckoff!.boxes.filter((b) => !b.deleted && b.right >= viewStart && b.left <= viewEnd)
+   260→   260→    : [];
+   261→   261→  const wyEvents = wyOn
+   262→   262→    ? wyckoff!.events.filter((e) => !e.deleted && e.bar >= viewStart && e.bar <= viewEnd)
+   263→   263→    : [];
+   264→   264→  const wyPivots = wyOn
+   265→   265→    ? wyckoff!.pivots.filter((p) => !p.hidden && p.bar >= viewStart && p.bar <= viewEnd)
+   266→   266→    : [];
+   267→   267→  const tintOf = (i: number): 0 | 1 | -1 => (wyOn ? (wyckoff!.tints[i] as 0 | 1 | -1) : 0);
+   268→   268→
+   269→   269→  /** polyline path skipping nulls (EMA arrays) */
+   270→   270→  const linePath = (arr: (number | null)[]): string => {
+   271→   271→    let d = "";
+   272→   272→    let pen = false;
+   273→   273→    for (let i = viewStart; i <= viewEnd; i++) {
+   274→   274→      const v = arr[i];
+   275→   275→      if (v == null) {
+   276→   276→        pen = false;
+   277→   277→        continue;
+   278→   278→      }
+   279→   279→      d += `${pen ? "L" : "M"}${x(i)},${y(v)} `;
+   280→   280→      pen = true;
+   281→   281→    }
+   282→   282→    return d.trim();
+   283→   283→  };
+   284→   284→
+   285→   285→  /** SMA ± band filled area — one closed subpath per contiguous SMA run */
+   286→   286→  const bandPath = (): string => {
+   287→   287→    let d = "";
+   288→   288→    let top: string[] = [];
+   289→   289→    let bot: string[] = [];
+   290→   290→    const flush = () => {
+   291→   291→      if (top.length >= 2) {
+   292→   292→        d += `M${top.join(" L")} L${bot.reverse().join(" L")} Z `;
+   293→   293→      }
+   294→   294→      top = [];
+   295→   295→      bot = [];
+   296→   296→    };
+   297→   297→    for (let i = viewStart; i <= viewEnd; i++) {
+   298→   298→      const v = sma[i];
+   299→   299→      if (v == null) {
+   300→   300→        flush();
+   301→   301→        continue;
+   302→   302→      }
+   303→   303→      top.push(`${x(i)},${y(v * (1 + BAND_PCT))}`);
+   304→   304→      bot.push(`${x(i)},${y(v * (1 - BAND_PCT))}`);
+   305→   305→    }
+   306→   306→    flush();
+   307→   307→    return d.trim();
+   308→   308→  };
+   309→   309→
+   310→   310→  /** UT trailing-stop segments, colored per trend run */
+   311→   311→  const stopSegs = (): { d: string; up: boolean }[] => {
+   312→   312→    const segs: { d: string; up: boolean }[] = [];
+   313→   313→    let cur: { d: string; up: boolean } | null = null;
+   314→   314→    for (let i = viewStart; i <= viewEnd; i++) {
+   315→   315→      const v = stop?.[i];
+   316→   316→      const tr = trend?.[i] ?? 0;
+   317→   317→      if (v == null || tr === 0) {
+   318→   318→        cur = null;
+   319→   319→        continue;
+   320→   320→      }
+   321→   321→      const up = tr === 1;
+   322→   322→      if (cur && cur.up === up) cur.d += ` L${x(i)},${y(v)}`;
+   323→   323→      else {
+   324→   324→        cur = { d: `M${x(i)},${y(v)}`, up };
+   325→   325→        segs.push(cur);
+   326→   326→      }
+   327→   327→    }
+   328→   328→    return segs;
+   329→   329→  };
+   330→   330→
+   331→   331→  const timeLabel = (t: number) => {
+   332→   332→    const d = new Date(t);
+   333→   333→    const hh = String(d.getHours()).padStart(2, "0");
+   334→   334→    const mm = String(d.getMinutes()).padStart(2, "0");
+   335→   335→    return `${d.getDate()}/${d.getMonth() + 1} ${hh}:${mm}`;
+   336→   336→  };
+   337→   337→
+   338→   338→  if (n === 0) {
+   339→   339→    return (
+   340→   340→      <div
+   341→   341→        ref={wrapRef}
+   342→   342→        className={`flex items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950 text-sm text-zinc-500 ${fill ? "h-full" : "h-64"}`}
+   343→   343→      >
+   344→   344→        {t(lang, "chart.empty")}
+   345→   345→      </div>
+   346→   346→    );
+   347→   347→  }
+   348→   348→
+   349→   349→  const gridPrices = Array.from({ length: 5 }, (_, k) => minP + ((maxP - minP) * k) / 4);
+   350→   350→  const openEntryLabel = openPaper?.flippedFrom ? t(lang, "chart.line.flipEntry") : t(lang, "chart.line.entry");
+   351→   351→
+   352→   352→  return (
+   353→   353→    <div ref={wrapRef} className={`relative flex select-none flex-col ${fill ? "h-full" : ""}`}>
+   354→   354→      <div ref={plotRef} className={`relative min-h-0 overflow-hidden ${fill ? "flex-1" : ""}`}>
+   355→   355→        <svg
+   356→   356→          width={width}
+   357→   357→          height={height}
+   358→   358→          className="touch-pan-y rounded-lg border border-zinc-800 bg-zinc-950"
+   359→   359→          onPointerDown={onPointerDown}
+   360→   360→          onPointerMove={onPointerMove}
+   361→   361→          onPointerUp={onPointerUp}
+   362→   362→          onPointerLeave={onPointerLeave}
+   363→   363→          role="img"
+   364→   364→          aria-label={t(lang, "chart.title")}
+   365→   365→        >
+   366→   366→          <defs>
+   367→   367→            <clipPath id="wy-plot-clip">
+   368→   368→              <rect x={PAD_L} y={PAD_T} width={plotW} height={plotH} />
+   369→   369→            </clipPath>
+   370→   370→          </defs>
+   371→   371→          {/* grid + price axis */}
+   372→   372→          {gridPrices.map((p, k) => (
+   373→   373→            <g key={k}>
+   374→   374→              <line x1={PAD_L} x2={PAD_L + plotW} y1={y(p)} y2={y(p)} stroke={GRID} strokeWidth={1} />
+   375→   375→              <text x={PAD_L + plotW + 6} y={y(p) + 4} fill={TEXT} fontSize={10} fontFamily="ui-monospace, monospace">
+   376→   376→                {fmtPrice(p)}
+   377→   377→              </text>
+   378→   378→            </g>
+   379→   379→          ))}
+   380→   380→          {/* time axis — edge labels anchor inward, greedy de-dupe avoids collisions */}
+   381→   381→          {(() => {
+   382→   382→            const last = width < 520 ? 3 : 5;
+   383→   383→            const est = (s: string) => s.length * 6.2; // ~px per char @ 10px mono
+   384→   384→            let prevRight = -Infinity;
+   385→   385→            const nodes: React.ReactNode[] = [];
+   386→   386→            for (let k = 0; k <= last; k++) {
+   387→   387→              const idx = Math.round(viewStart + ((viewEnd - viewStart) * k) / last);
+   388→   388→              const kk = klines[Math.min(idx, n - 1)];
+   389→   389→              const label = timeLabel(kk.t);
+   390→   390→              const w = est(label);
+   391→   391→              const anchor = k === 0 ? "start" : k === last ? "end" : "middle";
+   392→   392→              const cx = k === 0 ? PAD_L : k === last ? PAD_L + plotW : Math.min(x(idx), PAD_L + plotW - 10);
+   393→   393→              const left = anchor === "start" ? cx : anchor === "end" ? cx - w : cx - w / 2;
+   394→   394→              if (left < prevRight + 10) continue; // would collide with the previous label
+   395→   395→              prevRight = left + w;
+   396→   396→              nodes.push(
+   397→   397→                <text
+   398→   398→                  key={k}
+   399→   399→                  x={cx}
+   400→   400→                  y={height - 8}
+   401→   401→                  fill={TEXT}
+   402→   402→                  fontSize={10}
+   403→   403→                  textAnchor={anchor}
+   404→   404→                  fontFamily="ui-monospace, monospace"
+   405→   405→                >
+   406→   406→                  {label}
+   407→   407→                </text>,
+   408→   408→              );
+   409→   409→            }
+   410→   410→            return nodes;
+   411→   411→          })()}
+   412→   412→
+   413→   413→          {/* ── Whale taker-delta histogram (bottom of the plot) ───────── */}
+   414→   414→          {whale.maxD > 0 && (
+   415→   415→            <g clipPath="url(#wy-plot-clip)">
+   416→   416→              <line
+   417→   417→                x1={PAD_L}
+   418→   418→                x2={PAD_L + plotW}
+   419→   419→                y1={PAD_T + plotH}
+   420→   420→                y2={PAD_T + plotH}
+   421→   421→                stroke={GRID}
+   422→   422→                strokeWidth={1}
+   423→   423→              />
+   424→   424→              {whale.rows.map(({ i, d }) => {
+   425→   425→                const h = Math.max(1, (Math.abs(d) / whale.maxD) * whaleH);
+   426→   426→                const bw = Math.max(1.5, cw * 0.55);
+   427→   427→                return (
+   428→   428→                  <rect
+   429→   429→                    key={`wh-${i}`}
+   430→   430→                    x={x(i) - bw / 2}
+   431→   431→                    y={PAD_T + plotH - h}
+   432→   432→                    width={bw}
+   433→   433→                    height={h}
+   434→   434→                    fill={d >= 0 ? UP : DOWN}
+   435→   435→                    opacity={0.34}
+   436→   436→                  />
+   437→   437→                );
+   438→   438→              })}
+   439→   439→            </g>
+   440→   440→          )}
+   441→   441→
+   442→   442→          {/* ── Equity pane (Đường cong vốn) — cumulative ROE of closed trades ── */}
+   443→   443→          {eqOn && (
+   444→   444→            <g pointerEvents="none">
+   445→   445→              <defs>
+   446→   446→                <linearGradient id="eq-pane-fill" x1="0" y1="0" x2="0" y2="1">
+   447→   447→                  <stop offset="0%" stopColor={eqColor} stopOpacity={0.25} />
+   448→   448→                  <stop offset="100%" stopColor={eqColor} stopOpacity={0.02} />
+   449→   449→                </linearGradient>
+   450→   450→              </defs>
+   451→   451→              <line x1={PAD_L} x2={PAD_L + plotW} y1={PAD_T + plotH + 4} y2={PAD_T + plotH + 4} stroke={GRID} strokeWidth={1} />
+   452→   452→              <text x={PAD_L + 2} y={eqTop + 1} fill="#71717a" fontSize={9} fontFamily="ui-monospace, monospace">
+   453→   453→                {t(lang, "tabs.equity")} · {eq.count}
+   454→   454→              </text>
+   455→   455→              <line x1={PAD_L} x2={PAD_L + plotW} y1={eqY(0)} y2={eqY(0)} stroke="#3f3f46" strokeDasharray="4 4" strokeWidth={1} />
+   456→   456→              {eqLine && <path d={eqLine.area} fill="url(#eq-pane-fill)" />}
+   457→   457→              {eqLine && <path d={eqLine.d} fill="none" stroke={eqColor} strokeWidth={1.6} strokeLinejoin="round" />}
+   458→   458→              {eqLine && (
+   459→   459→                <text
+   460→   460→                  x={PAD_L + plotW}
+   461→   461→                  y={Math.max(eqTop + 8, eqLine.endY - 4)}
+   462→   462→                  textAnchor="end"
+   463→   463→                  fill={eqColor}
+   464→   464→                  fontSize={10}
+   465→   465→                  fontWeight={700}
+   466→   466→                  fontFamily="ui-monospace, monospace"
+   467→   467→                >
+   468→   468→                  {fmtPct(eqLine.endV)}
+   469→   469→                </text>
+   470→   470→              )}
+   471→   471→            </g>
+   472→   472→          )}
+   473→   473→
+   474→   474→          {/* ── Volume profile (volume by price, right-anchored) ────────── */}
+   475→   475→          {vp && (
+   476→   476→            <g clipPath="url(#wy-plot-clip)">
+   477→   477→              {vp.rows.map((r, k) => {
+   478→   478→                const yTop = y(r.high);
+   479→   479→                const yBot = y(r.low);
+   480→   480→                const h = Math.max(1, yBot - yTop - 1);
+   481→   481→                const tot = r.buy + r.sell;
+   482→   482→                if (tot <= 0) return null;
+   483→   483→                const w = (tot / vp.max) * vpW;
+   484→   484→                const bw = (r.buy / tot) * w;
+   485→   485→                const right = PAD_L + plotW;
+   486→   486→                return (
+   487→   487→                  <g key={`vp-${k}`}>
+   488→   488→                    <rect x={right - bw} y={yTop} width={Math.max(0, bw)} height={h} fill={UP} opacity={0.2} />
+   489→   489→                    <rect x={right - w} y={yTop} width={Math.max(0, w - bw)} height={h} fill={DOWN} opacity={0.18} />
+   490→   490→                  </g>
+   491→   491→                );
+   492→   492→              })}
+   493→   493→              <line
+   494→   494→                x1={PAD_L}
+   495→   495→                x2={PAD_L + plotW}
+   496→   496→                y1={y(vp.poc)}
+   497→   497→                y2={y(vp.poc)}
+   498→   498→                stroke="#e4e4e7"
+   499→   499→                strokeOpacity={0.22}
+   500→   500→                strokeDasharray="3 5"
+   501→   501→                strokeWidth={1}
+   502→   502→              />
+   503→   503→            </g>
+   504→   504→          )}
+   505→   505→
+   506→   506→          {/* ── Wyckoff trading-range boxes (under everything) ─────────── */}
+   507→   507→          {wyOn && (
+   508→   508→            <g clipPath="url(#wy-plot-clip)">
+   509→   509→              {wyBoxes.map((b, k) => {
+   510→   510→                const x1 = Math.max(PAD_L, x(b.left) - cw / 2);
+   511→   511→                const x2 = Math.min(PAD_L + plotW, x(b.right) + cw / 2);
+   512→   512→                const yTop = y(b.top);
+   513→   513→                const yBot = y(b.bottom);
+   514→   514→                const col = b.dir === 1 ? WY_ACC : WY_DIST;
+   515→   515→                return (
+   516→   516→                  <rect
+   517→   517→                    key={`wyb-${b.left}-${b.dir}-${k}`}
+   518→   518→                    x={x1}
+   519→   519→                    y={Math.min(yTop, yBot)}
+   520→   520→                    width={Math.max(0, x2 - x1)}
+   521→   521→                    height={Math.max(1, Math.abs(yBot - yTop))}
+   522→   522→                    fill={col}
+   523→   523→                    fillOpacity={0.07}
+   524→   524→                    stroke={col}
+   525→   525→                    strokeOpacity={0.35}
+   526→   526→                    strokeWidth={1}
+   527→   527→                  />
+   528→   528→                );
+   529→   529→              })}
+   530→   530→            </g>
+   531→   531→          )}
+   532→   532→
+   533→   533→          {/* closed papers connectors */}
+   534→   534→          {papersInView.map((p) => {
+   535→   535→            const isFlip = p.exitKind === "flip";
+   536→   536→            const color = p.side === "LONG" ? UP : DOWN;
+   537→   537→            if (p.exitIndex === undefined || p.exit === undefined) {
+   538→   538→              // open paper handled below
+   539→   539→              return null;
+   540→   540→            }
+   541→   541→            const a = Math.max(p.entryIndex, viewStart);
+   542→   542→            const b = Math.min(p.exitIndex, viewEnd);
+   543→   543→            if (b < viewStart || a > viewEnd) return null;
+   544→   544→            return (
+   545→   545→              <g key={p.id} opacity={0.85}>
+   546→   546→                <line
+   547→   547→                  x1={x(a)}
+   548→   548→                  x2={x(b)}
+   549→   549→                  y1={y(p.entry)}
+   550→   550→                  y2={y(p.exit)}
+   551→   551→                  stroke={color}
+   552→   552→                  strokeWidth={1.2}
+   553→   553→                  strokeDasharray={isFlip ? "5 3" : "2 3"}
+   554→   554→                  opacity={0.7}
+   555→   555→                />
+   556→   556→                <circle cx={x(a)} cy={y(p.entry)} r={3} fill={color} />
+   557→   557→                <circle
+   558→   558→                  cx={x(Math.min(p.exitIndex, viewEnd))}
+   559→   559→                  cy={y(p.exit)}
+   560→   560→                  r={3.5}
+   561→   561→                  fill={p.exitKind === "flip" ? FLIP : color}
+   562→   562→                  stroke="#18181b"
+   563→   563→                  strokeWidth={1}
+   564→   564→                >
+   565→   565→                  <title>{`#${p.side} ${fmtPrice(p.entry)} → ${fmtPrice(p.exit)}`}</title>
+   566→   566→                </circle>
+   567→   567→              </g>
+   568→   568→            );
+   569→   569→          })}
+   570→   570→
+   571→   571→          {/* open paper levels — clipped to the plot, hidden when out of range */}
+   572→   572→          {openPaper && (
+   573→   573→            <g clipPath="url(#wy-plot-clip)">
+   574→   574→              {[
+   575→   575→                { p: openPaper.entry, c: "#e4e4e7", label: openEntryLabel, dash: "6 4" },
+   576→   576→                { p: openPaper.sl, c: DOWN, label: "SL", dash: "4 4" },
+   577→   577→                { p: openPaper.tp, c: UP, label: "TP", dash: "4 4" },
+   578→   578→              ].map((row, k) => {
+   579→   579→                const ly = y(row.p);
+   580→   580→                if (ly < PAD_T - 1 || ly > PAD_T + plotH + 1) return null;
+   581→   581→                return (
+   582→   582→                  <g key={k}>
+   583→   583→                    <line
+   584→   584→                      x1={PAD_L}
+   585→   585→                      x2={PAD_L + plotW}
+   586→   586→                      y1={ly}
+   587→   587→                      y2={ly}
+   588→   588→                      stroke={row.c}
+   589→   589→                      strokeWidth={1.2}
+   590→   590→                      strokeDasharray={row.dash}
+   591→   591→                      opacity={0.9}
+   592→   592→                    />
+   593→   593→                    <rect
+   594→   594→                      x={PAD_L + plotW + 2}
+   595→   595→                      y={ly - 8}
+   596→   596→                      width={60}
+   597→   597→                      height={16}
+   598→   598→                      rx={3}
+   599→   599→                      fill={row.c}
+   600→   600→                      opacity={0.16}
+   601→   601→                    />
+   602→   602→                    <text
+   603→   603→                      x={PAD_L + plotW + 6}
+   604→   604→                      y={ly + 4}
+   605→   605→                      fill={row.c}
+   606→   606→                      fontSize={9.5}
+   607→   607→                      fontWeight={700}
+   608→   608→                      fontFamily="ui-monospace, monospace"
+   609→   609→                    >
+   610→   610→                      {row.label} {fmtPrice(row.p)}
+   611→   611→                    </text>
+   612→   612→                  </g>
+   613→   613→                );
+   614→   614→              })}
+   615→   615→            </g>
+   616→   616→          )}
+   617→   617→
+   618→   618→          {/* ── SMA ± band (gate tolerance zone) ───────────────────────── */}
+   619→   619→          <path d={bandPath()} fill="#facc15" fillOpacity={0.07} stroke="none" />
+   620→   620→
+   621→   621→          {/* SMA line */}
+   622→   622→          <path
+   623→   623→            d={sma
+   624→   624→              .slice(viewStart, viewEnd + 1)
+   625→   625→              .map((v, k) => (v == null ? null : `${k === 0 || sma.slice(viewStart, viewStart + k).every((s) => s == null) ? "M" : "L"}${x(viewStart + k)},${y(v)}`))
+   626→   626→              .filter(Boolean)
+   627→   627→              .join(" ")}
+   628→   628→            fill="none"
+   629→   629→            stroke="#facc15"
+   630→   630→            strokeWidth={1.4}
+   631→   631→            opacity={0.75}
+   632→   632→          />
+   633→   633→
+   634→   634→          {/* ── Wyckoff EMA 50/200 ─────────────────────────────────────── */}
+   635→   635→          {wyOn && (
+   636→   636→            <g clipPath="url(#wy-plot-clip)">
+   637→   637→              <path d={linePath(wyckoff!.emaS)} fill="none" stroke={WY_EMA_S} strokeWidth={1} opacity={0.5} />
+   638→   638→              <path d={linePath(wyckoff!.emaF)} fill="none" stroke={WY_EMA_F} strokeWidth={1} opacity={0.55} />
+   639→   639→            </g>
+   640→   640→          )}
+   641→   641→
+   642→   642→          {/* ── UT Bot trailing stop (trend-colored) ───────────────────── */}
+   643→   643→          {stop && trend && (
+   644→   644→            <g clipPath="url(#wy-plot-clip)">
+   645→   645→              {stopSegs().map((seg, k) => (
+   646→   646→                <path
+   647→   647→                  key={`stop-${k}`}
+   648→   648→                  d={seg.d}
+   649→   649→                  fill="none"
+   650→   650→                  stroke={seg.up ? UP : DOWN}
+   651→   651→                  strokeWidth={1.3}
+   652→   652→                  strokeDasharray="1 3"
+   653→   653→                  opacity={0.85}
+   654→   654→                  strokeLinecap="round"
+   655→   655→                />
+   656→   656→              ))}
+   657→   657→            </g>
+   658→   658→          )}
+   659→   659→
+   660→   660→          {/* candles */}
+   661→   661→          {klines.slice(viewStart, viewEnd + 1).map((k, idx) => {
+   662→   662→            const i = viewStart + idx;
+   663→   663→            const up = k.c >= k.o;
+   664→   664→            // Wyckoff bar coloring overrides the candle color (Pine barcolor)
+   665→   665→            const tint = tintOf(i);
+   666→   666→            const color = tint === 1 ? WY_ACC_BAR : tint === -1 ? WY_DIST_BAR : up ? UP : DOWN;
+   667→   667→            const bw = Math.max(2, cw * 0.62);
+   668→   668→            const yo = y(k.o);
+   669→   669→            const yc = y(k.c);
+   670→   670→            const top = Math.min(yo, yc);
+   671→   671→            const h = Math.max(1.5, Math.abs(yc - yo));
+   672→   672→            return (
+   673→   673→              <g key={k.t}>
+   674→   674→                <line x1={x(i)} x2={x(i)} y1={y(k.h)} y2={y(k.l)} stroke={color} strokeWidth={1} opacity={tint !== 0 ? 0.9 : 1} />
+   675→   675→                <rect
+   676→   676→                  x={x(i) - bw / 2}
+   677→   677→                  y={top}
+   678→   678→                  width={bw}
+   679→   679→                  height={h}
+   680→   680→                  fill={up || tint !== 0 ? (tint !== 0 ? color : "transparent") : color}
+   681→   681→                  stroke={color}
+   682→   682→                  strokeWidth={1}
+   683→   683→                  opacity={tint !== 0 ? 0.85 : 1}
+   684→   684→                />
+   685→   685→              </g>
+   686→   686→            );
+   687→   687→          })}
+   688→   688→
+   689→   689→          {/* ── Wyckoff orange pivots + event labels ───────────────────── */}
+   690→   690→          {wyOn && (
+   691→   691→            <g clipPath="url(#wy-plot-clip)">
+   692→   692→              {wyPivots.map((p, k) => {
+   693→   693→                const px = x(p.bar);
+   694→   694→                const py = y(p.price);
+   695→   695→                // tiny triangle: up under a pivot low, down over a pivot high
+   696→   696→                const d = p.isHigh
+   697→   697→                  ? `M${px},${py - 2} ${px - 3.5},${py - 9} ${px + 3.5},${py - 9}`
+   698→   698→                  : `M${px},${py + 2} ${px - 3.5},${py + 9} ${px + 3.5},${py + 9}`;
+   699→   699→                return <path key={`wyp-${p.bar}-${p.isHigh ? "h" : "l"}-${k}`} d={d} fill={WY_PIVOT} opacity={0.75} />;
+   700→   700→              })}
+   701→   701→              {wyEvents.map((e, k) => {
+   702→   702→                const px = x(e.bar);
+   703→   703→                const py = y(e.price);
+   704→   704→                const col = wyEventColor(e);
+   705→   705→                const tri = e.below
+   706→   706→                  ? `M${px},${py + 2} ${px - 4},${py + 9} ${px + 4},${py + 9}`
+   707→   707→                  : `M${px},${py - 2} ${px - 4},${py - 9} ${px + 4},${py - 9}`;
+   708→   708→                return (
+   709→   709→                  <g key={`wye-${e.kind}-${e.time}-${e.dir}-${k}`} opacity={0.95}>
+   710→   710→                    <path d={tri} fill={col} />
+   711→   711→                    <text
+   712→   712→                      x={px}
+   713→   713→                      y={e.below ? py + 20 : py - 13}
+   714→   714→                      textAnchor="middle"
+   715→   715→                      fontSize={9}
+   716→   716→                      fontWeight={700}
+   717→   717→                      fill={col}
+   718→   718→                      fontFamily="ui-monospace, monospace"
+   719→   719→                    >
+   720→   720→                      {e.kind}
+   721→   721→                    </text>
+   722→   722→                    <title>{`Wyckoff ${e.kind} · ${fmtPrice(e.price)} · ${e.dir === 1 ? "ACC" : "DIST"}`}</title>
+   723→   723→                  </g>
+   724→   724→                );
+   725→   725→              })}
+   726→   726→            </g>
+   727→   727→          )}
+   728→   728→
+   729→   729→          {/* signal markers */}
+   730→   730→          {sigInView.map((s) => {
+   731→   731→            const k = klines[s.i];
+   732→   732→            const buy = s.dir === "BUY";
+   733→   733→            const isPin = pinnedIndex === s.i;
+   734→   734→            const color = buy ? UP : DOWN;
+   735→   735→            const mx = x(s.i);
+   736→   736→            const my = buy ? y(k.l) + 14 : y(k.h) - 14;
+   737→   737→            const tri = buy
+   738→   738→              ? `${mx},${my - 6} ${mx - 5},${my + 3} ${mx + 5},${my + 3}`
+   739→   739→              : `${mx},${my + 6} ${mx - 5},${my - 3} ${mx + 5},${my - 3}`;
+   740→   740→            return (
+   741→   741→              <g
+   742→   742→                key={`${s.t}-${s.dir}`}
+   743→   743→                className="cursor-pointer"
+   744→   744→                onPointerDown={(e) => e.stopPropagation()}
+   745→   745→                onClick={(e) => {
+   746→   746→                  e.stopPropagation();
+   747→   747→                  onPin(isPin ? null : s.i);
+   748→   748→                }}
+   749→   749→              >
+   750→   750→                {isPin && <circle cx={mx} cy={my} r={10} fill="none" stroke={FLIP} strokeWidth={1.6} />}
+   751→   751→                <path
+   752→   752→                  d={`M${tri}`}
+   753→   753→                  fill={s.smaOk ? color : "none"}
+   754→   754→                  stroke={s.smaOk ? color : FLIP}
+   755→   755→                  strokeWidth={s.smaOk ? 0 : 1.2}
+   756→   756→                  strokeDasharray={s.smaOk ? undefined : "2 2"}
+   757→   757→                >
+   758→   758→                  <title>
+   759→   759→                    {`${s.dir} · ${fmtPrice(s.price)} · ${s.smaOk ? t(lang, "dock.gate.open") : t(lang, "chart.mark.blocked")}`}
+   760→   760→                  </title>
+   761→   761→                </path>
+   762→   762→              </g>
+   763→   763→            );
+   764→   764→          })}
+   765→   765→          {/* crosshair + price tag under the cursor (hover) */}
+   766→   766→          {hover && (
+   767→   767→            <g pointerEvents="none">
+   768→   768→              <line x1={x(hover.i)} x2={x(hover.i)} y1={PAD_T} y2={PAD_T + plotH} stroke="#52525b" strokeWidth={1} strokeDasharray="3 3" />
+   769→   769→              <line x1={PAD_L} x2={PAD_L + plotW} y1={hover.py} y2={hover.py} stroke="#52525b" strokeWidth={1} strokeDasharray="3 3" />
+   770→   770→              <rect x={PAD_L + plotW + 2} y={hover.py - 8} width={60} height={16} rx={3} fill="#52525b" />
+   771→   771→              <text x={PAD_L + plotW + 6} y={hover.py + 3.5} fill="#fafafa" fontSize={10} fontFamily="ui-monospace, monospace">
+   772→   772→                {fmtPrice(priceAtY(hover.py))}
+   773→   773→              </text>
+   774→   774→            </g>
+   775→   775→          )}
+   776→   776→        </svg>
+   777→   777→
+   778→   778→        {/* TradingView-style OHLC readout for the hovered candle */}
+   779→   779→        {hover &&
+   780→   780→          klines[hover.i] &&
+   781→   781→          (() => {
+   782→   782→            const k = klines[hover.i];
+   783→   783→            const up = k.c >= k.o;
+   784→   784→            const chg = ((k.c - k.o) / k.o) * 100;
+   785→   785→            const cls = up ? "text-emerald-400" : "text-rose-400";
+   786→   786→            return (
+   787→   787→              <div className="pointer-events-none absolute left-2 top-1.5 z-10 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 rounded-md border border-zinc-800/80 bg-zinc-950/85 px-2 py-1 font-mono text-[10.5px] leading-none backdrop-blur-sm">
+   788→   788→                <span className="text-zinc-500">{timeLabel(k.t)}</span>
+   789→   789→                <span className="text-zinc-500">
+   790→   790→                  O <b className={cls}>{fmtPrice(k.o)}</b>
+   791→   791→                </span>
+   792→   792→                <span className="text-zinc-500">
+   793→   793→                  H <b className={cls}>{fmtPrice(k.h)}</b>
+   794→   794→                </span>
+   795→   795→                <span className="text-zinc-500">
+   796→   796→                  L <b className={cls}>{fmtPrice(k.l)}</b>
+   797→   797→                </span>
+   798→   798→                <span className="text-zinc-500">
+   799→   799→                  C <b className={cls}>{fmtPrice(k.c)}</b>
+   800→   800→                </span>
+   801→   801→                <b className={cls}>
+   802→   802→                  {chg >= 0 ? "+" : ""}
+   803→   803→                  {chg.toFixed(2)}%
+   804→   804→                </b>
+   805→   805→                <span className="text-zinc-500">
+   806→   806→                  {t(lang, "chart.ohlc.vol")} <b className="text-zinc-300">{fmtCompact(k.v)}</b>
+   807→   807→                </span>
+   808→   808→              </div>
+   809→   809→            );
+   810→   810→          })()}
+   811→   811→      </div>
+   812→   812→
+   813→   813→      {/* legend + zoom controls + hint */}
+   814→   814→      <div className="mt-1.5 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[11px] text-zinc-500">
+   815→   815→        <span className="flex shrink-0 items-center gap-0.5">
+   816→   816→          <Button
+   817→   817→            size="sm"
+   818→   818→            variant="outline"
+   819→   819→            className="h-6 w-6 rounded-md border-zinc-700 p-0 text-zinc-300 hover:bg-zinc-800"
+   820→   820→            title={t(lang, "chart.zoom.in")}
+   821→   821→            aria-label={t(lang, "chart.zoom.in")}
+   822→   822→            onClick={() => zoom(1)}
+   823→   823→          >
+   824→   824→            <Plus className="h-3 w-3" />
+   825→   825→          </Button>
+   826→   826→          <Button
+   827→   827→            size="sm"
+   828→   828→            variant="outline"
+   829→   829→            className="h-6 w-6 rounded-md border-zinc-700 p-0 text-zinc-300 hover:bg-zinc-800"
+   830→   830→            title={t(lang, "chart.zoom.out")}
+   831→   831→            aria-label={t(lang, "chart.zoom.out")}
+   832→   832→            onClick={() => zoom(-1)}
+   833→   833→          >
+   834→   834→            <Minus className="h-3 w-3" />
+   835→   835→          </Button>
+   836→   836→          {viewEnd < n - 1 && (
+   837→   837→            <Button
+   838→   838→              size="sm"
+   839→   839→              variant="outline"
+   840→   840→              className="ml-1 h-6 rounded-md border-zinc-700 px-2 text-[11px] text-zinc-300 hover:bg-zinc-800"
+   841→   841→              onClick={jumpLatest}
+   842→   842→            >
+   843→   843→              ⟶ {t(lang, "chart.zoom.latest")}
+   844→   844→            </Button>
+   845→   845→          )}
+   846→   846→        </span>
+   847→   847→        <span className="flex items-center gap-1.5">
+   848→   848→          <span className="inline-block h-2.5 w-2.5 rounded-sm border border-emerald-500" />
+   849→   849→          {t(lang, "chart.legend.candles")}
+   850→   850→        </span>
+   851→   851→        <span className="flex items-center gap-1.5">
+   852→   852→          <span className="inline-block h-0.5 w-4 bg-yellow-400" />
+   853→   853→          {t(lang, "chart.legend.sma")}
+   854→   854→        </span>
+   855→   855→        <span className="flex items-center gap-1.5">
+   856→   856→          <span className="inline-block h-2 w-2.5 rounded-sm bg-yellow-400/25 ring-1 ring-yellow-500/50" />
+   857→   857→          {t(lang, "chart.legend.band")}
+   858→   858→        </span>
+   859→   859→        {stop && trend && (
+   860→   860→          <span className="flex items-center gap-1.5">
+   861→   861→            <span className="inline-block h-0.5 w-4 border-t border-dashed border-emerald-400" />
+   862→   862→            {t(lang, "chart.legend.stop")}
+   863→   863→          </span>
+   864→   864→        )}
+   865→   865→        <span className="flex items-center gap-1.5">
+   866→   866→          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-500" />
+   867→   867→          {t(lang, "chart.legend.trades")}
+   868→   868→        </span>
+   869→   869→        {whale.maxD > 0 && (
+   870→   870→          <span className="flex items-center gap-1.5" title={t(lang, "whale.note")}>
+   871→   871→            <span className="inline-block h-2.5 w-1.5 rounded-sm bg-emerald-500/40" />
+   872→   872→            <span className="-ml-2 inline-block h-2.5 w-1.5 rounded-sm bg-rose-500/40" />
+   873→   873→            {t(lang, "chart.legend.whale")}
+   874→   874→          </span>
+   875→   875→        )}
+   876→   876→        <span className="flex items-center gap-1.5" title={`${t(lang, "vp.buy")} / ${t(lang, "vp.sell")}`}>
+   877→   877→          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-500/40 ring-1 ring-emerald-500/50" />
+   878→   878→          <span className="-ml-2.5 inline-block h-2.5 w-2.5 rounded-sm bg-rose-500/40 ring-1 ring-rose-500/50" />
+   879→   879→          {t(lang, "chart.legend.vp")}
+   880→   880→        </span>
+   881→   881→        {eqOn && (
+   882→   882→          <span className="flex items-center gap-1.5" title={t(lang, "equity.title")}>
+   883→   883→            <span className="inline-block h-0.5 w-4 rounded bg-gradient-to-r from-emerald-400 to-rose-400" />
+   884→   884→            {t(lang, "tabs.equity")}
+   885→   885→          </span>
+   886→   886→        )}
+   887→   887→        {wyOn && (
+   888→   888→          <>
+   889→   889→            <span className="flex items-center gap-1.5">
+   890→   890→              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-500/25 ring-1 ring-emerald-500/60" />
+   891→   891→              {t(lang, "chart.legend.wyacc")}
+   892→   892→            </span>
+   893→   893→            <span className="flex items-center gap-1.5">
+   894→   894→              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-rose-500/25 ring-1 ring-rose-500/60" />
+   895→   895→              {t(lang, "chart.legend.wydist")}
+   896→   896→            </span>
+   897→   897→            <span className="flex items-center gap-1.5">
+   898→   898→              <span className="inline-block h-0 w-0 border-x-[4px] border-b-[7px] border-x-transparent border-b-violet-500" />
+   899→   899→              {t(lang, "chart.legend.wyphc")}
+   900→   900→            </span>
+   901→   901→            <span className="flex items-center gap-1.5">
+   902→   902→              <span className="inline-block h-0 w-0 border-x-[4px] border-b-[7px] border-x-transparent border-b-orange-500" />
+   903→   903→              {t(lang, "chart.legend.wypivot")}
+   904→   904→            </span>
+   905→   905→            <span className="flex items-center gap-1.5">
+   906→   906→              <span className="inline-block h-0.5 w-4 bg-teal-500" />
+   907→   907→              {t(lang, "chart.legend.wyema")}
+   908→   908→            </span>
+   909→   909→          </>
+   910→   910→        )}
+   911→   911→        <span className="text-zinc-600">
+   912→   912→          {pinnedIndex != null ? t(lang, "chart.hint.pinned") : t(lang, "chart.hint.pin")} · {t(lang, "chart.hint.terminal")}
+   913→   913→        </span>
+   914→   914→      </div>
+   915→   915→
+   916→   916→      {pending && (
+   917→   917→        <div className="mt-1 shrink-0 rounded-md border border-dashed border-zinc-700 bg-zinc-900/60 px-3 py-1.5 text-[11px] text-zinc-400">
+   918→   918→          {t(lang, "dock.pending")}: {pending.side === "LONG" ? "LONG" : "SHORT"} — {t(lang, "dock.pendingNote")}
+   919→   919→        </div>
+   920→   920→      )}
+   921→   921→    </div>
+   922→   922→  );
+   923→   923→}
+   924→   924→
