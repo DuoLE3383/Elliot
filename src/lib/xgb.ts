@@ -32,6 +32,12 @@ export interface XgbSuggestion {
   confidence: number;
   slPct: number;
   tpPct: number;
+  /**
+   * ATR multiplier that produced slPct/tpPct — RETRAINED per coin by the
+   * expectancy scan below. Live entry (tpMode "atr") re-applies it to the
+   * fresh ATR at entry time instead of freezing the train-time levels.
+   */
+  atrCoef: number;
   atrKey: number;
   atrPeriod: number;
   smaFilter: boolean;
@@ -146,7 +152,7 @@ export interface XgbCtx {
 }
 
 /** Precompute every indicator column once for the whole window. */
-function buildCtx(klines: Kline[], atrKey: number, atrPeriod: number): XgbCtx {
+export function buildCtx(klines: Kline[], atrKey: number, atrPeriod: number): XgbCtx {
   const n = klines.length;
   const s20 = sma(klines, 20);
   const s100 = sma(klines, 100);
@@ -592,10 +598,29 @@ export function suggestFrom(
   const close = klines[lastClosed]?.c ?? 0;
   const atrNow = (atrCtx.atr14[lastClosed] ?? close * 0.01) / (close || 1);
 
-  // ATR-scaled risk: ~2.5×ATR stop, ~3.5×ATR target (≥1.3R), sane clamps
-  let slPct = round1(clamp(atrNow * 100 * 2.5, 1, 10));
-  let tpPct = round1(Math.max(slPct * 1.3, clamp(atrNow * 100 * 3.5, 1.2, 14)));
-  if (tpPct < 1.2) tpPct = 1.2;
+  // ATR-scaled risk — the MULTIPLIER ITSELF is retrained per coin (step 0):
+  // a fixed 2.5×/3.5× is one-size-fits-all — quiet coins got clamped up to 1%,
+  // hot coins clamped down to 10%. Here SL = ATR% × coef and TP = SL × 1.4,
+  // with wide sanity clamps only (0.3–20 / 0.4–28). The expectancy scan picks
+  // the coef that actually earned the most over this coin's real history.
+  const slTpForCoef = (coef: number): { slPct: number; tpPct: number } => {
+    const slPct = round1(clamp(atrNow * 100 * coef, 0.3, 20));
+    const tpPct = round1(clamp(slPct * 1.4, 0.4, 28));
+    return { slPct, tpPct };
+  };
+  let atrCoef = 1.5;
+  let { slPct, tpPct } = slTpForCoef(atrCoef);
+  let bestCoefScore = -Infinity;
+  for (const coef of [1, 1.5, 2, 2.5, 3]) {
+    const { slPct: s, tpPct: p } = slTpForCoef(coef);
+    const score = scanScore(klines, { ...base, slPct: s, tpPct: p, smaFilter: false }, symbol, interval);
+    if (score > bestCoefScore) {
+      bestCoefScore = score;
+      atrCoef = coef;
+      slPct = s;
+      tpPct = p;
+    }
+  }
 
   // 1) UT key × period scan (gate off) — 12 engine sims
   let bestUt = { key: base.atrKey, period: base.atrPeriod, score: -Infinity };
@@ -637,6 +662,7 @@ export function suggestFrom(
     confidence: Math.abs(probNow - 0.5) * 2,
     slPct,
     tpPct,
+    atrCoef,
     atrKey: bestUt.key,
     atrPeriod: bestUt.period,
     smaFilter: bestGate.filter,

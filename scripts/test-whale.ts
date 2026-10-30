@@ -1,4 +1,4 @@
-// Regression test: 16-feature vector + whale readout + full train path
+// Regression test: feature vector + whale readout + full train path
 import { buildDataset, runXgb, FEATURE_NAMES, whaleOf } from "../src/lib/xgb";
 import type { Kline, EngineSettings } from "../src/lib/types";
 
@@ -31,15 +31,16 @@ const settings: EngineSettings = {
 
 const ds = buildDataset(klines, 4, 2, 14, 0);
 if (!ds) throw new Error("dataset build failed");
-console.log("FEATURE_NAMES:", FEATURE_NAMES.length, "(expect 16)");
-console.log("dataset rows:", ds.rows.length, "| feature cols:", ds.rows[0].length, "(expect 16)");
+console.log("FEATURE_NAMES:", FEATURE_NAMES.length, "| row width:", ds.rows[0].length);
 
 const res = await runXgb(klines, settings, "TESTUSDT-1m", "1m");
 console.log("train ok — acc:", res.acc.toFixed(1), "auc:", res.auc.toFixed(3), "trees:", res.trees);
 console.log("whale readout:", JSON.stringify(res.whale));
 console.log("whaleOf checks:", JSON.stringify(whaleOf(1)), JSON.stringify(whaleOf(3)), JSON.stringify(whaleOf(5)));
-if (FEATURE_NAMES.length !== 16) throw new Error("feature count wrong");
-if (ds.rows[0].length !== 16) throw new Error("row width wrong");
+// the feature vector grew over time (22 today) — assert SELF-CONSISTENCY with
+// the dataset builder instead of a stale hardcoded count
+if (FEATURE_NAMES.length < 16) throw new Error("feature count too small");
+if (ds.rows[0].length !== FEATURE_NAMES.length) throw new Error("row width != feature count");
 if (!res.whale || typeof res.whale.volZ !== "number") throw new Error("whale readout missing");
 if (whaleOf(5).tag !== "whale" || whaleOf(3).tag !== "watch" || whaleOf(1).tag !== "calm") throw new Error("whale thresholds wrong");
 console.log("ALL CHECKS PASS");

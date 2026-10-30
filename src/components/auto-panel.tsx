@@ -12,6 +12,7 @@ import {
   COOLDOWN_CHOICES,
   CYCLE_CHOICES,
   fetchAutoState,
+  fetchKlines,
   liquidationHit,
   loadAutoConfig,
   nearHit,
@@ -34,6 +35,7 @@ import {
   type ScanRow,
 } from "@/lib/autotrade";
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
+import { atrLevelsAtEntry } from "@/lib/indicators";
 import type { EngineSettings, Ticker } from "@/lib/types";
 import { INTERVALS } from "@/lib/types";
 import { llmReviewViaApi, type LlmVerdict } from "@/lib/llm";
@@ -95,23 +97,27 @@ const slPrice = (side: string, entry: number, slPct: number): number =>
 const tpPrice = (side: string, entry: number, tpPct: number): number =>
   side === "SHORT" ? entry * (1 - Math.abs(tpPct) / 100) : entry * (1 + Math.abs(tpPct) / 100);
 
-const msgOpen = (r: AutoTradeRow, equity: number): string => {
+const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string): string => {
   const stake = (equity * (r.stakePct ?? 100)) / 100;
   const notional = stake * r.leverage;
   const rr = r.slPct > 0 ? r.tpPct / r.slPct : 0;
   const slRoe = -(r.slPct * r.leverage);
   const tpRoe = r.tpPct * r.leverage;
-  return [
+  const lines = [
     `🤖 <b>AUTO OPEN (dry-run) · ${r.side === "LONG" ? "LONG 🟢" : "SHORT 🔴"}</b>`,
     `📌 <b>#${r.symbol}</b> · ${r.interval}`,
     HR,
     `🎯 Entry: <b>${fmtPrice(r.entryPrice)}</b>`,
     `🛑 SL: <b>${fmtPrice(slPrice(r.side, r.entryPrice, r.slPct))}</b> · −${r.slPct.toFixed(1)}% giá (ROE ${slRoe.toFixed(1)}% @ ${levTxt(r.leverage)})`,
     `🏁 TP: <b>${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(1)}% giá (ROE +${tpRoe.toFixed(1)}% @ ${levTxt(r.leverage)})`,
+  ];
+  if (atrNote) lines.push(atrNote);
+  lines.push(
     `⚖️ Leverage ${levTxt(r.leverage)} · R:R 1:${rr.toFixed(2)}`,
     `📦 Stake: <b>${stake.toFixed(2)}</b> USDT · ${r.stakePct ?? 100}% equity · Notional ${notional.toFixed(2)} USDT`,
     `🧠 Prob ${((r.prob ?? 0) * 100).toFixed(1)}% · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(1)}% · Score ${(r.score ?? 0).toFixed(1)}`,
-  ].join("\n");
+  );
+  return lines.join("\n");
 };
 
 const kindTag = (k: string | null): string =>
@@ -414,6 +420,29 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
       const price = tickersRef.current[best.symbol]?.price ?? 0;
       if (price <= 0) return; // no live price for that pair — wait for the next cycle
 
+      // 2.2) live ATR levels — tpMode "atr" re-measures the pair's REAL volatility
+      // right before entry (SL% = ATR% × coef, TP% = SL% × 1.4): a quiet coin gets
+      // a tight stop, a hot coin a wide one — no more one-size-fits-all % values.
+      // coef = the multiplier RETRAINED per coin by the finetuner's expectancy
+      // scan (falls back to the UI coefficient). Fails open to the train-time
+      // levels (already ATR-scaled) when klines can't be fetched.
+      const coef = best.atrCoef > 0 ? best.atrCoef : c.atrCoef;
+      let live: { slPct: number; tpPct: number; atrPct: number } | null = null;
+      if (c.tpMode === "atr") {
+        try {
+          live = atrLevelsAtEntry(await fetchKlines(best.symbol, best.interval), coef);
+        } catch {
+          // fail-open — keep the train-time scan-row levels
+        }
+      }
+      const entrySl = c.tpMode === "manual" ? c.slPct : (c.tpMode === "atr" && live ? live.slPct : best.slPct);
+      const entryTp = c.tpMode === "manual" ? c.tpPct : (c.tpMode === "atr" && live ? live.tpPct : best.tpPct);
+      if (c.tpMode === "atr" && live) {
+        setStatus(
+          `${best.symbol} ${best.interval} · ATR ${live.atrPct.toFixed(2)}% × ${coef} → SL ${entrySl.toFixed(1)}% / TP ${entryTp.toFixed(1)}%`,
+        );
+      }
+
       // 2.5) LLM risk officer — runs silently in the backend (no UI toggle):
       // the browser posts the setup to the same-origin /api/llm/review route and
       // the SERVER reviews it against the local llama-server. Fail-open: a
@@ -429,8 +458,8 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
           confidence: best.confidence,
           auc: best.auc,
           acc: best.acc,
-          slPct: c.tpMode === "manual" ? c.slPct : best.slPct,
-          tpPct: c.tpMode === "manual" ? c.tpPct : best.tpPct,
+          slPct: entrySl,
+          tpPct: entryTp,
           leverage: leverageRef.current,
           stakePct: c.riskPct,
           horizon: best.horizon,
@@ -463,9 +492,10 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
         interval: best.interval,
         side: best.bias,
         entryPrice: price,
-        // manual mode overrides the per-proposal ATR levels with fixed ones
-        slPct: c.tpMode === "manual" ? c.slPct : best.slPct,
-        tpPct: c.tpMode === "manual" ? c.tpPct : best.tpPct,
+        // "manual" overrides with fixed %, "atr" uses levels measured at entry time,
+        // "auto" keeps the scan row's train-time ATR levels
+        slPct: entrySl,
+        tpPct: entryTp,
         stakePct: c.riskPct,
         leverage: leverageRef.current,
         prob: best.prob,
@@ -479,7 +509,15 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
           kind: "entry",
           text: t(langRef.current, "auto.opened", { side: trade.side, pair: trade.symbol, tf: trade.interval, price: fmtPrice(trade.entryPrice) }),
         });
-        void sendTelegram(msgOpen(trade, capitalNow));
+        void sendTelegram(
+          msgOpen(
+            trade,
+            capitalNow,
+            c.tpMode === "atr" && live
+              ? `📏 SL/TP = ATR ${live.atrPct.toFixed(2)}% × ${coef} — đo lúc vào lệnh`
+              : undefined,
+          ),
+        );
         await refreshAuto();
         setStatus(`${trade.symbol} ${trade.interval} ${trade.side} @ ${fmtPrice(trade.entryPrice)}`);
       }
@@ -725,9 +763,24 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
                     : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
                 }`}
               >
-                {t(lang, m === "auto" ? "auto.cfg.tpAuto" : "auto.cfg.tpManual")}
+                {t(lang, m === "atr" ? "auto.cfg.tpAtr" : m === "auto" ? "auto.cfg.tpAuto" : "auto.cfg.tpManual")}
               </button>
             ))}
+            {cfg.tpMode === "atr" && (
+              <label className="flex items-center gap-1 text-[11px] text-zinc-500">
+                {t(lang, "auto.cfg.atrCoef")}
+                <Input
+                  type="number"
+                  min={0.5}
+                  max={5}
+                  step={0.1}
+                  value={cfg.atrCoef}
+                  onChange={(e) => updateCfg({ atrCoef: Math.min(5, Math.max(0.5, Number(e.target.value) || 1.5)) })}
+                  className="h-7 w-14 border-sky-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-sky-300"
+                />
+                ×
+              </label>
+            )}
             {cfg.tpMode === "manual" && (
               <label className="flex items-center gap-1 text-[11px] text-zinc-500">
                 SL
@@ -752,6 +805,9 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
                 />
                 %
               </label>
+            )}
+            {cfg.tpMode === "atr" && (
+              <span className="w-full text-[10px] leading-tight text-zinc-600">{t(lang, "auto.cfg.tpAtrDesc")}</span>
             )}
           </div>
         </div>

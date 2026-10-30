@@ -126,6 +126,37 @@ export function atr(klines: Kline[], period: number): (number | null)[] {
 }
 
 /**
+ * Live ATR-scaled SL/TP computed AT ENTRY TIME from the pair's own klines —
+ * the adaptive replacement for fixed SL/TP %: a quiet coin gets a tight stop,
+ * a hot coin a wide one, because both scale with what the coin actually moves.
+ *
+ *   atrPct = ATR(14) of the last CLOSED candle / its close × 100
+ *   slPct  = clamp(atrPct × coef, 0.3, 20)     (coef typically 1.5)
+ *   tpPct  = clamp(slPct × tpRatio, 0.4, 28)   (tpRatio 1.4 — same R:R the
+ *                                              old 2.5×/3.5× ATR suggestion had)
+ *
+ * Returns null when the window is too short for ATR (callers fail open to the
+ * train-time levels). Pure function — shared by the finetuner and the engine.
+ */
+export function atrLevelsAtEntry(
+  klines: Kline[],
+  coef = 1.5,
+  tpRatio = 1.4,
+): { slPct: number; tpPct: number; atrPct: number } | null {
+  const arr = atr(klines, 14);
+  const i = klines.length - 2; // last CLOSED candle (final row may be forming)
+  const a = arr[i];
+  const close = klines[i]?.c ?? 0;
+  if (a == null || a <= 0 || !close) return null;
+  const atrPct = (a / close) * 100;
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+  const r1 = (v: number) => Math.round(v * 10) / 10;
+  const slPct = r1(clamp(atrPct * coef, 0.3, 20));
+  const tpPct = r1(clamp(slPct * tpRatio, 0.4, 28));
+  return { slPct, tpPct, atrPct };
+}
+
+/**
  * UT Bot Alerts trailing stop (non-heikin-ashi, on regular closes).
  * Returns the trailing stop value per index and the trend state per index:
  *   1  → uptrend (stop below price)
