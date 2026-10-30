@@ -13,19 +13,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
 
-// Bun tự load .env — nhưng đề phòng máy chạy bằng node: thử dotenv nhẹ tay
+// Bun tự load .env — nhưng đề phòng máy chạy bằng node: thử dotenv nhẹ tay.
+// Quan trọng: giá trị TRONG FILE .env luôn thắng env kế thừa — vì dev server
+// (next dev) và production (systemd EnvironmentFile) đều đọc FILE lúc boot;
+// env còn sót trong shell (export DATABASE_URL=... cũ) phải bị bỏ qua, nếu không
+// doctor sẽ báo sai chính xác thứ app sắp dùng.
+const envFromFile: Record<string, string> = {};
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const envText = fs.readFileSync(path.join(process.cwd(), ".env"), "utf8");
   for (const line of envText.split("\n")) {
-    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/);
-    if (m && process.env[m[1]] === undefined) {
-      process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
-    }
+    const m = line.match(/^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/);
+    if (m) envFromFile[m[1]] = m[2].replace(/^["']|["']$/g, "");
   }
 } catch { /* không có .env — dùng env mặc định */ }
 
-const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "db");
+const DATA_DIR = envFromFile.DATA_DIR || process.env.DATA_DIR || path.join(process.cwd(), "db");
+const dbUrl = envFromFile.DATABASE_URL ?? process.env.DATABASE_URL;
+const dbUrlSource = envFromFile.DATABASE_URL ? "file .env" : "env kế thừa";
 
 // Resolve đường dẫn SQLite y hệt Prisma: URL relative được tính từ thư mục
 // chứa schema (prisma/) — gặp "file:./db/custom.db" → <repo>/db/custom.db
@@ -55,10 +59,9 @@ try {
 }
 
 // ── Đường dẫn ──
-const dbUrl = process.env.DATABASE_URL;
 const sqlitePath = resolveSqlite(dbUrl);
-console.log(`DATA_DIR        : ${DATA_DIR}${process.env.DATA_DIR ? "" : "  (mặc định — .env không đặt DATA_DIR)"}`);
-console.log(`DATABASE_URL    : ${dbUrl ? (sqlitePath ?? dbUrl) : "(chưa đặt — Prisma sẽ dùng .env/schema.prisma)"}`);
+console.log(`DATA_DIR        : ${DATA_DIR}${envFromFile.DATA_DIR || process.env.DATA_DIR ? "" : "  (mặc định — .env không đặt DATA_DIR)"}`);
+console.log(`DATABASE_URL    : ${dbUrl ? `${sqlitePath ?? dbUrl}  [nguồn: ${dbUrlSource}]` : "(chưa đặt — Prisma sẽ dùng .env/schema.prisma)"}`);
 if (sqlitePath) {
   const ok = fs.existsSync(sqlitePath);
   const size = ok ? fs.statSync(sqlitePath).size : 0;
@@ -76,10 +79,14 @@ try {
 } catch { /* DATA_DIR chưa tồn tại — đã in ở trên */ }
 
 // ── Telegram config: chỉ báo CÓ/KHÔNG, không bao giờ in giá trị ──
-console.log(`Telegram env    : token=${process.env.TELEGRAM_BOT_TOKEN ? "có" : "không"} · chat=${process.env.TELEGRAM_CHAT_ID ? "có" : "không"}`);
+const tgTok = envFromFile.TELEGRAM_BOT_TOKEN ?? process.env.TELEGRAM_BOT_TOKEN;
+const tgChat = envFromFile.TELEGRAM_CHAT_ID ?? process.env.TELEGRAM_CHAT_ID;
+console.log(`Telegram env    : token=${tgTok ? "có" : "không"} · chat=${tgChat ? "có" : "không"}`);
 
-// ── Nội dung SQLite ──
-const db = new PrismaClient({ log: [] });
+// ── Nội dung SQLite (nối đúng URL của file .env — không tin env kế thừa) ──
+const db = dbUrl
+  ? new PrismaClient({ log: [], datasources: { db: { url: dbUrl } } })
+  : new PrismaClient({ log: [] });
 try {
   const [openN, closedN, sugN, ftN] = await Promise.all([
     db.autoTrade.count({ where: { status: "open" } }),

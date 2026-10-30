@@ -77,13 +77,32 @@ sudo systemctl restart cloudflared
    ```bash
    bun run scripts/db-doctor.ts        # in: git HEAD, đường dẫn DB thật, số lệnh mở/đóng, win-rate, vốn, lệnh cuối
    ```
+   Doctor luôn lấy giá trị trong **file .env** làm chuẩn (nguồn dev server & systemd `EnvironmentFile` đều đọc lúc boot) — bỏ qua env cũ còn sót trong shell.
 2. **Kéo DB VPS về local (một chiều)** — dừng dev server local trước:
    ```bash
    bash scripts/sync-db-from-vps.sh user@ip-vps [/opt/elliott]
    # tự backup db/custom.db.bak.<thời-gian> → tạo snapshot an toàn trên VPS → kéo về → tự chạy db-doctor kiểm chứng
    ```
-3. **Không bật Auto đồng thời ở cả 2 máy**: engine auto chạy client-side theo **origin** (BroadcastChannel chỉ gói các tab cùng origin — `localhost:3000` và `elliott.huyenbao.com` là 2 origin riêng) → local + web cùng bật = **2 engine độc lập**, mỗi bên tự train/tự quét/tự mở lệnh/tự gửi Telegram riêng. Dedupe Telegram là **per-server** (khoá nằm trong `DATA_DIR` của từng server) nên không chặn được chéo máy. Muốn local chỉ xem: **tắt Auto ở tab local** (badge vàng "tab chờ" chỉ hoạt động giữa các tab cùng origin).
+3. **Không bật Auto đồng thời ở cả 2 máy**: engine auto chạy client-side theo **origin** (BroadcastChannel chỉ gói các tab cùng origin — `localhost:3000` và `elliott.huyenbao.com` là 2 origin riêng) → local + web cùng bật = **2 engine độc lập**, mỗi bên tự train/tự quét/tự mở lệnh/tự gửi Telegram riêng. Dedupe Telegram là **per-server** (khoá nằm trong `DATA_DIR` của từng server) nên không chặn được chéo máy. Muốn local chỉ xem: **tắt Auto ở tab local** (badge vàng "tab chờ" chỉ hoạt động giữa các tab cùng origin). *Lưu ý: khi 2 instance CÙNG máy đã dùng chung DB, 2 engine tranh 1 slot vị thế (server chặn 409) nhưng vẫn 2 vòng train/quét riêng — tắt Auto 1 phía vẫn là gọn nhất.*
 4. Muốn sync ngược (local → VPS) hoặc sync tự động: tự chịu rủi ro — SQLite chéo máy chỉ an toàn khi app bên nhận ĐANG DỪNG; khuyến nghị giữ VPS là nguồn duy nhất (single source of truth).
+
+### Dùng chung 1 DB cho TẤT CẢ (khi các instance cùng 1 máy)
+
+Vì sao website "dùng DB lạ"? Production đọc env từ `/opt/elliott/.env` (systemd `EnvironmentFile`), update.sh ghi sẵn cho nó DB riêng `/opt/elliott/data/custom.db`; bản dev dùng mặc định `<repo>/db/custom.db` — **2 instance = 2 .env = 2 DB**. Muốn chung thì trỏ CẢ HAI `.env` vào CÙNG một thư mục:
+
+```bash
+sudo bash scripts/share-db.sh /opt/elliott/data              # dev (repo này) ghé vào sổ của website
+sudo bash scripts/share-db.sh /opt/elliott/data /opt/elliott/.env   # …và bảo đảm web cũng trỏ đúng đó
+# xong: restart cả hai — dev: bunx next dev -p 3100 (né cổng 3000 của prod) · prod: sudo systemctl restart elliott
+```
+
+Script tự: mkdir thư mục chung → kiểm quyền ghi → sửa `DATABASE_URL` + `DATA_DIR` (giữ nguyên `TELEGRAM_*`) → bật WAL nếu có sqlite3 → chạy db-doctor kiểm chứng. Khi dùng chung (cùng máy):
+
+- ✓ localhost và website xem **cùng sổ lệnh** / journal / win-rate / vốn
+- ✓ 2 engine (tab local + tab web) tranh **1 slot vị thế duy nhất** — server chặn `409 position_open`, không bao giờ mở song song
+- ✓ `autostat.json` (marker báo cáo giờ/ngày) dùng chung → hết 2 báo cáo trùng; `tg-dedupe.json` dùng chung → anti-spam chéo cả 2 instance
+- ⚠ localStorage (watchlist, symbol, cấu hình Auto) vẫn theo từng trình duyệt — không thuộc DB
+- ⚠ KHÔNG gộp khi instance nằm trên KHÁC máy (SQLite là file) — khi đó dùng `sync-db-from-vps.sh`
 
 ## 2. Build pipeline (đã fix lỗi CI)
 
