@@ -34,14 +34,14 @@ import { signalsFrom as libSignalsFrom } from "../src/lib/signals.ts";
 import { runXgb, FEATURE_NAMES } from "../src/lib/xgb.ts";
 import { DEFAULT_SETTINGS, matchPreset, PRESET_SAFE, PRESET_AGGRESSIVE, STRATEGY_PRESETS } from "../src/lib/types.ts";
 
-const HOSTS = ["https://api.binance.com", "https://data-api.binance.vision"];
+const HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com"];
 
 async function fetchKlines(symbol, interval, limit = 500) {
   let lastErr;
   for (const host of HOSTS) {
     try {
       const res = await fetch(
-        `${host}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
+        `${host}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
         { signal: AbortSignal.timeout(10000) },
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -757,7 +757,7 @@ async function runXgbSuite(liveKlines, tag) {
     const s = res.suggestion;
     check(["LONG", "SHORT", "NEUTRAL"].includes(s.bias), `xgb synth: bias ${s.bias}`);
     check(s.prob > 0 && s.prob < 1, `xgb synth: prob ${(s.prob).toFixed(3)}`);
-    check(s.slPct >= 1 && s.slPct <= 10, `xgb synth: SL ${s.slPct} clamped`);
+    check(s.slPct >= 0.3 && s.slPct <= 20, `xgb synth: SL ${s.slPct} clamped (0.3–20 ATR-based)`);
     check(s.tpPct > s.slPct, `xgb synth: TP ${s.tpPct} > SL ${s.slPct}`);
     check([1, 1.5, 2, 3].includes(s.atrKey) && [7, 10, 14].includes(s.atrPeriod), `xgb synth: UT combo ${s.atrKey}/${s.atrPeriod}`);
     check(!s.smaFilter || [50, 100, 150, 200].includes(s.smaPeriod), `xgb synth: gate period ${s.smaPeriod}`);

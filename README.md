@@ -90,8 +90,8 @@ API key sàn **không cần thiết** — dữ liệu giá dùng endpoint public
 
 | Route | Chức năng |
 |---|---|
-| `GET /api/klines` | Proxy nến giá từ Binance (symbol, interval, limit) |
-| `GET /api/ticker` | Giá 24h cho watchlist/ticker strip |
+| `GET /api/klines` | Proxy nến giá Binance **USDT-M Futures** (symbol, interval, limit) |
+| `GET /api/ticker` | Giá 24h futures cho watchlist/ticker strip |
 | `GET/POST /api/autotrade` | Trạng thái & điều khiển máy auto-trade |
 | `POST /api/autotrade/push` | Webhook đẩy tín hiệu/digest từ server |
 | `GET/POST /api/telegram` | Gửi tin nhắn qua Telegram bot (GET trả trạng thái wiring) |

@@ -62,7 +62,7 @@ function series(now: number, n = 500): unknown[] {
 const origFetch = globalThis.fetch;
 globalThis.fetch = (async (url: string | URL | Request, opts?: RequestInit): Promise<Response> => {
   const raw = typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
-  if (raw.includes("/api/v3/klines")) {
+  if (raw.includes("/fapi/v1/klines")) {
     const u = new URL(raw);
     const now = Number(u.searchParams.get("_now") ?? Date.now());
     return new Response(JSON.stringify(series(now, Number(u.searchParams.get("limit") ?? 500))), { status: 200 });
@@ -84,7 +84,7 @@ globalThis.fetch = ((url: string | URL | Request, opts?: RequestInit) =>
 // ─── 1. message content mirrors the panel ─────────────────────────────────────
 
 console.log("== buildSessionOpenMessage content");
-const klinesUrl = "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=500&_now=" + NOW;
+const klinesUrl = "https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1h&limit=500&_now=" + NOW;
 const kres = (await realFetch(klinesUrl)) as Response;
 // map the raw Binance rows exactly like fetchKlinesDirect does
 const toK = (r: unknown[]): Kline => ({

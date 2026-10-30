@@ -11,13 +11,13 @@
 import { atr, ema } from "./indicators";
 import type { Kline } from "./types";
 
-/** majors + consistently liquid/high-ATR alts — Binance USDT spot symbols */
+/** majors + consistently liquid/high-ATR alts — Binance USDT-M Futures symbols */
 export const UNIVERSE: readonly string[] = [
   "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT",
   "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT", "TONUSDT", "TRXUSDT",
   "LTCUSDT", "NEARUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "SUIUSDT",
   "INJUSDT", "SEIUSDT", "TIAUSDT", "FILUSDT", "ATOMUSDT", "FETUSDT",
-  "PEPEUSDT", "WIFUSDT",
+  "1000PEPEUSDT", "WIFUSDT",
 ];
 
 export const UNIVERSE_INTERVAL = "1h";

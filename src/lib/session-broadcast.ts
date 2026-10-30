@@ -41,7 +41,8 @@ const EARLY_MIN = 5;
 /** ticks within this many minutes AFTER the open still count (boot-late catch-up) */
 const LATE_WINDOW_MIN = 10;
 
-const HOSTS = ["https://api.binance.com", "https://data-api.binance.vision", "https://api1.binance.com"];
+/** Binance USDT-M Futures — same board the chart reads, prices can differ from spot */
+const HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com"];
 
 const EMOJI: Record<SessionKey, string> = { sydney: "🔵", tokyo: "🟣", london: "🟡", newyork: "🟢" };
 const NAME: Record<SessionKey, string> = { sydney: "Sydney", tokyo: "Tokyo", london: "London", newyork: "New York" };
@@ -55,7 +56,7 @@ async function fetchKlinesDirect(symbol: string, interval: string, limit: number
   let lastErr: unknown = null;
   for (const host of HOSTS) {
     try {
-      const url = `${host}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+      const url = `${host}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
       const res = await fetch(url, { signal: AbortSignal.timeout(9000) });
       if (!res.ok) {
         lastErr = new Error(`HTTP ${res.status}`);

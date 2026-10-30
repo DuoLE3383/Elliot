@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import type { Kline } from "@/lib/types";
 import { KLINE_LIMIT } from "@/lib/types";
 
+/** Binance USDT-M Futures — market data comes from the perp board, not spot */
 const HOSTS = [
-  "https://api.binance.com",
-  "https://data-api.binance.vision",
-  "https://api1.binance.com",
+  "https://fapi.binance.com",
+  "https://fapi1.binance.com",
+  "https://fapi2.binance.com",
+  "https://fapi3.binance.com",
 ];
 
 const VALID_INTERVALS = new Set(["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]);
@@ -26,7 +28,7 @@ export async function GET(req: NextRequest) {
   let lastErr: string | null = null;
   for (const host of HOSTS) {
     try {
-      const url = `${host}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+      const url = `${host}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
       const res = await fetch(url, {
         next: { revalidate: 10 },
         signal: AbortSignal.timeout(9000),

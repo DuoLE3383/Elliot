@@ -183,7 +183,7 @@ export function matchPreset(s: EngineSettings): StrategyKey | null {
   return null;
 }
 
-/** Default pair chips (Binance USDT spot). Custom pairs are user-added. */
+/** Default pair chips (Binance USDT-M Futures). Custom pairs are user-added. */
 export const SYMBOLS = [
   "BTCUSDT",
   "ETHUSDT",
@@ -195,7 +195,7 @@ export const SYMBOLS = [
   "AVAXUSDT",
   "LINKUSDT",
 ] as const;
-/** Any Binance spot symbol — defaults plus user-added custom pairs. */
+/** Any Binance USDT-M Futures symbol — defaults plus user-added custom pairs. */
 export type Symbol = string;
 
 export const INTERVALS = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"] as const;

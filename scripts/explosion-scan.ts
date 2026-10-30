@@ -32,7 +32,7 @@ const DOW = ["Chủ nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 
 const ddmm = (t: number): string =>
   new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" }).format(new Date(t));
 
-const BASES = ["https://api.binance.com", "https://data-api.binance.vision"];
+const BASES = ["https://fapi.binance.com", "https://fapi1.binance.com"];
 let baseIdx = 0;
 
 async function getJSON(url: string): Promise<unknown> {
@@ -57,7 +57,7 @@ async function fetchDaily(symbol: string, want: number): Promise<Bar[]> {
   while (raw.length < want) {
     const q = new URLSearchParams({ symbol, interval: "1d", limit: "1000" });
     if (endTime) q.set("endTime", String(endTime));
-    const chunk = (await getJSON(`${BASES[baseIdx]}/api/v3/klines?${q}`)) as unknown[][];
+    const chunk = (await getJSON(`${BASES[baseIdx]}/fapi/v1/klines?${q}`)) as unknown[][];
     if (!Array.isArray(chunk) || chunk.length === 0) break;
     raw.unshift(...chunk);
     endTime = Number(chunk[0][0]) - 1;
@@ -80,7 +80,7 @@ async function fetchHourly(symbol: string, want: number): Promise<Bar[]> {
   while (raw.length < want) {
     const q = new URLSearchParams({ symbol, interval: "1h", limit: "1000" });
     if (endTime) q.set("endTime", String(endTime));
-    const chunk = (await getJSON(`${BASES[baseIdx]}/api/v3/klines?${q}`)) as unknown[][];
+    const chunk = (await getJSON(`${BASES[baseIdx]}/fapi/v1/klines?${q}`)) as unknown[][];
     if (!Array.isArray(chunk) || chunk.length === 0) break;
     raw.unshift(...chunk);
     endTime = Number(chunk[0][0]) - 1;
