@@ -90,7 +90,20 @@ export async function GET(req: NextRequest) {
     take: Math.floor(limit),
   });
   const count = sp.get("count") === "1" ? await db.finetuneRun.count({ where }) : undefined;
-  return NextResponse.json({ runs: rows.map(serialize), ...(count != null ? { count } : {}) });
+  // champion = best-ever run of the combo (auc → acc → newest), independent of
+  // the page window — the UI crowns it and "apply best" re-uses its metrics
+  const champion =
+    symbol && interval
+      ? await db.finetuneRun.findFirst({
+          where,
+          orderBy: [{ auc: "desc" }, { acc: "desc" }, { createdAt: "desc" }],
+        })
+      : null;
+  return NextResponse.json({
+    runs: rows.map(serialize),
+    ...(champion ? { champion: serialize(champion) } : {}),
+    ...(count != null ? { count } : {}),
+  });
 }
 
 export async function POST(req: NextRequest) {

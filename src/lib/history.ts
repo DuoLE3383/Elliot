@@ -157,6 +157,38 @@ export async function fetchRunCount(symbol: string, interval: string): Promise<n
   }
 }
 
+/** Best-ever run of a combo (auc → acc → newest) — the "champion" model. */
+export async function fetchChampionRun(symbol: string, interval: string): Promise<RunRow | null> {
+  try {
+    const res = await fetch(`/api/finetune?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=1`);
+    if (!res.ok) return null;
+    const json = (await res.json()) as { champion?: RunRow | null };
+    return json.champion ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * "Chọn bản tốt nhất" — the server picks the combo's best-ever suggestion
+ * (auc → acc → newest), marks it applied and returns it; the caller loads its
+ * SL/TP/ATR settings into the strategy. null = the combo has no suggestion yet.
+ */
+export async function applyBestSuggestion(symbol: string, interval: string): Promise<SuggestionRow | null> {
+  try {
+    const res = await fetch("/api/suggestions", {
+      method: "PATCH",
+      headers: jsonHeaders,
+      body: JSON.stringify({ action: "apply-best", symbol, interval }),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { suggestion: SuggestionRow | null };
+    return json.suggestion;
+  } catch {
+    return null;
+  }
+}
+
 export async function markApplied(kind: "suggestion" | "run", id: string): Promise<boolean> {
   try {
     const res = await fetch(kind === "suggestion" ? "/api/suggestions" : "/api/finetune", {

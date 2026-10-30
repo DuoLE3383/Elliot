@@ -41,6 +41,7 @@ import {
   scoreOf,
   slCooldownLeft,
   slTpHit,
+  withChampion,
   type AutoConfig,
   type AutoTradeRow,
   type ScanRow,
@@ -317,6 +318,30 @@ async function scanCore(
     pool.destroy();
   }
   const ranked = rankRows(collected);
+  // champion map — best-ever run per combo from the persisted history; a fresh
+  // retrain that rolled measurably worse (auc < champ − 0.02) is flagged and
+  // the auto-cycle skips it ("mỗi lần train phải tốt hơn" — no gambling on a
+  // bad roll). One query, computed in JS — no schema change.
+  try {
+    const runs = await db.finetuneRun.findMany({
+      select: { symbol: true, interval: true, acc: true, auc: true },
+      orderBy: { createdAt: "desc" },
+      take: 4000,
+    });
+    const champ = new Map<string, { auc: number; acc: number }>();
+    for (const r of runs) {
+      const k = `${r.symbol}|${r.interval}`;
+      const cur = champ.get(k);
+      if (!cur || r.auc > cur.auc || (r.auc === cur.auc && r.acc > cur.acc)) champ.set(k, { auc: r.auc, acc: r.acc });
+    }
+    for (const row of ranked) {
+      const c = champ.get(`${row.symbol}|${row.interval}`);
+      if (c) Object.assign(row, withChampion(row, c.auc, c.acc));
+    }
+    console.log(`[engine] scan enriched — ${ranked.filter((r) => r.regressed).length}/${ranked.length} regressed vs champion`);
+  } catch {
+    // no history yet → rows stay unflagged
+  }
   v.scan = { rows: ranked, at: Date.now() };
   persistEngine();
   return { rows: ranked.length, workers: pool.parallelism };
@@ -633,10 +658,10 @@ async function cycleTick(): Promise<void> {
       v.lastCycleStatus = "scan empty";
       return;
     }
-    const { allInCooldown, cands } = bestTradeableAvoid(rows, c.minAuc, c.minAcc, st.trades, c.cooldownMin, c.whaleFilter);
-    // walk the ranked candidates: cooldown-blocked combos are skipped, then the
-    // chase guard rejects same-side re-entries until price has reversed back
-    // through the level that stopped us ("SL xong vào lại giá cao hơn" → hết)
+    const { allInCooldown, cands, regressedCount } = bestTradeableAvoid(rows, c.minAuc, c.minAcc, st.trades, c.cooldownMin, c.whaleFilter);
+    // walk the ranked candidates: regressed/cooldown-blocked combos are skipped,
+    // then the chase guard rejects same-side re-entries until price has reversed
+    // back through the level that stopped us ("SL xong vào lại giá cao hơn" → hết)
     const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
     let best: ScanRow | null = null;
     let price = 0;
@@ -658,8 +683,12 @@ async function cycleTick(): Promise<void> {
         guardBlocked > 0
           ? `chase guard — chờ giá quay đầu (${guardBlocked} combo)`
           : allInCooldown
-            ? "all in cooldown"
-            : "no tradeable combo";
+            ? regressedCount > 0
+              ? `all in cooldown · ${regressedCount} combo regress`
+              : "all in cooldown"
+            : regressedCount > 0
+              ? `no tradeable combo · ${regressedCount} regress`
+              : "no tradeable combo";
       return;
     }
 

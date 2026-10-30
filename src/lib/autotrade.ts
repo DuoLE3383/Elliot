@@ -38,6 +38,12 @@ export interface ScanRow {
   trainedAt: number;
   /** whale footprint at the last closed candle — auto-entry skips "whale" */
   whale: WhaleReadout;
+  /** best-ever run of this combo (from the FinetuneRun history) — 0 = no history */
+  champAuc: number;
+  champAcc: number;
+  /** this retrain rolled measurably worse than the combo's best-ever model —
+   *  auto-entry skips it until a train matches the champion again */
+  regressed: boolean;
 }
 
 /**
@@ -68,6 +74,9 @@ export function rowOf(res: XgbResult, symbol: string, interval: string): ScanRow
     horizon: res.horizon,
     trainedAt: Date.now(),
     whale: res.whale ?? { volZ: 0, risk: 0, tag: "calm" as WhaleTag },
+    champAuc: 0,
+    champAcc: 0,
+    regressed: false,
   };
 }
 
@@ -135,6 +144,19 @@ export function passesChaseGuard(
   return side === "SHORT" ? price < last.exitPrice - eps : price > last.exitPrice + eps;
 }
 
+/** AUC drop vs the combo's champion that marks a retrain as a regression. */
+export const REGRESS_EPS = 0.02;
+
+/** Attach the combo's champion metrics to a fresh scan row (+ regression flag). */
+export function withChampion(r: ScanRow, champAuc: number, champAcc: number): ScanRow {
+  return {
+    ...r,
+    champAuc,
+    champAcc,
+    regressed: champAuc > 0 && r.auc < champAuc - REGRESS_EPS,
+  };
+}
+
 export function bestTradeableAvoid(
   rows: ScanRow[],
   minAuc: number,
@@ -144,21 +166,25 @@ export function bestTradeableAvoid(
   whaleFilter = true,
   /** khử nhiễu XGBoost — skip coin-flip probs (|P−0.5| < band); 0 = tắt */
   noiseBand = NOISE_BAND,
-): { best: ScanRow | null; allInCooldown: boolean; cands: ScanRow[] } {
+): { best: ScanRow | null; allInCooldown: boolean; cands: ScanRow[]; regressedCount: number } {
   // whaleFilter (default on) skips combos whose last closed candle is a full
   // whale bar (≥4σ volume) — entries opened into those get wicked out.
   // noiseBand skips model probs with no decisive lean (0.5 ± band) — the
   // XGBoost denoiser: an undecided model is statistical noise, not a signal.
+  // regressed combos (this retrain measurably worse than the combo's champion)
+  // never trade — no gambling on a bad roll.
   const cands = rankRows(
     rows.filter(
       (r) =>
         isTradeable(r, minAuc, minAcc) &&
+        !r.regressed &&
         (!whaleFilter || r.whale?.tag !== "whale") &&
         (noiseBand <= 0 || Math.abs(r.prob - 0.5) >= noiseBand),
     ),
   );
+  const regressedCount = rows.filter((r) => isTradeable(r, minAuc, minAcc) && r.regressed).length;
   const free = cands.find((r) => slCooldownLeft(trades, r.symbol, r.interval, cooldownMin) === 0) ?? null;
-  return { best: free, allInCooldown: free == null && cands.length > 0, cands };
+  return { best: free, allInCooldown: free == null && cands.length > 0, cands, regressedCount };
 }
 
 // ─── Kline fetch + full scan ──────────────────────────────────────────────────

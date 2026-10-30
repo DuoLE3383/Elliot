@@ -751,6 +751,14 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
                   >
                     <span className="truncate text-zinc-200">
                       {r.symbol}
+                      {r.regressed && (
+                        <span
+                          title={t(lang, "auto.regress.tip", { auc: (r.champAuc ?? 0).toFixed(2) })}
+                          className="ml-1 text-amber-500"
+                        >
+                          ↓
+                        </span>
+                      )}
                       {r.whale?.tag === "whale" && (
                         <span title={`🐋 volZ ${(r.whale.volZ ?? 0).toFixed(1)}σ`} className="ml-1 text-amber-400">🐋</span>
                       )}
@@ -763,7 +771,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
                     <span className="text-right text-zinc-300">{(r.prob * 100).toFixed(1)}%</span>
                     <span className={`text-right ${r.auc >= cfg.minAuc ? "text-emerald-400" : "text-zinc-500"}`}>{r.auc.toFixed(2)}</span>
                     <span className={`text-right ${r.acc >= cfg.minAcc ? "text-emerald-400" : "text-zinc-500"}`}>{r.acc.toFixed(0)}%</span>
-                    <span className={`text-right font-bold ${tradeable ? "text-teal-300" : "text-zinc-600"}`}>{r.score.toFixed(1)}</span>
+                    <span className={`text-right font-bold ${tradeable && !r.regressed ? "text-teal-300" : "text-zinc-600"}`}>{r.score.toFixed(1)}</span>
                   </button>
                 );
               })}

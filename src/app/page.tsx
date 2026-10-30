@@ -23,7 +23,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtCompact } from "@/lib/market";
-import { fetchRuns, markApplied, resolveBatch, type RunRow } from "@/lib/history";
+import { applyBestSuggestion, fetchChampionRun, fetchRuns, markApplied, resolveBatch, type RunRow } from "@/lib/history";
 import { fmtPct, fmtPrice, fmtTime, symbolLabel, t, type Lang } from "@/lib/i18n";
 import { kpiFrom, papersFrom } from "@/lib/papers";
 import { signalsFrom } from "@/lib/signals";
@@ -152,6 +152,10 @@ export default function Home() {
   const [xgbRunId, setXgbRunId] = useState<string | null>(null);
   /** persisted train/finetune runs for the current pair+interval (newest first) */
   const [xgbRuns, setXgbRuns] = useState<RunRow[]>([]);
+  /** best-ever run of the current combo (auc → acc → newest) — crowned in history */
+  const [xgbChampion, setXgbChampion] = useState<RunRow | null>(null);
+  /** applying the champion suggestion right now */
+  const [applyingBest, setApplyingBest] = useState(false);
   /** progress of a "train ALL pairs × all timeframes" pass (null = idle) */
   const [allTrain, setAllTrain] = useState<AllTrainState | null>(null);
   /** bumped after any DB mutation → history lists reload */
@@ -621,6 +625,49 @@ export default function Home() {
     if (xgbRunId) void markApplied("run", xgbRunId).then((ok) => ok && bumpHist());
   }, [xgb, lang, pushToast, xgbSavedId, xgbRunId, bumpHist]);
 
+  /** "Chọn bản tốt nhất" — server picks the combo's best-ever suggestion and its
+   *  SL/TP/ATR levels become the active strategy (monotonic by construction:
+   *  the best roll so far is what trades). */
+  const applyBestXgb = useCallback(async () => {
+    if (applyingBest) return;
+    setApplyingBest(true);
+    try {
+      const best = await applyBestSuggestion(symbol, interval);
+      if (!best) {
+        pushToast({ kind: "xgb", text: t(lang, "xgb.applyBest.none") });
+        return;
+      }
+      setSettings((prev) => {
+        const next = {
+          ...prev,
+          slPct: best.slPct,
+          tpPct: best.tpPct,
+          atrKey: best.atrKey,
+          atrPeriod: best.atrPeriod,
+          smaFilter: best.smaFilter,
+          smaPeriod: best.smaPeriod,
+        };
+        try {
+          localStorage.setItem("utp.settings", JSON.stringify(next));
+        } catch {
+          // storage blocked — the suggestion still applies for this session
+        }
+        return next;
+      });
+      prevKeyRef.current = "";
+      pushToast({
+        kind: "xgb",
+        text: t(lang, "xgb.applyBest.done", {
+          acc: best.acc.toFixed(1),
+          auc: best.auc.toFixed(2),
+        }),
+      });
+      bumpHist();
+    } finally {
+      setApplyingBest(false);
+    }
+  }, [applyingBest, symbol, interval, lang, pushToast, bumpHist]);
+
   const xgbStale = xgb != null && xgb.key !== key;
 
   // persisted finetune runs for the current pair+interval — reload on switch/mutation
@@ -633,9 +680,10 @@ export default function Home() {
         if (alive) setXgbRuns(list);
       } catch {
         if (alive) setXgbRuns([]);
-      } finally {
-        if (alive) runsKeyRef.current = `${symbol}-${interval}`;
       }
+      const champ = await fetchChampionRun(symbol, interval);
+      if (alive) setXgbChampion(champ);
+      if (alive) runsKeyRef.current = `${symbol}-${interval}`;
     };
     void load();
     return () => {
@@ -1292,11 +1340,14 @@ export default function Home() {
             result={xgb}
             stale={xgbStale}
             runs={xgbRuns}
+            champion={xgbChampion}
+            applyingBest={applyingBest}
             allTrain={allTrain}
             allPairsCount={allPairs.length}
             onTrain={() => void trainXgb(true)}
             onTrainAll={() => void trainAllXgb()}
             onApply={applyXgb}
+            onApplyBest={() => void applyBestXgb()}
           />
         </DialogContent>
       </Dialog>

@@ -168,6 +168,32 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ suggestion: serialize(row) });
   }
 
+  if (body.action === "apply-best") {
+    // "chọn bản tốt nhất" — pick the combo's best-ever suggestion (auc → acc →
+    // newest), mark it applied and return it so the client can load its levels.
+    const symbol = typeof body.symbol === "string" ? body.symbol.toUpperCase().slice(0, 20) : "";
+    const interval = typeof body.interval === "string" ? body.interval.slice(0, 8) : "";
+    if (!symbol || !interval) return NextResponse.json({ error: "symbol, interval required" }, { status: 400 });
+    try {
+      const found = await db.suggestion.findFirst({
+        where: { symbol, interval },
+        orderBy: [{ auc: "desc" }, { acc: "desc" }, { createdAt: "desc" }],
+      });
+      const row = found
+        ? await db.suggestion.update({ where: { id: found.id }, data: { applied: true, appliedAt: new Date() } })
+        : null;
+      return NextResponse.json({ suggestion: row ? serialize(row) : null });
+    } catch (e) {
+      if (isSchemaMissing(e)) {
+        return NextResponse.json(
+          { error: "schema_missing", detail: "run: bunx prisma db push" },
+          { status: 503 },
+        );
+      }
+      throw e;
+    }
+  }
+
   if (body.action === "resolve-batch") {
     // Score every pending suggestion whose horizon elapsed, using the freshest
     // prices the client has for each symbol (skips pairs without a quote).

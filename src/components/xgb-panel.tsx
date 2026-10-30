@@ -7,7 +7,7 @@ import { t, type Lang } from "@/lib/i18n";
 import type { RunRow } from "@/lib/history";
 import { INTERVALS } from "@/lib/types";
 import type { XgbResult } from "@/lib/xgb";
-import { BrainCircuit, CheckCircle2, Cpu, History, Layers, Sparkles } from "lucide-react";
+import { BrainCircuit, CheckCircle2, Cpu, Crown, History, Layers, Sparkles } from "lucide-react";
 
 interface Props {
   lang: Lang;
@@ -21,6 +21,10 @@ interface Props {
   stale: boolean;
   /** persisted train/finetune runs for the CURRENT pair+interval (newest first) */
   runs: RunRow[];
+  /** best-ever run of this combo (auc → acc → newest) — null = no history */
+  champion: RunRow | null;
+  /** the champion suggestion is being applied right now */
+  applyingBest: boolean;
   /** progress of a train-ALL pass (null = idle) */
   allTrain: {
     busy: boolean;
@@ -37,6 +41,8 @@ interface Props {
   onTrain: () => void;
   onTrainAll: () => void;
   onApply: () => void;
+  /** apply the combo's best-ever suggestion (server-picked, marks applied) */
+  onApplyBest: () => void;
 }
 
 function Tile({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
@@ -51,7 +57,23 @@ function Tile({ label, value, valueClass }: { label: string; value: string; valu
 const biasClass = (bias: string) =>
   bias === "LONG" ? "text-emerald-400" : bias === "SHORT" ? "text-rose-400" : "text-zinc-300";
 
-export function XgbPanel({ lang, candles, busy, progress, result, stale, runs, allTrain, allPairsCount, onTrain, onTrainAll, onApply }: Props) {
+export function XgbPanel({
+  lang,
+  candles,
+  busy,
+  progress,
+  result,
+  stale,
+  runs,
+  champion,
+  applyingBest,
+  allTrain,
+  allPairsCount,
+  onTrain,
+  onTrainAll,
+  onApply,
+  onApplyBest,
+}: Props) {
   const enough = candles >= 200;
   const s = result?.suggestion;
   const pct = (v: number) => `${(v * 100).toFixed(0)}%`;
@@ -184,6 +206,26 @@ export function XgbPanel({ lang, candles, busy, progress, result, stale, runs, a
               </div>
             )}
 
+            {/* champion — the combo's best-ever run, one click re-applies it */}
+            {champion && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 w-full border-amber-700/60 text-[11px] text-amber-300 hover:bg-amber-950/30 disabled:opacity-50"
+                disabled={applyingBest}
+                title={t(lang, "xgb.applyBest.tip")}
+                onClick={onApplyBest}
+              >
+                <Crown className="mr-1.5 h-3.5 w-3.5" />
+                {applyingBest
+                  ? t(lang, "xgb.applyBest.busy")
+                  : t(lang, "xgb.applyBest", {
+                      acc: champion.acc.toFixed(1),
+                      auc: champion.auc.toFixed(2),
+                    })}
+              </Button>
+            )}
+
             <Button
               size="sm"
               variant="outline"
@@ -241,40 +283,50 @@ export function XgbPanel({ lang, candles, busy, progress, result, stale, runs, a
             <p className="mt-1.5 text-[11px] text-zinc-600">{t(lang, "xgb.history.empty")}</p>
           ) : (
             <div className="rail-scroll mt-1.5 max-h-32 space-y-1 overflow-y-auto pr-0.5">
-              {runs.map((r) => (
-                <div
-                  key={r.id}
-                  className="flex items-center gap-2 rounded-md border border-zinc-800/80 bg-zinc-950/40 px-2 py-1.5 text-[11px]"
-                >
-                  <Badge
-                    variant="outline"
-                    className={
-                      r.kind === "finetune"
-                        ? "shrink-0 border-teal-800 bg-teal-950/40 px-1.5 text-[9px] uppercase text-teal-300"
-                        : "shrink-0 border-zinc-700 bg-zinc-900 px-1.5 text-[9px] uppercase text-zinc-400"
-                    }
+              {runs.map((r) => {
+                const isChamp = champion?.id === r.id;
+                return (
+                  <div
+                    key={r.id}
+                    className={`flex items-center gap-2 rounded-md border bg-zinc-950/40 px-2 py-1.5 text-[11px] ${
+                      isChamp ? "border-amber-700/60 bg-amber-950/10" : "border-zinc-800/80"
+                    }`}
                   >
-                    {t(lang, r.kind === "finetune" ? "xgb.kind.finetune" : "xgb.kind.train")}
-                  </Badge>
-                  <span className="shrink-0 text-zinc-500">
-                    {new Date(r.createdAt).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      day: "2-digit",
-                      month: "2-digit",
-                    })}
-                  </span>
-                  <span className="ml-auto shrink-0 font-mono text-zinc-300">{r.acc.toFixed(1)}%</span>
-                  <span className="shrink-0 font-mono text-zinc-500">AUC {r.auc.toFixed(2)}</span>
-                  <span
-                    className="shrink-0 font-mono text-zinc-500"
-                    title={t(lang, "xgb.diff.tip")}
-                  >
-                    Lv{r.params?.lv ?? 0}
-                  </span>
-                  {r.applied && <span title={t(lang, "xgb.run.applied")}><CheckCircle2 className="h-3 w-3 shrink-0 text-teal-500" /></span>}
-                </div>
-              ))}
+                    {isChamp && (
+                      <span title={t(lang, "xgb.champ")} className="shrink-0">
+                        <Crown className="h-3 w-3 text-amber-400" />
+                      </span>
+                    )}
+                    <Badge
+                      variant="outline"
+                      className={
+                        r.kind === "finetune"
+                          ? "shrink-0 border-teal-800 bg-teal-950/40 px-1.5 text-[9px] uppercase text-teal-300"
+                          : "shrink-0 border-zinc-700 bg-zinc-900 px-1.5 text-[9px] uppercase text-zinc-400"
+                      }
+                    >
+                      {t(lang, r.kind === "finetune" ? "xgb.kind.finetune" : "xgb.kind.train")}
+                    </Badge>
+                    <span className="shrink-0 text-zinc-500">
+                      {new Date(r.createdAt).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        day: "2-digit",
+                        month: "2-digit",
+                      })}
+                    </span>
+                    <span className="ml-auto shrink-0 font-mono text-zinc-300">{r.acc.toFixed(1)}%</span>
+                    <span className="shrink-0 font-mono text-zinc-500">AUC {r.auc.toFixed(2)}</span>
+                    <span
+                      className="shrink-0 font-mono text-zinc-500"
+                      title={t(lang, "xgb.diff.tip")}
+                    >
+                      Lv{r.params?.lv ?? 0}
+                    </span>
+                    {r.applied && <span title={t(lang, "xgb.run.applied")}><CheckCircle2 className="h-3 w-3 shrink-0 text-teal-500" /></span>}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
