@@ -647,15 +647,10 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     const open = auto?.open;
     if (!open || busyRef.current) return;
     const price = tickers[open.symbol]?.price ?? open.entryPrice;
-    const closed = await closeAutoTrade(open.id, price, "manual");
-    if (closed) {
-      pushToast({
-        kind: "flip",
-        text: t(lang, "auto.closed", { pair: closed.symbol, tf: closed.interval, pnl: (closed.pnlPct ?? 0).toFixed(2) }),
-      });
-      void sendTelegram(msgClose(closed, auto?.stats.closed ?? 0, auto?.stats.winRate ?? 0, auto?.stats.netPnlPct ?? 0));
-      await refreshAuto();
-    }
+    // delegate to closeOpen — it refreshes stats BEFORE building the Telegram
+    // close message (the old inline path read the pre-close state, so the very
+    // first manual close announced "Track record: 0 lệnh · Win rate 0%")
+    await closeOpen(open, price, "manual");
   };
 
   const capitalNow = auto?.capital ?? cfg.capital;
