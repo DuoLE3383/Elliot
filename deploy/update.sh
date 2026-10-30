@@ -50,6 +50,9 @@ log "1/4 Pull code mới nhất ($BRANCH) — repo: $APP_DIR (user: $APP_USER)"
 cd "$APP_DIR"
 run git fetch origin "$BRANCH"
 run git reset --hard "origin/$BRANCH"
+# Dọn file "ma" untracked — tàn dư rebase/merge dang dở có thể khiến bản build
+# ra mã cũ/thiếu module (đã gặp thật). KHÔNG đụng file gitignored (.env, db/, data/)
+run git clean -fd
 
 DATA_DIR="$APP_DIR/data"
 # .env sống ngoài git — đảm bảo đủ key Telegram (giữ nguyên giá trị cũ nếu có)
@@ -65,7 +68,8 @@ chmod 600 "$APP_DIR/.env"
 log "2/4 Cài deps mới (nếu package.json thay đổi)"
 run bun install
 
-log "3/4 Build"
+log "3/4 Build (xoá .next cũ — build sạch, né cache Turbopack stale)"
+rm -rf "$APP_DIR/.next"
 run bun run build
 
 # Schema migrate an toàn: chỉ áp thay đổi KHÔNG mất dữ liệu (nếu destructive sẽ

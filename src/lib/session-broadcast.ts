@@ -237,6 +237,13 @@ export function startSessionBroadcastScheduler(): void {
   started = true;
   g.__elliottSessionBcast = true;
 
+  // one visible line per boot — its ABSENCE in server logs means this module
+  // never loaded (stale build / bundling issue) and the broadcast cannot fire
+  const configured = Boolean(effectiveToken().token && effectiveChatId().id);
+  console.log(
+    `[session-bcast] scheduler armed — checking every 60s (Telegram configured: ${configured ? "yes" : "no"})`,
+  );
+
   const tick = (): void => {
     tickSessionBroadcast()
       .then((r) => {
