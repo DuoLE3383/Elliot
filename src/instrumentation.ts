@@ -60,4 +60,14 @@ export async function register(): Promise<void> {
   } catch {
     // older Node / exotic runtime — nothing to harden, ignore
   }
+  // 3. Session-open broadcast scheduler — server-side timer that sends the
+  //    "đầu phiên" Telegram messages (Sydney/Tokyo/London/New York opens)
+  //    with no browser open. Dynamic import keeps the edge bundle clean;
+  //    a failure here must never take the app down.
+  try {
+    const sb = await import("./lib/session-broadcast");
+    sb.startSessionBroadcastScheduler();
+  } catch {
+    // scheduler unavailable — notifications triggered from the UI still work
+  }
 }

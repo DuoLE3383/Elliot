@@ -161,6 +161,16 @@ curl -sS -m 8 https://api.telegram.org/          # vào được = mạng OK
 
 Lưu ý cấu hình sẵn trong app (không cần làm gì): tự đọc `.env` kể cả khi chạy standalone tay, tự ưu tiên **IPv4-first** (né VPS có IPv6 hỏng), tự retry 3 lần với backoff.
 
+## 6c. Thông báo đầu phiên (tự động, không cần bật gì)
+
+Mỗi phiên toàn cầu **vừa mở** — Sydney 04:00, Tokyo 07:00, London 14:00, New York 19:00 giờ VN (21:00 / 00:00 / 07:00 / 12:00 UTC) — app tự gửi 1 tin nhắn vào kênh Telegram đã cấu hình trong `.env`, nội dung đúng như panel "Phiên giao dịch": Bull% / drift từng phiên, phiên nào đang mở/đóng, dự báo phiên kế tiếp (thiên LONG/SHORT, P≈%, số nến lịch sử) — tính từ nến **BTCUSDT 1h** lấy thẳng từ Binance.
+
+- Chạy **phía server** (timer trong `instrumentation.ts` → `src/lib/session-broadcast.ts`) — không cần mở trình duyệt, hoạt động 24/7 trên VPS
+- Tự chống gửi trùng: trạng thái lưu `db/session-bcast.json` (hoặc `$DATA_DIR`) — restart app không gây gửi lại; server chết đúng giờ mở và khởi động lại trong vòng **10 phút** vẫn gửi bù, trễ hơn thì bỏ qua
+- Điều kiện duy nhất: `.env` đã có `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` (chưa có thì im lặng, không lỗi)
+
+**Test thủ công 1 tin** (không đợi giờ mở phiên): thêm dòng `SESSION_BCAST_FORCE=1` vào `.env` → restart app → sau ~20 giây có 1 tin 🧪 xem trước (không ảnh hưởng chống trùng). Xong thì xoá dòng đó đi.
+
 ## 7. Bảo vệ source code (đã bật)
 
 - **Sourcemap luôn bị xóa** trong mọi bản build production (`scripts/postbuild.mjs`)
