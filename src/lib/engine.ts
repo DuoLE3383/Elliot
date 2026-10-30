@@ -34,10 +34,12 @@ import {
   bestTradeableAvoid,
   liquidationHit,
   nearHit,
+  passesChaseGuard,
   rankRows,
   roeOf,
   rowOf,
   scoreOf,
+  slCooldownLeft,
   slTpHit,
   type AutoConfig,
   type AutoTradeRow,
@@ -62,10 +64,10 @@ import {
 import { buildTopCoinsMessage, loadBcastState, saveBcastState } from "./scan-broadcast";
 import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store";
 import { pushAutoDigests } from "./autodigest";
-import { msgClose, msgLlmVeto, msgNear, msgOpen } from "./tg-msgs";
+import { msgClose, msgDca, msgLlmVeto, msgNear, msgOpen } from "./tg-msgs";
 import { enqueueJob, jobViews } from "./engine-jobs";
 import { directionalPnl, outcomeOf } from "./history";
-import type { XgbResult } from "./xgb";
+import { NOISE_BAND, type XgbResult } from "./xgb";
 
 const SCAN_FRESH_MS = 4.5 * 60_000; // the 5-min metronome reuses a scan younger than this
 const SCAN_TTL = 30 * 60_000; // the cycle rescans when the snapshot is older than this
@@ -84,6 +86,9 @@ interface EnginePersisted {
   nextCycleAt: number;
   /** near-hit one-shot flags for the current position */
   warned: { id: string; tp: boolean; sl: boolean };
+  /** DCA bookkeeping for the current position — tranche prices give the exact
+   *  notional-weighted average entry; survives restarts via engine.json */
+  dca: { id: string; count: number; stake0: number; prices: number[] };
   llmLast: { symbol: string; interval: string; side: string; verdict: string; reason: string; ms: number; at: number } | null;
 }
 
@@ -116,6 +121,7 @@ function defaults(): { p: EnginePersisted; v: EngineVolatile } {
       syncedAt: null,
       nextCycleAt: 0,
       warned: { id: "", tp: false, sl: false },
+      dca: { id: "", count: 0, stake0: 0, prices: [] },
       llmLast: null,
     },
     v: {
@@ -145,6 +151,14 @@ function loadEngine(): void {
       if (typeof raw.syncedAt === "number") p.syncedAt = raw.syncedAt;
       if (typeof raw.nextCycleAt === "number") p.nextCycleAt = raw.nextCycleAt;
       if (raw.warned && typeof raw.warned === "object") p.warned = raw.warned;
+      if (raw.dca && typeof raw.dca === "object" && typeof raw.dca.id === "string") {
+        p.dca = {
+          id: raw.dca.id,
+          count: typeof raw.dca.count === "number" ? Math.max(0, raw.dca.count) : 0,
+          stake0: typeof raw.dca.stake0 === "number" && raw.dca.stake0 > 0 ? raw.dca.stake0 : 0,
+          prices: Array.isArray(raw.dca.prices) ? raw.dca.prices.filter((x) => typeof x === "number" && x > 0) : [],
+        };
+      }
       if (raw.llmLast) p.llmLast = raw.llmLast;
     }
   } catch {
@@ -619,15 +633,33 @@ async function cycleTick(): Promise<void> {
       v.lastCycleStatus = "scan empty";
       return;
     }
-    const { best, allInCooldown } = bestTradeableAvoid(rows, c.minAuc, c.minAcc, st.trades, c.cooldownMin, c.whaleFilter);
-    if (!best) {
-      v.lastCycleStatus = allInCooldown ? "all in cooldown" : "no tradeable combo";
-      return;
-    }
+    const { allInCooldown, cands } = bestTradeableAvoid(rows, c.minAuc, c.minAcc, st.trades, c.cooldownMin, c.whaleFilter);
+    // walk the ranked candidates: cooldown-blocked combos are skipped, then the
+    // chase guard rejects same-side re-entries until price has reversed back
+    // through the level that stopped us ("SL xong vào lại giá cao hơn" → hết)
     const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
-    const price = tickers[best.symbol]?.price ?? 0;
-    if (price <= 0) {
-      v.lastCycleStatus = `${best.symbol}: no live price`;
+    let best: ScanRow | null = null;
+    let price = 0;
+    let guardBlocked = 0;
+    for (const cand of cands) {
+      const px = tickers[cand.symbol]?.price ?? 0;
+      if (px <= 0) continue;
+      if (slCooldownLeft(st.trades, cand.symbol, cand.interval, c.cooldownMin) !== 0) continue;
+      if (!passesChaseGuard(st.trades, cand.symbol, cand.interval, cand.bias, px)) {
+        guardBlocked++;
+        continue;
+      }
+      best = cand;
+      price = px;
+      break;
+    }
+    if (!best) {
+      v.lastCycleStatus =
+        guardBlocked > 0
+          ? `chase guard — chờ giá quay đầu (${guardBlocked} combo)`
+          : allInCooldown
+            ? "all in cooldown"
+            : "no tradeable combo";
       return;
     }
 
@@ -709,6 +741,7 @@ async function cycleTick(): Promise<void> {
     const trade = serialize(created);
     v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice}`;
     p.warned = { id: trade.id, tp: false, sl: false };
+    p.dca = { id: trade.id, count: 0, stake0: trade.stakePct ?? c.riskPct, prices: [trade.entryPrice] };
     persistEngine();
     if (tgReady()) {
       void tgSendMessage(
@@ -723,6 +756,69 @@ async function cycleTick(): Promise<void> {
   } catch (e) {
     console.error(`[engine] cycle tick failed: ${e instanceof Error ? e.message : e}`);
     v.lastCycleStatus = `cycle error: ${e instanceof Error ? e.message : "unknown"}`;
+  }
+}
+
+// ─── DCA rescue — average in + re-anchor SL/TP while the model still confirms ─
+//
+// The old flow died exactly at the stop and instantly re-entered the same side
+// at a worse price (the "SL xong vào lại giá cao hơn" bleed). Now, when price
+// pushes against the position — at 70% of the way to the stop (near) or right
+// at it (cross) — and the freshest scan still backs the original side with a
+// decisive probability, the engine adds ONE more tranche of the original stake
+// instead: entryPrice becomes the notional-weighted average of the tranches,
+// and SL/TP re-anchor on that average automatically (they are % distances, the
+// absolute levels always derive from entryPrice). Model stale, flipped or in
+// the coin-flip band → fail-safe: no DCA, the stop does its job. Hard caps:
+// cfg.dcaMax adds per position; liquidation is never rescued.
+
+async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "cross"): Promise<boolean> {
+  const { p, v } = eng();
+  const c = p.cfg;
+  if (c.dcaMax <= 0) return false;
+  if (p.dca.id !== open.id) {
+    // state from an older process / manual open — rebuild from the row itself
+    p.dca = { id: open.id, count: 0, stake0: open.stakePct ?? c.riskPct, prices: [open.entryPrice] };
+    persistEngine();
+  }
+  if (p.dca.count >= c.dcaMax) return false;
+  // fail-safe: a FRESH scan must still confirm the original side decisively
+  const scan = v.scan;
+  if (!scan || Date.now() - scan.at > SCAN_TTL) return false;
+  const row = scan.rows.find((r) => r.symbol === open.symbol && r.interval === open.interval);
+  if (!row || row.bias !== open.side || Math.abs(row.prob - 0.5) < NOISE_BAND) return false;
+
+  const stake0 = p.dca.stake0 || open.stakePct || c.riskPct;
+  const tranchePrices = p.dca.prices.length > 0 ? p.dca.prices : [open.entryPrice];
+  const count = p.dca.count;
+  // equal-notional tranches (each = stake0 % of the entry-time capital) → the
+  // average entry is the plain mean of the tranche prices
+  const avgEntry =
+    Math.round(([...tranchePrices, price].reduce((a, x) => a + x, 0) / (tranchePrices.length + 1)) * 1e8) / 1e8;
+  const newStakePct = Math.round(((open.stakePct ?? c.riskPct) + stake0) * 100) / 100;
+  try {
+    const updated = await db.autoTrade.update({
+      where: { id: open.id },
+      data: { entryPrice: avgEntry, stakePct: newStakePct },
+    });
+    const trade = serialize(updated);
+    p.dca = { id: open.id, count: count + 1, stake0, prices: [...tranchePrices, price] };
+    p.warned = { id: open.id, tp: false, sl: false }; // new levels → fresh warns
+    persistEngine();
+    v.lastCycleStatus = `${open.symbol} ${open.interval} DCA #${count + 1}/${c.dcaMax} @ ${price}`;
+    if (tgReady()) {
+      void tgSendMessage(
+        msgDca(trade, price, open.entryPrice, { prob: row.prob, auc: row.auc, acc: row.acc }, count + 1, c.dcaMax, trigger),
+        "HTML",
+      );
+    }
+    console.log(
+      `[engine] DCA ${open.symbol} ${open.interval} #${count + 1}/${c.dcaMax} @ ${price} — avg ${avgEntry}, stake ${newStakePct}%`,
+    );
+    return true;
+  } catch (e) {
+    console.error(`[engine] DCA failed: ${e instanceof Error ? e.message : e}`);
+    return false;
   }
 }
 
@@ -741,6 +837,9 @@ async function watcherTick(): Promise<void> {
     if (price <= 0) return;
     const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
     const liq = liquidationHit(open.side, price, open.entryPrice, open.leverage);
+    // last-chance DCA at the stop itself — model still confirms → average in,
+    // re-anchor and keep riding instead of locking the loss (never on liquidation)
+    if (kind === "sl" && !liq && (await dcaRescue(open, price, "cross"))) return;
     if (kind || liq) {
       const closed = await closeTradeDirect(open.id, price, liq ? "sl" : (kind ?? "sl"));
       if (closed) {
@@ -768,6 +867,9 @@ async function watcherTick(): Promise<void> {
       persistEngine();
       if (tgReady()) void tgSendMessage(msgNear(open, price, near), "HTML");
     }
+    // price inside the near-SL band and the model still confident → DCA now,
+    // before the stop ever fires (the warn above already announced the risk)
+    if (near === "sl") await dcaRescue(open, price, "near");
   } catch (e) {
     console.error(`[engine] watcher tick failed: ${e instanceof Error ? e.message : e}`);
   }

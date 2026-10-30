@@ -70,6 +70,39 @@ export const msgNear = (r: AutoTradeRow, price: number, kind: "tp" | "sl"): stri
 
 const escHtml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+/**
+ * DCA notice — price pushed against the position but the model still backs the
+ * original side, so the engine added one tranche: entry averaged, SL/TP
+ * re-anchored on the new average (levels below are computed from it).
+ */
+export const msgDca = (
+  r: AutoTradeRow,
+  dcaPrice: number,
+  prevEntry: number,
+  confirm: { prob: number; auc: number; acc: number },
+  add: number,
+  max: number,
+  trigger: "near" | "cross",
+): string => {
+  const equity = r.capitalBefore ?? 0;
+  const stake = (equity * (r.stakePct ?? 100)) / 100;
+  const notional = stake * r.leverage;
+  const roe = roeOf(r.side, r.entryPrice, dcaPrice, r.leverage);
+  const movedPct = prevEntry > 0 ? Math.abs((dcaPrice - prevEntry) / prevEntry) * 100 : 0;
+  return [
+    `🤖 <b>AUTO DCA (dry-run) · bù lệnh lần ${add}/${max}${trigger === "cross" ? " · ngay tại SL" : ""}</b>`,
+    `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
+    HR,
+    `🎯 Entry ${fmtPrice(prevEntry)} → thêm <b>${fmtPrice(dcaPrice)}</b> (${movedPct.toFixed(2)}% giá)`,
+    `📊 Entry bình quân mới: <b>${fmtPrice(r.entryPrice)}</b>`,
+    `🛑 SL mới: <b>${fmtPrice(slPrice(r.side, r.entryPrice, r.slPct))}</b> · −${r.slPct.toFixed(1)}% giá từ avg`,
+    `🏁 TP mới: <b>${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(1)}% giá từ avg`,
+    `📦 Stake: <b>${stake.toFixed(2)}</b> USDT · ${r.stakePct ?? 100}% equity · Notional ${notional.toFixed(2)} USDT`,
+    `📈 ROE tại giá DCA: ${roe >= 0 ? "+" : ""}${roe.toFixed(1)}% @ ${levTxt(r.leverage)}`,
+    `🧠 Model vẫn xác nhận ${sideTxt(r.side)}: Prob ${(confirm.prob * 100).toFixed(1)}% · AUC ${confirm.auc.toFixed(2)} · ACC ${confirm.acc.toFixed(1)}%`,
+  ].join("\n");
+};
+
 /** LLM veto notice — the pending entry was reviewed and rejected by the local model */
 export const msgLlmVeto = (r: ScanRow, v: LlmVerdict): string =>
   [

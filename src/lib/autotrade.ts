@@ -101,6 +101,40 @@ export function slCooldownLeft(
   return Math.max(0, Math.ceil((end - now) / 60_000));
 }
 
+/** The newest SL-closed trade of a combo (newest-first trades), if any. */
+export function lastSlExit(
+  trades: AutoTradeRow[],
+  symbol: string,
+  interval: string,
+): AutoTradeRow | null {
+  return trades.find(
+    (t) => t.status === "closed" && t.exitKind === "sl" && t.symbol === symbol && t.interval === interval,
+  ) ?? null;
+}
+
+/**
+ * Chase guard — the "SL xong vào lại giá cao hơn" blocker.
+ * After an SL exit on the SAME combo, a same-side re-entry is only allowed
+ * once the price has reversed back through the exit level (SHORT: price is
+ * back BELOW the level that stopped us; LONG: back ABOVE it). Re-entering a
+ * SHORT at/above the stop that just fired is fighting the move that broke the
+ * thesis — bleed by a thousand cuts. An OPPOSITE-side entry is a fresh thesis
+ * and always passes.
+ */
+export function passesChaseGuard(
+  trades: AutoTradeRow[],
+  symbol: string,
+  interval: string,
+  side: string,
+  price: number,
+): boolean {
+  const last = lastSlExit(trades, symbol, interval);
+  if (!last?.exitPrice || !price) return true;
+  if (side !== last.side) return true; // bias flipped → fresh thesis
+  const eps = last.exitPrice * 1e-6;
+  return side === "SHORT" ? price < last.exitPrice - eps : price > last.exitPrice + eps;
+}
+
 export function bestTradeableAvoid(
   rows: ScanRow[],
   minAuc: number,
@@ -110,7 +144,7 @@ export function bestTradeableAvoid(
   whaleFilter = true,
   /** khử nhiễu XGBoost — skip coin-flip probs (|P−0.5| < band); 0 = tắt */
   noiseBand = NOISE_BAND,
-): { best: ScanRow | null; allInCooldown: boolean } {
+): { best: ScanRow | null; allInCooldown: boolean; cands: ScanRow[] } {
   // whaleFilter (default on) skips combos whose last closed candle is a full
   // whale bar (≥4σ volume) — entries opened into those get wicked out.
   // noiseBand skips model probs with no decisive lean (0.5 ± band) — the
@@ -124,7 +158,7 @@ export function bestTradeableAvoid(
     ),
   );
   const free = cands.find((r) => slCooldownLeft(trades, r.symbol, r.interval, cooldownMin) === 0) ?? null;
-  return { best: free, allInCooldown: free == null && cands.length > 0 };
+  return { best: free, allInCooldown: free == null && cands.length > 0, cands };
 }
 
 // ─── Kline fetch + full scan ──────────────────────────────────────────────────
@@ -506,6 +540,10 @@ export interface AutoConfig {
   minAcc: number;
   /** wait after an SL exit on the same combo, minutes (0 = off) */
   cooldownMin: number;
+  /** max DCA adds into a losing position while the model still confirms the
+   *  direction — each add averages the entry and re-anchors SL/TP on the new
+   *  average (0 = off; the SL then closes the position as before) */
+  dcaMax: number;
   /** auto-post a stats digest to Telegram at the top of every hour */
   statHourly: boolean;
   /** auto-post a stats digest to Telegram once a day */
@@ -533,6 +571,7 @@ export const AUTO_DEFAULTS: AutoConfig = {
   minAuc: 0.55,
   minAcc: 55,
   cooldownMin: 30,
+  dcaMax: 1,
   statHourly: true,
   statDaily: true,
   llmUrl: LLM_URL_DEFAULT,
@@ -541,6 +580,8 @@ export const AUTO_DEFAULTS: AutoConfig = {
   broadcast: true,
 };
 export const COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
+/** DCA adds allowed into a losing position (model still confirming) */
+export const DCA_CHOICES = [0, 1, 2] as const;
 export const RISK_CHOICES = [10, 25, 50, 100] as const;
 export const TP_MODES = ["atr", "auto", "manual"] as const;
 
@@ -575,6 +616,7 @@ export function loadAutoConfig(): AutoConfig {
       cooldownMin: COOLDOWN_CHOICES.includes(p.cooldownMin as 0 | 15 | 30 | 60)
         ? (p.cooldownMin as number)
         : AUTO_DEFAULTS.cooldownMin,
+      dcaMax: DCA_CHOICES.includes(p.dcaMax as 0 | 1 | 2) ? (p.dcaMax as number) : AUTO_DEFAULTS.dcaMax,
       statHourly: p.statHourly !== false,
       statDaily: p.statDaily !== false,
       llmUrl:

@@ -10,6 +10,7 @@ import {
   closeAutoTrade,
   COOLDOWN_CHOICES,
   CYCLE_CHOICES,
+  DCA_CHOICES,
   fetchAutoState,
   loadAutoConfig,
   pushAutoStats,
@@ -530,6 +531,27 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
               </button>
             ))}
             <span className="text-[11px] text-zinc-600">{t(lang, "auto.cfg.cooldownUnit")}</span>
+          </div>
+          <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.dca")}>
+            <span className="mr-0.5 text-[11px] text-zinc-500" title={t(lang, "auto.cfg.dcaTip")}>
+              {t(lang, "auto.cfg.dca")}
+            </span>
+            {DCA_CHOICES.map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => updateCfg({ dcaMax: m })}
+                title={t(lang, "auto.cfg.dcaTip")}
+                className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
+                  cfg.dcaMax === m
+                    ? "border-amber-700 bg-amber-950/40 text-amber-300"
+                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                }`}
+              >
+                {m === 0 ? t(lang, "auto.cfg.dcaOff") : `×${m}`}
+              </button>
+            ))}
+            <span className="text-[11px] text-zinc-600">{t(lang, "auto.cfg.dcaUnit")}</span>
           </div>
           <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.stats")}>
             <span className="mr-0.5 text-[11px] text-zinc-500">{t(lang, "auto.cfg.stats")}</span>
