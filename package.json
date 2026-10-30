@@ -1,6 +1,6 @@
 {
   "name": "nextjs_tailwind_shadcn_ts",
-  "version": "0.2.1",
+  "version": "0.2.3",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
@@ -13,7 +13,8 @@
     "db:push": "prisma db push --accept-data-loss",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset"
+    "db:reset": "prisma migrate reset",
+    "prepush": "npm version patch --no-git-tag-version && git add package.json && git commit -m \"chore: bump version\" --no-verify"
   },
   "engines": {
     "node": ">=20.9.0"
