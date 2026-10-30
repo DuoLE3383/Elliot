@@ -102,7 +102,7 @@ export function buildSessionOpenMessage(opened: SessionKey, now: number, klines:
   const lines: string[] = [
     pre
       ? `⏳ <b>SẮP MỞ PHIÊN ${NAME[opened].toUpperCase()}</b> — sau ${inLabel(inMin)} — ${pad2(vnHour)}:00 GMT+7 (${pad2(o.getUTCHours())}:00 UTC)`
-      : `🚦 <b>ĐẦU PHIÊN ${NAME[opened].toUpperCase()}</b> — ${pad2(vnHour)}:00 GMT+7 (${pad2(o.getUTCHours())}:00 UTC)`,
+      : `🚦 <b>PHIÊN ${NAME[opened].toUpperCase()}</b> — ${pad2(vnHour)}:00 GMT+7 (${pad2(o.getUTCHours())}:00 UTC)`,
     HR,
   ];
   for (const s of SESSIONS) {
@@ -248,7 +248,7 @@ export async function sendSessionPreview(): Promise<{ ok: boolean; detail?: stri
     "london";
   try {
     const klines = await fetchKlinesDirect();
-    const text = `🧪 <b>TEST — xem trước thông báo đầu phiên</b>\n\n${buildSessionOpenMessage(opened, now, klines)}`;
+    const text = `🧪 <b> — thông báo phiên</b>\n\n${buildSessionOpenMessage(opened, now, klines)}`;
     return await tgSendMessage(text, "HTML");
   } catch (e) {
     return { ok: false, detail: e instanceof Error ? e.message : "kline fetch failed" };
