@@ -118,3 +118,25 @@ model AutoTrade {
   @@index([status, createdAt])
   @@index([symbol, interval])
 }
+
+// ─── Broadcast verdict — MỘT thuật toán gate dùng chung panel + Telegram ─────
+// Mỗi 5 phút broadcast tick chấm TẤT CẢ combo quét qua đúng một hàm
+// bcast-gate.gateRow() và upsert phán quyết vào đây (một dòng / combo).
+// Telegram chỉ đăng combo verdict "pass"; panel đọc CÙNG bảng này qua
+// GET /api/engine → "bcast" — không thể lệch nhau vì chỉ có một thuật toán.
+
+model BcastVerdict {
+  id       String   @id @default(cuid())
+  symbol   String
+  interval String
+  side     String // LONG | SHORT | NEUTRAL
+  score    Float
+  auc      Float
+  acc      Float
+  verdict  String // pass | reject
+  reason   String // "" khi pass; "điểm 52.1 < 70", "AUC 0.63 < 0.8", "cooldown còn 42p"…
+  at       DateTime @default(now())
+
+  @@unique([symbol, interval])
+  @@index([verdict])
+}

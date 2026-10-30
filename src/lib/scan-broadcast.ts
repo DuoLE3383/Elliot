@@ -36,27 +36,36 @@ import { fetchKlinesDirect } from "./klines-direct";
 import { fmtPrice, symbolLabel } from "./i18n";
 import type { ScanRow } from "./autotrade";
 import type { Kline, Ticker } from "./types";
+import {
+  BCAST_AUC_MIN,
+  BCAST_ACC_MIN,
+  BCAST_PL1_MIN,
+  BCAST_REPEAT_MS,
+  BCAST_SCORE_MIN,
+  BCAST_TOP_N,
+  BCAST_VOL_MIN,
+  gateRow,
+  passesCoherence,
+} from "./bcast-gate";
 
-export const BCAST_VOL_MIN = 7e6; // $7M 24h quote volume
-export const BCAST_PL1_MIN = 5; // TP1 ≥ +5% from entry
-export const BCAST_TOP_N = 2; // coins per message
-/** Điểm tối thiểu để đăng broadcast — scoreOf = (AUC−0.5)×100 + (ACC−50) + tin cậy×15.
- *  User siết 70: chỉ AUC ≥ .8 · ACC ≥ 80 mới đạt sàn dưới (30+30), nên điểm 70
- *  còn yêu cầu tin cậy ≥ ~2/3. Kênh gần như chắc chắn im lặng — im lặng vẫn hơn rác. */
-export const BCAST_SCORE_MIN = 70;
-/** Sàn AUC của model — 0.8 nghĩa là model phải xếp hạng thật sự giỏi trên tập
- *  validation (out-of-sample), chỉ hơn tung đồng xu là không đủ tin. */
-export const BCAST_AUC_MIN = 0.8;
-/** Sàn ACC của model — dưới 80% không đủ tin theo ngưỡng user đặt. */
-export const BCAST_ACC_MIN = 80;
-/** Chống lặp: 1 coin (mọi khung giờ) chỉ được broadcast lại sau mỗi 3 giờ.
- *  RUNE 30m xuất hiện 4 lần trong 15 phút (4:11/4:15/4:21/4:25) vì `seen` cũ
- *  chỉ dùng để tag ⚡NEW chứ không chặn re-pick — đây là bản vá. */
-export const BCAST_REPEAT_MS = 3 * 60 * 60_000;
-/** Chống tín hiệu tự mâu thuẫn: EMA stack mạnh ngược hướng lệnh (kéo dao rơi /
- *  đuổi trần) và áp lực mua bán lệch hẳn phía bên kia đều bị loại. */
-export const PRESSURE_FLOOR_LONG = 42; // BUY bị chặn khi áp lực mua ≤ 42%
-export const PRESSURE_CAP_SHORT = 58; // SELL bị chặn khi áp lực mua ≥ 58%
+// MỘT thuật toán gate sống ở ./bcast-gate — re-export để chỗ cũ (test, panel)
+// vẫn import từ đây được mà không tạo bản sao thuật toán.
+export {
+  BCAST_VOL_MIN,
+  BCAST_PL1_MIN,
+  BCAST_TOP_N,
+  BCAST_SCORE_MIN,
+  BCAST_AUC_MIN,
+  BCAST_ACC_MIN,
+  BCAST_REPEAT_MS,
+  PRESSURE_FLOOR_LONG,
+  PRESSURE_CAP_SHORT,
+  bcastRepeatLeftMs,
+  gateRow,
+  passesCoherence,
+} from "./bcast-gate";
+export type { CoherenceInput } from "./bcast-gate";
+
 const CANDIDATE_POOL = 8; // ranked rows inspected before giving up on filters
 
 const HR_LINE = "─────────────────";
@@ -108,10 +117,7 @@ export function saveBcastState(st: BcastState): void {
 }
 
 /** Ms left before a symbol may be re-broadcast (0 = allowed now). */
-export function bcastRepeatLeftMs(lastMs: number | undefined, now = Date.now()): number {
-  if (!lastMs || lastMs <= 0) return 0;
-  return Math.max(0, lastMs + BCAST_REPEAT_MS - now);
-}
+// (moved to bcast-gate.ts — re-exported above)
 
 interface CoinTech {
   row: ScanRow;
@@ -177,34 +183,7 @@ function macdRead(k: Kline[]): MacdRead {
   return { txt: "MACD trung tính", dir: "flat", rising: false };
 }
 
-export interface CoherenceInput {
-  long: boolean;
-  emaKind: "up" | "down" | "flat";
-  emaStrong: boolean;
-  macdDir: "buy" | "sell" | "flat";
-  buyPressure: number;
-}
-
-/**
- * Bộ lọc tín hiệu tự mâu thuẫn — trả về lý do loại, hoặc null khi đạt.
- *
- * 1) "Kéo dao rơi": BUY khi EMA stack downtrend MẠNH (9<21<50), hay SELL khi
- *    uptrend MẠNH — lệnh đâm thẳng vào trend đã thiết lập. Model có thể tìm
- *    edge mean-reversion, nhưng broadcast cho người đọc thì message khoe
- *    "Downtrend mạnh" cạnh gợi ý BUY chỉ đáng mất niềm tin (PEPE 15m 4:11,
- *    PEPE 1h 4:21 — hai chiều ngược nhau trong 10 phút).
- * 2) Áp lực mua bán nghịch cực đoan: BUY khi taker-bản chiếm ≥58% (pressure
- *    ≤42%) hay SELL khi taker-mua chiếm ≥58% — phe kia đang áp đảo hoàn toàn.
- */
-export function passesCoherence(i: CoherenceInput): string | null {
-  if (i.long && i.emaKind === "down" && i.emaStrong) return "EMA downtrend mạnh mà gợi BUY (kéo dao rơi)";
-  if (!i.long && i.emaKind === "up" && i.emaStrong) return "EMA uptrend mạnh mà gợi SELL (đuổi trần)";
-  if (i.long && i.buyPressure <= PRESSURE_FLOOR_LONG)
-    return `áp lực mua chỉ ${i.buyPressure.toFixed(1)}% mà gợi BUY`;
-  if (!i.long && i.buyPressure >= PRESSURE_CAP_SHORT)
-    return `áp lực mua tới ${i.buyPressure.toFixed(1)}% mà gợi SELL`;
-  return null;
-}
+// passesCoherence — moved to bcast-gate.ts (re-exported above)
 
 function rsiZoneTxt(v: number): string {
   if (v <= 30) return `${v.toFixed(0)} (quá bán — rẻ)`;
@@ -342,45 +321,64 @@ function coinBlock(c: CoinTech): string[] {
   return lines;
 }
 
+/** Phán quyết gate cho MỘT combo quét — upsert vào bảng BcastVerdict (custom.db)
+ *  và hiện thẳng trên panel; Telegram chỉ đăng combo verdict "pass". */
+export interface BcastVerdictRow {
+  symbol: string;
+  interval: string;
+  side: string;
+  score: number;
+  auc: number;
+  acc: number;
+  verdict: "pass" | "reject";
+  reason: string;
+}
+
 /**
- * Build the whole broadcast message. Returns null when nothing passes the
- * filters (no message is sent rather than spamming an empty one).
+ * Build the whole broadcast message. Returns `text: null` when nothing passes
+ * the filters (no message is sent rather than spamming an empty one) — nhưng
+ * `verdicts` LUÔN đầy đủ cho mọi combo đầu vào: đây là phán quyết của thuật
+ * toán gate duy nhất (bcast-gate.gateRow) mà panel đọc lại qua DB.
  */
 export async function buildTopCoinsMessage(
   rows: ScanRow[],
   tickers: Record<string, Ticker>,
   state: BcastState,
-): Promise<{ text: string; picked: ScanRow[] } | null> {
-  // best combo per symbol, ranked rows first, quality gates, PL1 floor, score floor
+  uniSyms?: Set<string>,
+): Promise<{ text: string | null; picked: ScanRow[]; verdicts: BcastVerdictRow[] }> {
   const nowMs = Date.now();
+  // ── MỘT lần chấm duy nhất bằng gateRow cho TẤT CẢ combo ──────────────────
+  const verdicts: BcastVerdictRow[] = rows.map((r) => {
+    const g = gateRow(r, {
+      now: nowMs,
+      lastB: state.lastB,
+      uniSyms,
+      tickerVol: tickers[r.symbol]?.quoteVolume,
+    });
+    return {
+      symbol: r.symbol,
+      interval: r.interval,
+      side: r.bias,
+      score: r.score,
+      auc: r.auc,
+      acc: r.acc,
+      verdict: g.pass ? "pass" : "reject",
+      reason: g.reason,
+    };
+  });
+
+  // best combo per symbol among the PASSERS (rows arrive ranked by score)
   const seenSym = new Set<string>();
   const candidates: ScanRow[] = [];
-  for (const r of rows) {
-    if (r.auc < BCAST_AUC_MIN || r.acc < BCAST_ACC_MIN) continue;
-    if (r.score < BCAST_SCORE_MIN) continue;
-    if (r.tpPct < BCAST_PL1_MIN) continue;
-    // re-broadcast cooldown — MỌI combo của một coin đã broadcast trong
-    // BCAST_REPEAT_MS qua sẽ làm im cả coin (chống RUNE ×4 / 15 phút và
-    // chống flip-flop PEPE 15m BUY → 1h SELL trong 10 phút)
-    const left = bcastRepeatLeftMs(state.lastB[r.symbol], nowMs);
-    if (left > 0) {
-      if (!seenSym.has(r.symbol)) {
-        seenSym.add(r.symbol);
-        console.info(`[bcast] ${r.symbol} còn cooldown ${(left / 60_000).toFixed(0)}p — bỏ qua`);
-      }
-      continue;
-    }
-    if (seenSym.has(r.symbol)) continue;
-    seenSym.add(r.symbol);
-    candidates.push(r);
-    if (candidates.length >= CANDIDATE_POOL) break;
+  for (let i = 0; i < rows.length && candidates.length < CANDIDATE_POOL; i++) {
+    if (verdicts[i].verdict !== "pass") continue;
+    if (seenSym.has(rows[i].symbol)) continue;
+    seenSym.add(rows[i].symbol);
+    candidates.push(rows[i]);
   }
 
   const picked: CoinTech[] = [];
   for (const cand of candidates) {
-    // cheap pre-filter on the live ticker before paying for kline fetches
-    const qv = tickers[cand.symbol]?.quoteVolume;
-    if (qv != null && qv > 0 && qv < BCAST_VOL_MIN) continue;
     const c = await enrich(cand, tickers, state.seen);
     if (c) {
       const contra = passesCoherence({
@@ -392,13 +390,19 @@ export async function buildTopCoinsMessage(
       });
       if (contra) {
         console.info(`[bcast] ${cand.symbol} ${cand.interval} loại: ${contra}`);
+        // cập nhật phán quyết — coherence là một phần của CÙNG thuật toán
+        const vd = verdicts.find((x) => x.symbol === cand.symbol && x.interval === cand.interval);
+        if (vd) {
+          vd.verdict = "reject";
+          vd.reason = contra;
+        }
         continue; // tín hiệu tự mâu thuẫn — thử combo kế tiếp
       }
       picked.push(c);
     }
     if (picked.length >= BCAST_TOP_N) break;
   }
-  if (picked.length === 0) return null;
+  if (picked.length === 0) return { text: null, picked: [], verdicts };
 
   // clock in the CHANNEL's timezone — the server runs UTC, the reader is VN
   const now = new Date();

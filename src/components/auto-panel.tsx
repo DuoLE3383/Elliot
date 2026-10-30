@@ -78,6 +78,18 @@ interface EngineSnapTrainRun {
   best: boolean;
 }
 
+interface EngineSnapBcastRow {
+  symbol: string;
+  interval: string;
+  side: string;
+  score: number;
+  auc: number;
+  acc: number;
+  verdict: string;
+  reason: string;
+  at: number;
+}
+
 interface EngineSnap {
   synced: boolean;
   syncedAt: number | null;
@@ -85,6 +97,7 @@ interface EngineSnap {
   scan: { rows: ScanRow[]; at: number } | null;
   universe: { rows: UniverseRow[]; at: number } | null;
   train: { at: number; total: number; latest: EngineSnapTrainRun[] } | null;
+  bcast: { at: number; pass: number; total: number; cooldown: number; rows: EngineSnapBcastRow[] } | null;
   cycle: { lastAt: number; status: string; nextAt: number };
   llmLast: LlmLast | null;
   jobs: {
@@ -148,6 +161,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const [scanning, setScanning] = useState<{ done: number; total: number; current: string; queued: number } | null>(null);
   const [universe, setUniverse] = useState<UniverseRow[]>([]);
   const [trainHist, setTrainHist] = useState<EngineSnap["train"]>(null);
+  const [bcastSnap, setBcastSnap] = useState<EngineSnap["bcast"]>(null);
   const [auto, setAuto] = useState<AutoState | null>(null);
   const [tgConfigured, setTgConfigured] = useState<boolean | null>(null);
   const [tgState, setTgState] = useState<"idle" | "sending" | "ok" | "fail">("idle");
@@ -290,6 +304,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
         );
         setUniverse(snap.universe?.rows ?? []);
         setTrainHist(snap.train ?? null);
+        setBcastSnap(snap.bcast ?? null);
         // TOP-30 tự vào watchlist (gộp, giữ pair người dùng thêm trước, không trùng)
         const topSyms = (snap.universe?.rows ?? []).map((r) => r.symbol);
         if (topSyms.length > 0) {
@@ -829,6 +844,47 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
               ))}
             </div>
             <p className="mt-1 text-[10px] leading-snug text-zinc-600">{t(lang, "auto.trainhist.hint")}</p>
+          </div>
+        )}
+
+        {/* broadcast verdicts — MỘT thuật toán gate (bcast-gate.gateRow) upsert
+            vào bảng BcastVerdict của custom.db; Telegram chỉ đăng combo "pass"
+            của CÙNG bảng này nên panel và TG không thể lệch nhau */}
+        {bcastSnap && bcastSnap.total > 0 && (
+          <div className="border-t border-zinc-800 pt-2">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">{t(lang, "auto.bcast.title")}</p>
+              <span className="font-mono text-[10px] text-zinc-600">
+                {bcastSnap.pass}/{bcastSnap.total} {t(lang, "auto.bcast.pass")}
+              </span>
+            </div>
+            <div className="rail-scroll mt-1.5 max-h-32 space-y-0.5 overflow-y-auto pr-0.5">
+              {bcastSnap.rows.slice(0, 24).map((r, i) => {
+                const pass = r.verdict === "pass";
+                return (
+                  <button
+                    key={`${r.symbol}-${r.interval}-${i}`}
+                    type="button"
+                    onClick={() => onPickPair(r.symbol, r.interval)}
+                    title={`${r.symbol} ${r.interval} · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(0)}% · ${new Date(r.at).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}`}
+                    className="flex w-full items-center gap-2 rounded px-1.5 py-0.5 font-mono text-[10px] hover:bg-zinc-800/60"
+                  >
+                    <span className="shrink-0">{pass ? "✅" : "❌"}</span>
+                    <span className="truncate text-zinc-300">
+                      {r.symbol} {r.interval}
+                    </span>
+                    <span className={r.side === "SHORT" ? "shrink-0 text-rose-400" : "shrink-0 text-emerald-400"}>
+                      {r.side === "SHORT" ? "SELL" : r.side === "LONG" ? "BUY" : "—"}
+                    </span>
+                    <span className="ml-auto shrink-0 text-zinc-400">{r.score.toFixed(1)}</span>
+                    <span className={`shrink-0 ${pass ? "text-emerald-400" : "text-zinc-500"}`}>
+                      {pass ? "TG" : r.reason}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1 text-[10px] leading-snug text-zinc-600">{t(lang, "auto.bcast.hint")}</p>
           </div>
         )}
 

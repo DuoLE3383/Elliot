@@ -99,5 +99,52 @@ ok(bcastRepeatLeftMs(t0 + 5_000, t0) > 0, "clock lệch tương lai → vẫn kh
 console.log("── Cổng 3 · 3h đủ dài để chặn các đợt re-pick 5 phút");
 ok(BCAST_REPEAT_MS > 4 * 5 * 60_000, "3h ≫ 4 lần quét × 5 phút (RUNE 4:11→4:25)");
 
+console.log("── gateRow · MỘT thuật toán cho cả Telegram lẫn panel (custom.db)");
+import { gateRow, type GateCtx } from "../src/lib/scan-broadcast";
+import type { ScanRow } from "../src/lib/autotrade";
+
+const mkRow = (over: Partial<ScanRow>): ScanRow => ({
+  symbol: "BTCUSDT",
+  interval: "1h",
+  acc: 80,
+  auc: 0.82,
+  prob: 0.6,
+  confidence: 0.7,
+  bias: "LONG",
+  slPct: 1.5,
+  tpPct: 6,
+  atrCoef: 1.5,
+  score: 72.5,
+  samples: 500,
+  valSamples: 87,
+  horizon: 1,
+  trainedAt: 0,
+  whale: { volZ: 0, risk: 0, tag: "calm" as never },
+  champAuc: 0,
+  champAcc: 0,
+  regressed: false,
+  ...over,
+});
+const baseCtx: GateCtx = { now: 1_700_000_000_000, lastB: {} };
+ok(gateRow(mkRow({}), baseCtx).pass === true, "combo mạnh đạt đầy đủ → pass, reason rỗng");
+ok(gateRow(mkRow({ score: 35.8, auc: 0.6, acc: 60 }), baseCtx).reason.startsWith("AUC"), "junk 35.8 → AUC chặn trước");
+ok(gateRow(mkRow({ auc: 0.81, acc: 60 }), baseCtx).reason.startsWith("ACC"), "ACC 60 < 80 → chặn kèm lý do");
+ok(gateRow(mkRow({ auc: 0.81, acc: 82, score: 55 }), baseCtx).reason.startsWith("điểm"), "điểm 55 < 70 → chặn kèm lý do");
+ok(gateRow(mkRow({ tpPct: 3 }), baseCtx).reason.startsWith("PL1"), "PL1 3% < 5% → chặn kèm lý do");
+ok(gateRow(mkRow({}), { ...baseCtx, tickerVol: 3e6 }).reason.startsWith("vol24h"), "vol24h $3M < $7M → chặn kèm lý do");
+ok(
+  gateRow(mkRow({ symbol: "FOOUSDT" }), { ...baseCtx, uniSyms: new Set(["BTCUSDT"]) }).reason.startsWith("ngoài"),
+  "ngoài top-30 universe → chặn kèm lý do",
+);
+ok(
+  gateRow(mkRow({}), { ...baseCtx, lastB: { BTCUSDT: baseCtx.now - 600_000 } }).reason.startsWith("cooldown"),
+  "cooldown 10p → chặn kèm lý do",
+);
+ok(
+  gateRow(mkRow({}), { ...baseCtx, lastB: { BTCUSDT: baseCtx.now - BCAST_REPEAT_MS - 1 } }).pass === true,
+  "hết cooldown 3h → pass",
+);
+ok(gateRow(mkRow({}), baseCtx).reason === "", "pass → reason rỗng (panel hiện 'TG')");
+
 console.log(`\n${fail === 0 ? "🟢 ALL PASS" : "🔴 FAIL"} — ${pass} pass, ${fail} fail`);
 process.exit(fail === 0 ? 0 : 1);

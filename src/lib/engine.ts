@@ -546,6 +546,71 @@ function invalidateTrainSnapshot(): void {
   void trainSnapshot();
 }
 
+// ─── broadcast verdict snapshot (GET /api/engine → bcast) ────────────────────
+// "phải dùng chung thuật toán và chung 1 database tại backend chứ!!" — bảng
+// BcastVerdict là nguồn duy nhất: broadcast tick chấm mọi combo bằng
+// bcast-gate.gateRow() và upsert vào đây; panel đọc snapshot này. Telegram
+// chỉ đăng combo "pass" của CÙNG bảng đó. Cached 60s như trainSnapshot.
+
+export interface BcastVerdictLite {
+  symbol: string;
+  interval: string;
+  side: string;
+  score: number;
+  auc: number;
+  acc: number;
+  verdict: string;
+  reason: string;
+  at: number;
+}
+
+export interface BcastSnapshot {
+  at: number;
+  pass: number;
+  total: number;
+  cooldown: number;
+  rows: BcastVerdictLite[];
+}
+
+let bcastCache: BcastSnapshot | null = null;
+
+async function bcastSnapshot(): Promise<BcastSnapshot> {
+  if (bcastCache && Date.now() - bcastCache.at < 60_000) return bcastCache;
+  try {
+    const rows = await db.bcastVerdict.findMany({
+      orderBy: [{ verdict: "asc" }, { score: "desc" }],
+      take: 200,
+    });
+    const lite: BcastVerdictLite[] = rows.map((r) => ({
+      symbol: r.symbol,
+      interval: r.interval,
+      side: r.side,
+      score: r.score,
+      auc: r.auc,
+      acc: r.acc,
+      verdict: r.verdict,
+      reason: r.reason,
+      at: new Date(r.at).getTime(),
+    }));
+    bcastCache = {
+      at: Date.now(),
+      pass: lite.filter((r) => r.verdict === "pass").length,
+      total: lite.length,
+      cooldown: lite.filter((r) => r.reason.includes("cooldown")).length,
+      rows: lite,
+    };
+  } catch {
+    // DB down — keep whatever cache exists (or the empty snapshot)
+    if (!bcastCache) bcastCache = { at: 0, pass: 0, total: 0, cooldown: 0, rows: [] };
+  }
+  return bcastCache;
+}
+
+function invalidateBcastSnapshot(): void {
+  bcastCache = null;
+  void bcastSnapshot();
+}
+
 async function universeCore(
   report: (patch: { progress?: { done: number; total: number; current: string }; extra?: Record<string, unknown> }) => void,
 ): Promise<Record<string, unknown>> {
@@ -617,35 +682,59 @@ async function broadcastTick(): Promise<void> {
       return; // scan failed — skip this broadcast, the next bucket retries
     }
   }
-  // universe filter — candidates PHẢI nằm trong top-30 vũ trụ 8h
-  let rows = v.scan?.rows ?? [];
+  // universe top-30 — nếu watchlist ∩ top-30 = ∅ thì quét nhanh riêng top-30
   const uniSyms = (v.universe?.rows ?? []).map((r) => r.symbol);
-  if (uniSyms.length > 0) {
-    const rank = new Map(uniSyms.map((s, i) => [s, i]));
-    rows = rows
-      .filter((r) => rank.has(r.symbol))
-      .sort((a, b) => (rank.get(a.symbol) ?? 99) - (rank.get(b.symbol) ?? 99));
-    if (rows.length === 0) {
-      // watchlist ∩ top-30 = ∅ → quét nhanh riêng top-30 (1h+4h)
-      try {
-        await submitScan({ pairs: uniSyms.slice(0, 30), intervals: ["1h", "4h"] }).promise;
-        rows = (v.scan?.rows ?? []).filter((r) => uniSyms.includes(r.symbol) && (r.interval === "1h" || r.interval === "4h"));
-      } catch {
-        rows = [];
-      }
+  const uniSet = new Set(uniSyms);
+  if (uniSyms.length > 0 && !(v.scan?.rows ?? []).some((r) => uniSet.has(r.symbol))) {
+    try {
+      await submitScan({ pairs: uniSyms.slice(0, 30), intervals: ["1h", "4h"] }).promise;
+    } catch {
+      // quét nhanh hỏng — vẫn chạy gate trên snapshot cũ, verdict sẽ nói rõ
     }
   }
+  const rows = v.scan?.rows ?? [];
   if (rows.length === 0) return;
   const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
   const state = loadBcastState();
   let built: Awaited<ReturnType<typeof buildTopCoinsMessage>> = null;
   try {
-    built = await buildTopCoinsMessage(rows, tickers, state);
+    // MỘT thuật toán gate — uniSet truyền thẳng vào gateRow, mọi combo đều
+    // được chấm (kể cả ngoài universe) và phán quyết được ghi vào DB
+    built = await buildTopCoinsMessage(rows, tickers, state, uniSet);
   } catch (e) {
     console.error(`[engine] broadcast build failed: ${e instanceof Error ? e.message : e}`);
     return;
   }
-  if (!built) return; // nothing passed the filters — silence beats spam
+  // verdicts → bảng BcastVerdict (custom.db) — nguồn chung panel + Telegram
+  try {
+    for (const vd of built.verdicts) {
+      await db.bcastVerdict.upsert({
+        where: { symbol_interval: { symbol: vd.symbol, interval: vd.interval } },
+        create: {
+          symbol: vd.symbol,
+          interval: vd.interval,
+          side: vd.side,
+          score: vd.score,
+          auc: vd.auc,
+          acc: vd.acc,
+          verdict: vd.verdict,
+          reason: vd.reason,
+        },
+        update: {
+          side: vd.side,
+          score: vd.score,
+          auc: vd.auc,
+          acc: vd.acc,
+          verdict: vd.verdict,
+          reason: vd.reason,
+        },
+      });
+    }
+    invalidateBcastSnapshot();
+  } catch (e) {
+    console.error(`[engine] verdict persist failed: ${e instanceof Error ? e.message : e}`);
+  }
+  if (!built.text) return; // nothing passed the gates — silence beats spam
   state.n += 1;
   const now = Date.now();
   for (const r of built.picked) {
@@ -1057,6 +1146,7 @@ export function engineSnapshot(): {
   scan: { rows: ScanRow[]; at: number } | null;
   universe: { rows: UniverseRow[]; at: number } | null;
   train: TrainSnapshot;
+  bcast: BcastSnapshot;
   cycle: { lastAt: number; status: string; nextAt: number };
   llmLast: EnginePersisted["llmLast"];
   jobs: ReturnType<typeof jobViews>;
@@ -1072,6 +1162,7 @@ export function engineSnapshot(): {
     scan: v.scan,
     universe: v.universe,
     train: trainCache ?? { at: 0, total: 0, latest: [] },
+    bcast: bcastCache ?? { at: 0, pass: 0, total: 0, cooldown: 0, rows: [] },
     cycle: { lastAt: v.lastCycleAt, status: v.lastCycleStatus, nextAt: p.nextCycleAt },
     llmLast: p.llmLast,
     jobs: jobViews(),
@@ -1092,10 +1183,13 @@ export function startEngineScheduler(): void {
   gg.__elliottEngineSched = true;
   loadEngine();
 
-  // train-history snapshot for GET /api/engine — warm now, refresh every minute
+  // train/broadcast-verdict snapshots for GET /api/engine — warm now, refresh every minute
   void trainSnapshot();
   const trainIv = setInterval(() => void trainSnapshot(), 60_000);
   trainIv.unref?.();
+  void bcastSnapshot();
+  const bcastIv = setInterval(() => void bcastSnapshot(), 60_000);
+  bcastIv.unref?.();
 
   const lastBcast = { bucket: 0 };
   const lastUni = { bucket: 0 };
