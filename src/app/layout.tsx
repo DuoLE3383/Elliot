@@ -1,7 +1,24 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { readFileSync } from "fs";
+import path from "path";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
+import BuildReload from "@/components/build-reload";
+
+// Build marker — prebuild ghi public/build-id.txt cho MỖI lần build; id được
+// nướng vào HTML lúc build ở dòng dưới. BuildReload (client) so nó với
+// /api/build-id (runtime) và tự reload tab cũ → template/code mới luôn tới
+// tay tab đang mở mà không cần F5 tay (chữa tận gốc lỗi "sửa template mà
+// Telegram vẫn báo bản cũ" — broadcast sống trong tab, không phải trong pm2).
+function readBuildId(): string {
+  try {
+    return readFileSync(path.join(process.cwd(), "public", "build-id.txt"), "utf8").trim() || "dev";
+  } catch {
+    return "dev";
+  }
+}
+const BUILD_ID = readBuildId();
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -21,6 +38,7 @@ export const metadata: Metadata = {
   icons: {
     icon: "/elliott.svg",
   },
+  other: { "elliott-build": BUILD_ID },
 };
 
 export default function RootLayout({
@@ -34,6 +52,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
         {children}
+        <BuildReload />
         <Toaster />
       </body>
     </html>
