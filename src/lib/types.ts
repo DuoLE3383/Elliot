@@ -183,27 +183,74 @@ export function matchPreset(s: EngineSettings): StrategyKey | null {
   return null;
 }
 
-/** Default pair chips (Binance USDT-M Futures). Custom pairs are user-added. */
+/** Default pair chips — the trader's staple watchlist (all verified live on
+ * Binance USDT-M Futures, incl. XMR). Custom pairs are user/scan-added. */
 export const SYMBOLS = [
   "BTCUSDT",
   "ETHUSDT",
-  "SOLUSDT",
   "BNBUSDT",
   "XRPUSDT",
+  "SOLUSDT",
+  "TRXUSDT",
+  "ZECUSDT",
   "DOGEUSDT",
+  "XMRUSDT",
   "ADAUSDT",
-  "AVAXUSDT",
-  "LINKUSDT",
+  "BCHUSDT",
 ] as const;
 /** Any Binance USDT-M Futures symbol — defaults plus user-added custom pairs. */
 export type Symbol = string;
+
+/** Legacy spot names → their real USDT-M perp listing. Binance lists cheap
+ * coins under a 1000-prefixed contract (1000PEPEUSDT), and some spot symbols
+ * (DAIUSDT) have no perp at all — stale localStorage watchlists must not
+ * spawn 400s every poll. null = no futures equivalent, drop the pair. */
+export const FUTURES_ALIASES: Readonly<Record<string, string | null>> = {
+  PEPEUSDT: "1000PEPEUSDT",
+  SHIBUSDT: "1000SHIBUSDT",
+  FLOKIUSDT: "1000FLOKIUSDT",
+  BONKUSDT: "1000BONKUSDT",
+  LUNCUSDT: "1000LUNCUSDT",
+  DAIUSDT: null,
+  TONUSDT: null, // delisted from USDT-M
+};
+
+/** Known mapping only: futures symbol, or null when the pair has no perp.
+ * Unmapped symbols pass through unchanged (no blind guessing here). */
+export function aliasFuturesSymbol(symbol: string): string | null {
+  const known = FUTURES_ALIASES[symbol];
+  if (known !== undefined) return known;
+  return symbol;
+}
+
+/** Last-resort candidate for the klines proxy: Binance hosts cheap coins as a
+ * 1000-contract, so a 400 for PEPE-style names is retried as 1000PEPEUSDT. */
+export function thousandVariant(symbol: string): string | null {
+  if (!/^[A-Z0-9]{5,20}USDT$/.test(symbol) || symbol.startsWith("1000")) return null;
+  const v = `1000${symbol}`;
+  return FUTURES_ALIASES[symbol] === undefined ? v : null; // table already decided
+}
+
+/** Clean a persisted pair list: alias to futures names, drop pairs without a
+ * perp. Duplicates collapse, order preserved. */
+export function migratePairsTo(pairList: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const raw of pairList) {
+    if (typeof raw !== "string" || !/^[A-Z0-9]{5,20}$/.test(raw)) continue;
+    const alias = aliasFuturesSymbol(raw);
+    if (alias == null) continue; // no perp — drop (DAIUSDT, TONUSDT…)
+    if (!out.includes(alias)) out.push(alias);
+  }
+  return out;
+}
 
 export const INTERVALS = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"] as const;
 export type Interval = (typeof INTERVALS)[number];
 
 export const KLINE_LIMIT = 500;
 
-export const MAX_CUSTOM_PAIRS = 20;
+/** watchlist = 11 staples + top-30 universe scan + user customs → 60 cap */
+export const MAX_CUSTOM_PAIRS = 60;
 export const MAX_LEVERAGE = 125;
 
 /** Binance 24hr ticker snapshot (from /api/ticker). */

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Ticker } from "@/lib/types";
+import { aliasFuturesSymbol } from "@/lib/types";
 
 /** Binance USDT-M Futures — market data comes from the perp board, not spot */
 const HOSTS = [
@@ -11,7 +12,7 @@ const HOSTS = [
 
 /**
  * Binance USDT-M Futures 24hr ticker for a symbol list — powers the live price
- * strip and the watchlist. `?symbols=BTCUSDT,ETHUSDT` (max 30, validated).
+ * strip and the watchlist. `?symbols=BTCUSDT,ETHUSDT` (max 80, validated).
  * Unlike the spot endpoint, futures `/fapi/v1/ticker/24hr` IGNORES the
  * `symbols` array param and always answers with the whole board, so we fetch
  * it once (server-cached 15s) and filter to the requested symbols here.
@@ -23,9 +24,16 @@ export async function GET(req: NextRequest) {
       raw
         .split(",")
         .map((s) => s.trim().toUpperCase())
-        .filter((s) => /^[A-Z0-9]{5,20}$/.test(s)),
+        .filter((s) => /^[A-Z0-9]{5,20}$/.test(s))
+        // legacy spot names resolve to their perp listing (PEPEUSDT→1000PEPEUSDT);
+        // pairs with no perp (DAIUSDT, TONUSDT) are dropped silently here — the
+        // watchlist polls every 30s and must not break on one stale entry
+        .flatMap((s) => {
+          const alias = aliasFuturesSymbol(s);
+          return alias == null ? [] : [alias];
+        }),
     ),
-  ).slice(0, 30);
+  ).slice(0, 80);
 
   if (symbols.length === 0) {
     return NextResponse.json({ error: "no valid symbols" }, { status: 400 });

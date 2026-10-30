@@ -64,6 +64,9 @@ interface Props {
   /** user engine settings — passed through to the trainer */
   settings: EngineSettings;
   onPickPair: (symbol: string, interval: string) => void;
+  /** top-N universe pairs after each 8h scan — the page merges them into the
+   * watchlist automatically (yêu cầu: TOP-30 tự vào watchlist) */
+  onUniverseTop: (symbols: string[]) => void;
   pushToast: (toast: { kind: "entry" | "flip" | "error" | "wy" | "xgb"; text: string }) => void;
 }
 
@@ -180,7 +183,7 @@ const msgLlmVeto = (r: ScanRow, v: LlmVerdict): string =>
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair, pushToast }: Props) {
+export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair, onUniverseTop, pushToast }: Props) {
   const [cfg, setCfg] = useState<AutoConfig>(loadAutoConfigSafe());
   // one engine per browser: the elected leader tab drives cycles/scans/sends,
   // standby tabs keep the UI live but never train, trade or notify
@@ -190,7 +193,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const [scanAt, setScanAt] = useState<number | null>(null);
   const [scanning, setScanning] = useState<{ done: number; total: number; current: string } | null>(null);
   const [universe, setUniverse] = useState<UniverseRow[]>([]);
-  const uniRef = useRef<UniverseRow[]>([]); // top-10 8h — lọc digest "TOP coin tiềm năng"
+  const uniRef = useRef<UniverseRow[]>([]); // top-30 8h — lọc digest "TOP coin tiềm năng"
   const [auto, setAuto] = useState<AutoState | null>(null);
   const [tgConfigured, setTgConfigured] = useState<boolean | null>(null);
   const [tgState, setTgState] = useState<"idle" | "sending" | "ok" | "fail">("idle");
@@ -325,9 +328,9 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   }, [refreshAuto]);
 
   // ── TOP-coin broadcast — template "TOP coin tiềm năng" sent to Telegram ────
-  // Candidates PHẢI nằm trong top-10 vũ trụ 8h (ATR + trending) — nếu không có
-  // combo nào của top-10 trong kết quả quét watchlist thì quét nhanh riêng
-  // top-10 (1h+4h) thay vì gợi ý coin ngoài top (điểm thấp, không đáng tin).
+  // Candidates PHẢI nằm trong top-30 vũ trụ 8h (ATR + trending) — nếu không có
+  // combo nào của top-30 trong kết quả quét watchlist thì quét nhanh riêng
+  // top-30 (1h+4h) thay vì gợi ý coin ngoài top (điểm thấp, không đáng tin).
   const lastBcastRef = useRef(0);
   const sendTopCoins = useCallback(
     async (rows: ScanRow[]) => {
@@ -339,7 +342,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
           .filter((r) => rank.has(r.symbol))
           .sort((a, b) => (rank.get(a.symbol) ?? 99) - (rank.get(b.symbol) ?? 99));
         if (pool.length === 0) {
-          // watchlist ∩ top-10 = ∅ → quét nhanh riêng top-10 (20 combo, ~vài giây)
+          // watchlist ∩ top-30 = ∅ → quét nhanh riêng top-30 (1h+4h)
           try {
             pool = await scanAll({
               pairs: [...uniSyms],
@@ -351,7 +354,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
           }
         }
       }
-      if (pool.length === 0) return; // không có ứng viên trong top-10 → im lặng
+      if (pool.length === 0) return; // không có ứng viên trong top-30 → im lặng
       const state = loadBcastState();
       const built = await buildTopCoinsMessage(pool, tickersRef.current, state);
       if (!built) {
@@ -459,6 +462,10 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
         if (!alive || out.length === 0) return;
         const top = rankUniverse(out);
         setUniverse(top);
+        // TOP-30 tự vào watchlist (gộp, giữ pair người dùng thêm trước, không trùng)
+        try {
+          onUniverseTop(top.map((r) => r.symbol));
+        } catch { /* callback lỗi không cản scan */ }
         try {
           localStorage.setItem(LS_KEY, JSON.stringify(top));
           localStorage.setItem(LS_AT, String(Date.now()));
@@ -1220,7 +1227,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
           </div>
           {universe.length > 0 ? (
             <div className="mt-1 space-y-0.5">
-              {universe.slice(0, 5).map((r, i) => (
+              {universe.slice(0, 10).map((r, i) => (
                 <button
                   key={r.symbol}
                   type="button"

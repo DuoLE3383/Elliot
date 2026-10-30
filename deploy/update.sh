@@ -86,6 +86,12 @@ for K in TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID TELEGRAM_API_BASE; do
 done
 chmod 600 "$APP_DIR/.env"
 
+# Quyền ghi cho data (SQLite/JSON): các bước chạy root (build/git) không được
+# làm DB/JSON thành root-owned — app chạy dưới $APP_USER thì phải ghi được,
+# nếu không schema bootstrap sẽ fail "attempt to write a readonly database".
+chown -R "$APP_USER":"$APP_USER" "$DATA_DIR" "$APP_DIR/db" 2>/dev/null || true
+chmod -R u+rwX "$DATA_DIR" 2>/dev/null || true
+
 log "2/4 Cài deps mới (nếu package.json thay đổi)"
 run bun install
 

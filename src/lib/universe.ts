@@ -11,18 +11,28 @@
 import { atr, ema } from "./indicators";
 import type { Kline } from "./types";
 
-/** majors + consistently liquid/high-ATR alts — Binance USDT-M Futures symbols */
+/** majors + high-ATR alts — Binance USDT-M Futures symbols, every entry
+ * verified live on the perp board (TONUSDT delisted → removed). The 11 staple
+ * pairs (BTC ETH BNB XRP SOL TRX ZEC DOGE XMR ADA BCH) always lead the list
+ * so they can never be ranked out of the scan. */
 export const UNIVERSE: readonly string[] = [
-  "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT",
-  "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT", "TONUSDT", "TRXUSDT",
-  "LTCUSDT", "NEARUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "SUIUSDT",
-  "INJUSDT", "SEIUSDT", "TIAUSDT", "FILUSDT", "ATOMUSDT", "FETUSDT",
-  "1000PEPEUSDT", "WIFUSDT",
+  // staples — theo yêu cầu, luôn có mặt
+  "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "SOLUSDT", "TRXUSDT",
+  "ZECUSDT", "DOGEUSDT", "XMRUSDT", "ADAUSDT", "BCHUSDT",
+  // high-ATR / trending alts
+  "AVAXUSDT", "LINKUSDT", "DOTUSDT", "LTCUSDT", "NEARUSDT", "APTUSDT",
+  "ARBUSDT", "OPUSDT", "SUIUSDT", "INJUSDT", "SEIUSDT", "TIAUSDT",
+  "FILUSDT", "ATOMUSDT", "FETUSDT", "1000PEPEUSDT", "WIFUSDT",
+  "HYPEUSDT", "AAVEUSDT", "ENAUSDT", "WLDUSDT", "JUPUSDT", "ORDIUSDT",
+  "ETCUSDT", "UNIUSDT", "ONDOUSDT", "TAOUSDT", "RENDERUSDT", "POPCATUSDT",
+  "GRASSUSDT", "PENDLEUSDT", "CRVUSDT", "LDOUSDT", "RUNEUSDT",
+  "1000FLOKIUSDT", "1000BONKUSDT", "VIRTUALUSDT",
 ];
 
 export const UNIVERSE_INTERVAL = "1h";
 export const UNIVERSE_SCAN_MS = 8 * 3_600_000; // scan mỗi 8h
-export const UNIVERSE_TOP = 10;
+/** TOP coin universe = 30 — tất cả được tự thêm vào watchlist sau mỗi lần quét */
+export const UNIVERSE_TOP = 30;
 /** ATR% at which the volatility term of the score saturates */
 const ATR_SATURATION = 5;
 

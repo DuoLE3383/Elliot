@@ -33,6 +33,8 @@ const SCHEMA_SQL: string[] = [
   `CREATE INDEX IF NOT EXISTS "AutoTrade_symbol_interval_idx" ON "AutoTrade"("symbol", "interval")`,
 ];
 const MODEL_TABLES = ["User", "Post", "Suggestion", "FinetuneRun", "AutoTrade"];
+/** exported for the /api health diagnostic */
+export { MODEL_TABLES };
 
 const isP2021 = (e: unknown): boolean =>
   typeof e === "object" && e != null && (e as { code?: string }).code === "P2021";
@@ -66,10 +68,27 @@ async function runBootstrap(base: PrismaClient): Promise<void> {
   );
   for (const stmt of SCHEMA_SQL) await base.$executeRawUnsafe(stmt);
   const missing = MODEL_TABLES.filter((t) => !before.has(t));
+  const dbPath = (process.env.DATABASE_URL ?? "(no DATABASE_URL)").replace(/^file:/, "");
   if (missing.length > 0) {
-    console.warn(`[db] schema bootstrap — created missing table(s): ${missing.join(", ")}`);
+    console.warn(
+      `[db] schema bootstrap — created missing table(s): ${missing.join(", ")} (db: ${dbPath})`,
+    );
   } else {
-    console.warn(`[db] schema bootstrap — ok (all ${MODEL_TABLES.length} tables present)`);
+    console.warn(`[db] schema bootstrap — ok (all ${MODEL_TABLES.length} tables present, db: ${dbPath})`);
+  }
+}
+
+/** Never throws into a query's way: a failed bootstrap is LOGGED (reason + db
+ * path land in the pm2/journal output) and swallowed so the original query
+ * still runs — its own error (P2021 etc.) is the more useful one to surface. */
+async function ensureSchemaQuiet(base: PrismaClient): Promise<void> {
+  try {
+    await ensureSchema(base);
+  } catch (e) {
+    const dbPath = (process.env.DATABASE_URL ?? "?").replace(/^file:/, "");
+    console.error(
+      `[db] schema bootstrap FAILED (db: ${dbPath}): ${e instanceof Error ? e.message : String(e)} — queries continue; check file permissions/ownership for the app user`,
+    );
   }
 }
 
@@ -93,16 +112,17 @@ function createClient() {
     query: {
       $allModels: {
         $allOperations: async ({ args, query }) => {
-          await ensureSchema(base);
+          await ensureSchemaQuiet(base);
           try {
             return await query(args);
           } catch (e) {
             if (isP2021(e)) {
               // DB file swapped at runtime (share-db.sh, restore, data dir
               // moved): rebuild the missing tables once, then retry the very
-              // same operation instead of bubbling a 500 to the route.
+              // same operation. If the rebuild fails again the ORIGINAL P2021
+              // is rethrown so route-level graceful handlers still work.
               schemaReady = null;
-              await ensureSchema(base);
+              await ensureSchemaQuiet(base);
               return await query(args);
             }
             throw e;

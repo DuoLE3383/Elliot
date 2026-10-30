@@ -43,7 +43,9 @@ import {
   SYMBOLS,
   Ticker,
   WyckoffSettings,
+  aliasFuturesSymbol,
   matchPreset,
+  migratePairsTo,
 } from "@/lib/types";
 import { runXgb, MAX_DIFFICULTY, type XgbResult } from "@/lib/xgb";
 import { ElliottLogo } from "@/components/logo";
@@ -240,13 +242,23 @@ export default function Home() {
       if (p) {
         const arr = JSON.parse(p);
         if (Array.isArray(arr)) {
-          setCustomPairs(
-            arr.filter((x: unknown): x is string => typeof x === "string").slice(0, MAX_CUSTOM_PAIRS),
-          );
+          // migrate legacy spot names → their USDT-M listing (PEPEUSDT→
+          // 1000PEPEUSDT), drop pairs with no perp (DAIUSDT, TONUSDT) — stale
+          // entries used to 400 every klines/ticker poll forever
+          const migrated = migratePairsTo(
+            arr.filter((x: unknown): x is string => typeof x === "string"),
+          ).slice(0, MAX_CUSTOM_PAIRS);
+          setCustomPairs(migrated);
+          if (JSON.stringify(migrated) !== JSON.stringify(arr)) {
+            localStorage.setItem("utp.pairs", JSON.stringify(migrated));
+          }
         }
       }
       const sym = localStorage.getItem("utp.symbol");
-      if (sym && /^[A-Z0-9]{5,20}$/.test(sym)) setSymbol(sym);
+      if (sym) {
+        const alias = aliasFuturesSymbol(sym);
+        if (alias && /^[A-Z0-9]{5,20}$/.test(alias)) setSymbol(alias);
+      }
       const itv = localStorage.getItem("utp.interval");
       if (itv && (INTERVALS as readonly string[]).includes(itv)) setIntervalTf(itv as Interval);
       const lg = localStorage.getItem("utp.lang");
@@ -672,18 +684,23 @@ export default function Home() {
         pushToast({ kind: "error", text: t(lang, "toast.badPair", { sym }) });
         return;
       }
+      const probe = (await res.json()) as { symbol?: unknown };
+      // the probe answers with the RESOLVED perp symbol (PEPEUSDT →
+      // 1000PEPEUSDT) — store that, not the raw typed input
+      const resolved =
+        typeof probe.symbol === "string" && /^[A-Z0-9]{5,20}$/.test(probe.symbol) ? probe.symbol : sym;
       // when the list is full the append silently drops the OLDEST custom pair
       // — surface that loudly instead of quietly losing a pair
-      if (!customPairs.includes(sym) && customPairs.length >= MAX_CUSTOM_PAIRS) {
+      if (!customPairs.includes(resolved) && customPairs.length >= MAX_CUSTOM_PAIRS) {
         pushToast({
           kind: "warn",
           text: t(lang, "toast.pairReplaced", { sym, old: customPairs[0] ?? sym }),
         });
       }
       setCustomPairs((list) =>
-        list.includes(sym) ? list : [...list, sym].slice(-MAX_CUSTOM_PAIRS),
+        list.includes(resolved) ? list : [...list, resolved].slice(-MAX_CUSTOM_PAIRS),
       );
-      setSymbol(sym);
+      setSymbol(resolved);
       setPairInput("");
     } catch {
       pushToast({ kind: "error", text: t(lang, "toast.error") });
@@ -699,6 +716,16 @@ export default function Home() {
     },
     [symbol],
   );
+
+  /** TOP-30 vũ trụ 8h tự vào watchlist — gộp sau các pair người dùng đã có,
+   * dedupe, không đè cặp mặc định, giữ đúng cap MAX_CUSTOM_PAIRS */
+  const handleUniverseTop = useCallback((topSyms: string[]) => {
+    setCustomPairs((list) => {
+      const add = topSyms.filter((s) => !(SYMBOLS as readonly string[]).includes(s) && !list.includes(s));
+      if (add.length === 0) return list;
+      return [...list, ...add].slice(-MAX_CUSTOM_PAIRS);
+    });
+  }, []);
 
   /**
    * Train + persist EVERY watched pair × EVERY timeframe in one pass — the
@@ -1139,6 +1166,7 @@ export default function Home() {
                   setSymbol(sym);
                   if ((INTERVALS as readonly string[]).includes(itv)) setIntervalTf(itv as Interval);
                 }}
+                onUniverseTop={handleUniverseTop}
                 pushToast={pushToast}
               />
               {/* XGBoost Tuner — slim launcher; the full trainer panel opens
