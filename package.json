@@ -1,10 +1,10 @@
 {
   "name": "nextjs_tailwind_shadcn_ts",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
-    "build": "prisma generate && node scripts/trace-stub.mjs && next build && node scripts/postbuild.mjs",
+    "build": "prisma generate && node scripts/trace-stub.mjs && next build && node scripts/postbuild.mjs && cp -r db .next/standalone/",
     "build:secure": "OBFUSCATE=1 bun run build",
     "postinstall": "prisma generate || echo '[postinstall] prisma generate failed — the build step will retry it'",
     "start": "NODE_ENV=production node .next/standalone/server.js",
