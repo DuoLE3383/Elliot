@@ -62,6 +62,37 @@ export function hourFeatures(t: number): [number, number] {
   return [Math.sin(a), Math.cos(a)];
 }
 
+/**
+ * Weekday of a candle OPEN time as sin/cos (period 7 days, Mon=0 … Sun=6) —
+ * lets the model learn weekly cycles ("thứ Ba hay giảm", "cuối tuần mỏng")
+ * the same way the 📅 cycle block counts them, but per-coin and with
+ * interactions instead of raw frequency.
+ */
+export function dowFeatures(t: number): [number, number] {
+  const sun0 = new Date(t).getUTCDay();
+  const idx = (sun0 + 6) % 7; // Mon=0 … Sun=6
+  const a = 2 * Math.PI * (idx / 7);
+  return [Math.sin(a), Math.cos(a)];
+}
+
+/**
+ * Calendar-window flags from the candle OPEN time (UTC day — matches Binance
+ * daily candles): [domStart, domEnd, qEnd]
+ *   domStart — 1st–3rd of the month (đầu tháng: dòng tiền tái phân bổ)
+ *   domEnd   — 3 ngày cuối tháng (cuối tháng: rebalance, chốt lãi)
+ *   qEnd     — domEnd ∩ tháng cuối quý (3/6/9/12 — kết quý, mạnh hơn cuối tháng)
+ * All pure functions of the timestamp → no lookahead, safe as features.
+ */
+export function calendarFlags(t: number): [number, number, number] {
+  const d = new Date(t);
+  const day = d.getUTCDate();
+  const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  const domStart = day <= 3 ? 1 : 0;
+  const domEnd = last - day < 3 ? 1 : 0;
+  const qEnd = domEnd && (d.getUTCMonth() % 3 === 2) ? 1 : 0; // Mar/Jun/Sep/Dec
+  return [domStart, domEnd, qEnd];
+}
+
 /** Next session to OPEN after `now` (currently-open ones are skipped). */
 export function nextSessionOpen(now: number | Date): { key: SessionKey; inMin: number } | null {
   const d = new Date(now);

@@ -15,7 +15,7 @@
 // over the real paper-trading engine.
 
 import { atr, ema, rsi, sma, utTrail } from "./indicators";
-import { hourFeatures, sessionOneHot } from "./market";
+import { calendarFlags, dowFeatures, hourFeatures, sessionOneHot } from "./market";
 import { kpiFrom, papersFrom } from "./papers";
 import { signalsFrom } from "./signals";
 import type { EngineSettings, Kline } from "./types";
@@ -137,6 +137,19 @@ export const FEATURE_NAMES = [
   "sessNewyork",
   "hourSin",
   "hourCos",
+  // calendar cycles (weekday / month windows) + volatility regime — the
+  // trained counterpart of the 📅 "Chu kỳ lịch" frequency block
+  "dowSin",
+  "dowCos",
+  "domStart",
+  "domEnd",
+  "qEnd",
+  // pre-explosion regime: where today's ATR% and Bollinger width sit in their
+  // trailing 100-bar distribution (low = nén biến động → tiền đề bùng nổ) and
+  // where price sits in the 20-bar range (0=đáy, 1=đỉnh — breakout context)
+  "atrRank",
+  "bbwRank",
+  "donchian",
 ] as const;
 
 export interface XgbCtx {
@@ -149,6 +162,10 @@ export interface XgbCtx {
   trend: number[];
   volMean: (number | null)[];
   volStd: (number | null)[];
+  /** ATR(14) as % of close — input for the atrRank regime feature */
+  atrPct: (number | null)[];
+  /** Bollinger bandwidth (4σ / SMA20) — input for the bbwRank squeeze feature */
+  bbw: (number | null)[];
 }
 
 /** Precompute every indicator column once for the whole window. */
@@ -181,7 +198,73 @@ export function buildCtx(klines: Kline[], atrKey: number, atrPeriod: number): Xg
       volStd[i] = Math.sqrt(Math.max(0, sumSq / 20 - m * m));
     }
   }
-  return { sma20: s20, sma100: s100, ema50: e50, rsi14: r14, atr14: a14, stop: ut.stop, trend: ut.trend, volMean, volStd };
+  // ATR% of close — regime feature input (ranked over a trailing window later)
+  const atrPct: (number | null)[] = new Array(n).fill(null);
+  for (let i = 0; i < n; i++) {
+    const a = a14[i];
+    const c = klines[i].c;
+    if (a != null && c > 0) atrPct[i] = a / c;
+  }
+
+  // Bollinger bandwidth = (2σ up + 2σ down) / SMA20 — rolling σ over 20 closes.
+  // Narrow band = "nén biến động" — the classic pre-explosion state.
+  const bbw: (number | null)[] = new Array(n).fill(null);
+  let cSum = 0;
+  let cSumSq = 0;
+  for (let i = 0; i < n; i++) {
+    const c = klines[i].c;
+    cSum += c;
+    cSumSq += c * c;
+    if (i >= 20) {
+      const old = klines[i - 20].c;
+      cSum -= old;
+      cSumSq -= old * old;
+    }
+    if (i >= 19) {
+      const m = cSum / 20;
+      const sd = Math.sqrt(Math.max(0, cSumSq / 20 - m * m));
+      const sm = s20[i];
+      if (sm != null && sm > 0) bbw[i] = (4 * sd) / sm;
+    }
+  }
+
+  return { sma20: s20, sma100: s100, ema50: e50, rsi14: r14, atr14: a14, stop: ut.stop, trend: ut.trend, volMean, volStd, atrPct, bbw };
+}
+
+/**
+ * Percentile rank (0..1) of arr[i] among the PREVIOUS `win` values (strictly
+ * before i — no lookahead). Needs ≥ 20 past values, else 0.5 (neutral).
+ * Low ranks of atrPct/bbw = volatility compression — the pre-explosion regime.
+ */
+export function trailingRank(arr: (number | null)[], i: number, win = 100): number {
+  const v = arr[i];
+  if (v == null || i <= 0) return 0.5;
+  let le = 0;
+  let cnt = 0;
+  for (let j = Math.max(0, i - win); j < i; j++) {
+    const u = arr[j];
+    if (u == null) continue;
+    cnt++;
+    if (u <= v) le++;
+  }
+  return cnt < 20 ? 0.5 : le / cnt;
+}
+
+/**
+ * Where the close sits inside the PREVIOUS `win` bars' range (j < i — no
+ * lookahead): 0 = at the bottom, 1 = at the top. A close at ≥ 0.95 after a
+ * squeeze is the breakout side of an explosion; ≤ 0.05 the breakdown side.
+ */
+export function donchianPos(k: Kline[], i: number, win = 20): number {
+  if (i < win) return 0.5;
+  let hi = -Infinity;
+  let lo = Infinity;
+  for (let j = i - win; j < i; j++) {
+    if (k[j].h > hi) hi = k[j].h;
+    if (k[j].l < lo) lo = k[j].l;
+  }
+  const rng = hi - lo;
+  return rng > 0 ? Math.min(1, Math.max(0, (k[i].c - lo) / rng)) : 0.5;
 }
 
 /**
@@ -243,6 +326,11 @@ function featuresAt(k: Kline[], i: number, ctx: XgbCtx): number[] | null {
     stopDist,
     ...sessionOneHot(cur.t),
     ...hourFeatures(cur.t),
+    ...dowFeatures(cur.t),
+    ...calendarFlags(cur.t),
+    trailingRank(ctx.atrPct, i),
+    trailingRank(ctx.bbw, i),
+    donchianPos(k, i),
   ];
 }
 
