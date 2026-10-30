@@ -61,6 +61,30 @@ sudo systemctl restart cloudflared
 - **Telegram — 1 cách duy nhất (cố định trong .env)**: `sudo bash deploy/set-telegram-env.sh "<BOT_TOKEN>" "<CHAT_ID>"` — ghi `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` vào `.env` của repo, tự restart nếu có systemd, tự verify. Xem cấu hình hiện tại: `sudo bash deploy/set-telegram-env.sh` (không đối số). CHAT_ID chấp nhận id số (-100…), @username hoặc link https://t.me/… — app tự chuẩn hoá. Lấy id kênh private: thêm bot làm admin kênh rồi đọc id trong log/Telegram Bot API. Đổi token/kênh = chạy lại lệnh đó. Panel Auto chỉ còn nút **Kiểm tra Telegram** (gửi tin test vào kênh) — mọi cấu hình khác nằm hết trong .env.
 - VPS cấu hình tối thiểu thoải mái: 1 vCPU / 1 GB RAM (build tốn ~500 MB, có thể build trên máy khác rồi rsync `.next/standalone`).
 
+## 1b. Local ≠ Website là ĐÚNG — mỗi máy một DB riêng (git không đồng bộ data)
+
+`git pull` / `update.sh` chỉ đồng bộ **CODE**. Dữ liệu nằm ở **3 chỗ độc lập trên từng máy**:
+
+| Kho | VPS (elliott.huyenbao.com) | Máy local | Đồng bộ bằng git? |
+| --- | --- | --- | --- |
+| SQLite (lệnh, journal, win-rate, vốn, suggestions, finetune) | `/opt/elliott/data/custom.db` (`.env` ghi đường dẫn tuyệt đối) | `<repo>/db/custom.db` (mặc định) | ❌ KHÔNG |
+| JSON state (`DATA_DIR`: telegram.json, session-bcast.json, tg-dedupe.json…) | `/opt/elliott/data/` | `<repo>/db/` | ❌ KHÔNG |
+| localStorage trình duyệt (watchlist, symbol/interval, settings, cấu hình Auto) | theo từng trình duyệt | theo từng trình duyệt | ❌ KHÔNG |
+
+→ Muốn local "giống" website thì phải **chép data** (git không làm hộ):
+
+1. **Soi từng máy** — chạy ở cả 2 nơi rồi đặt output cạnh nhau:
+   ```bash
+   bun run scripts/db-doctor.ts        # in: git HEAD, đường dẫn DB thật, số lệnh mở/đóng, win-rate, vốn, lệnh cuối
+   ```
+2. **Kéo DB VPS về local (một chiều)** — dừng dev server local trước:
+   ```bash
+   bash scripts/sync-db-from-vps.sh user@ip-vps [/opt/elliott]
+   # tự backup db/custom.db.bak.<thời-gian> → tạo snapshot an toàn trên VPS → kéo về → tự chạy db-doctor kiểm chứng
+   ```
+3. **Không bật Auto đồng thời ở cả 2 máy**: engine auto chạy client-side theo **origin** (BroadcastChannel chỉ gói các tab cùng origin — `localhost:3000` và `elliott.huyenbao.com` là 2 origin riêng) → local + web cùng bật = **2 engine độc lập**, mỗi bên tự train/tự quét/tự mở lệnh/tự gửi Telegram riêng. Dedupe Telegram là **per-server** (khoá nằm trong `DATA_DIR` của từng server) nên không chặn được chéo máy. Muốn local chỉ xem: **tắt Auto ở tab local** (badge vàng "tab chờ" chỉ hoạt động giữa các tab cùng origin).
+4. Muốn sync ngược (local → VPS) hoặc sync tự động: tự chịu rủi ro — SQLite chéo máy chỉ an toàn khi app bên nhận ĐANG DỪNG; khuyến nghị giữ VPS là nguồn duy nhất (single source of truth).
+
 ## 2. Build pipeline (đã fix lỗi CI)
 
 `bun run build` = 3 bước, **không thể fail vì môi trường CI**:
