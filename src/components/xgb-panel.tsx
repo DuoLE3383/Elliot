@@ -28,6 +28,8 @@ interface Props {
     total: number;
     current: string;
     saved: number;
+    /** số worker song song (1 = fallback tuần tự) */
+    workers: number;
     best: { symbol: string; interval: string; acc: number; auc: number; score: number } | null;
   } | null;
   /** watched pairs — shown on the train-all button */
@@ -212,6 +214,7 @@ export function XgbPanel({ lang, candles, busy, progress, result, stale, runs, a
             <>
               <p className="truncate font-mono text-[11px] text-teal-300">
                 {t(lang, "xgb.trainAll.busy", { done: String(allTrain.done), total: String(allTrain.total), current: allTrain.current })}
+                {allTrain.workers > 1 ? ` ${t(lang, "xgb.trainAll.workers", { w: String(allTrain.workers) })}` : ""}
               </p>
               <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
                 <div className="h-full rounded-full bg-teal-500 transition-all" style={{ width: `${allPct * 100}%` }} />

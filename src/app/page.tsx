@@ -23,7 +23,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtCompact } from "@/lib/market";
-import { fetchRunCount, fetchRuns, markApplied, resolveBatch, saveRun, saveSuggestion, type RunRow, type SuggestionRow } from "@/lib/history";
+import { fetchRuns, markApplied, resolveBatch, saveRun, saveSuggestion, type RunRow, type SuggestionRow } from "@/lib/history";
 import { fetchKlines, scoreOf, sendTelegram } from "@/lib/autotrade";
 import { fmtPct, fmtPrice, fmtTime, symbolLabel, t, type Lang } from "@/lib/i18n";
 import { kpiFrom, papersFrom } from "@/lib/papers";
@@ -47,7 +47,8 @@ import {
   matchPreset,
   migratePairsTo,
 } from "@/lib/types";
-import { runXgb, MAX_DIFFICULTY, type XgbResult } from "@/lib/xgb";
+import { MAX_DIFFICULTY, type XgbResult } from "@/lib/xgb";
+import { XgbPool } from "@/lib/xgb-pool";
 import { ElliottLogo } from "@/components/logo";
 import { AlertTriangle, ArrowLeftRight, BrainCircuit, ChevronRight, Eye, EyeOff, Landmark, RefreshCw, Settings2 } from "lucide-react";
 
@@ -66,17 +67,19 @@ interface AllTrainState {
   total: number;
   current: string;
   saved: number;
+  /** số worker đang chạy song song (1 = fallback tuần tự) */
+  workers: number;
   best: { symbol: string; interval: string; acc: number; auc: number; score: number } | null;
 }
 
-/** Persist one train result (Suggestion + FinetuneRun) — shared by manual train and train-all. */
+/** Persist one train result (Suggestion + FinetuneRun) — shared by manual train and train-all.
+ *  entryPrice = last CLOSED candle close (the worker/pool already extracted it). */
 async function persistXgbResult(
   res: XgbResult,
   sym: string,
   itv: string,
-  ks: Kline[],
+  entryPrice: number,
 ): Promise<[SuggestionRow | null, RunRow | null]> {
-  const entryPrice = ks.length >= 2 ? ks[ks.length - 2].c : 0;
   return Promise.all([
     saveSuggestion({
       symbol: sym,
@@ -533,19 +536,26 @@ export default function Home() {
       if (xgbBusy || allTrainBusyRef.current || klines.length < 200) return;
       setXgbBusy(true);
       setXgbProgress(0);
+      // single-combo pool — the train itself (120 trees + 22 engine sims) runs
+      // in a Web Worker so the chart/panel stay fully responsive while it goes
+      const pool = new XgbPool(1);
       try {
         // difficulty grows with every persisted run for this pair+interval
         const lv = Math.min(MAX_DIFFICULTY, xgbRuns.length);
-        const res = await runXgb(klines, settings, key, interval, (p) => setXgbProgress(p), lv);
-        setXgb(res);
+        const out = await pool.train(
+          { sym: symbol, itv: interval, settings, difficulty: lv, klines },
+          (p) => setXgbProgress(p),
+        );
+        if (!out.ok) throw new Error(out.error);
+        setXgb(out.res);
         if (!persist) return;
         pushToast({
           kind: "xgb",
-          text: t(lang, "toast.xgbDone", { acc: res.acc.toFixed(1), auc: res.auc.toFixed(2) }),
+          text: t(lang, "toast.xgbDone", { acc: out.res.acc.toFixed(1), auc: out.res.auc.toFixed(2) }),
         });
         // persist run + suggestion per (pair, interval, time) — outcomes are
         // scored later by resolve-batch once the horizon bars have elapsed
-        const [saved, runSaved] = await persistXgbResult(res, symbol, interval, klines);
+        const [saved, runSaved] = await persistXgbResult(out.res, symbol, interval, out.entryPrice);
         setXgbSavedId(saved?.id ?? null);
         setXgbRunId(runSaved?.id ?? null);
         pushToast({
@@ -556,10 +566,11 @@ export default function Home() {
       } catch {
         if (persist) pushToast({ kind: "error", text: t(lang, "toast.xgbFail") });
       } finally {
+        pool.destroy();
         setXgbBusy(false);
       }
     },
-    [xgbBusy, xgbRuns.length, klines, settings, key, interval, symbol, lang, pushToast, bumpHist],
+    [xgbBusy, xgbRuns.length, klines, settings, interval, symbol, lang, pushToast, bumpHist],
   );
 
   const applyXgb = useCallback(() => {
@@ -729,44 +740,67 @@ export default function Home() {
 
   /**
    * Train + persist EVERY watched pair × EVERY timeframe in one pass — the
-   * manual "Train" button only covers the current combo. Each combo keeps its
-   * own difficulty level (derived from its own persisted run count), and the
-   * whole batch is reported to the Telegram channel when it finishes.
+   * manual "Train" button only covers the current combo. Combos are pushed
+   * through a WEB WORKER POOL (min(cores−1, 6) threads): each worker fetches
+   * its own klines + run count and trains off the main thread, so the pass
+   * runs ~N× faster than the old sequential loop and the UI never freezes.
+   * Each combo keeps its own difficulty level (the worker derives it from its
+   * own persisted run count), and the whole batch is reported to the Telegram
+   * channel when it finishes.
    */
   const trainAllXgb = useCallback(async () => {
     if (allTrainBusyRef.current || xgbBusy) return;
     allTrainBusyRef.current = true;
     const combos = allPairs.length * INTERVALS.length;
-    const init: AllTrainState = { busy: true, done: 0, total: combos, current: "", saved: 0, best: null };
-    setAllTrain(init);
+    const pool = new XgbPool();
     let done = 0;
     let saved = 0;
     let best: AllTrainState["best"] = null;
+    /** only combos whose FinetuneRun actually persisted — ranked after the pass */
+    const ranked: { sym: string; itv: string; res: XgbResult }[] = [];
+    const snap = (busy: boolean, current: string): AllTrainState => ({
+      busy,
+      done,
+      total: combos,
+      current,
+      saved,
+      best,
+      workers: pool.parallelism,
+    });
+    setAllTrain(snap(true, ""));
     try {
-      for (const sym of allPairs) {
-        for (const itv of INTERVALS) {
-          setAllTrain({ busy: true, done, total: combos, current: `${sym} ${itv}`, saved, best });
-          try {
-            const ks = await fetchKlines(sym, itv);
-            if (ks.length >= 260) {
-              // each combo grows its OWN difficulty from its own run history
-              const lv = Math.min(MAX_DIFFICULTY, await fetchRunCount(sym, itv));
-              const res = await runXgb(ks, settings, `${sym}-${itv}`, itv, undefined, lv);
-              const [, runSaved] = await persistXgbResult(res, sym, itv, ks);
-              if (runSaved) saved++;
-              const score = scoreOf(res);
-              if (!best || score > best.score) best = { symbol: sym, interval: itv, acc: res.acc, auc: res.auc, score };
+      await pool.runQueue(
+        allPairs.flatMap((sym) => INTERVALS.map((itv) => ({ sym, itv }))),
+        settings,
+        {
+          onComboStart: (sym, itv) => setAllTrain(snap(true, `${sym} ${itv}`)),
+          onComboDone: async (sym, itv, res, entryPrice) => {
+            try {
+              const [, runSaved] = await persistXgbResult(res, sym, itv, entryPrice);
+              if (runSaved) ranked.push({ sym, itv, res });
+            } catch {
+              // persist failure → combo counts as done but not saved
             }
-          } catch {
-            // bad pair / starved dataset → skip this combo, keep going
-          }
-          done++;
-          setAllTrain({ busy: true, done, total: combos, current: `${sym} ${itv}`, saved, best });
-        }
+            done++;
+            setAllTrain(snap(true, ""));
+          },
+          onComboFail: () => {
+            done++;
+            setAllTrain(snap(true, ""));
+          },
+        },
+      );
+      // best/saved finalize after the pass — the panel shows them on the
+      // "Lần trước" line only, so per-combo live updates are unnecessary
+      saved = ranked.length;
+      for (const r of ranked) {
+        const score = scoreOf(r.res);
+        if (!best || score > best.score) best = { symbol: r.sym, interval: r.itv, acc: r.res.acc, auc: r.res.auc, score };
       }
     } finally {
+      pool.destroy();
       allTrainBusyRef.current = false;
-      setAllTrain({ busy: false, done, total: combos, current: "", saved, best });
+      setAllTrain(snap(false, ""));
       pushToast({ kind: "xgb", text: t(lang, "xgb.trainAll.done", { saved: String(saved), total: String(combos) }) });
       bumpHist();
     }
