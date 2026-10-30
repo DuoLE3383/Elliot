@@ -1,6 +1,10 @@
 // ─── /api/telegram — notification relay (config comes ONLY from .env) ─────────
 // GET  → { configured, chatId, source } — the env wiring
-// POST { text } → sendMessage to the configured channel
+// POST { text, key? } → sendMessage to the configured channel
+//   `key` — optional semantic dedupe id (open:<tradeId>, top:<5min-bucket>, …).
+//   Many browser tabs / devices share ONE channel; the server suppresses any
+//   repeat of the same event within TG_DEDUPE_MS (default 90s) so 20 open
+//   sessions still produce exactly one message per event.
 // Configure with deploy/set-telegram-env.sh (writes TELEGRAM_BOT_TOKEN +
 // TELEGRAM_CHAT_ID into .env) and restart the app.
 
@@ -37,9 +41,11 @@ export async function POST(req: NextRequest) {
   }
   // only HTML is whitelisted — anything else sends as plain text
   const parseMode = body.parse_mode === "HTML" ? "HTML" : undefined;
+  // semantic dedupe key — stable across every tab/device reporting the same event
+  const dedupeKey = typeof body.key === "string" && body.key.trim() ? body.key.trim().slice(0, 200) : undefined;
 
-  const r = await tgSendMessage(text, parseMode);
-  if (r.ok) return NextResponse.json({ ok: true });
+  const r = await tgSendMessage(text, parseMode, { dedupeKey });
+  if (r.ok) return NextResponse.json({ ok: true, deduped: r.deduped === true });
   const configured = Boolean(effectiveToken().token && effectiveChatId().id);
   if (!configured) {
     return NextResponse.json({ error: "telegram_not_configured" }, { status: 503 });

@@ -394,13 +394,25 @@ export async function telegramStatus(): Promise<TgStatus> {
  * Fire-and-forget notification — resolves {ok:false, detail} instead of throwing.
  * `html: true` (default) sends with parse_mode HTML — templates must escape
  * raw < > & themselves (pair names / numbers never contain them).
+ * `key` — semantic dedupe id (open:<tradeId>, near:<id>:tp, top:<5min-bucket>, …):
+ * many tabs/devices share one Telegram channel, the SERVER suppresses repeats
+ * of the same event (TG_DEDUPE_MS window) — 20 sessions → one message.
+ * `dedupe: false` — bypass for manual sends (the "Kiểm tra" test button).
  */
-export async function sendTelegram(text: string, opts?: { html?: boolean }): Promise<{ ok: boolean; detail?: string }> {
+export async function sendTelegram(
+  text: string,
+  opts?: { html?: boolean; key?: string; dedupe?: boolean },
+): Promise<{ ok: boolean; detail?: string }> {
   try {
     const res = await fetch("/api/telegram", {
       method: "POST",
       headers: jsonHeaders,
-      body: JSON.stringify({ text, parse_mode: opts?.html === false ? undefined : "HTML" }),
+      body: JSON.stringify({
+        text,
+        parse_mode: opts?.html === false ? undefined : "HTML",
+        key: opts?.key,
+        dedupe: opts?.dedupe,
+      }),
     });
     if (!res.ok) {
       const json = (await res.json().catch(() => null)) as { detail?: string } | null;

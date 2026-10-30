@@ -11,6 +11,8 @@
 // TELEGRAM_API_BASE (optional) points at a Cloudflare Worker proxy for VPS
 // routes that cannot reach api.telegram.org (deploy/tg-proxy-worker.js).
 
+import { dedupeSend, textKey } from "@/lib/tg-dedupe";
+
 const TG_API_BASE_DEFAULT = "https://api.telegram.org";
 
 /**
@@ -182,15 +184,30 @@ export async function tgApi(
   }
 }
 
-/** Send one message to the effective channel (with retry). Resolves {ok,detail}, never throws. */
-export async function tgSendMessage(text: string, parseMode?: "HTML"): Promise<{ ok: boolean; detail?: string }> {
+/** Send one message to the effective channel (with retry). Resolves {ok,detail}, never throws.
+ *  `opts.dedupeKey` — semantic event id (open:<tradeId>, top:<5min-bucket>, …):
+ *  N racing sessions reporting the SAME event produce exactly ONE message.
+ *  Without a key the exact text hash is used (identical repeats still collapse).
+ *  `opts.dedupe: false` — bypass (manual test sends must always go out).
+ *  A duplicate resolves {ok:true, deduped:true} — callers treat it as success. */
+export async function tgSendMessage(
+  text: string,
+  parseMode?: "HTML",
+  opts?: { dedupeKey?: string; dedupe?: boolean },
+): Promise<{ ok: boolean; deduped?: boolean; detail?: string }> {
   const chat = effectiveChatId();
   if (!chat.id) return { ok: false, detail: "telegram_not_configured" };
-  const r = await tgApi("sendMessage", {
-    chat_id: chat.id,
-    text,
-    parse_mode: parseMode,
-    disable_web_page_preview: true,
+  const key =
+    opts?.dedupe === false
+      ? null
+      : (opts?.dedupeKey ?? textKey(chat.id, parseMode, text));
+  return dedupeSend(key, async () => {
+    const r = await tgApi("sendMessage", {
+      chat_id: chat.id,
+      text,
+      parse_mode: parseMode,
+      disable_web_page_preview: true,
+    });
+    return r.detail ? { ok: false, detail: r.detail } : { ok: true };
   });
-  return r.detail ? { ok: false, detail: r.detail } : { ok: true };
 }

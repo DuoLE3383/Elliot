@@ -36,6 +36,7 @@ import {
 } from "@/lib/autotrade";
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
 import { atrLevelsAtEntry } from "@/lib/indicators";
+import { useLeaderElection } from "@/lib/leader";
 import type { EngineSettings, Ticker } from "@/lib/types";
 import { INTERVALS } from "@/lib/types";
 import { llmReviewViaApi, type LlmVerdict } from "@/lib/llm";
@@ -171,6 +172,10 @@ const msgLlmVeto = (r: ScanRow, v: LlmVerdict): string =>
 
 export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair, pushToast }: Props) {
   const [cfg, setCfg] = useState<AutoConfig>(loadAutoConfigSafe());
+  // one engine per browser: the elected leader tab drives cycles/scans/sends,
+  // standby tabs keep the UI live but never train, trade or notify
+  const { leader } = useLeaderElection();
+  const leaderRef = useRef(leader);
   const [rows, setRows] = useState<ScanRow[]>([]);
   const [scanAt, setScanAt] = useState<number | null>(null);
   const [scanning, setScanning] = useState<{ done: number; total: number; current: string } | null>(null);
@@ -209,6 +214,9 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   useEffect(() => {
     cfgRef.current = cfg;
   }, [cfg]);
+  useEffect(() => {
+    leaderRef.current = leader;
+  }, [leader]);
   useEffect(() => {
     rowsRef.current = rows;
   }, [rows]);
@@ -266,7 +274,9 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
             kind: "flip",
             text: t(langRef.current, "auto.closed", { pair: closed.symbol, tf: closed.interval, pnl: (closed.pnlPct ?? 0).toFixed(2) }),
           });
-          void sendTelegram(msgClose(closed, st?.stats.closed ?? 0, st?.stats.winRate ?? 0, st?.stats.netPnlPct ?? 0));
+          // key = the trade id — N tabs/devices watching the same position send
+          // ONE close message (the server dedupes the rest)
+          void sendTelegram(msgClose(closed, st?.stats.closed ?? 0, st?.stats.winRate ?? 0, st?.stats.netPnlPct ?? 0), { key: `close:${closed.id}` });
         }
         return closed;
       } finally {
@@ -314,7 +324,9 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
       const now = Date.now();
       for (const r of built.picked) state.seen[`${r.symbol}-${r.interval}`] = now;
       saveBcastState(state);
-      const res = await sendTelegram(built.text);
+      // key = 5-minute bucket — the metronome runs per tab, but one digest per
+      // bucket goes out GLOBALLY no matter how many tabs/devices are open
+      const res = await sendTelegram(built.text, { key: `top:${Math.floor(now / 300_000)}` });
       if (mountedRef.current && !res.ok && !/telegram_not_configured/i.test(res.detail ?? "")) {
         const busy = /telegram_busy|HTTP 50\d|Overload/i.test(res.detail ?? "");
         pushToast({
@@ -354,8 +366,10 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   // ── broadcast metronome — the TOP-coin digest goes out every 5 minutes ──────
   // Reuses a fresh scan when one is younger than 4.5 min (avoids double sends
   // with the auto cycle), otherwise triggers doScan() which broadcasts itself.
+  // Standby tabs do NOT run this — the leader tab broadcasts for the browser
+  // (the `top:` dedupe key still guards multi-device overlaps).
   useEffect(() => {
-    if (!cfg.broadcast) return;
+    if (!cfg.broadcast || !leader) return;
     const tick = async () => {
       if (busyRef.current || scanBusyRef.current) return;
       const fresh = rowsRef.current.length > 0 && Date.now() - (scanAgeRef.current ?? 0) <= 4.5 * 60_000;
@@ -371,7 +385,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     void tick(); // enabling → first digest right away (empty rows → silent no-op)
     const id = window.setInterval(() => void tick(), 5 * 60_000);
     return () => window.clearInterval(id);
-  }, [cfg.broadcast, doScan, sendTopCoins]);
+  }, [cfg.broadcast, leader, doScan, sendTopCoins]);
 
   // ── one auto cycle: manage the open position, then maybe enter the best pick
   const runCycle = useCallback(async () => {
@@ -479,7 +493,11 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
         if (v && v.verdict === "skip") {
           const why = v.reasons[0] ?? "—";
           pushToast({ kind: "wy", text: t(langRef.current, "auto.llm.veto", { pair: best.symbol, tf: best.interval, reason: why }) });
-          void sendTelegram(msgLlmVeto(best, v));
+          // key = setup + 5-min bucket — every tab reviewing the SAME setup in
+          // this cycle window vetoes once, the server collapses the repeats
+          void sendTelegram(msgLlmVeto(best, v), {
+            key: `veto:${best.symbol}:${best.interval}:${best.bias}:${Math.floor(Date.now() / 300_000)}`,
+          });
           setStatus(t(langRef.current, "auto.llm.veto", { pair: best.symbol, tf: best.interval, reason: why }));
           return; // stay flat — the next cycle re-evaluates with a fresh scan
         }
@@ -517,6 +535,9 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
               ? `📏 SL/TP = ATR ${live.atrPct.toFixed(2)}% × ${coef} — đo lúc vào lệnh`
               : undefined,
           ),
+          // key = the DB trade id — only the tab whose openAutoTrade() won the
+          // 409 race has an id anyway, but keep the guard explicit
+          { key: `open:${trade.id}` },
         );
         await refreshAuto();
         setStatus(`${trade.symbol} ${trade.interval} ${trade.side} @ ${fmtPrice(trade.entryPrice)}`);
@@ -527,9 +548,12 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     }
   }, [closeOpen, doScan, pushToast, refreshAuto]);
 
-  // auto cycle — immediate tick on enable, then every cycleMin minutes
+  // auto cycle — immediate tick on enable, then every cycleMin minutes.
+  // Only the elected LEADER tab runs it: 10 open tabs used to mean 10 XGBoost
+  // trainings + 10 scan loops fighting over the same one-position book. A
+  // standby tab takes over within seconds when the leader closes.
   useEffect(() => {
-    if (!cfg.on) {
+    if (!cfg.on || !leader) {
       setCountdown(null);
       return;
     }
@@ -537,14 +561,16 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     void runCycle();
     const id = window.setInterval(() => void runCycle(), cfg.cycleMin * 60_000);
     return () => window.clearInterval(id);
-  }, [cfg.on, cfg.cycleMin, runCycle]);
+  }, [cfg.on, cfg.cycleMin, leader, runCycle]);
 
   // intra-cycle watcher — SL/TP/liquidation can hit BETWEEN cycles; this books
   // them within ~15s from the live tickers instead of waiting for the next
   // full cycle, then kicks a fresh entry a few seconds later. It also fires
   // the one-shot "approaching TP/SL" Telegram warning (70% of the way there).
+  // Leader-only — 20 tabs would each book the same hit (one wins the DB race)
+  // and each fire its own near-warn; the `near:` key mops up devices.
   useEffect(() => {
-    if (!cfg.on) return;
+    if (!cfg.on || !leader) return;
     const id = window.setInterval(() => {
       const open = autoRef.current?.open;
       if (!open || busyRef.current || closingRef.current) return;
@@ -577,7 +603,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
         } catch {
           // storage blocked — flags live for this session only
         }
-        void sendTelegram(msgNear(open, price, near));
+        void sendTelegram(msgNear(open, price, near), { key: `near:${open.id}:${near}` });
         pushToast({
           kind: "wy",
           text: t(
@@ -589,7 +615,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
       }
     }, 15_000);
     return () => window.clearInterval(id);
-  }, [cfg.on, closeOpen, runCycle, pushToast]);
+  }, [cfg.on, leader, closeOpen, runCycle, pushToast]);
 
   // hourly / daily Telegram digests — checked every minute. The boundary dedupe
   // AND the send happen on the SERVER (one digest per hour/day no matter how
@@ -628,20 +654,31 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     }
   }, []);
 
+  // hourly / daily digests — only the leader posts the intent (the server-side
+  // boundary markers are the real guard, this just keeps one poster per browser)
   useEffect(() => {
+    if (!leader) return;
     const id = window.setInterval(() => void sendPeriodicStats(), 60_000);
     return () => window.clearInterval(id);
-  }, [sendPeriodicStats]);
+  }, [leader, sendPeriodicStats]);
 
-  // 1 s countdown to the next cycle
+  // standby tabs still keep the on-screen position book fresh (display only —
+  // they never trade, scan, train or notify)
   useEffect(() => {
-    if (!cfg.on) return;
+    if (leader) return;
+    const id = window.setInterval(() => void refreshAuto(), 30_000);
+    return () => window.clearInterval(id);
+  }, [leader, refreshAuto]);
+
+  // 1 s countdown to the next cycle (leader tab only — standby shows the badge)
+  useEffect(() => {
+    if (!cfg.on || !leader) return;
     const id = window.setInterval(() => {
       const left = Math.max(0, Math.round((nextAtRef.current - Date.now()) / 1000));
       setCountdown(left);
     }, 1000);
     return () => window.clearInterval(id);
-  }, [cfg.on]);
+  }, [cfg.on, leader]);
 
   const updateCfg = (patch: Partial<AutoConfig>) => {
     setCfg((prev) => {
@@ -654,7 +691,8 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const checkTg = async () => {
     setTgState("sending");
     setTgDetail(null);
-    const r = await sendTelegram(TEST_MSG);
+    // manual test — bypass the dedupe so every click really does send
+    const r = await sendTelegram(TEST_MSG, { dedupe: false });
     if (r.ok) {
       setTgState("ok");
       pushToast({ kind: "xgb", text: t(lang, "auto.tg.sent") });
@@ -991,7 +1029,13 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
             </div>
           </div>
         )}
-        {cfg.on && countdown != null && (
+        {cfg.on && !leader && (
+          <p className="flex items-center gap-1.5 text-[11px] text-amber-400">
+            <Bot className="h-3.5 w-3.5" />
+            {t(lang, "auto.standby")}
+          </p>
+        )}
+        {cfg.on && leader && countdown != null && (
           <p className="text-[11px] text-zinc-500">
             {countdown < 120
               ? t(lang, "auto.cycle.next", { s: countdown })
