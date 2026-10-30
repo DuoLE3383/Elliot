@@ -1,8 +1,9 @@
 // ─── Hardcoded scan universe — ATR + trending pairs, re-ranked every 8h ──────
 // "Add cứng các cặp từ source bằng ATR và trending pair — scan mỗi 8h":
 // the pair list below lives in SOURCE (no browser localStorage dependency —
-// watchlists differ per browser, this does not). Every 8 hours the engine
-// fetches 1h candles for the whole universe, scores each pair by
+// watchlists differ per browser, this does not). Every 8 hours (cadence —
+// UNIVERSE_SCAN_MS) the engine re-ranks; each pass scores the LAST 10 DAYS of
+// price action (UNIVERSE_LOOKBACK_CANDLES = 240 × 1h closed candles) by
 //   trend   — EMA20/EMA50 spread + Donchian position (−1 markdown … +1 markup)
 //   ATR%    — ATR(14) as % of close (volatility you can actually trade)
 // and publishes the top UNIVERSE_TOP "trending pairs" (UI card + Telegram).
@@ -30,7 +31,10 @@ export const UNIVERSE: readonly string[] = [
 ];
 
 export const UNIVERSE_INTERVAL = "1h";
-export const UNIVERSE_SCAN_MS = 8 * 3_600_000; // scan mỗi 8h
+/** cadence: quét LẠI mỗi 8 tiếng (không phải quét dữ liệu 8h) */
+export const UNIVERSE_SCAN_MS = 8 * 3_600_000;
+/** cửa sổ dữ liệu mỗi lần quét = 10 ngày qua (240 nến 1h đóng) */
+export const UNIVERSE_LOOKBACK_CANDLES = 10 * 24;
 /** TOP coin universe = 30 — tất cả được tự thêm vào watchlist sau mỗi lần quét */
 export const UNIVERSE_TOP = 30;
 /** ATR% at which the volatility term of the score saturates */
@@ -44,6 +48,8 @@ export interface UniverseRow {
   trend: number;
   /** log return over the last 24 closed candles (≈ 1 day on 1h) */
   ret24h: number;
+  /** log return over the full 10-day scan window (240 × 1h) */
+  ret10d: number;
   /** composite: 60% trend + 40% volatility (ATR% saturating at 5%) */
   score: number;
 }
@@ -59,12 +65,22 @@ export function atrPctAt(k: Kline[]): number {
   return a != null && c > 0 ? (a / c) * 100 : 0;
 }
 
-/** log return of the last closed candle vs 24 closed candles earlier. */
-export function ret24hAt(k: Kline[]): number {
+/** log return of the last closed candle vs `back` closed candles earlier. */
+export function retBackAt(k: Kline[], back: number): number {
   const n = k.length;
-  const back = Math.min(24, n - 2);
-  if (back <= 0 || k[n - 2 - back].c <= 0) return 0;
-  return Math.log(k[n - 2].c / k[n - 2 - back].c);
+  const b = Math.min(back, n - 2);
+  if (b <= 0 || k[n - 2 - b].c <= 0) return 0;
+  return Math.log(k[n - 2].c / k[n - 2 - b].c);
+}
+
+/** log return of the last closed candle vs 24 closed candles earlier (≈ 1 day). */
+export function ret24hAt(k: Kline[]): number {
+  return retBackAt(k, 24);
+}
+
+/** log return over the full 10-day scan window (240 × 1h). */
+export function ret10dAt(k: Kline[]): number {
+  return retBackAt(k, UNIVERSE_LOOKBACK_CANDLES);
 }
 
 /**
@@ -94,7 +110,8 @@ export function trendScore(k: Kline[]): number {
   return clamp(0.6 * spread + 0.4 * (2 * pos - 1), -1, 1);
 }
 
-/** Score one pair from its 1h candles (pure — no fetch). */
+/** Score one pair from its 1h candles (pure — no fetch). `k` should carry the
+ * full 10-day window: UNIVERSE_LOOKBACK_CANDLES closed candles + live candle. */
 export function scorePair(symbol: string, k: Kline[]): UniverseRow {
   const atrPct = atrPctAt(k);
   const trend = trendScore(k);
@@ -103,6 +120,7 @@ export function scorePair(symbol: string, k: Kline[]): UniverseRow {
     atrPct,
     trend,
     ret24h: ret24hAt(k),
+    ret10d: ret10dAt(k),
     score: Math.round((0.6 * trend + 0.4 * clamp(atrPct / ATR_SATURATION, 0, 1)) * 1000) / 1000,
   };
 }

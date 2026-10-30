@@ -131,8 +131,10 @@ export function bestTradeableAvoid(
 
 const sleep = (ms = 0) => new Promise((r) => globalThis.setTimeout(r, ms));
 
-export async function fetchKlines(symbol: string, interval: string): Promise<Kline[]> {
-  const res = await fetch(`/api/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}`);
+/** `limit` optional — universe scan passes 240 (10 ngày × nến 1h). */
+export async function fetchKlines(symbol: string, interval: string, limit?: number): Promise<Kline[]> {
+  const q = limit && limit > 0 ? `&limit=${limit}` : "";
+  const res = await fetch(`/api/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}${q}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = (await res.json()) as { klines: Kline[] };
   return json.klines;

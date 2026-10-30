@@ -107,9 +107,9 @@ check(msg.includes("07:00 GMT+7"), "GMT+7 open hour shown (0+7)");
 check(msg.includes("VỪA MỞ"), "opened session flagged VỪA MỞ");
 check(msg.includes("drift BTC"), "opened session line carries drift");
 check(!msg.includes("đang mở") && !msg.includes("mạnh nhất") && !msg.includes("Chu kỳ lịch"), "lean message — no 4-session table / best-worst / calendar noise");
-check(/thiên <b>(LONG|SHORT)<\/b>/.test(msg), "forecast lean present");
-check(/P≈\d+%/.test(msg), "forecast P present");
-check(msg.includes("không phải bảo đảm"), "disclaimer present");
+check(/Chiều Hướng <b>(LONG|SHORT|SIDEWAYS)<\/b>/.test(msg), "forecast direction present (3 zones)");
+check(/P≈\d+(?:\.\d+)?%/.test(msg), "forecast P present");
+check(msg.includes("bảo đảm"), "disclaimer present");
 
 // ─── 2. tick fires for the just-opened session only ───────────────────────────
 
@@ -198,7 +198,7 @@ check(msgP.includes("SẮP MỞ PHIÊN TOKYO"), "pre-open title", msgP.split("\n
 check(msgP.includes("sau 5p"), "5-minute countdown shown");
 check(msgP.includes("sắp mở sau 5p"), "session line marked sắp mở");
 check(msgP.includes("00:00 UTC"), "title shows the OPEN hour, not the fire hour");
-check(/thiên <b>(LONG|SHORT)<\/b>/.test(msgP), "forecast lean for the imminent session");
+check(/Chiều Hướng <b>(LONG|SHORT|SIDEWAYS)<\/b>/.test(msgP), "forecast direction for the imminent session");
 const rawStateP = readFileSync("/tmp/elliot-test-session-bcast/session-bcast.json", "utf8");
 check(rawStateP.includes("2026-11-03"), "state keyed by OPEN date (tomorrow)", rawStateP);
 

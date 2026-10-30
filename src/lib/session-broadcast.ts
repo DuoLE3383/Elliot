@@ -27,6 +27,7 @@ import {
   type SessionKey,
 } from "./market";
 import type { Kline } from "./types";
+import { getSqueezeReport, squeezeLine, type SqueezeReport } from "./squeeze";
 import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store";
 
 const BCAST_SYMBOL = "BTCUSDT";
@@ -87,18 +88,33 @@ function inLabel(min: number): string {
 }
 
 /**
+ * Chiều hướng phiên tới từ bullPct lịch sử — 3 vùng 60/40: chỉ dám gọi
+ * LONG/SHORT khi lệch rõ (≥60% / ≤40% nến tăng), giữa là SIDEWAYS. P hiển
+ * thị luôn khớp chiều (LONG → %nến tăng, SHORT → %nến giảm) — hết kiểu
+ * "SIDEWAYS mà P≈50%" dễ đọc nhầm là tín hiệu.
+ */
+export function sessionDirection(bullPct: number): { dir: "LONG" | "SHORT" | "SIDEWAYS"; pPct: number; pTxt: string } {
+  const b = bullPct;
+  if (b >= 60) return { dir: "LONG", pPct: b, pTxt: `P≈${b.toFixed(1)}% nến tăng` };
+  if (b <= 40) return { dir: "SHORT", pPct: 100 - b, pTxt: `P≈${(100 - b).toFixed(1)}% nến giảm` };
+  return { dir: "SIDEWAYS", pPct: Math.max(b, 100 - b), pTxt: `${b.toFixed(1)}% nến tăng — không thiên hướng rõ` };
+}
+
+/**
  * LEAN message — chỉ thứ trader cần (bỏ bảng 4 phiên + thống kê chu kỳ lịch
  * vốn khiến tin dài và khó đọc):
  *   1. tên phiên + giờ mở (GMT+7/UTC) + đếm ngược nếu báo trước
  *   2. phiên mở: Bull % · drift BTC · trạng thái
- *   3. phiên kế tiếp: mở sau bao lâu + thiên hướng LONG/SHORT + P
- *   4. chú thích P
+ *   3. phiên kế tiếp: mở sau bao lâu + Chiều Hướng (LONG/SHORT/SIDEWAYS) + P + n
+ *   4. ⛓ sức ép đòn bẩy (OI + long/short + taker + funding) — radar dump/squeeze
+ *   5. chú thích nguồn dữ liệu
  */
 export function buildSessionOpenMessage(
   opened: SessionKey,
   now: number,
   klines: Kline[],
   openTs = now,
+  sq: SqueezeReport | null = null,
 ): string {
   const stats = sessionStats(klines);
   const byKey = new Map(stats.map((s) => [s.key, s]));
@@ -122,14 +138,24 @@ export function buildSessionOpenMessage(
   const nx = nextSessionOpen(now);
   if (nx) {
     const nxStat = byKey.get(nx.key);
-    lines.push(
-      nxStat?.bullPct != null
-        ? `🔮 Phiên tới: <b>${NAME[nx.key]}</b> — mở sau ${inLabel(nx.inMin)} — thiên <b>${nxStat.bullPct >= 50 ? "LONG" : "SHORT"}</b> · P≈${Math.max(nxStat.bullPct, 100 - nxStat.bullPct).toFixed(0)}%`
-        : `🔮 Phiên tới: <b>${NAME[nx.key]}</b> — mở sau ${inLabel(nx.inMin)}`,
-    );
+    if (nxStat?.bullPct != null) {
+      const d = sessionDirection(nxStat.bullPct);
+      lines.push(
+        `🔮 Phiên tới: <b>${NAME[nx.key]}</b> — mở sau ${inLabel(nx.inMin)} — Chiều Hướng <b>${d.dir}</b> · ${d.pTxt} (n=${nxStat.candles} phiên gần nhất)`,
+      );
+    } else {
+      lines.push(`🔮 Phiên tới: <b>${NAME[nx.key]}</b> — mở sau ${inLabel(nx.inMin)}`);
+    }
   }
 
-  lines.push(`💡 P = tỷ lệ nến đóng tăng của phiên (${BCAST_SYMBOL} ${BCAST_INTERVAL}) — thống kê lịch sử, không phải bảo đảm.`);
+  // ⛓ radar đòn bẩy — dữ liệu gốc Binance Futures (nguồn Coinglass tổng hợp):
+  // OI + long/short + taker + funding → cảnh báo dump / short-squeeze TRƯỚC
+  // khi giá chạy. Lỗi fetch → bỏ khối, không cản tin phiên.
+  if (sq) lines.push(squeezeLine(sq));
+
+  lines.push(
+    `💡 Thống kê lịch sử (${BCAST_SYMBOL} ${BCAST_INTERVAL}) · ⛓ = OI + long/short + taker + funding từ Binance Futures — nguồn gốc mà Coinglass tổng hợp. Thống kê ≠ bảo đảm — luôn đặt SL.`,
+  );
   return lines.join("\n");
 }
 
@@ -201,10 +227,12 @@ export async function tickSessionBroadcast(now = Date.now()): Promise<TickResult
     console.error(`[session-bcast] kline fetch failed: ${e instanceof Error ? e.message : e}`);
     return { due: due.map((x) => x.key), sent: [], reason: "kline_fetch_failed" };
   }
+  // radar đòn bẩy chạy song song kiến thức phiên — fail thì bỏ khối ⛓
+  const sq = await getSqueezeReport(BCAST_SYMBOL).catch(() => null);
 
   const sent: SessionKey[] = [];
   for (const item of due) {
-    const r = await tgSendMessage(buildSessionOpenMessage(item.key, now, klines, item.openTs), "HTML");
+    const r = await tgSendMessage(buildSessionOpenMessage(item.key, now, klines, item.openTs, sq), "HTML");
     if (r.ok) {
       sent.push(item.key);
       const st = loadState(); // re-read: survives parallel ticks / manual edits
@@ -234,8 +262,11 @@ export async function sendSessionPreview(): Promise<{ ok: boolean; detail?: stri
     openNow[0] ??
     "london";
   try {
-    const klines = await fetchKlinesDirect(BCAST_SYMBOL, BCAST_INTERVAL, KLINE_COUNT);
-    const text = `🧪 <b> — thông báo phiên</b>\n\n${buildSessionOpenMessage(opened, now, klines, now)}`;
+    const [klines, sq] = await Promise.all([
+      fetchKlinesDirect(BCAST_SYMBOL, BCAST_INTERVAL, KLINE_COUNT),
+      getSqueezeReport(BCAST_SYMBOL).catch(() => null),
+    ]);
+    const text = `🧪 <b> — thông báo phiên</b>\n\n${buildSessionOpenMessage(opened, now, klines, now, sq)}`;
     return await tgSendMessage(text, "HTML");
   } catch (e) {
     return { ok: false, detail: e instanceof Error ? e.message : "kline fetch failed" };

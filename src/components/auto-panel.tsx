@@ -45,6 +45,7 @@ import { NOISE_BAND } from "@/lib/xgb";
 import {
   UNIVERSE,
   UNIVERSE_INTERVAL,
+  UNIVERSE_LOOKBACK_CANDLES,
   UNIVERSE_SCAN_MS,
   rankUniverse,
   scorePair,
@@ -434,8 +435,9 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   }, [cfg.broadcast, leader, doScan, sendTopCoins]);
 
   // ── Universe 8h — bộ cặp cứng trong source, xếp hạng theo ATR + trending ──
-  // Chỉ tab TRƯỞNG quét (fetch 1h × 26 cặp, nhẹ — không train); kết quả hiển
-  // thị ở card dưới và gửi Telegram mỗi bucket 8h (dedupe key universe:<bucket>).
+  // Chỉ tab TRƯỞNG quét (fetch 1h × 48 cặp × 240 nến = 10 ngày dữ liệu, nhẹ
+  // — không train); kết quả hiển thị ở card dưới và gửi Telegram mỗi bucket
+  // 8h (dedupe key universe:<bucket>).
   const uniBusyRef = useRef(false);
   useEffect(() => {
     if (!leader) return;
@@ -454,7 +456,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
         for (const sym of UNIVERSE) {
           if (!alive) return;
           try {
-            const k = await fetchKlines(sym, UNIVERSE_INTERVAL);
+            const k = await fetchKlines(sym, UNIVERSE_INTERVAL, UNIVERSE_LOOKBACK_CANDLES);
             if (k.length >= 55) out.push(scorePair(sym, k));
           } catch { /* một pair lỗi không cản lần quét */ }
           await new Promise((r) => setTimeout(r, 150));
@@ -474,11 +476,11 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
           const lines = top
             .map(
               (r, i) =>
-                `${String(i + 1).padStart(2, " ")}. ${r.symbol.replace("USDT", "")} — ATR ${r.atrPct.toFixed(2)}% · trend ${(r.trend * 100).toFixed(0)}% · 24h ${(r.ret24h * 100).toFixed(1)}%`,
+                `${String(i + 1).padStart(2, " ")}. ${r.symbol.replace("USDT", "")} — ATR ${r.atrPct.toFixed(2)}% · trend ${(r.trend * 100).toFixed(0)}% · 24h ${(r.ret24h * 100).toFixed(1)}% · 10d ${(r.ret10d * 100).toFixed(1)}%`,
             )
             .join("\n");
           void sendTelegram(
-            `🔄 <b>Vũ trụ quét 8h</b> — top ${top.length} (ATR + trending):\n<code>${lines}</code>`,
+            `🔄 <b>Vũ trụ quét 8h</b> — top ${top.length} (ATR + trending, dữ liệu 10 ngày qua):\n<code>${lines}</code>`,
             { html: true, key: `universe:${universeBucket()}` },
           );
         }
