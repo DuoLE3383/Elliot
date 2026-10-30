@@ -12,7 +12,7 @@
 //   ◄────── {kind:"done", res, entryPrice}   hoặc {kind:"fail", error}
 
 import type { EngineSettings, Kline } from "./types";
-import type { XgbResult } from "./xgb";
+import type { TradeLesson, XgbResult } from "./xgb";
 
 /** Main → worker: train one `${sym}-${itv}` combo. */
 export interface XgbTrainRequest {
@@ -26,6 +26,8 @@ export interface XgbTrainRequest {
   difficulty?: number;
   /** preloaded candles (single-train path); omitted → worker fetches `/api/klines` itself */
   klines?: Kline[];
+  /** closed paper trades of this combo — win/lose lessons mixed into training */
+  trades?: TradeLesson[];
 }
 
 /** Worker → main. */

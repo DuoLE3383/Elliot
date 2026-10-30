@@ -24,7 +24,7 @@ port.on("message", async (msg: XgbTrainRequest) => {
     const lv = msg.difficulty ?? 0;
     const res = await runXgb(klines, msg.settings, `${msg.sym}-${msg.itv}`, msg.itv, (p) => {
       port.postMessage({ kind: "progress", id: msg.id, p } satisfies XgbWorkerMsg);
-    }, lv);
+    }, lv, msg.trades);
     // entry price = last CLOSED candle close — same convention everywhere
     const entryPrice = klines.length >= 2 ? klines[klines.length - 2].c : 0;
     port.postMessage({

@@ -60,15 +60,17 @@ import {
   UNIVERSE_SCAN_MS,
   rankUniverse,
   scorePair,
+  universeBroadcastText,
   type UniverseRow,
 } from "./universe";
 import { buildTopCoinsMessage, loadBcastState, saveBcastState } from "./scan-broadcast";
+import { loadScanState, saveScanState } from "./scan-state";
 import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store";
 import { pushAutoDigests } from "./autodigest";
 import { msgClose, msgDca, msgLlmVeto, msgNear, msgOpen } from "./tg-msgs";
 import { enqueueJob, jobViews } from "./engine-jobs";
 import { directionalPnl, outcomeOf } from "./history";
-import { NOISE_BAND, type XgbResult } from "./xgb";
+import { NOISE_BAND, type TradeLesson, type XgbResult } from "./xgb";
 
 const SCAN_FRESH_MS = 4.5 * 60_000; // the 5-min metronome reuses a scan younger than this
 const SCAN_TTL = 30 * 60_000; // the cycle rescans when the snapshot is older than this
@@ -140,6 +142,9 @@ function loadEngine(): void {
   if (g.__elliottEngine?.loaded) return;
   const d = defaults();
   g.__elliottEngine = { ...d, loaded: true };
+  // last scan/universe snapshots from disk — a pm2 restart no longer blanks
+  // the panel with "No scan data yet" until the next 5-min bucket re-scans
+  Object.assign(g.__elliottEngine.v, loadScanState());
   try {
     const file = dataFile("engine.json");
     if (existsSync(file)) {
@@ -257,7 +262,12 @@ async function persistTrainResult(
       trees: res.trees,
       horizon: res.horizon,
       importance: JSON.stringify(res.importance ?? []),
-      params: JSON.stringify({ ...res.params, lv, marginAtr: Number(res.marginAtr.toFixed(3)) }),
+      params: JSON.stringify({
+        ...res.params,
+        lv,
+        marginAtr: Number(res.marginAtr.toFixed(3)),
+        ...(res.lessons ? { lessons: res.lessons } : {}),
+      }),
     },
   });
   return { suggestionId: sug.id, runId: run.id };
@@ -343,7 +353,7 @@ async function scanCore(
     // no history yet → rows stay unflagged
   }
   v.scan = { rows: ranked, at: Date.now() };
-  persistEngine();
+  saveScanState({ scan: v.scan });
   return { rows: ranked.length, workers: pool.parallelism };
 }
 
@@ -363,14 +373,46 @@ async function trainCore(
   const ranked: { sym: string; itv: string; res: XgbResult }[] = [];
   let best: { symbol: string; interval: string; acc: number; auc: number; score: number } | null = null;
   let lastResult: Record<string, unknown> | null = null;
+  const lessonTotals = { n: 0, wins: 0, agree: 0 };
   // pre-resolve every combo's difficulty from its persisted run count — the
   // worker needs it up-front (browser pool used to fetch it itself)
   const diffs = new Map<string, number>();
   for (const s of list) diffs.set(`${s.sym}|${s.itv}`, await runCount(s.sym, s.itv));
+  // win/lose lessons — closed dry-run trades per combo, newest first (capped
+  // per combo: recent trades matter, a year-old roll doesn't)
+  const tradeMap = new Map<string, TradeLesson[]>();
+  try {
+    const closed = await db.autoTrade.findMany({
+      where: { status: "closed" },
+      orderBy: { exitTime: "desc" },
+      take: 500,
+    });
+    for (const t of closed) {
+      if (!t.exitTime) continue;
+      const key = `${t.symbol}|${t.interval}`;
+      const lst = tradeMap.get(key) ?? [];
+      if (lst.length < 40) {
+        lst.push({
+          t: new Date(t.entryTime).getTime(),
+          side: t.side === "SHORT" ? "SHORT" : "LONG",
+          pnl: t.pnlPct ?? 0,
+        });
+      }
+      tradeMap.set(key, lst);
+    }
+    if (tradeMap.size > 0) console.log(`[engine] trade lessons — ${[...tradeMap.values()].reduce((a, x) => a + x.length, 0)} closed trades across ${tradeMap.size} combo(s)`);
+  } catch {
+    // no trade history — trains run on klines only, as before
+  }
   report({ progress: { done: 0, total: combos, current: "" }, extra: { workers: pool.parallelism } });
   try {
     await pool.runQueue(
-      list.map((s) => ({ sym: s.sym, itv: s.itv, difficulty: diffs.get(`${s.sym}|${s.itv}`) ?? 0 })),
+      list.map((s) => ({
+        sym: s.sym,
+        itv: s.itv,
+        difficulty: diffs.get(`${s.sym}|${s.itv}`) ?? 0,
+        trades: tradeMap.get(`${s.sym}|${s.itv}`),
+      })),
       p.settings,
       {
         onComboStart: (sym, itv) => report({ progress: { done, total: combos, current: `${sym} ${itv}` } }),
@@ -387,6 +429,11 @@ async function trainCore(
             const ids = await persistTrainResult(sym, itv, res, entryPrice, diffs.get(`${sym}|${itv}`) ?? 0);
             saved += 1;
             ranked.push({ sym, itv, res });
+            if (res.lessons) {
+              lessonTotals.n += res.lessons.n;
+              lessonTotals.wins += res.lessons.wins;
+              lessonTotals.agree += res.lessons.agree;
+            }
             if (opts.mode === "single") lastResult = { res, entryPrice, ...ids };
           } catch {
             // persist failure → combo counts as done but not saved
@@ -408,6 +455,7 @@ async function trainCore(
     const sc = scoreOf(r.res);
     if (!best || sc > best.score) best = { symbol: r.sym, interval: r.itv, acc: r.res.acc, auc: r.res.auc, score: sc };
   }
+  if (saved > 0) invalidateTrainSnapshot(); // panel train-history refreshes on the next poll
   // channel summary for a full pass — same message the client trainer used to send
   if (opts.mode === "all" && saved > 0 && tgReady()) {
     try {
@@ -417,6 +465,9 @@ async function trainCore(
         best
           ? `🏆 Tốt nhất: <b>#${best.symbol}</b> ${best.interval} · ACC ${best.acc.toFixed(1)}% · AUC ${best.auc.toFixed(2)} · Score ${best.score.toFixed(1)}`
           : "",
+        lessonTotals.n > 0
+          ? `🎓 Học từ <b>${lessonTotals.n}</b> lệnh dry-run thực (${lessonTotals.wins} win · ${lessonTotals.n - lessonTotals.wins} lose) — model khớp hướng ${lessonTotals.agree}/${lessonTotals.n}`
+          : "",
         `⚙️ ${pool.parallelism} luồng backend${xgbPoolAvailable() ? "" : " (fallback tuần tự)"}`,
       ].filter(Boolean);
       void tgSendMessage(lines.join("\n"), "HTML");
@@ -425,6 +476,74 @@ async function trainCore(
     }
   }
   return { saved, total: combos, best, ...(opts.mode === "single" && lastResult ? { result: lastResult } : {}) };
+}
+
+// ─── train history snapshot (GET /api/engine → train) ───────────────────────
+// "lưu train history và có thể chọn bản tốt nhất" — the history IS the
+// FinetuneRun table; the snapshot exposes total + latest runs and crowns the
+// best run per combo (champion). Cached 60s — the panel polls every 3s and
+// sqlite shouldn't aggregate the whole history per poll.
+
+export interface TrainRunLite {
+  symbol: string;
+  interval: string;
+  kind: string;
+  acc: number;
+  auc: number;
+  at: number;
+  /** this run is its combo's champion (best-ever AUC → ACC) */
+  best: boolean;
+}
+
+export interface TrainSnapshot {
+  at: number;
+  total: number;
+  latest: TrainRunLite[];
+}
+
+let trainCache: TrainSnapshot | null = null;
+
+async function trainSnapshot(): Promise<TrainSnapshot> {
+  if (trainCache && Date.now() - trainCache.at < 60_000) return trainCache;
+  try {
+    const [total, runs, hist] = await Promise.all([
+      db.finetuneRun.count(),
+      db.finetuneRun.findMany({ orderBy: { createdAt: "desc" }, take: 12 }),
+      db.finetuneRun.findMany({
+        select: { symbol: true, interval: true, acc: true, auc: true },
+        orderBy: { createdAt: "desc" },
+        take: 4000,
+      }),
+    ]);
+    const champ = new Map<string, { auc: number; acc: number }>();
+    for (const r of hist) {
+      const k = `${r.symbol}|${r.interval}`;
+      const cur = champ.get(k);
+      if (!cur || r.auc > cur.auc || (r.auc === cur.auc && r.acc > cur.acc)) champ.set(k, { auc: r.auc, acc: r.acc });
+    }
+    const latest: TrainRunLite[] = runs.map((r) => {
+      const c = champ.get(`${r.symbol}|${r.interval}`);
+      return {
+        symbol: r.symbol,
+        interval: r.interval,
+        kind: r.kind,
+        acc: r.acc,
+        auc: r.auc,
+        at: new Date(r.createdAt).getTime(),
+        best: c != null && r.auc >= c.auc && r.acc >= c.acc,
+      };
+    });
+    trainCache = { at: Date.now(), total, latest };
+  } catch {
+    // DB down — keep whatever cache exists (or the empty snapshot)
+    if (!trainCache) trainCache = { at: 0, total: 0, latest: [] };
+  }
+  return trainCache;
+}
+
+function invalidateTrainSnapshot(): void {
+  trainCache = null;
+  void trainSnapshot();
 }
 
 async function universeCore(
@@ -447,20 +566,11 @@ async function universeCore(
   if (out.length === 0) return { top: 0 };
   const top = rankUniverse(out);
   v.universe = { rows: top, at: Date.now() };
-  persistEngine();
-  // universe broadcast — same template the leader tab used to send
+  saveScanState({ universe: v.universe });
+  // universe broadcast — TOP-10 compact (30 coins 1 nùi → hết; phần còn lại ở panel)
   if (tgReady() && p.cfg.broadcast) {
     try {
-      const lines = top
-        .map(
-          (r, idx) =>
-            `${String(idx + 1).padStart(2, " ")}. ${r.symbol.replace("USDT", "")} — ATR ${r.atrPct.toFixed(2)}% · trend ${(r.trend * 100).toFixed(0)}% · 24h ${(r.ret24h * 100).toFixed(1)}% · 10d ${(r.ret10d * 100).toFixed(1)}%`,
-        )
-        .join("\n");
-      await tgSendMessage(
-        `🔄 <b>Vũ trụ quét (lặp mỗi 8h)</b> — top ${top.length} — ATR + trending · dữ liệu 10 ngày qua:\n<code>${lines}</code>`,
-        "HTML",
-      );
+      await tgSendMessage(universeBroadcastText(top), "HTML");
     } catch (e) {
       console.error(`[engine] universe broadcast failed: ${e instanceof Error ? e.message : e}`);
     }
@@ -943,6 +1053,7 @@ export function engineSnapshot(): {
   pairs: number;
   scan: { rows: ScanRow[]; at: number } | null;
   universe: { rows: UniverseRow[]; at: number } | null;
+  train: TrainSnapshot;
   cycle: { lastAt: number; status: string; nextAt: number };
   llmLast: EnginePersisted["llmLast"];
   jobs: ReturnType<typeof jobViews>;
@@ -957,6 +1068,7 @@ export function engineSnapshot(): {
     pairs: p.pairs.length,
     scan: v.scan,
     universe: v.universe,
+    train: trainCache ?? { at: 0, total: 0, latest: [] },
     cycle: { lastAt: v.lastCycleAt, status: v.lastCycleStatus, nextAt: p.nextCycleAt },
     llmLast: p.llmLast,
     jobs: jobViews(),
@@ -976,6 +1088,11 @@ export function startEngineScheduler(): void {
   started = true;
   gg.__elliottEngineSched = true;
   loadEngine();
+
+  // train-history snapshot for GET /api/engine — warm now, refresh every minute
+  void trainSnapshot();
+  const trainIv = setInterval(() => void trainSnapshot(), 60_000);
+  trainIv.unref?.();
 
   const lastBcast = { bucket: 0 };
   const lastUni = { bucket: 0 };

@@ -41,8 +41,13 @@ export const BCAST_VOL_MIN = 7e6; // $7M 24h quote volume
 export const BCAST_PL1_MIN = 5; // TP1 ≥ +5% from entry
 export const BCAST_TOP_N = 2; // coins per message
 /** Điểm tối thiểu để đăng broadcast — scoreOf = (AUC−0.5)×100 + (ACC−50) + tin cậy×15.
- *  28–29% kiểu ADA/XRP là nhiễu model yếu; dưới ngưỡng này KHÔNG gửi. */
-export const BCAST_SCORE_MIN = 30;
+ *  30–40% kiểu PEPE/NEAR (img 03: 30.30 / 39.90) là model yếu — "điểm thấp quá đừng
+ *  gợi ý": dưới 40 KHÔNG gửi, im lặng hơn là spam rác. */
+export const BCAST_SCORE_MIN = 40;
+/** Sàn AUC của model — 0.55 nghĩa là chỉ hơn tung đồng xu 5%: không đủ tin. */
+export const BCAST_AUC_MIN = 0.58;
+/** Sàn ACC của model — dưới 58% là overfit nhiễu. */
+export const BCAST_ACC_MIN = 58;
 const CANDIDATE_POOL = 8; // ranked rows inspected before giving up on filters
 
 const HR_LINE = "─────────────────";
@@ -282,7 +287,7 @@ export async function buildTopCoinsMessage(
   const seenSym = new Set<string>();
   const candidates: ScanRow[] = [];
   for (const r of rows) {
-    if (r.auc < 0.55 || r.acc < 55) continue;
+    if (r.auc < BCAST_AUC_MIN || r.acc < BCAST_ACC_MIN) continue;
     if (r.score < BCAST_SCORE_MIN) continue;
     if (r.tpPct < BCAST_PL1_MIN) continue;
     if (seenSym.has(r.symbol)) continue;
@@ -327,7 +332,7 @@ export async function buildTopCoinsMessage(
     `============================`,
     `🏆 <b>${names} </b> — TOP ${picked.length} COIN TIỀM NĂNG NHẤT`,
     `⏰ ${hh}h${mm} ${dateStr} │ Lần #${state.n + 1}`,
-    `📋 Vol ≥ $${(BCAST_VOL_MIN / 1e6).toFixed(0)}M │ PL1 ≥ ${BCAST_PL1_MIN}% │ Điểm ≥ ${BCAST_SCORE_MIN}`,
+    `📋 Vol ≥ $${(BCAST_VOL_MIN / 1e6).toFixed(0)}M │ PL1 ≥ ${BCAST_PL1_MIN}% │ Điểm ≥ ${BCAST_SCORE_MIN} │ AUC ≥ ${BCAST_AUC_MIN} │ ACC ≥ ${BCAST_ACC_MIN}%`,
     `Dữ liệu: ${CANDIDATE_POOL} combo tốt nhất từ ${rows.length} combo quét`
   ];
   for (const c of picked) out.push(...coinBlock(c), "");

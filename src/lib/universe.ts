@@ -134,3 +134,25 @@ export function rankUniverse(rows: UniverseRow[], top = UNIVERSE_TOP): UniverseR
 export function universeBucket(now = Date.now()): number {
   return Math.floor(now / UNIVERSE_SCAN_MS);
 }
+
+/** Số coin hiển thị trong tin Telegram "Vũ trụ quét" — 30 coins 1 nùi là spam
+ *  (yêu cầu: chỉ gửi top gọn, phần còn lại xem trên panel). */
+export const UNIVERSE_BCAST_TOP = 10;
+
+/**
+ * Telegram broadcast text — TOP-10 compact. The full top-30 stays on the
+ * panel; the message carries a "…và N coin khác" footer instead of dumping
+ * the whole list into the channel.
+ */
+export function universeBroadcastText(top: UniverseRow[]): string {
+  const show = top.slice(0, UNIVERSE_BCAST_TOP);
+  const lines = show
+    .map(
+      (r, idx) =>
+        `${String(idx + 1).padStart(2, " ")}. ${r.symbol.replace("USDT", "")} — ATR ${r.atrPct.toFixed(2)}% · trend ${(r.trend * 100).toFixed(0)}% · 24h ${(r.ret24h * 100).toFixed(1)}% · 10d ${(r.ret10d * 100).toFixed(1)}%`,
+    )
+    .join("\n");
+  const rest = top.length - show.length;
+  const more = rest > 0 ? `\n<i>…và ${rest} coin khác trong top-${top.length} — mở panel để xem đủ.</i>` : "";
+  return `🔄 <b>Vũ trụ quét (lặp mỗi 8h)</b> — TOP ${show.length}/${top.length} — ATR + trending · dữ liệu 10 ngày qua:\n<code>${lines}</code>${more}`;
+}

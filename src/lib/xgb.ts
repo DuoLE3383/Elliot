@@ -72,6 +72,10 @@ export interface XgbResult {
   suggestion: XgbSuggestion;
   /** whale-footprint read-out at the last closed candle (see whaleOf) */
   whale: WhaleReadout;
+  /** trade-history lessons mixed into this run — present when closed dry-run
+   *  trades existed for the combo: n samples from real win/lose outcomes,
+   *  `agree` = how many the trained model labels correctly (in-sample fit) */
+  lessons?: { n: number; wins: number; losses: number; agree: number };
 }
 
 export interface XgbParams {
@@ -443,6 +447,85 @@ export function buildDataset(
   return { rows, y, idx, ctx, horizon };
 }
 
+// ─── Học từ lịch sử trade thực (win/lose) ─────────────────────────────────────
+// The kline dataset teaches the model "what usually happens next"; it says
+// nothing about how THIS strategy's own trades died. Closed dry-run trades are
+// real, strategy-shaped evidence: features are read at the last CLOSED candle
+// before the entry (no lookahead) and the label is the realized outcome mapped
+// into the model's P(up) space:
+//   LONG win → 1 · LONG lose → 0 · SHORT win → 0 · SHORT lose → 1.
+// Each lesson is repeated LESSON_WEIGHT times inside the TRAIN split only —
+// the validation window stays pure kline-based so AUC/ACC remain comparable
+// with the champion history (champion–challenger gate unaffected).
+
+/** One closed paper trade — the raw material for trade-history lessons. */
+export interface TradeLesson {
+  /** entry time (epoch ms) */
+  t: number;
+  side: "LONG" | "SHORT";
+  /** realized ROE % — >0 win, <0 lose */
+  pnl: number;
+}
+
+const ITV_MS: Record<string, number> = {
+  "1m": 60_000,
+  "5m": 300_000,
+  "15m": 900_000,
+  "30m": 1_800_000,
+  "1h": 3_600_000,
+  "2h": 7_200_000,
+  "4h": 14_400_000,
+  "1d": 86_400_000,
+  "1w": 604_800_000,
+};
+
+/** Repetition factor of each real-trade sample in the train split — a handful
+ *  of trades must outshout ~300 synthetic kline rows to leave a mark. */
+export const LESSON_WEIGHT = 8;
+
+export interface LessonSample {
+  feats: number[];
+  y: number;
+  win: boolean;
+}
+
+/**
+ * Turn closed trades into supervised samples on THIS kline window.
+ * Trades outside the window, before indicator warm-up, or without a decisive
+ * outcome (pnl = 0) are skipped silently.
+ */
+export function tradeLessonsToSamples(
+  klines: Kline[],
+  ctx: XgbCtx,
+  interval: string,
+  trades: TradeLesson[],
+): LessonSample[] {
+  const step = ITV_MS[interval] ?? 0;
+  if (step <= 0 || klines.length < 10) return [];
+  const out: LessonSample[] = [];
+  for (const tr of trades) {
+    if (!tr || typeof tr.t !== "number" || tr.t <= 0) continue;
+    if (tr.side !== "LONG" && tr.side !== "SHORT") continue;
+    if (typeof tr.pnl !== "number" || tr.pnl === 0) continue;
+    // last bar whose CLOSE happened at/before the entry — a mid-bar entry
+    // must not see its own bar's close (that would be lookahead)
+    let j = -1;
+    for (let i = klines.length - 2; i >= 0; i--) {
+      if (klines[i].t + step <= tr.t) {
+        j = i;
+        break;
+      }
+    }
+    if (j < WARMUP) continue; // indicators not warmed up — no honest features
+    const feats = featuresAt(klines, j, ctx);
+    if (!feats) continue;
+    const win = tr.pnl > 0;
+    const y = tr.side === "LONG" ? (win ? 1 : 0) : win ? 0 : 1;
+    out.push({ feats, y, win });
+  }
+  return out;
+}
+
 // ─── Histogram binned gradient boosting ───────────────────────────────────────
 
 interface TreeNode {
@@ -791,6 +874,8 @@ export async function runXgb(
   interval: string,
   onProgress?: (frac: number) => void,
   difficulty = 0,
+  /** closed dry-run trades of this combo — win/lose lessons mixed into training */
+  trades?: TradeLesson[],
 ): Promise<XgbResult> {
   const lv = Math.min(MAX_DIFFICULTY, Math.max(0, Math.round(difficulty)));
   const horizonBase = HORIZON[interval] ?? 4;
@@ -804,6 +889,19 @@ export async function runXgb(
   const trainY = ds.y.slice(0, split);
   const valRows = ds.rows.slice(split);
   const valY = ds.y.slice(split);
+
+  // trade-history lessons — real win/lose outcomes from THIS strategy's own
+  // closed trades, repeated ×LESSON_WEIGHT inside the TRAIN split only (the
+  // validation window stays pure kline-based → AUC/ACC comparable with the
+  // champion history, the champion–challenger gate stays honest)
+  const lessonSamples =
+    trades && trades.length > 0 ? tradeLessonsToSamples(klines, ds.ctx, interval, trades) : [];
+  for (const s of lessonSamples) {
+    for (let w = 0; w < LESSON_WEIGHT; w++) {
+      trainRows.push(s.feats);
+      trainY.push(s.y);
+    }
+  }
 
   const { model, imp } = await trainTrees(
     trainRows,
@@ -828,6 +926,18 @@ export async function runXgb(
   const probNow = featsNow ? predictProb(model, featsNow) : 0.5;
   const whale = whaleOf(volZAt(klines, lastClosed, ds.ctx));
 
+  // how well does the final ensemble label the REAL trades it just learned
+  // from (in-sample fit — reported, not celebrated: n is small)
+  const lessons =
+    lessonSamples.length > 0
+      ? {
+          n: lessonSamples.length,
+          wins: lessonSamples.filter((s) => s.win).length,
+          losses: lessonSamples.filter((s) => !s.win).length,
+          agree: lessonSamples.reduce((a, s) => a + ((predictProb(model, s.feats) >= 0.5 ? 1 : 0) === s.y ? 1 : 0), 0),
+        }
+      : undefined;
+
   const suggestion = suggestFrom(klines, settings, probNow, key.split("-")[0], interval, ds.ctx);
 
   const names = FEATURE_NAMES as unknown as string[];
@@ -851,5 +961,6 @@ export async function runXgb(
     horizonBase,
     suggestion,
     whale,
+    ...(lessons ? { lessons } : {}),
   };
 }

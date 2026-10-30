@@ -68,12 +68,23 @@ interface LlmLast {
 }
 
 /** snapshot of GET /api/engine — the backend engine is the single source of truth */
+interface EngineSnapTrainRun {
+  symbol: string;
+  interval: string;
+  kind: string;
+  acc: number;
+  auc: number;
+  at: number;
+  best: boolean;
+}
+
 interface EngineSnap {
   synced: boolean;
   syncedAt: number | null;
   cfg: { on: boolean };
   scan: { rows: ScanRow[]; at: number } | null;
   universe: { rows: UniverseRow[]; at: number } | null;
+  train: { at: number; total: number; latest: EngineSnapTrainRun[] } | null;
   cycle: { lastAt: number; status: string; nextAt: number };
   llmLast: LlmLast | null;
   jobs: {
@@ -136,6 +147,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const [scanAt, setScanAt] = useState<number | null>(null);
   const [scanning, setScanning] = useState<{ done: number; total: number; current: string; queued: number } | null>(null);
   const [universe, setUniverse] = useState<UniverseRow[]>([]);
+  const [trainHist, setTrainHist] = useState<EngineSnap["train"]>(null);
   const [auto, setAuto] = useState<AutoState | null>(null);
   const [tgConfigured, setTgConfigured] = useState<boolean | null>(null);
   const [tgState, setTgState] = useState<"idle" | "sending" | "ok" | "fail">("idle");
@@ -277,6 +289,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
             : null,
         );
         setUniverse(snap.universe?.rows ?? []);
+        setTrainHist(snap.train ?? null);
         // TOP-30 tự vào watchlist (gộp, giữ pair người dùng thêm trước, không trùng)
         const topSyms = (snap.universe?.rows ?? []).map((r) => r.symbol);
         if (topSyms.length > 0) {
@@ -780,6 +793,43 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
           </div>
         ) : (
           !scanning && <p className="text-[11px] text-zinc-600">{t(lang, "auto.scan.empty")}</p>
+        )}
+
+        {/* train history — every backend train is persisted (FinetuneRun); the
+            🏆 badge marks the best run per combo, the champion–challenger bar
+            every fresh train must clear before it may trade */}
+        {trainHist && (trainHist.total > 0 || trainHist.latest.length > 0) && (
+          <div className="border-t border-zinc-800 pt-2">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">{t(lang, "auto.trainhist.title")}</p>
+              <span className="font-mono text-[10px] text-zinc-600">{t(lang, "auto.trainhist.total", { n: trainHist.total })}</span>
+            </div>
+            <div className="rail-scroll mt-1.5 max-h-32 space-y-0.5 overflow-y-auto pr-0.5">
+              {trainHist.latest.map((r, i) => (
+                <button
+                  key={`${r.symbol}-${r.interval}-${r.at}-${i}`}
+                  type="button"
+                  onClick={() => onPickPair(r.symbol, r.interval)}
+                  className="flex w-full items-center gap-2 rounded px-1.5 py-0.5 font-mono text-[10px] hover:bg-zinc-800/60"
+                >
+                  <span className="shrink-0 text-zinc-600">
+                    {new Date(r.at).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}
+                  </span>
+                  <span className="truncate text-zinc-300">
+                    {r.symbol} {r.interval}
+                  </span>
+                  {r.best && (
+                    <span title={t(lang, "auto.trainhist.champ")} className="shrink-0">
+                      🏆
+                    </span>
+                  )}
+                  <span className="ml-auto shrink-0 text-zinc-400">AUC {r.auc.toFixed(2)}</span>
+                  <span className={`shrink-0 ${r.acc >= cfg.minAcc ? "text-emerald-400" : "text-zinc-500"}`}>{r.acc.toFixed(0)}%</span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-[10px] leading-snug text-zinc-600">{t(lang, "auto.trainhist.hint")}</p>
+          </div>
         )}
 
         {/* universe 8h — bộ cặp cứng trong source, xếp hạng ATR + trending */}

@@ -13,7 +13,7 @@ import { Worker } from "node:worker_threads";
 import os from "node:os";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { runXgb, type XgbResult } from "./xgb";
+import { runXgb, type TradeLesson, type XgbResult } from "./xgb";
 import { fetchKlinesDirect } from "./klines-direct";
 import type { EngineSettings } from "./types";
 import type { XgbTrainRequest, XgbWorkerMsg } from "./xgb-worker-protocol";
@@ -109,14 +109,14 @@ export class XgbPoolNode {
 
   /** Fire every combo through the pool; resolves when ALL have settled. */
   async runQueue(
-    specs: { sym: string; itv: string; difficulty?: number }[],
+    specs: { sym: string; itv: string; difficulty?: number; trades?: TradeLesson[] }[],
     settings: EngineSettings,
     hooks: QueueHooks,
   ): Promise<void> {
     await Promise.all(
       specs.map((s) =>
         this.train(
-          { sym: s.sym, itv: s.itv, difficulty: s.difficulty, settings },
+          { sym: s.sym, itv: s.itv, difficulty: s.difficulty, trades: s.trades, settings },
           () => hooks.onComboStart?.(s.sym, s.itv),
         ).then(async (out) => {
           if (out.ok) await hooks.onComboDone?.(s.sym, s.itv, out.res, out.entryPrice);
@@ -184,7 +184,7 @@ export class XgbPoolNode {
     try {
       const klines = req.klines ?? (await fetchKlinesDirect(req.sym, req.itv));
       const lv = req.difficulty ?? 0;
-      const res = await runXgb(klines, req.settings, `${req.sym}-${req.itv}`, req.itv, undefined, lv);
+      const res = await runXgb(klines, req.settings, `${req.sym}-${req.itv}`, req.itv, undefined, lv, req.trades);
       const entryPrice = klines.length >= 2 ? klines[klines.length - 2].c : 0;
       return { ok: true, res, entryPrice };
     } catch (e) {
