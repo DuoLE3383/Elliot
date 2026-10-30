@@ -15,9 +15,10 @@
 // over the real paper-trading engine.
 
 import { atr, ema, rsi, sma, utTrail } from "./indicators";
-import { calendarFlags, dowFeatures, hourFeatures, sessionOneHot } from "./market";
+import { calendarFlags, dowFeatures, hourFeatures, sessionAge, sessionOneHot, sessionOverlap } from "./market";
 import { kpiFrom, papersFrom } from "./papers";
 import { signalsFrom } from "./signals";
+import { wyckFeatureAt } from "./wyck-features";
 import type { EngineSettings, Kline } from "./types";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -111,6 +112,13 @@ const MARGIN_STEP = 0.05; // dead-zone growth per level (× ATR)
 const MARGIN_CAP = 0.3; // dead-zone ceiling (× ATR)
 const MIN_ROWS_WITH_MARGIN = 150; // fall back to no dead-zone below this
 
+/**
+ * Khử nhiễu XGBoost — model probability inside 0.5 ± NOISE_BAND means the
+ * model has NO decisive lean (coin-flip territory). The auto engine refuses
+ * to open such entries (statistical noise, not signals). 0 = tắt cổng này.
+ */
+export const NOISE_BAND = 0.06;
+
 // ─── Features ─────────────────────────────────────────────────────────────────
 
 export const FEATURE_NAMES = [
@@ -150,6 +158,19 @@ export const FEATURE_NAMES = [
   "atrRank",
   "bbwRank",
   "donchian",
+  // Wyckoff Schematic encoding (pure, no-lookahead — see wyck-features.ts):
+  // range context (PS/SC/AR/ST), Phase C spring/upthrust, climax, effort-vs-
+  // result absorption and the markup/markdown state of the schematic
+  "wyRangePos",
+  "wyRangeW",
+  "wyClimax",
+  "wySpring",
+  "wyEffort",
+  "wyTrend",
+  // deeper trading-session context: London∩New York overlap (deepest books)
+  // and minutes since the last session open (thin open, stop-runs)
+  "sessOverlap",
+  "sessAge",
 ] as const;
 
 export interface XgbCtx {
@@ -331,6 +352,9 @@ function featuresAt(k: Kline[], i: number, ctx: XgbCtx): number[] | null {
     trailingRank(ctx.atrPct, i),
     trailingRank(ctx.bbw, i),
     donchianPos(k, i),
+    ...wyckFeatureAt(k, i, ctx),
+    sessionOverlap(cur.t),
+    sessionAge(cur.t),
   ];
 }
 

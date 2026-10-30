@@ -41,6 +41,16 @@ import type { EngineSettings, Ticker } from "@/lib/types";
 import { INTERVALS } from "@/lib/types";
 import { llmReviewViaApi, type LlmVerdict } from "@/lib/llm";
 import { buildTopCoinsMessage, loadBcastState, saveBcastState } from "@/lib/scan-broadcast";
+import { NOISE_BAND } from "@/lib/xgb";
+import {
+  UNIVERSE,
+  UNIVERSE_INTERVAL,
+  UNIVERSE_SCAN_MS,
+  rankUniverse,
+  scorePair,
+  universeBucket,
+  type UniverseRow,
+} from "@/lib/universe";
 import { Bot, ScanLine, Send, Square } from "lucide-react";
 
 interface Props {
@@ -179,6 +189,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const [rows, setRows] = useState<ScanRow[]>([]);
   const [scanAt, setScanAt] = useState<number | null>(null);
   const [scanning, setScanning] = useState<{ done: number; total: number; current: string } | null>(null);
+  const [universe, setUniverse] = useState<UniverseRow[]>([]);
   const [auto, setAuto] = useState<AutoState | null>(null);
   const [tgConfigured, setTgConfigured] = useState<boolean | null>(null);
   const [tgState, setTgState] = useState<"idle" | "sending" | "ok" | "fail">("idle");
@@ -341,10 +352,15 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const doScan = useCallback(async (): Promise<ScanRow[]> => {
     if (scanBusyRef.current) return rowsRef.current;
     scanBusyRef.current = true;
-    setScanning({ done: 0, total: pairsRef.current.length * INTERVALS.length, current: "" });
+    setScanning({
+      done: 0,
+      total: (pairsRef.current.length > 0 ? pairsRef.current.length : UNIVERSE.length) * INTERVALS.length,
+      current: "",
+    });
     try {
       const out = await scanAll({
-        pairs: pairsRef.current,
+        // watchlist người dùng là chính; rỗng thì dùng bộ cặp CỨNG trong source
+        pairs: pairsRef.current.length > 0 ? pairsRef.current : [...UNIVERSE],
         settings: settingsRef.current,
         onProgress: (p) => mountedRef.current && setScanning(p),
       });
@@ -386,6 +402,67 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     const id = window.setInterval(() => void tick(), 5 * 60_000);
     return () => window.clearInterval(id);
   }, [cfg.broadcast, leader, doScan, sendTopCoins]);
+
+  // ── Universe 8h — bộ cặp cứng trong source, xếp hạng theo ATR + trending ──
+  // Chỉ tab TRƯỞNG quét (fetch 1h × 26 cặp, nhẹ — không train); kết quả hiển
+  // thị ở card dưới và gửi Telegram mỗi bucket 8h (dedupe key universe:<bucket>).
+  const uniBusyRef = useRef(false);
+  useEffect(() => {
+    if (!leader) return;
+    const LS_KEY = "utp.universe";
+    const LS_AT = "utp.universe.at";
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw) setUniverse(JSON.parse(raw) as UniverseRow[]);
+    } catch { /* cache hỏng — quét lại */ }
+    let alive = true;
+    const run = async () => {
+      if (uniBusyRef.current) return;
+      uniBusyRef.current = true;
+      try {
+        const out: UniverseRow[] = [];
+        for (const sym of UNIVERSE) {
+          if (!alive) return;
+          try {
+            const k = await fetchKlines(sym, UNIVERSE_INTERVAL);
+            if (k.length >= 55) out.push(scorePair(sym, k));
+          } catch { /* một pair lỗi không cản lần quét */ }
+          await new Promise((r) => setTimeout(r, 150));
+        }
+        if (!alive || out.length === 0) return;
+        const top = rankUniverse(out);
+        setUniverse(top);
+        try {
+          localStorage.setItem(LS_KEY, JSON.stringify(top));
+          localStorage.setItem(LS_AT, String(Date.now()));
+        } catch { /* storage đầy — bỏ qua */ }
+        if (cfgRef.current.broadcast) {
+          const lines = top
+            .map(
+              (r, i) =>
+                `${String(i + 1).padStart(2, " ")}. ${r.symbol.replace("USDT", "")} — ATR ${r.atrPct.toFixed(2)}% · trend ${(r.trend * 100).toFixed(0)}% · 24h ${(r.ret24h * 100).toFixed(1)}%`,
+            )
+            .join("\n");
+          void sendTelegram(
+            `🔄 <b>Vũ trụ quét 8h</b> — top ${top.length} (ATR + trending):\n<code>${lines}</code>`,
+            { html: true, key: `universe:${universeBucket()}` },
+          );
+        }
+      } finally {
+        uniBusyRef.current = false;
+      }
+    };
+    const tick = () => {
+      const last = Number(localStorage.getItem(LS_AT) ?? 0);
+      if (Date.now() - last >= UNIVERSE_SCAN_MS) void run();
+    };
+    tick();
+    const iv = setInterval(tick, 15 * 60_000);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, [leader]);
 
   // ── one auto cycle: manage the open position, then maybe enter the best pick
   const runCycle = useCallback(async () => {
@@ -1105,6 +1182,46 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
         ) : (
           !scanning && <p className="text-[11px] text-zinc-600">{t(lang, "auto.scan.empty")}</p>
         )}
+
+        {/* universe 8h — bộ cặp cứng trong source, xếp hạng ATR + trending */}
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-sky-400">
+              <ScanLine className="h-3 w-3" /> {t(lang, "auto.universe")}
+            </span>
+            <span className="font-mono text-[10px] text-zinc-600">8h · {UNIVERSE.length} pairs</span>
+          </div>
+          {universe.length > 0 ? (
+            <div className="mt-1 space-y-0.5">
+              {universe.slice(0, 5).map((r, i) => (
+                <button
+                  key={r.symbol}
+                  type="button"
+                  onClick={() => onPickPair(r.symbol, UNIVERSE_INTERVAL)}
+                  className="flex w-full items-center justify-between rounded px-1.5 py-0.5 font-mono text-[10px] hover:bg-zinc-800/60"
+                >
+                  <span className="text-zinc-300">
+                    {i + 1}. {r.symbol.replace("USDT", "")}
+                  </span>
+                  <span className="flex gap-2 text-zinc-500">
+                    <span>ATR {r.atrPct.toFixed(2)}%</span>
+                    <span
+                      className={
+                        r.trend > 0.15 ? "text-emerald-400" : r.trend < -0.15 ? "text-rose-400" : "text-zinc-500"
+                      }
+                    >
+                      {r.trend >= 0 ? "+" : ""}
+                      {(r.trend * 100).toFixed(0)}%
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-1 text-[10px] text-zinc-600">{t(lang, "auto.universe.empty")}</p>
+          )}
+          <p className="mt-1 text-[10px] leading-snug text-zinc-600">{t(lang, "auto.noiseBand", { band: NOISE_BAND })}</p>
+        </div>
 
         {/* open position */}
         {open ? (

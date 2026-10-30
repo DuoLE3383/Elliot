@@ -93,10 +93,16 @@ const close = (a: number, b: number): boolean => Math.abs(a - b) < 1e-9;
     ok(ctx.atrPct[200] != null && ctx.atrPct[200]! > 0, "ctx.atrPct populated");
     ok(ctx.bbw[200] != null && ctx.bbw[200]! > 0, "ctx.bbw populated");
     const names = FEATURE_NAMES as readonly string[];
-    const tail = names.slice(-8);
+    // calendar/regime 8 features — trước đây nằm cuối vector, giờ đứng ở
+    // vị trí 22–29; sau chúng là 6 Wyckoff + 2 phiên (wyck-features/universe)
+    const cal = names.slice(22, 30);
     ok(
-      JSON.stringify(tail) === '["dowSin","dowCos","domStart","domEnd","qEnd","atrRank","bbwRank","donchian"]',
-      "8 calendar/regime features ở cuối vector",
+      JSON.stringify(cal) === '["dowSin","dowCos","domStart","domEnd","qEnd","atrRank","bbwRank","donchian"]',
+      "8 calendar/regime features ở vị trí 22–29",
+    );
+    ok(
+      JSON.stringify(names.slice(30)) === '["wyRangePos","wyRangeW","wyClimax","wySpring","wyEffort","wyTrend","sessOverlap","sessAge"]',
+      "8 feature Wyckoff + phiên mới ở cuối vector (30–37)",
     );
   }
 }

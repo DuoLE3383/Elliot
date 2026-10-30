@@ -13,7 +13,7 @@
 
 import type { EngineSettings, Kline } from "./types";
 import { INTERVALS } from "./types";
-import { runXgb, type WhaleReadout, type WhaleTag, type XgbBias, type XgbResult } from "./xgb";
+import { NOISE_BAND, runXgb, type WhaleReadout, type WhaleTag, type XgbBias, type XgbResult } from "./xgb";
 import { LLM_MODEL_DEFAULT, LLM_URL_DEFAULT } from "./llm";
 import { fmtPrice } from "./i18n";
 
@@ -108,11 +108,20 @@ export function bestTradeableAvoid(
   trades: AutoTradeRow[],
   cooldownMin: number,
   whaleFilter = true,
+  /** khử nhiễu XGBoost — skip coin-flip probs (|P−0.5| < band); 0 = tắt */
+  noiseBand = NOISE_BAND,
 ): { best: ScanRow | null; allInCooldown: boolean } {
   // whaleFilter (default on) skips combos whose last closed candle is a full
-  // whale bar (≥4σ volume) — entries opened into those get wicked out
+  // whale bar (≥4σ volume) — entries opened into those get wicked out.
+  // noiseBand skips model probs with no decisive lean (0.5 ± band) — the
+  // XGBoost denoiser: an undecided model is statistical noise, not a signal.
   const cands = rankRows(
-    rows.filter((r) => isTradeable(r, minAuc, minAcc) && (!whaleFilter || r.whale?.tag !== "whale")),
+    rows.filter(
+      (r) =>
+        isTradeable(r, minAuc, minAcc) &&
+        (!whaleFilter || r.whale?.tag !== "whale") &&
+        (noiseBand <= 0 || Math.abs(r.prob - 0.5) >= noiseBand),
+    ),
   );
   const free = cands.find((r) => slCooldownLeft(trades, r.symbol, r.interval, cooldownMin) === 0) ?? null;
   return { best: free, allInCooldown: free == null && cands.length > 0 };

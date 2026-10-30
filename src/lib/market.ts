@@ -63,6 +63,34 @@ export function hourFeatures(t: number): [number, number] {
 }
 
 /**
+ * +1 while London AND New York are BOTH open (13:00–16:00 UTC) — the deepest
+ * liquidity window of the day; pure function of the timestamp (no lookahead).
+ */
+export function sessionOverlap(t: number): number {
+  const h = new Date(t).getUTCHours();
+  const london = SESSIONS.find((s) => s.key === "london");
+  const newyork = SESSIONS.find((s) => s.key === "newyork");
+  const inLon = london && inRange(h, london.from, london.to);
+  const inNy = newyork && inRange(h, newyork.from, newyork.to);
+  return inLon && inNy ? 1 : 0;
+}
+
+/**
+ * Minutes since the most recent session open, normalized by 480 min (0..1) —
+ * fresh-open bars (thin books, stop-run opens) vs late-session drift.
+ * Pure function of the timestamp → no lookahead.
+ */
+export function sessionAge(t: number): number {
+  const d = new Date(t);
+  const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
+  const opens = SESSIONS.map((s) => s.from * 60).sort((a, b) => a - b);
+  let best = -1;
+  for (const o of opens) if (o <= mins) best = o;
+  const age = best >= 0 ? mins - best : mins + 1440 - opens[opens.length - 1];
+  return Math.min(1, age / 480);
+}
+
+/**
  * Weekday of a candle OPEN time as sin/cos (period 7 days, Mon=0 … Sun=6) —
  * lets the model learn weekly cycles ("thứ Ba hay giảm", "cuối tuần mỏng")
  * the same way the 📅 cycle block counts them, but per-coin and with
