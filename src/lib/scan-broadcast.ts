@@ -95,10 +95,12 @@ function emaStackTxt(k: Kline[]): string {
   const b = e21[i];
   const c = e50[i];
   if (a == null || b == null || c == null) return "EMA chưa đủ dữ liệu";
-  if (a > b && b > c) return "📈 EMA9>21>50 (Uptrend mạnh)";
-  if (a < b && b < c) return "📉 EMA9<21<50 (Downtrend mạnh)";
-  if (a > b) return "📈 EMA9>21 (Uptrend yếu)";
-  if (a < b) return "📉 EMA9<21 (Downtrend yếu)";
+  // &lt;/&gt; entities — this text is embedded in HTML parse_mode messages
+  // (raw "<21<50" made Telegram reject the whole message: "Unsupported start tag")
+  if (a > b && b > c) return "📈 EMA9&gt;21&gt;50 (Uptrend mạnh)";
+  if (a < b && b < c) return "📉 EMA9&lt;21&lt;50 (Downtrend mạnh)";
+  if (a > b) return "📈 EMA9&gt;21 (Uptrend yếu)";
+  if (a < b) return "📉 EMA9&lt;21 (Downtrend yếu)";
   return "➡️ EMA đi ngang";
 }
 
