@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { t, type Lang } from "@/lib/i18n";
+import { cycleForecast, cycleStats, dowExtremes } from "@/lib/cycles";
 import {
   SESSIONS,
   fmtCompact,
@@ -16,7 +17,7 @@ import {
   whaleDelta,
 } from "@/lib/market";
 import type { Kline } from "@/lib/types";
-import { Clock, Radar, Waves } from "lucide-react";
+import { CalendarDays, Clock, Radar, Waves } from "lucide-react";
 
 const SESSION_LABEL: Record<string, string> = {
   sydney: "sess.sydney",
@@ -52,6 +53,26 @@ export function SessionsPanel({ lang, klines }: { lang: Lang; klines: Kline[] })
   const nowFrac = new Date(now).getUTCHours() / 24 + new Date(now).getUTCMinutes() / 1440;
 
   const whale = useMemo(() => whaleDelta(klines), [klines]);
+
+  // next session open — shared by the session-lean and calendar-cycle blocks
+  const nx = useMemo(() => nextSessionOpen(now), [now]);
+
+  // calendar cycles read BTCUSDT DAILY candles (~2.7 years → ~140 samples per
+  // weekday) — fetched once per mount; a failed fetch just hides the block
+  const [daily, setDaily] = useState<Kline[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/klines?symbol=BTCUSDT&interval=1d&limit=1000")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (alive && j?.klines) setDaily(j.klines as Kline[]);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const cycles = useMemo(() => (daily ? cycleStats(daily) : null), [daily]);
 
   const utcClock = new Date(now).toLocaleTimeString("en-GB", {
     hour: "2-digit",
@@ -133,7 +154,6 @@ export function SessionsPanel({ lang, klines }: { lang: Lang; klines: Kline[] })
           if (valid.length === 0) return null;
           const best = valid.reduce((a, b) => ((b.bullPct ?? 0) > (a.bullPct ?? 0) ? b : a));
           const worst = valid.reduce((a, b) => ((b.bullPct ?? 100) < (a.bullPct ?? 100) ? b : a));
-          const nx = nextSessionOpen(now);
           const nxStat = nx ? byKey.get(nx.key) : undefined;
           const inLabel =
             nx == null
@@ -171,6 +191,76 @@ export function SessionsPanel({ lang, klines }: { lang: Lang; klines: Kline[] })
             </div>
           );
         })()}
+
+        {/* ── Calendar cycles — weekday / month / quarter frequencies (1d) ── */}
+        {cycles &&
+          (() => {
+            const target = now + (nx?.inMin ?? 0) * 60_000; // the next session's open moment
+            const fc = cycleForecast(target, cycles);
+            const volTxt =
+              fc.volUp == null
+                ? t(lang, "sess.cycle.volFlat")
+                : t(lang, "sess.cycle.vol", {
+                    vol: t(lang, fc.volUp ? "vol.up" : "vol.down"),
+                    p: (fc.volUp ? (fc.dow.volUpPct ?? 50) : 100 - (fc.dow.volUpPct ?? 50)).toFixed(0),
+                  });
+            const inLabel2 =
+              nx == null
+                ? ""
+                : nx.inMin >= 60
+                  ? `mở sau ${Math.floor(nx.inMin / 60)}h${nx.inMin % 60 ? ` ${nx.inMin % 60}p` : ""}`
+                  : `mở sau ${nx.inMin}p`;
+            const ext = dowExtremes(cycles);
+            return (
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5">
+                <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  {t(lang, "sess.cycle.title", { days: cycles.days })}
+                </p>
+                <p className="mt-1.5 text-[11px] text-zinc-300">
+                  {t(lang, "sess.cycle.next", {
+                    dow: t(lang, `dow.${fc.dowIndex}`),
+                    in: inLabel2,
+                    n: fc.dow.n,
+                  })}
+                </p>
+                <p className="mt-0.5 flex flex-wrap gap-x-3 font-mono text-[11px]">
+                  <span className={fc.dirUp ? "text-emerald-400" : "text-rose-400"}>
+                    {t(lang, "sess.cycle.dir", {
+                      dir: t(lang, fc.dirUp ? "dir.up" : "dir.down"),
+                      p: Math.max(fc.dow.upPct ?? 50, 100 - (fc.dow.upPct ?? 50)).toFixed(0),
+                    })}
+                  </span>
+                  <span className={fc.volUp == null ? "text-zinc-500" : fc.volUp ? "text-emerald-400" : "text-rose-400"}>
+                    {volTxt}
+                  </span>
+                </p>
+                {fc.special && fc.special.bucket.upPct != null && (
+                  <p className="mt-1 text-[11px] text-zinc-400">
+                    {t(lang, "sess.cycle.special", {
+                      label: t(lang, `cycle.${fc.special.label}`),
+                      n: fc.special.bucket.n,
+                      dir: t(lang, fc.special.bucket.upPct >= 50 ? "dir.up" : "dir.down"),
+                      p: Math.max(fc.special.bucket.upPct, 100 - fc.special.bucket.upPct).toFixed(0),
+                      vol: fc.special.bucket.volUpPct == null ? "—" : t(lang, fc.special.bucket.volUpPct >= 50 ? "vol.up" : "vol.down"),
+                      vp: fc.special.bucket.volUpPct == null ? "—" : Math.max(fc.special.bucket.volUpPct, 100 - fc.special.bucket.volUpPct).toFixed(0),
+                    })}
+                  </p>
+                )}
+                {ext.best && ext.worst && (
+                  <p className="mt-1 text-[11px] text-zinc-400">
+                    {t(lang, "sess.cycle.extremes", {
+                      hi: t(lang, `dow.${ext.best.i}`),
+                      hip: (ext.best.b.upPct ?? 0).toFixed(0),
+                      lo: t(lang, `dow.${ext.worst.i}`),
+                      lop: (ext.worst.b.upPct ?? 0).toFixed(0),
+                    })}
+                  </p>
+                )}
+                <p className="mt-1 text-[10px] leading-relaxed text-zinc-600">{t(lang, "sess.cycle.note")}</p>
+              </div>
+            );
+          })()}
 
         {/* ── Whale / taker delta ─────────────────────────────────────── */}
         <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5">

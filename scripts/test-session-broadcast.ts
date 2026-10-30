@@ -101,7 +101,7 @@ const msg = buildSessionOpenMessage("tokyo", NOW, klines);
 console.log("---- rendered message ----");
 console.log(msg);
 console.log("--------------------------");
-check(msg.includes("ĐẦU PHIÊN TOKYO"), "title names the opened session");
+check(msg.includes("PHIÊN TOKYO"), "title names the opened session");
 check(msg.includes("00:00 UTC"), "UTC open hour shown");
 check(msg.includes("07:00 GMT+7"), "GMT+7 open hour shown (0+7)");
 check(msg.includes("VỪA MỞ"), "opened session flagged VỪA MỞ");
@@ -125,7 +125,7 @@ check(
 );
 check(tgCalls[0]?.body.chat_id === "@airealtime", "chat_id = @airealtime");
 check(tgCalls[0]?.body.parse_mode === "HTML", "HTML parse mode");
-check(String(tgCalls[0]?.body.text ?? "").includes("ĐẦU PHIÊN TOKYO"), "text carries the broadcast body");
+check(String(tgCalls[0]?.body.text ?? "").includes("PHIÊN TOKYO"), "text carries the broadcast body");
 
 // ─── 3. dedupe: same session, same date → silent ──────────────────────────────
 
@@ -147,7 +147,9 @@ const r3 = await tickSessionBroadcast(NOW7);
 check(r3.due.length === 1 && r3.due[0] === "london", "due = [london]", JSON.stringify(r3));
 check(r3.sent.length === 1, "london sent");
 check(tgCalls.length === 2, "second Telegram call");
-check(String(tgCalls[1]?.body.text ?? "").includes("ĐẦU PHIÊN LONDON"), "london broadcast body");
+check(String(tgCalls[1]?.body.text ?? "").includes("PHIÊN LONDON"), "london broadcast body");
+check(String(tgCalls[1]?.body.text ?? "").includes("📅 Chu kỳ lịch"), "calendar-cycle line present (weekday forecast)");
+check(/📅 Chu kỳ lịch: <b>(Thứ \d|Chủ nhật)<\/b> \(\d+ ngày\)/.test(String(tgCalls[1]?.body.text ?? "")), "cycle line has weekday + sample count");
 const msg7 = String(tgCalls[1]?.body.text ?? "");
 check(msg7.includes("14:00 GMT+7"), "london = 14:00 GMT+7");
 

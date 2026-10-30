@@ -28,11 +28,14 @@ import {
   type SessionStat,
 } from "./market";
 import type { Kline } from "./types";
+import { cycleForecast, type CycleStats, cycleStats } from "./cycles";
 import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store";
 
 const BCAST_SYMBOL = "BTCUSDT";
 const BCAST_INTERVAL = "1h";
 const KLINE_COUNT = 500; // ≈ 20 days of 1h history — same window the panel loads
+/** daily candles for the calendar-cycle forecast (~2.7 years → ~140 samples per weekday) */
+const DAILY_COUNT = 1000;
 /** how many minutes BEFORE the open the announcement fires */
 const EARLY_MIN = 5;
 /** ticks within this many minutes AFTER the open still count (boot-late catch-up) */
@@ -48,11 +51,11 @@ const pad2 = (n: number): string => String(n).padStart(2, "0");
 
 // ─── Binance klines (server-side, host-fallback) ──────────────────────────────
 
-async function fetchKlinesDirect(): Promise<Kline[]> {
+async function fetchKlinesDirect(symbol: string, interval: string, limit: number): Promise<Kline[]> {
   let lastErr: unknown = null;
   for (const host of HOSTS) {
     try {
-      const url = `${host}/api/v3/klines?symbol=${BCAST_SYMBOL}&interval=${BCAST_INTERVAL}&limit=${KLINE_COUNT}`;
+      const url = `${host}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
       const res = await fetch(url, { signal: AbortSignal.timeout(9000) });
       if (!res.ok) {
         lastErr = new Error(`HTTP ${res.status}`);
@@ -88,7 +91,45 @@ function inLabel(min: number): string {
   return min >= 60 ? `${Math.floor(min / 60)}h${min % 60 ? ` ${min % 60}p` : ""}` : `${min}p`;
 }
 
-export function buildSessionOpenMessage(opened: SessionKey, now: number, klines: Kline[], openTs = now): string {
+const DOW_VI = ["Chủ nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
+
+/** calendar-cycle lines for the broadcast — omitted (fail-open) without daily data */
+function cycleLines(openTs: number, daily: Kline[] | null | undefined): string[] {
+  if (!daily || daily.length < 60) return [];
+  const stats = cycleStats(daily);
+  if (!stats) return [];
+  const fc = cycleForecast(openTs, stats);
+  const dir = fc.dirUp ? "TĂNG" : "GIẢM";
+  const p = Math.max(fc.dow.upPct ?? 50, 100 - (fc.dow.upPct ?? 50)).toFixed(0);
+  const volUp =
+    fc.volUp == null ? null : fc.volUp ? (fc.dow.volUpPct ?? 50) : 100 - (fc.dow.volUpPct ?? 50);
+  const volTxt = volUp == null ? "trung tính" : `${fc.volUp ? "tăng" : "giảm"} ${volUp.toFixed(0)}%`;
+  const lines = [
+    `📅 Chu kỳ lịch: <b>${DOW_VI[fc.dowIndex]}</b> (${fc.dow.n} ngày) — chiều <b>${dir}</b> ${p}% · volume ${volTxt}`,
+  ];
+  const spUp = fc.special?.bucket.upPct;
+  if (spUp != null) {
+    const sp = fc.special!.bucket;
+    const label =
+      fc.special!.label === "quarterEnd" ? "Cuối quý" : fc.special!.label === "monthEnd" ? "Cuối tháng" : "Đầu tháng";
+    const spDir = spUp >= 50 ? "tăng" : "giảm";
+    const spP = Math.max(spUp, 100 - spUp).toFixed(0);
+    const spVol =
+      sp.volUpPct == null
+        ? "—"
+        : `${sp.volUpPct >= 50 ? "tăng" : "giảm"} ${Math.max(sp.volUpPct, 100 - sp.volUpPct).toFixed(0)}%`;
+    lines.push(`📅 ${label} (n=${sp.n}) — chiều ${spDir} ${spP}% · volume ${spVol}`);
+  }
+  return lines;
+}
+
+export function buildSessionOpenMessage(
+  opened: SessionKey,
+  now: number,
+  klines: Kline[],
+  openTs = now,
+  daily?: Kline[] | null,
+): string {
   const stats = sessionStats(klines);
   const byKey = new Map(stats.map((s) => [s.key, s]));
   const openSet = new Set(sessionOf(now));
@@ -131,6 +172,10 @@ export function buildSessionOpenMessage(opened: SessionKey, now: number, klines:
       `🔮 Phiên tới: <b>${NAME[nx.key]}</b> — mở sau ${inLabel(nx.inMin)} — thiên <b>${dir}</b> · P≈${p}% (${nxStat.candles} nến lịch sử)`,
     );
   }
+
+  // calendar-cycle forecast for the OPEN day — weekday / month / quarter
+  // frequencies from ~2.7 years of daily candles (omitted when daily fetch failed)
+  lines.push(...cycleLines(openTs, daily));
 
   const valid = stats.filter((s): s is SessionStat & { bullPct: number } => s.bullPct != null && s.candles >= 5);
   if (valid.length >= 2) {
@@ -209,15 +254,23 @@ export async function tickSessionBroadcast(now = Date.now()): Promise<TickResult
 
   let klines: Kline[];
   try {
-    klines = await fetchKlinesDirect();
+    klines = await fetchKlinesDirect(BCAST_SYMBOL, BCAST_INTERVAL, KLINE_COUNT);
   } catch (e) {
     console.error(`[session-bcast] kline fetch failed: ${e instanceof Error ? e.message : e}`);
     return { due: due.map((x) => x.key), sent: [], reason: "kline_fetch_failed" };
   }
+  // daily history for the calendar-cycle forecast — a failed fetch just omits
+  // the 📅 lines (fail-open); the session stats above remain mandatory
+  let daily: Kline[] | null = null;
+  try {
+    daily = await fetchKlinesDirect(BCAST_SYMBOL, "1d", DAILY_COUNT);
+  } catch {
+    // fail-open
+  }
 
   const sent: SessionKey[] = [];
   for (const item of due) {
-    const r = await tgSendMessage(buildSessionOpenMessage(item.key, now, klines, item.openTs), "HTML");
+    const r = await tgSendMessage(buildSessionOpenMessage(item.key, now, klines, item.openTs, daily), "HTML");
     if (r.ok) {
       sent.push(item.key);
       const st = loadState(); // re-read: survives parallel ticks / manual edits
@@ -247,8 +300,14 @@ export async function sendSessionPreview(): Promise<{ ok: boolean; detail?: stri
     openNow[0] ??
     "london";
   try {
-    const klines = await fetchKlinesDirect();
-    const text = `🧪 <b> — thông báo phiên</b>\n\n${buildSessionOpenMessage(opened, now, klines)}`;
+    const klines = await fetchKlinesDirect(BCAST_SYMBOL, BCAST_INTERVAL, KLINE_COUNT);
+    let daily: Kline[] | null = null;
+    try {
+      daily = await fetchKlinesDirect(BCAST_SYMBOL, "1d", DAILY_COUNT);
+    } catch {
+      // fail-open — preview still sends, just without the 📅 cycle lines
+    }
+    const text = `🧪 <b> — thông báo phiên</b>\n\n${buildSessionOpenMessage(opened, now, klines, now, daily)}`;
     return await tgSendMessage(text, "HTML");
   } catch (e) {
     return { ok: false, detail: e instanceof Error ? e.message : "kline fetch failed" };
