@@ -30,10 +30,10 @@ const ok = (cond: boolean, name: string) => {
   }
 };
 
-console.log("── Cổng 1 · sàn điểm/metrics (hình 3: điểm 32–38 không được gợi ý)");
-ok(BCAST_SCORE_MIN === 40, "BCAST_SCORE_MIN = 40");
-ok(BCAST_AUC_MIN === 0.58, "BCAST_AUC_MIN = 0.58");
-ok(BCAST_ACC_MIN === 58, "BCAST_ACC_MIN = 58");
+console.log("── Cổng 1 · sàn điểm/metrics (ngưỡng user: 70 / 0.8 / 80)");
+ok(BCAST_SCORE_MIN === 70, "BCAST_SCORE_MIN = 70");
+ok(BCAST_AUC_MIN === 0.8, "BCAST_AUC_MIN = 0.8");
+ok(BCAST_ACC_MIN === 80, "BCAST_ACC_MIN = 80");
 // scoreOf = (auc−0.5)×100 + (acc−50) + conf×15 — replay từng coin trong ảnh:
 const junk: Array<[string, number, number, number, number]> = [
   // name, score, auc, acc, conf  (auc/acc ước lượng từ điểm hiển thị)
@@ -46,8 +46,12 @@ for (const [name, score, auc, acc] of junk) {
   ok(score < BCAST_SCORE_MIN && (auc < BCAST_AUC_MIN || acc < BCAST_ACC_MIN || score < BCAST_SCORE_MIN),
     `${name} điểm ${score} → bị chặn`);
 }
-// model mạnh thật sự phải đi qua được: AUC .65 / ACC 62 / conf .9 → 15+12+13.5 = 40.5
-ok(Math.round((0.65 - 0.5) * 100 + (62 - 50) + 0.9 * 15) >= BCAST_SCORE_MIN, "model mạnh (AUC .65 · ACC 62 · conf .9) vẫn đi qua");
+// model khá (AUC .7 · ACC 70 · conf 1.0) → 20+20+15 = 55 → VẪN bị chặn (chủ đích)
+ok(Math.round((0.7 - 0.5) * 100 + (70 - 50) + 1.0 * 15) < BCAST_SCORE_MIN,
+  "model khá (AUC .7 · ACC 70 · conf 1.0 = 55) vẫn bị chặn");
+// model xuất sắc phải đi qua được: AUC .82 · ACC 80 · conf .7 → 32+30+10.5 = 72.5
+ok(Math.round((0.82 - 0.5) * 100 + (80 - 50) + 0.7 * 15) >= BCAST_SCORE_MIN,
+  "model xuất sắc (AUC .82 · ACC 80 · conf .7 = 72.5) đi qua");
 
 console.log("── Cổng 2 · coherence — 4 tín hiệu tự mâu thuẫn trong ảnh bị loại");
 const pepe15m: CoherenceInput = {

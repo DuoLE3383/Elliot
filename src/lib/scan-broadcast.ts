@@ -41,13 +41,14 @@ export const BCAST_VOL_MIN = 7e6; // $7M 24h quote volume
 export const BCAST_PL1_MIN = 5; // TP1 ≥ +5% from entry
 export const BCAST_TOP_N = 2; // coins per message
 /** Điểm tối thiểu để đăng broadcast — scoreOf = (AUC−0.5)×100 + (ACC−50) + tin cậy×15.
- *  30–40% kiểu PEPE/NEAR (img 03: 30.30 / 39.90) là model yếu — "điểm thấp quá đừng
- *  gợi ý": dưới 40 KHÔNG gửi, im lặng hơn là spam rác. */
-export const BCAST_SCORE_MIN = 40;
-/** Sàn AUC của model — 0.55 nghĩa là chỉ hơn tung đồng xu 5%: không đủ tin. */
-export const BCAST_AUC_MIN = 0.58;
-/** Sàn ACC của model — dưới 58% là overfit nhiễu. */
-export const BCAST_ACC_MIN = 58;
+ *  User siết 70: chỉ AUC ≥ .8 · ACC ≥ 80 mới đạt sàn dưới (30+30), nên điểm 70
+ *  còn yêu cầu tin cậy ≥ ~2/3. Kênh gần như chắc chắn im lặng — im lặng vẫn hơn rác. */
+export const BCAST_SCORE_MIN = 70;
+/** Sàn AUC của model — 0.8 nghĩa là model phải xếp hạng thật sự giỏi trên tập
+ *  validation (out-of-sample), chỉ hơn tung đồng xu là không đủ tin. */
+export const BCAST_AUC_MIN = 0.8;
+/** Sàn ACC của model — dưới 80% không đủ tin theo ngưỡng user đặt. */
+export const BCAST_ACC_MIN = 80;
 /** Chống lặp: 1 coin (mọi khung giờ) chỉ được broadcast lại sau mỗi 3 giờ.
  *  RUNE 30m xuất hiện 4 lần trong 15 phút (4:11/4:15/4:21/4:25) vì `seen` cũ
  *  chỉ dùng để tag ⚡NEW chứ không chặn re-pick — đây là bản vá. */
