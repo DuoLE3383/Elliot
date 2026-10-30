@@ -49,7 +49,7 @@ sudo cloudflared tunnel route dns <TUNNEL-UUID> elliott.huyenbao.com
 sudo systemctl restart cloudflared
 ```
 
-→ **https://elliott.huyenbao.com** chạy app hoàn chỉnh. Update sau này: `cd` vào thư mục repo (bất kể clone ở đâu — `/opt/elliott`, `~/Elliot`, …) rồi `sudo bash deploy/update.sh` (pull → build → restart, **không bao giờ mất data** vì SQLite + JSON nằm ngoài thư mục code; script tự suy repo theo vị trí của nó, hoặc ép đường dẫn bằng `sudo APP_DIR=/đường/dẫn bash deploy/update.sh`). Xem log: `journalctl -u elliott -f`.
+→ **https://elliott.huyenbao.com** chạy app hoàn chỉnh. Update sau này: `cd` vào thư mục repo (bất kể clone ở đâu — `/opt/elliott`, `~/Elliot`, …) rồi `sudo bash deploy/update.sh` (pull → build → **schema sync `prisma db push` vào đúng DB mà `.env` trỏ tới** — hết lỗi `main.Suggestion does not exist` → restart, **không bao giờ mất data** vì SQLite + JSON nằm ngoài thư mục code; script tự suy repo theo vị trí của nó, hoặc ép đường dẫn bằng `sudo APP_DIR=/đường/dẫn bash deploy/update.sh`). Xem log: `journalctl -u elliott -f`.
 
 ### ⚠️ Lưu ý vận hành quan trọng
 

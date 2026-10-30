@@ -25,17 +25,13 @@ import {
   sessionOf,
   sessionStats,
   type SessionKey,
-  type SessionStat,
 } from "./market";
 import type { Kline } from "./types";
-import { cycleForecast, type CycleStats, cycleStats } from "./cycles";
 import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store";
 
 const BCAST_SYMBOL = "BTCUSDT";
 const BCAST_INTERVAL = "1h";
 const KLINE_COUNT = 500; // ≈ 20 days of 1h history — same window the panel loads
-/** daily candles for the calendar-cycle forecast (~2.7 years → ~140 samples per weekday) */
-const DAILY_COUNT = 1000;
 /** how many minutes BEFORE the open the announcement fires */
 const EARLY_MIN = 5;
 /** ticks within this many minutes AFTER the open still count (boot-late catch-up) */
@@ -44,9 +40,7 @@ const LATE_WINDOW_MIN = 10;
 /** Binance USDT-M Futures — same board the chart reads, prices can differ from spot */
 const HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com"];
 
-const EMOJI: Record<SessionKey, string> = { sydney: "🔵", tokyo: "🟣", london: "🟡", newyork: "🟢" };
 const NAME: Record<SessionKey, string> = { sydney: "Sydney", tokyo: "Tokyo", london: "London", newyork: "New York" };
-
 const HR = "━━━━━━━━━━━━━━━━━━━━";
 const pad2 = (n: number): string => String(n).padStart(2, "0");
 
@@ -92,102 +86,49 @@ function inLabel(min: number): string {
   return min >= 60 ? `${Math.floor(min / 60)}h${min % 60 ? ` ${min % 60}p` : ""}` : `${min}p`;
 }
 
-const DOW_VI = ["Chủ nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
-
-/** calendar-cycle lines for the broadcast — omitted (fail-open) without daily data */
-function cycleLines(openTs: number, daily: Kline[] | null | undefined): string[] {
-  if (!daily || daily.length < 60) return [];
-  const stats = cycleStats(daily);
-  if (!stats) return [];
-  const fc = cycleForecast(openTs, stats);
-  const dir = fc.dirUp ? "TĂNG" : "GIẢM";
-  const p = Math.max(fc.dow.upPct ?? 50, 100 - (fc.dow.upPct ?? 50)).toFixed(0);
-  const volUp =
-    fc.volUp == null ? null : fc.volUp ? (fc.dow.volUpPct ?? 50) : 100 - (fc.dow.volUpPct ?? 50);
-  const volTxt = volUp == null ? "trung tính" : `${fc.volUp ? "tăng" : "giảm"} ${volUp.toFixed(0)}%`;
-  const lines = [
-    `📅 Chu kỳ lịch: <b>${DOW_VI[fc.dowIndex]}</b> (${fc.dow.n} ngày) — chiều <b>${dir}</b> ${p}% · volume ${volTxt}`,
-  ];
-  const spUp = fc.special?.bucket.upPct;
-  if (spUp != null) {
-    const sp = fc.special!.bucket;
-    const label =
-      fc.special!.label === "quarterEnd" ? "Cuối quý" : fc.special!.label === "monthEnd" ? "Cuối tháng" : "Đầu tháng";
-    const spDir = spUp >= 50 ? "tăng" : "giảm";
-    const spP = Math.max(spUp, 100 - spUp).toFixed(0);
-    const spVol =
-      sp.volUpPct == null
-        ? "—"
-        : `${sp.volUpPct >= 50 ? "tăng" : "giảm"} ${Math.max(sp.volUpPct, 100 - sp.volUpPct).toFixed(0)}%`;
-    lines.push(`📅 ${label} (n=${sp.n}) — chiều ${spDir} ${spP}% · volume ${spVol}`);
-  }
-  return lines;
-}
-
+/**
+ * LEAN message — chỉ thứ trader cần (bỏ bảng 4 phiên + thống kê chu kỳ lịch
+ * vốn khiến tin dài và khó đọc):
+ *   1. tên phiên + giờ mở (GMT+7/UTC) + đếm ngược nếu báo trước
+ *   2. phiên mở: Bull % · drift BTC · trạng thái
+ *   3. phiên kế tiếp: mở sau bao lâu + thiên hướng LONG/SHORT + P
+ *   4. chú thích P
+ */
 export function buildSessionOpenMessage(
   opened: SessionKey,
   now: number,
   klines: Kline[],
   openTs = now,
-  daily?: Kline[] | null,
 ): string {
   const stats = sessionStats(klines);
   const byKey = new Map(stats.map((s) => [s.key, s]));
-  const openSet = new Set(sessionOf(now));
-  const d = new Date(now);
   const o = new Date(openTs);
   const openedDef = SESSIONS.find((s) => s.key === opened);
   const vnHour = openedDef ? (openedDef.from + 7) % 24 : o.getUTCHours(); // viewer TZ of the panel screenshots (GMT+7)
   const pre = now < openTs; // announced before the session actually opens
   const inMin = Math.max(0, Math.round((openTs - now) / 60_000));
 
+  const st = byKey.get(opened);
   const lines: string[] = [
     pre
       ? `⏳ <b>SẮP MỞ PHIÊN ${NAME[opened].toUpperCase()}</b> — sau ${inLabel(inMin)} — ${pad2(vnHour)}:00 GMT+7 (${pad2(o.getUTCHours())}:00 UTC)`
       : `🚦 <b>PHIÊN ${NAME[opened].toUpperCase()}</b> — ${pad2(vnHour)}:00 GMT+7 (${pad2(o.getUTCHours())}:00 UTC)`,
     HR,
+    `${pre ? "⏳" : "🚀"} <b>${NAME[opened]}</b> — Bull ${st?.bullPct != null ? `${st.bullPct.toFixed(0)}%` : "—"} · drift BTC ${driftTxt(st?.driftPct)} · ${
+      pre ? `sắp mở sau ${inLabel(inMin)}` : "<b>VỪA MỞ 🚀</b>"
+    }`,
   ];
-  for (const s of SESSIONS) {
-    const st = byKey.get(s.key);
-    const bull = st?.bullPct != null ? `${st.bullPct.toFixed(0)}%` : "—";
-    const isOpen = openSet.has(s.key);
-    let state: string;
-    let mark: string;
-    if (s.key === opened) {
-      state = pre ? `<b>sắp mở sau ${inLabel(inMin)} ⏳</b>` : "<b>VỪA MỞ 🚀</b>";
-      mark = pre ? "⏳" : "🚀";
-    } else {
-      state = isOpen ? "đang mở" : "đóng";
-      mark = EMOJI[s.key];
-    }
-    lines.push(`${mark} ${NAME[s.key]} — Bull ${bull} · drift ${driftTxt(st?.driftPct)} · ${state}`);
-  }
 
   const nx = nextSessionOpen(now);
-  const nxStat = nx ? byKey.get(nx.key) : undefined;
-  if (nx && nxStat?.bullPct != null) {
-    const dir = nxStat.bullPct >= 50 ? "LONG" : "SHORT";
-    const p = Math.max(nxStat.bullPct, 100 - nxStat.bullPct).toFixed(0);
+  if (nx) {
+    const nxStat = byKey.get(nx.key);
     lines.push(
-      HR,
-      `🔮 Phiên tới: <b>${NAME[nx.key]}</b> — mở sau ${inLabel(nx.inMin)} — thiên <b>${dir}</b> · P≈${p}% (${nxStat.candles} nến lịch sử)`,
+      nxStat?.bullPct != null
+        ? `🔮 Phiên tới: <b>${NAME[nx.key]}</b> — mở sau ${inLabel(nx.inMin)} — thiên <b>${nxStat.bullPct >= 50 ? "LONG" : "SHORT"}</b> · P≈${Math.max(nxStat.bullPct, 100 - nxStat.bullPct).toFixed(0)}%`
+        : `🔮 Phiên tới: <b>${NAME[nx.key]}</b> — mở sau ${inLabel(nx.inMin)}`,
     );
   }
 
-  // calendar-cycle forecast for the OPEN day — weekday / month / quarter
-  // frequencies from ~2.7 years of daily candles (omitted when daily fetch failed)
-  lines.push(...cycleLines(openTs, daily));
-
-  const valid = stats.filter((s): s is SessionStat & { bullPct: number } => s.bullPct != null && s.candles >= 5);
-  if (valid.length >= 2) {
-    const best = valid.reduce((a, b) => (b.bullPct > a.bullPct ? b : a));
-    const worst = valid.reduce((a, b) => (b.bullPct < a.bullPct ? b : a));
-    if (best.key !== worst.key) {
-      lines.push(
-        `📊 Lịch sử: ${NAME[best.key]} mạnh nhất (${best.bullPct.toFixed(0)}% nến tăng) · ${NAME[worst.key]} yếu nhất (${worst.bullPct.toFixed(0)}%)`,
-      );
-    }
-  }
   lines.push(`💡 P = tỷ lệ nến đóng tăng của phiên (${BCAST_SYMBOL} ${BCAST_INTERVAL}) — thống kê lịch sử, không phải bảo đảm.`);
   return lines.join("\n");
 }
@@ -260,18 +201,10 @@ export async function tickSessionBroadcast(now = Date.now()): Promise<TickResult
     console.error(`[session-bcast] kline fetch failed: ${e instanceof Error ? e.message : e}`);
     return { due: due.map((x) => x.key), sent: [], reason: "kline_fetch_failed" };
   }
-  // daily history for the calendar-cycle forecast — a failed fetch just omits
-  // the 📅 lines (fail-open); the session stats above remain mandatory
-  let daily: Kline[] | null = null;
-  try {
-    daily = await fetchKlinesDirect(BCAST_SYMBOL, "1d", DAILY_COUNT);
-  } catch {
-    // fail-open
-  }
 
   const sent: SessionKey[] = [];
   for (const item of due) {
-    const r = await tgSendMessage(buildSessionOpenMessage(item.key, now, klines, item.openTs, daily), "HTML");
+    const r = await tgSendMessage(buildSessionOpenMessage(item.key, now, klines, item.openTs), "HTML");
     if (r.ok) {
       sent.push(item.key);
       const st = loadState(); // re-read: survives parallel ticks / manual edits
@@ -302,13 +235,7 @@ export async function sendSessionPreview(): Promise<{ ok: boolean; detail?: stri
     "london";
   try {
     const klines = await fetchKlinesDirect(BCAST_SYMBOL, BCAST_INTERVAL, KLINE_COUNT);
-    let daily: Kline[] | null = null;
-    try {
-      daily = await fetchKlinesDirect(BCAST_SYMBOL, "1d", DAILY_COUNT);
-    } catch {
-      // fail-open — preview still sends, just without the 📅 cycle lines
-    }
-    const text = `🧪 <b> — thông báo phiên</b>\n\n${buildSessionOpenMessage(opened, now, klines, now, daily)}`;
+    const text = `🧪 <b> — thông báo phiên</b>\n\n${buildSessionOpenMessage(opened, now, klines, now)}`;
     return await tgSendMessage(text, "HTML");
   } catch (e) {
     return { ok: false, detail: e instanceof Error ? e.message : "kline fetch failed" };

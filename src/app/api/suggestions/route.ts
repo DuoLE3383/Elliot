@@ -7,10 +7,17 @@
 // DELETE ?id                      → remove one row
 
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { directionalPnl, outcomeOf } from "@/lib/history";
 
 export const dynamic = "force-dynamic";
+
+/** P2021 — the table is missing (stale/empty DB behind the current .env). The
+ * client must keep working instead of error-spamming: GET answers an empty
+ * list, write paths answer 503 with a hint to run `prisma db push`. */
+const isSchemaMissing = (e: unknown): boolean =>
+  e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2021";
 
 const BIASES = new Set(["LONG", "SHORT", "NEUTRAL"]);
 
@@ -73,11 +80,17 @@ export async function GET(req: NextRequest) {
   const symbol = sp.get("symbol")?.toUpperCase().slice(0, 20) || undefined;
   const interval = sp.get("interval")?.slice(0, 8) || undefined;
   const limit = num(sp.get("limit"), 1, 500, 100);
-  const rows = await db.suggestion.findMany({
-    where: { ...(symbol ? { symbol } : {}), ...(interval ? { interval } : {}) },
-    orderBy: { createdAt: "desc" },
-    take: Math.floor(limit),
-  });
+  let rows;
+  try {
+    rows = await db.suggestion.findMany({
+      where: { ...(symbol ? { symbol } : {}), ...(interval ? { interval } : {}) },
+      orderBy: { createdAt: "desc" },
+      take: Math.floor(limit),
+    });
+  } catch (e) {
+    if (isSchemaMissing(e)) return NextResponse.json({ suggestions: [], schemaMissing: true });
+    throw e;
+  }
   return NextResponse.json({ suggestions: rows.map(serialize) });
 }
 
@@ -96,25 +109,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "symbol, interval, bias required" }, { status: 400 });
   }
 
-  const row = await db.suggestion.create({
-    data: {
-      symbol,
-      interval,
-      bias,
-      prob: num(body.prob, 0, 1, 0.5),
-      confidence: num(body.confidence, 0, 1, 0),
-      slPct: num(body.slPct, 0.1, 50, 2),
-      tpPct: num(body.tpPct, 0.1, 100, 3),
-      atrKey: num(body.atrKey, 0.1, 20, 2),
-      atrPeriod: Math.round(num(body.atrPeriod, 2, 200, 10)),
-      smaFilter: body.smaFilter === true,
-      smaPeriod: Math.round(num(body.smaPeriod, 2, 500, 200)),
-      acc: num(body.acc, 0, 100, 0),
-      auc: num(body.auc, 0, 1, 0.5),
-      horizonBars: Math.round(num(body.horizonBars, 1, 100, 4)),
-      entryPrice: num(body.entryPrice, 0, Number.MAX_SAFE_INTEGER, 0),
-    },
-  });
+  let row;
+  try {
+    row = await db.suggestion.create({
+      data: {
+        symbol,
+        interval,
+        bias,
+        prob: num(body.prob, 0, 1, 0.5),
+        confidence: num(body.confidence, 0, 1, 0),
+        slPct: num(body.slPct, 0.1, 50, 2),
+        tpPct: num(body.tpPct, 0.1, 100, 3),
+        atrKey: num(body.atrKey, 0.1, 20, 2),
+        atrPeriod: Math.round(num(body.atrPeriod, 2, 200, 10)),
+        smaFilter: body.smaFilter === true,
+        smaPeriod: Math.round(num(body.smaPeriod, 2, 500, 200)),
+        acc: num(body.acc, 0, 100, 0),
+        auc: num(body.auc, 0, 1, 0.5),
+        horizonBars: Math.round(num(body.horizonBars, 1, 100, 4)),
+        entryPrice: num(body.entryPrice, 0, Number.MAX_SAFE_INTEGER, 0),
+      },
+    });
+  } catch (e) {
+    if (isSchemaMissing(e)) {
+      return NextResponse.json(
+        { error: "schema_missing", detail: "run: bunx prisma db push" },
+        { status: 503 },
+      );
+    }
+    throw e;
+  }
   return NextResponse.json({ suggestion: serialize(row) }, { status: 201 });
 }
 
@@ -129,7 +153,18 @@ export async function PATCH(req: NextRequest) {
   if (body.action === "apply") {
     const id = typeof body.id === "string" ? body.id : "";
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-    const row = await db.suggestion.update({ where: { id }, data: { applied: true, appliedAt: new Date() } });
+    let row;
+    try {
+      row = await db.suggestion.update({ where: { id }, data: { applied: true, appliedAt: new Date() } });
+    } catch (e) {
+      if (isSchemaMissing(e)) {
+        return NextResponse.json(
+          { error: "schema_missing", detail: "run: bunx prisma db push" },
+          { status: 503 },
+        );
+      }
+      throw e;
+    }
     return NextResponse.json({ suggestion: serialize(row) });
   }
 
@@ -142,11 +177,17 @@ export async function PATCH(req: NextRequest) {
       const n = Number(v);
       if (/^[A-Z0-9]{2,20}$/.test(k) && Number.isFinite(n) && n > 0) prices[k.toUpperCase()] = n;
     }
-    const pending = await db.suggestion.findMany({
-      where: { outcome: null, entryPrice: { gt: 0 } },
-      orderBy: { createdAt: "asc" },
-      take: 300,
-    });
+    let pending;
+    try {
+      pending = await db.suggestion.findMany({
+        where: { outcome: null, entryPrice: { gt: 0 } },
+        orderBy: { createdAt: "asc" },
+        take: 300,
+      });
+    } catch (e) {
+      if (isSchemaMissing(e)) return NextResponse.json({ resolved: 0, schemaMissing: true });
+      throw e;
+    }
     const now = Date.now();
     let resolved = 0;
     for (const s of pending) {

@@ -30,6 +30,9 @@ import type { Kline, Ticker } from "./types";
 export const BCAST_VOL_MIN = 7e6; // $7M 24h quote volume
 export const BCAST_PL1_MIN = 5; // TP1 ≥ +5% from entry
 export const BCAST_TOP_N = 2; // coins per message
+/** Điểm tối thiểu để đăng broadcast — scoreOf = (AUC−0.5)×100 + (ACC−50) + tin cậy×15.
+ *  28–29% kiểu ADA/XRP là nhiễu model yếu; dưới ngưỡng này KHÔNG gửi. */
+export const BCAST_SCORE_MIN = 30;
 const CANDIDATE_POOL = 8; // ranked rows inspected before giving up on filters
 
 const HR_LINE = "─────────────────";
@@ -258,11 +261,12 @@ export async function buildTopCoinsMessage(
   tickers: Record<string, Ticker>,
   state: BcastState,
 ): Promise<{ text: string; picked: ScanRow[] } | null> {
-  // best combo per symbol, ranked rows first, quality gates, PL1 floor
+  // best combo per symbol, ranked rows first, quality gates, PL1 floor, score floor
   const seenSym = new Set<string>();
   const candidates: ScanRow[] = [];
   for (const r of rows) {
     if (r.auc < 0.55 || r.acc < 55) continue;
+    if (r.score < BCAST_SCORE_MIN) continue;
     if (r.tpPct < BCAST_PL1_MIN) continue;
     if (seenSym.has(r.symbol)) continue;
     seenSym.add(r.symbol);
@@ -291,8 +295,8 @@ export async function buildTopCoinsMessage(
     `============================`,
     `🏆 <b>${names} </b> — TOP ${picked.length} COIN TIỀM NĂNG NHẤT`,
     `⏰ ${hh}h${mm} ${dateStr} │ Lần #${state.n + 1}`,
-    `📋 Vol ≥ $${(BCAST_VOL_MIN / 1e6).toFixed(0)}M │ PL1 ≥ ${BCAST_PL1_MIN}%`,
-    `Dữ liệu: ${CANDIDATE_POOL} coin tiềm năng nhất được quét từ ${rows.length} coin`
+    `📋 Vol ≥ $${(BCAST_VOL_MIN / 1e6).toFixed(0)}M │ PL1 ≥ ${BCAST_PL1_MIN}% │ Điểm ≥ ${BCAST_SCORE_MIN}`,
+    `Dữ liệu: ${CANDIDATE_POOL} combo tốt nhất từ ${rows.length} combo quét`
   ];
   for (const c of picked) out.push(...coinBlock(c), "");
   out.push(HEAVY_LINE, `📊 Tổng: ${picked.length} coins đạt tiêu chí`, `⏱ Quét lại sau 5 phút`);

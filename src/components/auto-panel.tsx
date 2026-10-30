@@ -190,6 +190,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const [scanAt, setScanAt] = useState<number | null>(null);
   const [scanning, setScanning] = useState<{ done: number; total: number; current: string } | null>(null);
   const [universe, setUniverse] = useState<UniverseRow[]>([]);
+  const uniRef = useRef<UniverseRow[]>([]); // top-10 8h — lọc digest "TOP coin tiềm năng"
   const [auto, setAuto] = useState<AutoState | null>(null);
   const [tgConfigured, setTgConfigured] = useState<boolean | null>(null);
   const [tgState, setTgState] = useState<"idle" | "sending" | "ok" | "fail">("idle");
@@ -237,6 +238,9 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   useEffect(() => {
     tickersRef.current = tickers;
   }, [tickers]);
+  useEffect(() => {
+    uniRef.current = universe;
+  }, [universe]);
   useEffect(() => {
     pairsRef.current = pairs;
   }, [pairs]);
@@ -321,12 +325,35 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   }, [refreshAuto]);
 
   // ── TOP-coin broadcast — template "TOP coin tiềm năng" sent to Telegram ────
+  // Candidates PHẢI nằm trong top-10 vũ trụ 8h (ATR + trending) — nếu không có
+  // combo nào của top-10 trong kết quả quét watchlist thì quét nhanh riêng
+  // top-10 (1h+4h) thay vì gợi ý coin ngoài top (điểm thấp, không đáng tin).
   const lastBcastRef = useRef(0);
   const sendTopCoins = useCallback(
     async (rows: ScanRow[]) => {
-      if (rows.length === 0) return;
+      const uniSyms = uniRef.current.map((r) => r.symbol);
+      let pool: ScanRow[] = rows;
+      if (uniSyms.length > 0) {
+        const rank = new Map(uniSyms.map((s, i) => [s, i]));
+        pool = rows
+          .filter((r) => rank.has(r.symbol))
+          .sort((a, b) => (rank.get(a.symbol) ?? 99) - (rank.get(b.symbol) ?? 99));
+        if (pool.length === 0) {
+          // watchlist ∩ top-10 = ∅ → quét nhanh riêng top-10 (20 combo, ~vài giây)
+          try {
+            pool = await scanAll({
+              pairs: [...uniSyms],
+              intervals: ["1h", "4h"],
+              settings: settingsRef.current,
+            });
+          } catch {
+            pool = [];
+          }
+        }
+      }
+      if (pool.length === 0) return; // không có ứng viên trong top-10 → im lặng
       const state = loadBcastState();
-      const built = await buildTopCoinsMessage(rows, tickersRef.current, state);
+      const built = await buildTopCoinsMessage(pool, tickersRef.current, state);
       if (!built) {
         pushToast({ kind: "wy", text: t(langRef.current, "auto.bcast.none") });
         return;

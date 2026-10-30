@@ -73,9 +73,24 @@ rm -rf "$APP_DIR/.next"
 run bun run build
 
 # Schema migrate an toàn: chỉ áp thay đổi KHÔNG mất dữ liệu (nếu destructive sẽ
-# dừng lại và báo thay vì âm thầm xóa cột)
+# dừng lại và báo thay vì âm thầm xóa cột).
+# DATABASE_URL lấy từ .env (file .env LUÔN thắng) — đúng DB app đang dùng, vì
+# pm2/process có thể chạy từ thư mục khác <repo>/data (đã gặp thật: bảng
+# main.Suggestion thiếu vì db push nhầm vào DB khác).
 log "   prisma db push (an toàn — không mất data)"
-DATABASE_URL="file:$DATA_DIR/custom.db" run bunx prisma db push --skip-generate
+ENV_DB_URL="$(grep -E '^DATABASE_URL=' "$APP_DIR/.env" | tail -n1 | cut -d= -f2-)"
+# gỡ nháy bao quanh giá trị nếu có: "file:..." / 'file:...'
+ENV_DB_URL="${ENV_DB_URL%\"}"
+ENV_DB_URL="${ENV_DB_URL#\"}"
+ENV_DB_URL="${ENV_DB_URL%\'}"
+ENV_DB_URL="${ENV_DB_URL#\'}"
+if [[ -n "$ENV_DB_URL" ]]; then
+  run env DATABASE_URL="$ENV_DB_URL" bunx prisma db push --skip-generate
+  ok "Schema sync xong → $ENV_DB_URL"
+else
+  DATABASE_URL="file:$DATA_DIR/custom.db" run bunx prisma db push --skip-generate
+  ok "Schema sync xong → file:$DATA_DIR/custom.db (.env chưa có DATABASE_URL)"
+fi
 
 log "4/4 Restart"
 if systemctl list-unit-files 2>/dev/null | grep -q '^elliott\.service'; then
