@@ -32,8 +32,8 @@ export const BCAST_PL1_MIN = 5; // TP1 ≥ +5% from entry
 export const BCAST_TOP_N = 2; // coins per message
 const CANDIDATE_POOL = 8; // ranked rows inspected before giving up on filters
 
-const HR_LINE = "────────────────────────────";
-const HEAVY_LINE = "═══════════════════════════════════";
+const HR_LINE = "────────────────────────";
+const HEAVY_LINE = "════════════════════════════";
 
 export interface BcastState {
   /** message counter — "Lần #N" */
@@ -244,6 +244,9 @@ function coinBlock(c: CoinTech): string[] {
     `  🛡️ SL: $${fmtPrice(slPrice)} (${long ? "-" : "+"}${row.slPct.toFixed(1)}%)`,
     `  🏆 TP1: $${fmtPrice(tp1Price)} (${long ? "+" : "-"}${row.tpPct.toFixed(1)}%)`,
     `  🏆 TP2: $${fmtPrice(tp2Price)} (${tp2Label})`,
+    `Lưu ý: ⚡NEW = chưa từng broadcast, dựa trên ${BCAST_TOP_N} coin tiềm năng nhất`,
+    `Dữ liệu: ${CANDIDATE_POOL} coin tiềm năng nhất được quét từ ${row.samples} coin`,
+    `<i>Đây không phải lời khuyên đầu tư. Hãy tự chịu trách nhiệm với quyết định của mình.</i>`,
   );
   return lines;
 }
@@ -287,10 +290,13 @@ export async function buildTopCoinsMessage(
   const names = picked.map((c) => symbolLabel(c.row.symbol)).join(" ");
 
   const out: string[] = [
+    `============================`,
     `🏆 <b>${names} — TOP ${picked.length} COIN TIỀM NĂNG NHẤT</b>`,
     `⏰ ${hh}h${mm} ${dateStr} │ Lần #${state.n + 1}`,
     `📋 Vol≥$${(BCAST_VOL_MIN / 1e6).toFixed(0)}M │ PL1≥${BCAST_PL1_MIN}%`,
-    "",
+    `Lưu ý: ⚡NEW = chưa từng broadcast, dựa trên ${BCAST_TOP_N} coin tiềm năng nhất`,
+    `Dữ liệu: ${CANDIDATE_POOL} coin tiềm năng nhất được quét từ ${rows.length} coin`,
+    `<i>Đây không phải lời khuyên đầu tư. Hãy tự chịu trách nhiệm với quyết định của mình.</i>`,
   ];
   for (const c of picked) out.push(...coinBlock(c), "");
   out.push(HEAVY_LINE, `📊 Tổng: ${picked.length} coins đạt tiêu chí`, `⏱ Quét lại sau 5 phút`);
