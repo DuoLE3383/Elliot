@@ -648,7 +648,10 @@ async function broadcastTick(): Promise<void> {
   if (!built) return; // nothing passed the filters — silence beats spam
   state.n += 1;
   const now = Date.now();
-  for (const r of built.picked) state.seen[`${r.symbol}-${r.interval}`] = now;
+  for (const r of built.picked) {
+    state.seen[`${r.symbol}-${r.interval}`] = now;
+    state.lastB[r.symbol] = now; // symbol-level re-broadcast cooldown (3h)
+  }
   saveBcastState(state);
   try {
     await tgSendMessage(built.text, "HTML");

@@ -48,6 +48,14 @@ export const BCAST_SCORE_MIN = 40;
 export const BCAST_AUC_MIN = 0.58;
 /** Sàn ACC của model — dưới 58% là overfit nhiễu. */
 export const BCAST_ACC_MIN = 58;
+/** Chống lặp: 1 coin (mọi khung giờ) chỉ được broadcast lại sau mỗi 3 giờ.
+ *  RUNE 30m xuất hiện 4 lần trong 15 phút (4:11/4:15/4:21/4:25) vì `seen` cũ
+ *  chỉ dùng để tag ⚡NEW chứ không chặn re-pick — đây là bản vá. */
+export const BCAST_REPEAT_MS = 3 * 60 * 60_000;
+/** Chống tín hiệu tự mâu thuẫn: EMA stack mạnh ngược hướng lệnh (kéo dao rơi /
+ *  đuổi trần) và áp lực mua bán lệch hẳn phía bên kia đều bị loại. */
+export const PRESSURE_FLOOR_LONG = 42; // BUY bị chặn khi áp lực mua ≤ 42%
+export const PRESSURE_CAP_SHORT = 58; // SELL bị chặn khi áp lực mua ≥ 58%
 const CANDIDATE_POOL = 8; // ranked rows inspected before giving up on filters
 
 const HR_LINE = "─────────────────";
@@ -58,6 +66,8 @@ export interface BcastState {
   n: number;
   /** `${symbol}-${interval}` keys already broadcast → ⚡NEW tagging */
   seen: Record<string, number>;
+  /** symbol → epoch-ms of its last broadcast, ANY interval — re-broadcast cooldown */
+  lastB: Record<string, number>;
 }
 
 export const BCAST_LS_KEY = "utp.bcast";
@@ -68,26 +78,38 @@ const STATE_FILE = dataFile("scan-bcast.json");
 export function loadBcastState(): BcastState {
   try {
     const raw = readFileSync(STATE_FILE, "utf8");
-    if (!raw) return { n: 0, seen: {} };
+    if (!raw) return { n: 0, seen: {}, lastB: {} };
     const p = JSON.parse(raw) as Partial<BcastState>;
     return {
       n: typeof p.n === "number" && p.n >= 0 ? Math.floor(p.n) : 0,
       seen: p.seen && typeof p.seen === "object" ? p.seen : {},
+      lastB: p.lastB && typeof p.lastB === "object" ? p.lastB : {},
     };
   } catch {
-    return { n: 0, seen: {} };
+    return { n: 0, seen: {}, lastB: {} };
   }
 }
 
 export function saveBcastState(st: BcastState): void {
   try {
-    // keep the seen-map bounded — only the last 400 keys matter for ⚡NEW
-    const entries = Object.entries(st.seen).sort((a, b) => b[1] - a[1]).slice(0, 400);
+    // keep both maps bounded — only the last 400 keys matter
+    const seen = Object.entries(st.seen).sort((a, b) => b[1] - a[1]).slice(0, 400);
+    const lastB = Object.entries(st.lastB).sort((a, b) => b[1] - a[1]).slice(0, 400);
     mkdirSync(path.dirname(STATE_FILE), { recursive: true });
-    writeFileSync(STATE_FILE, JSON.stringify({ n: st.n, seen: Object.fromEntries(entries) }), "utf8");
+    writeFileSync(
+      STATE_FILE,
+      JSON.stringify({ n: st.n, seen: Object.fromEntries(seen), lastB: Object.fromEntries(lastB) }),
+      "utf8",
+    );
   } catch {
     // unwritable DATA_DIR — counters live for this process only
   }
+}
+
+/** Ms left before a symbol may be re-broadcast (0 = allowed now). */
+export function bcastRepeatLeftMs(lastMs: number | undefined, now = Date.now()): number {
+  if (!lastMs || lastMs <= 0) return 0;
+  return Math.max(0, lastMs + BCAST_REPEAT_MS - now);
 }
 
 interface CoinTech {
@@ -99,16 +121,24 @@ interface CoinTech {
   volRatio: number; // vs the 10-day mean 24h volume
   buyPressure: number; // 0..100 taker-buy share of the last 24h
   atrPct: number; // ATR14 / price × 100 on the winning interval
-  emaTxt: string;
+  ema: EmaRead;
   rsiVal: number;
   rsiTxt: string;
-  macdTxt: string;
+  macd: MacdRead;
   isNew: boolean;
 }
 
 const lastClosed = (k: Kline[]): Kline => k[Math.max(0, k.length - 2)];
 
-function emaStackTxt(k: Kline[]): string {
+export interface EmaRead {
+  txt: string;
+  /** direction of the stack: "up" | "down" | "flat" */
+  kind: "up" | "down" | "flat";
+  /** true only for the full 9>21>50 (or <) stack — a strong, established trend */
+  strong: boolean;
+}
+
+function emaStackRead(k: Kline[]): EmaRead {
   const e9 = ema(k, 9);
   const e21 = ema(k, 21);
   const e50 = ema(k, 50);
@@ -116,14 +146,63 @@ function emaStackTxt(k: Kline[]): string {
   const a = e9[i];
   const b = e21[i];
   const c = e50[i];
-  if (a == null || b == null || c == null) return "EMA chưa đủ dữ liệu";
+  if (a == null || b == null || c == null) return { txt: "EMA chưa đủ dữ liệu", kind: "flat", strong: false };
   // &lt;/&gt; entities — this text is embedded in HTML parse_mode messages
   // (raw "<21<50" made Telegram reject the whole message: "Unsupported start tag")
-  if (a > b && b > c) return "📈 EMA9&gt;21&gt;50 (Uptrend mạnh)";
-  if (a < b && b < c) return "📉 EMA9&lt;21&lt;50 (Downtrend mạnh)";
-  if (a > b) return "📈 EMA9&gt;21 (Uptrend yếu)";
-  if (a < b) return "📉 EMA9&lt;21 (Downtrend yếu)";
-  return "➡️ EMA đi ngang";
+  if (a > b && b > c) return { txt: "📈 EMA9&gt;21&gt;50 (Uptrend mạnh)", kind: "up", strong: true };
+  if (a < b && b < c) return { txt: "📉 EMA9&lt;21&lt;50 (Downtrend mạnh)", kind: "down", strong: true };
+  if (a > b) return { txt: "📈 EMA9&gt;21 (Uptrend yếu)", kind: "up", strong: false };
+  if (a < b) return { txt: "📉 EMA9&lt;21 (Downtrend yếu)", kind: "down", strong: false };
+  return { txt: "➡️ EMA đi ngang", kind: "flat", strong: false };
+}
+
+export interface MacdRead {
+  txt: string;
+  /** histogram side: "buy" | "sell" | "flat" */
+  dir: "buy" | "sell" | "flat";
+  /** |hist| is growing — momentum is accelerating in `dir` */
+  rising: boolean;
+}
+
+function macdRead(k: Kline[]): MacdRead {
+  const { hist } = macd(k);
+  const i = k.length - 2;
+  const h = hist[i];
+  const hp = hist[i - 1];
+  if (h == null) return { txt: "MACD chưa đủ dữ liệu", dir: "flat", rising: false };
+  const rising = hp != null && Math.abs(h) > Math.abs(hp);
+  if (h > 0) return { txt: `MACD ↑ Momentum Buy ${rising ? "mạnh dần" : "yếu dần"}`, dir: "buy", rising };
+  if (h < 0) return { txt: `MACD ↓ Momentum Sell ${rising ? "mạnh dần" : "yếu dần"}`, dir: "sell", rising };
+  return { txt: "MACD trung tính", dir: "flat", rising: false };
+}
+
+export interface CoherenceInput {
+  long: boolean;
+  emaKind: "up" | "down" | "flat";
+  emaStrong: boolean;
+  macdDir: "buy" | "sell" | "flat";
+  buyPressure: number;
+}
+
+/**
+ * Bộ lọc tín hiệu tự mâu thuẫn — trả về lý do loại, hoặc null khi đạt.
+ *
+ * 1) "Kéo dao rơi": BUY khi EMA stack downtrend MẠNH (9<21<50), hay SELL khi
+ *    uptrend MẠNH — lệnh đâm thẳng vào trend đã thiết lập. Model có thể tìm
+ *    edge mean-reversion, nhưng broadcast cho người đọc thì message khoe
+ *    "Downtrend mạnh" cạnh gợi ý BUY chỉ đáng mất niềm tin (PEPE 15m 4:11,
+ *    PEPE 1h 4:21 — hai chiều ngược nhau trong 10 phút).
+ * 2) Áp lực mua bán nghịch cực đoan: BUY khi taker-bản chiếm ≥58% (pressure
+ *    ≤42%) hay SELL khi taker-mua chiếm ≥58% — phe kia đang áp đảo hoàn toàn.
+ */
+export function passesCoherence(i: CoherenceInput): string | null {
+  if (i.long && i.emaKind === "down" && i.emaStrong) return "EMA downtrend mạnh mà gợi BUY (kéo dao rơi)";
+  if (!i.long && i.emaKind === "up" && i.emaStrong) return "EMA uptrend mạnh mà gợi SELL (đuổi trần)";
+  if (i.long && i.buyPressure <= PRESSURE_FLOOR_LONG)
+    return `áp lực mua chỉ ${i.buyPressure.toFixed(1)}% mà gợi BUY`;
+  if (!i.long && i.buyPressure >= PRESSURE_CAP_SHORT)
+    return `áp lực mua tới ${i.buyPressure.toFixed(1)}% mà gợi SELL`;
+  return null;
 }
 
 function rsiZoneTxt(v: number): string {
@@ -132,18 +211,6 @@ function rsiZoneTxt(v: number): string {
   if (v <= 55) return `${v.toFixed(0)} (trung tính)`;
   if (v < 70) return `${v.toFixed(0)} (vùng lý tưởng Sell)`;
   return `${v.toFixed(0)} (quá mua — cẩn trọng)`;
-}
-
-function macdTxt(k: Kline[]): string {
-  const { hist } = macd(k);
-  const i = k.length - 2;
-  const h = hist[i];
-  const hp = hist[i - 1];
-  if (h == null) return "MACD chưa đủ dữ liệu";
-  const rising = hp != null && Math.abs(h) > Math.abs(hp);
-  if (h > 0) return `MACD ↑ Momentum Buy ${rising ? "mạnh dần" : "yếu dần"}`;
-  if (h < 0) return `MACD ↓ Momentum Sell ${rising ? "mạnh dần" : "yếu dần"}`;
-  return "MACD trung tính";
 }
 
 /** 24h quote volume, its ratio to the 10-day mean, and taker-buy pressure. */
@@ -219,10 +286,10 @@ async function enrich(row: ScanRow, tickers: Record<string, Ticker>, seen: Recor
       volRatio,
       buyPressure,
       atrPct: price > 0 ? (atrVal / price) * 100 : 0,
-      emaTxt: emaStackTxt(tfKlines),
+      ema: emaStackRead(tfKlines),
       rsiVal,
       rsiTxt: rsiZoneTxt(rsiVal),
-      macdTxt: macdTxt(tfKlines),
+      macd: macdRead(tfKlines),
       isNew: seen[`${row.symbol}-${row.interval}`] == null,
     };
   } catch {
@@ -256,9 +323,9 @@ function coinBlock(c: CoinTech): string[] {
     `💪 Áp lực mua   : ${c.buyPressure.toFixed(2)}%`,
     "",
     `📡 <b>Tín hiệu kỹ thuật:</b>`,
-    `  • ${c.emaTxt}`,
+    `  • ${c.ema.txt}`,
     `  • RSI=${c.rsiTxt}`,
-    `  • ${c.macdTxt}`,
+    `  • ${c.macd.txt}`,
   ];
   const pLine = pressureLine(c.buyPressure);
   if (pLine) lines.push(`  • ${pLine}`);
@@ -284,12 +351,24 @@ export async function buildTopCoinsMessage(
   state: BcastState,
 ): Promise<{ text: string; picked: ScanRow[] } | null> {
   // best combo per symbol, ranked rows first, quality gates, PL1 floor, score floor
+  const nowMs = Date.now();
   const seenSym = new Set<string>();
   const candidates: ScanRow[] = [];
   for (const r of rows) {
     if (r.auc < BCAST_AUC_MIN || r.acc < BCAST_ACC_MIN) continue;
     if (r.score < BCAST_SCORE_MIN) continue;
     if (r.tpPct < BCAST_PL1_MIN) continue;
+    // re-broadcast cooldown — MỌI combo của một coin đã broadcast trong
+    // BCAST_REPEAT_MS qua sẽ làm im cả coin (chống RUNE ×4 / 15 phút và
+    // chống flip-flop PEPE 15m BUY → 1h SELL trong 10 phút)
+    const left = bcastRepeatLeftMs(state.lastB[r.symbol], nowMs);
+    if (left > 0) {
+      if (!seenSym.has(r.symbol)) {
+        seenSym.add(r.symbol);
+        console.info(`[bcast] ${r.symbol} còn cooldown ${(left / 60_000).toFixed(0)}p — bỏ qua`);
+      }
+      continue;
+    }
     if (seenSym.has(r.symbol)) continue;
     seenSym.add(r.symbol);
     candidates.push(r);
@@ -302,7 +381,20 @@ export async function buildTopCoinsMessage(
     const qv = tickers[cand.symbol]?.quoteVolume;
     if (qv != null && qv > 0 && qv < BCAST_VOL_MIN) continue;
     const c = await enrich(cand, tickers, state.seen);
-    if (c) picked.push(c);
+    if (c) {
+      const contra = passesCoherence({
+        long: cand.bias !== "SHORT",
+        emaKind: c.ema.kind,
+        emaStrong: c.ema.strong,
+        macdDir: c.macd.dir,
+        buyPressure: c.buyPressure,
+      });
+      if (contra) {
+        console.info(`[bcast] ${cand.symbol} ${cand.interval} loại: ${contra}`);
+        continue; // tín hiệu tự mâu thuẫn — thử combo kế tiếp
+      }
+      picked.push(c);
+    }
     if (picked.length >= BCAST_TOP_N) break;
   }
   if (picked.length === 0) return null;
@@ -332,7 +424,7 @@ export async function buildTopCoinsMessage(
     `============================`,
     `🏆 <b>${names} </b> — TOP ${picked.length} COIN TIỀM NĂNG NHẤT`,
     `⏰ ${hh}h${mm} ${dateStr} │ Lần #${state.n + 1}`,
-    `📋 Vol ≥ $${(BCAST_VOL_MIN / 1e6).toFixed(0)}M │ PL1 ≥ ${BCAST_PL1_MIN}% │ Điểm ≥ ${BCAST_SCORE_MIN} │ AUC ≥ ${BCAST_AUC_MIN} │ ACC ≥ ${BCAST_ACC_MIN}%`,
+    `📋 Vol ≥ $${(BCAST_VOL_MIN / 1e6).toFixed(0)}M │ PL1 ≥ ${BCAST_PL1_MIN}% │ Điểm ≥ ${BCAST_SCORE_MIN} │ AUC ≥ ${BCAST_AUC_MIN} │ ACC ≥ ${BCAST_ACC_MIN}% │ Lặp ≥ ${Math.round(BCAST_REPEAT_MS / 3_600_000)}h`,
     `Dữ liệu: ${CANDIDATE_POOL} combo tốt nhất từ ${rows.length} combo quét`
   ];
   for (const c of picked) out.push(...coinBlock(c), "");
