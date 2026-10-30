@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # E2E: Telegram config HARDCODED via env vars — TELEGRAM_BOT_TOKEN +
 # TELEGRAM_CHAT_ID (+ TELEGRAM_API_BASE → mock). Asserts the whole app wiring
-# (status, token status, real send, link mint) runs purely off .env values.
+# (status + real send) runs purely off .env values.
 # No real token anywhere — mock Telegram answers getMe/sendMessage.
 set -u
 cd /home/z/my-project
