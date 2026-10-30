@@ -139,18 +139,18 @@ console.log("\n[3] universeBroadcastText — 30 coins không thành 1 nùi");
 // (static import hoisting đóng băng DATA_DIR trước khi test kịp set env —
 //  phần này cần env TRƯỚC khi module data-dir khởi tạo)
 
-// ── 5 · broadcast gates (hình 3 — điểm thấp đừng gợi ý) ───────────────────────
-console.log("\n[5] broadcast gates — 30.30/39.90 kiểu PEPE/NEAR không còn được gửi");
+// ── 5 · broadcast gates (hình 3 — điểm thấp đừng gợi ý; user setpoint 70/.8/80)
+console.log("\n[5] broadcast gates — ngưỡng user 70 / 0.8 / 80: dưới đó không gửi");
 {
-  check("BCAST_SCORE_MIN = 40", BCAST_SCORE_MIN === 40);
-  check("BCAST_AUC_MIN = 0.58", BCAST_AUC_MIN === 0.58);
-  check("BCAST_ACC_MIN = 58", BCAST_ACC_MIN === 58);
+  check("BCAST_SCORE_MIN = 70", BCAST_SCORE_MIN === 70);
+  check("BCAST_AUC_MIN = 0.8", BCAST_AUC_MIN === 0.8);
+  check("BCAST_ACC_MIN = 80", BCAST_ACC_MIN === 80);
   // score kiểu img3: PEPE 30.30 / NEAR 39.90 → dưới gate
   check("score 30.30 < gate", 30.3 < BCAST_SCORE_MIN);
   check("score 39.90 < gate", 39.9 < BCAST_SCORE_MIN);
   // model phải vượt CẢ sàn AUC/ACC lẫn điểm
   const weak = { auc: 0.55, acc: 55, score: 30.3 };
-  const strong = { auc: 0.64, acc: 64, score: 41 };
+  const strong = { auc: 0.82, acc: 80, score: 72.5 };
   const gate = (r: typeof weak) => r.auc >= BCAST_AUC_MIN && r.acc >= BCAST_ACC_MIN && r.score >= BCAST_SCORE_MIN;
   check("model yếu bị chặn", !gate(weak));
   check("model mạnh được gửi", gate(strong));
