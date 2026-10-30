@@ -1,17 +1,18 @@
 // ─── Session-open Telegram broadcast — server-side, zero UI ──────────────────
-// "Mỗi đầu phiên" — at every global session open (Sydney 21:00, Tokyo 00:00,
-// London 07:00, New York 12:00 UTC) the scheduler started by
-// instrumentation.ts fires one message into the .env Telegram channel,
-// mirroring the "Phiên giao dịch" panel: Bull% / drift per session + the
-// forecast lean, computed from BTCUSDT 1h closed candles fetched straight
-// from Binance (same hosts the /api/klines relay rotates through).
+// "Mỗi đầu phiên, gửi TRƯỚC 5 phút" — for every global session open
+// (Sydney 21:00, Tokyo 00:00, London 07:00, New York 12:00 UTC) the scheduler
+// started by instrumentation.ts fires one message into the .env Telegram
+// channel 5 minutes BEFORE the open (window: open−5m … open+10m), mirroring
+// the "Phiên giao dịch" panel: Bull% / drift per session + the forecast lean
+// of the session about to open, computed from BTCUSDT 1h closed candles
+// fetched straight from Binance (same hosts the /api/klines relay uses).
 //
 // Why server-side: the client-side digests need a browser tab open; this
 // timer lives in the standalone node process and fires 24/7 on the VPS.
-// Dedupe state (session → last sent UTC date) lives in
-// $DATA_DIR/session-bcast.json so restarts and repeated ticks never
-// double-send. A boot that lands ≤10 minutes after an open still delivers;
-// later than that the stale "đầu phiên" is skipped.
+// Dedupe state (session → open UTC date) lives in $DATA_DIR/session-bcast.json
+// so restarts and repeated ticks never double-send: the pre-open send also
+// suppresses the post-open catch-up for the same open. A boot inside the
+// window still delivers; later than that the stale open is skipped.
 //
 // Ops test switch: SESSION_BCAST_FORCE=1 in .env → one 🧪 preview message
 // ~20 s after boot (does not touch dedupe state). Remove it afterwards.
@@ -32,7 +33,9 @@ import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store
 const BCAST_SYMBOL = "BTCUSDT";
 const BCAST_INTERVAL = "1h";
 const KLINE_COUNT = 500; // ≈ 20 days of 1h history — same window the panel loads
-/** ticks within this many minutes after the open hour still count as "đầu phiên" */
+/** how many minutes BEFORE the open the announcement fires */
+const EARLY_MIN = 5;
+/** ticks within this many minutes AFTER the open still count (boot-late catch-up) */
 const LATE_WINDOW_MIN = 10;
 
 const HOSTS = ["https://api.binance.com", "https://data-api.binance.vision", "https://api1.binance.com"];
@@ -85,24 +88,36 @@ function inLabel(min: number): string {
   return min >= 60 ? `${Math.floor(min / 60)}h${min % 60 ? ` ${min % 60}p` : ""}` : `${min}p`;
 }
 
-export function buildSessionOpenMessage(opened: SessionKey, now: number, klines: Kline[]): string {
+export function buildSessionOpenMessage(opened: SessionKey, now: number, klines: Kline[], openTs = now): string {
   const stats = sessionStats(klines);
   const byKey = new Map(stats.map((s) => [s.key, s]));
   const openSet = new Set(sessionOf(now));
   const d = new Date(now);
+  const o = new Date(openTs);
   const openedDef = SESSIONS.find((s) => s.key === opened);
-  const vnHour = openedDef ? (openedDef.from + 7) % 24 : d.getUTCHours(); // viewer TZ of the panel screenshots (GMT+7)
+  const vnHour = openedDef ? (openedDef.from + 7) % 24 : o.getUTCHours(); // viewer TZ of the panel screenshots (GMT+7)
+  const pre = now < openTs; // announced before the session actually opens
+  const inMin = Math.max(0, Math.round((openTs - now) / 60_000));
 
   const lines: string[] = [
-    `🚦 <b>ĐẦU PHIÊN ${NAME[opened].toUpperCase()}</b> — ${pad2(vnHour)}:00 GMT+7 (${pad2(d.getUTCHours())}:00 UTC)`,
+    pre
+      ? `⏳ <b>SẮP MỞ PHIÊN ${NAME[opened].toUpperCase()}</b> — sau ${inLabel(inMin)} — ${pad2(vnHour)}:00 GMT+7 (${pad2(o.getUTCHours())}:00 UTC)`
+      : `🚦 <b>ĐẦU PHIÊN ${NAME[opened].toUpperCase()}</b> — ${pad2(vnHour)}:00 GMT+7 (${pad2(o.getUTCHours())}:00 UTC)`,
     HR,
   ];
   for (const s of SESSIONS) {
     const st = byKey.get(s.key);
     const bull = st?.bullPct != null ? `${st.bullPct.toFixed(0)}%` : "—";
     const isOpen = openSet.has(s.key);
-    const state = s.key === opened ? "<b>VỪA MỞ 🚀</b>" : isOpen ? "đang mở" : "đóng";
-    const mark = s.key === opened ? "🚀" : EMOJI[s.key];
+    let state: string;
+    let mark: string;
+    if (s.key === opened) {
+      state = pre ? `<b>sắp mở sau ${inLabel(inMin)} ⏳</b>` : "<b>VỪA MỞ 🚀</b>";
+      mark = pre ? "⏳" : "🚀";
+    } else {
+      state = isOpen ? "đang mở" : "đóng";
+      mark = EMOJI[s.key];
+    }
     lines.push(`${mark} ${NAME[s.key]} — Bull ${bull} · drift ${driftTxt(st?.driftPct)} · ${state}`);
   }
 
@@ -162,20 +177,34 @@ export interface TickResult {
 }
 
 /**
- * One scheduler pass. Fires at most one message per session per UTC date,
- * only within the first LATE_WINDOW_MIN minutes of the session's open hour.
- * Never throws — callers may fire-and-forget.
+ * One scheduler pass. Fires at most one message per session per open UTC date,
+ * inside the window [open − EARLY_MIN, open + LATE_WINDOW_MIN] — normally the
+ * pre-open announcement (−5 min); a boot later in the window sends the
+ * "VỪA MỞ" catch-up instead. Never throws — callers may fire-and-forget.
  */
 export async function tickSessionBroadcast(now = Date.now()): Promise<TickResult> {
   if (!effectiveToken().token || !effectiveChatId().id) {
     return { due: [], sent: [], reason: "telegram_not_configured" };
   }
   const d = new Date(now);
-  const dateKey = d.toISOString().slice(0, 10);
+  const midnight = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   const state = loadState();
-  const due = SESSIONS.filter(
-    (s) => s.from === d.getUTCHours() && d.getUTCMinutes() <= LATE_WINDOW_MIN && state[s.key] !== dateKey,
-  ).map((s) => s.key);
+  interface Due {
+    key: SessionKey;
+    openTs: number;
+    dateKey: string;
+  }
+  const due: Due[] = [];
+  for (const s of SESSIONS) {
+    // today's open — or tomorrow's for the pre-midnight window (Tokyo 00:00 → fires 23:55)
+    for (const add of [0, 86_400_000]) {
+      const openTs = midnight + s.from * 3_600_000 + add;
+      if (now < openTs - EARLY_MIN * 60_000 || now > openTs + LATE_WINDOW_MIN * 60_000) continue;
+      const dateKey = new Date(openTs).toISOString().slice(0, 10); // the OPEN date, not the fire date
+      if (state[s.key] !== dateKey) due.push({ key: s.key, openTs, dateKey });
+      break;
+    }
+  }
   if (due.length === 0) return { due: [], sent: [] };
 
   let klines: Kline[];
@@ -183,23 +212,23 @@ export async function tickSessionBroadcast(now = Date.now()): Promise<TickResult
     klines = await fetchKlinesDirect();
   } catch (e) {
     console.error(`[session-bcast] kline fetch failed: ${e instanceof Error ? e.message : e}`);
-    return { due, sent: [], reason: "kline_fetch_failed" };
+    return { due: due.map((x) => x.key), sent: [], reason: "kline_fetch_failed" };
   }
 
   const sent: SessionKey[] = [];
-  for (const key of due) {
-    const r = await tgSendMessage(buildSessionOpenMessage(key, now, klines), "HTML");
+  for (const item of due) {
+    const r = await tgSendMessage(buildSessionOpenMessage(item.key, now, klines, item.openTs), "HTML");
     if (r.ok) {
-      sent.push(key);
+      sent.push(item.key);
       const st = loadState(); // re-read: survives parallel ticks / manual edits
-      st[key] = dateKey;
+      st[item.key] = item.dateKey;
       saveState(st);
-      console.log(`[session-bcast] ${key} open broadcast sent (${dateKey})`);
+      console.log(`[session-bcast] ${item.key} open broadcast sent (open ${item.dateKey})`);
     } else {
-      console.error(`[session-bcast] ${key} send failed: ${r.detail}`);
+      console.error(`[session-bcast] ${item.key} send failed: ${r.detail}`);
     }
   }
-  return { due, sent };
+  return { due: due.map((x) => x.key), sent };
 }
 
 /**

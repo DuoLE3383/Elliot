@@ -163,10 +163,10 @@ Lưu ý cấu hình sẵn trong app (không cần làm gì): tự đọc `.env` 
 
 ## 6c. Thông báo đầu phiên (tự động, không cần bật gì)
 
-Mỗi phiên toàn cầu **vừa mở** — Sydney 04:00, Tokyo 07:00, London 14:00, New York 19:00 giờ VN (21:00 / 00:00 / 07:00 / 12:00 UTC) — app tự gửi 1 tin nhắn vào kênh Telegram đã cấu hình trong `.env`, nội dung đúng như panel "Phiên giao dịch": Bull% / drift từng phiên, phiên nào đang mở/đóng, dự báo phiên kế tiếp (thiên LONG/SHORT, P≈%, số nến lịch sử) — tính từ nến **BTCUSDT 1h** lấy thẳng từ Binance.
+Mỗi phiên toàn cầu **sắp mở** — app tự gửi 1 tin **trước giờ mở 5 phút**: Sydney 03:55, Tokyo 06:55, London 13:55, New York 18:55 giờ VN (phiên mở lúc 04:00 / 07:00 / 14:00 / 19:00 — 21:00 / 00:00 / 07:00 / 12:00 UTC). Tin vào kênh Telegram đã cấu hình trong `.env`, tiêu đề "⏳ SẮP MỞ PHIÊN …" kèm đếm ngược, nội dung đúng như panel "Phiên giao dịch": Bull% / drift từng phiên, phiên nào đang mở/đóng, dự báo cho phiên sắp mở (thiên LONG/SHORT, P≈%, số nến lịch sử) — tính từ nến **BTCUSDT 1h** lấy thẳng từ Binance.
 
 - Chạy **phía server** (timer trong `instrumentation.ts` → `src/lib/session-broadcast.ts`) — không cần mở trình duyệt, hoạt động 24/7 trên VPS
-- Tự chống gửi trùng: trạng thái lưu `db/session-bcast.json` (hoặc `$DATA_DIR`) — restart app không gây gửi lại; server chết đúng giờ mở và khởi động lại trong vòng **10 phút** vẫn gửi bù, trễ hơn thì bỏ qua
+- Tự chống gửi trùng: trạng thái lưu `db/session-bcast.json` (hoặc `$DATA_DIR`) theo **ngày mở phiên** — restart app không gây gửi lại; tin "trước 5 phút" đã gửi thì tin lúc mở phiên tự bị bỏ. Cửa sổ gửi: từ **5 phút trước** đến **10 phút sau** giờ mở — server chết rồi khởi động lại trong cửa sổ này vẫn gửi bù (tiêu đề chuyển thành "🚦 ĐẦU PHIÊN … VỪA MỞ"), trễ hơn thì bỏ qua
 - Điều kiện duy nhất: `.env` đã có `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` (chưa có thì im lặng, không lỗi)
 
 **Test thủ công 1 tin** (không đợi giờ mở phiên): thêm dòng `SESSION_BCAST_FORCE=1` vào `.env` → restart app → sau ~20 giây có 1 tin 🧪 xem trước (không ảnh hưởng chống trùng). Xong thì xoá dòng đó đi.

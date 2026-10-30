@@ -180,6 +180,39 @@ console.log("== persisted state");
 const rawState = readFileSync("/tmp/elliot-test-session-bcast/session-bcast.json", "utf8");
 check(rawState.includes("tokyo") && rawState.includes("2026-11-02"), "state maps tokyo → 2026-11-02");
 
+// ─── 6b. pre-open send: 5 minutes BEFORE tokyo opens (23:55 UTC) ─────────────
+
+console.log("== pre-open window: 23:55 UTC → tokyo due (opens tomorrow)");
+const NOWP = Date.UTC(2026, 10, 2, 23, 55); // tokyo opens 2026-11-03 00:00
+globalThis.fetch = ((url: string | URL | Request, opts?: RequestInit) =>
+  realFetch(withNow(typeof url === "string" ? url : url instanceof URL ? url.href : url.url).replace(
+    "_now=" + NOWF,
+    "_now=" + NOWP,
+  ), opts)) as typeof fetch;
+const r6 = await tickSessionBroadcast(NOWP);
+check(r6.due.length === 1 && r6.due[0] === "tokyo", "pre-open due = [tokyo]", JSON.stringify(r6));
+check(r6.sent.length === 1, "pre-open sent");
+const msgP = String(tgCalls[tgCalls.length - 1]?.body.text ?? "");
+check(msgP.includes("SẮP MỞ PHIÊN TOKYO"), "pre-open title", msgP.split("\n")[0]);
+check(msgP.includes("sau 5p"), "5-minute countdown shown");
+check(msgP.includes("sắp mở sau 5p"), "session line marked sắp mở");
+check(msgP.includes("00:00 UTC"), "title shows the OPEN hour, not the fire hour");
+check(/thiên <b>(LONG|SHORT)<\/b>/.test(msgP), "forecast lean for the imminent session");
+const rawStateP = readFileSync("/tmp/elliot-test-session-bcast/session-bcast.json", "utf8");
+check(rawStateP.includes("2026-11-03"), "state keyed by OPEN date (tomorrow)", rawStateP);
+
+// ─── 6c. the pre-open send suppresses the post-open one for the same open ────
+
+console.log("== dedupe across the open boundary");
+const NOWA = Date.UTC(2026, 10, 3, 0, 5); // 5 min AFTER tokyo opened 2026-11-03
+globalThis.fetch = ((url: string | URL | Request, opts?: RequestInit) =>
+  realFetch(withNow(typeof url === "string" ? url : url instanceof URL ? url.href : url.url).replace(
+    "_now=" + NOWP,
+    "_now=" + NOWA,
+  ), opts)) as typeof fetch;
+const r7 = await tickSessionBroadcast(NOWA);
+check(r7.due.length === 0 && r7.sent.length === 0, "post-open tick suppressed by pre-open send", JSON.stringify(r7));
+
 // ─── 7. preview builder (force switch) ────────────────────────────────────────
 
 console.log("== sendSessionPreview");
