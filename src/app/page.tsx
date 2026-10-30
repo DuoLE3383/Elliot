@@ -372,6 +372,7 @@ export default function Home() {
           kind: "flip",
           side: p.side,
           text: t(lang, "toast.flip", {
+            sym: symbol,
             from: old.side,
             to: p.side,
             exit: fmtPrice(old.exit ?? p.entry),
@@ -383,11 +384,11 @@ export default function Home() {
         pushToast({
           kind: "entry",
           side: p.side,
-          text: t(lang, "toast.newEntry", { side: p.side, price: fmtPrice(p.entry) }),
+          text: t(lang, "toast.newEntry", { sym: symbol, side: p.side, price: fmtPrice(p.entry) }),
         });
       }
     }
-  }, [engine, key, lang, pushToast]);
+  }, [engine, key, symbol, lang, pushToast]);
 
   const stats = useMemo(() => kpiFrom(engine?.papers ?? []), [engine]);
 
