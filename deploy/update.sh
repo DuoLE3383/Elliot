@@ -48,7 +48,28 @@ run() { # chạy lệnh với danh nghĩa owner của repo (trực tiếp khi ow
 
 log "1/4 Pull code mới nhất ($BRANCH) — repo: $APP_DIR (user: $APP_USER)"
 cd "$APP_DIR"
-run git fetch origin "$BRANCH"
+# Repo PRIVATE: git fetch cần PAT. Thử fetch trước; nếu fail auth thì lấy token
+# từ env GITHUB_TOKEN hoặc .env (GITHUB_TOKEN=...) rồi ghi vào remote origin URL
+# MỘT LẦN — .git/config giữ lại, các lần chạy sau fetch bình thường.
+if ! run git fetch origin "$BRANCH" 2>/dev/null; then
+  TOKEN="${GITHUB_TOKEN:-}"
+  if [[ -z "$TOKEN" ]]; then
+    TOKEN="$(grep -E '^GITHUB_TOKEN=' "$APP_DIR/.env" 2>/dev/null | tail -n1 | cut -d= -f2- || true)"
+    TOKEN="${TOKEN%\"}"; TOKEN="${TOKEN#\"}"; TOKEN="${TOKEN%\'}"; TOKEN="${TOKEN#\'}"
+  fi
+  if [[ -n "$TOKEN" ]]; then
+    ORIGIN_URL="$(git remote get-url origin)"
+    if [[ "$ORIGIN_URL" == https://github.com/* ]]; then
+      run git remote set-url origin "https://${TOKEN}@github.com/${ORIGIN_URL#https://github.com/}"
+      chmod 600 "$APP_DIR/.git/config" 2>/dev/null || true
+      log "   repo private — đã ghi PAT vào remote origin (một lần, các lần sau dùng lại)"
+    else
+      log "   remote origin không phải https://github.com/… ($ORIGIN_URL) — bỏ qua bước ghi PAT"
+    fi
+  fi
+  run git fetch origin "$BRANCH" \
+    || die "git fetch thất bại — repo PRIVATE cần PAT: chạy 'sudo GITHUB_TOKEN=<PAT> bash deploy/update.sh' (1 lần, script tự nhớ), hoặc: git remote set-url origin https://<PAT>@github.com/DuoLE3383/Elliot.git"
+fi
 run git reset --hard "origin/$BRANCH"
 # Dọn file "ma" untracked — tàn dư rebase/merge dang dở có thể khiến bản build
 # ra mã cũ/thiếu module (đã gặp thật). KHÔNG đụng file gitignored (.env, db/, data/)

@@ -48,7 +48,7 @@ function ensureSqliteDir(url: string | undefined): void {
   if (q >= 0) p = p.slice(0, q);
   if (!p || p === ":memory:") return;
   try {
-    const abs = path.isAbsolute(p) ? p : path.resolve(process.cwd(), p);
+    const abs = path.isAbsolute(p) ? p : path.resolve(/*turbopackIgnore: true*/ process.cwd(), p);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
   } catch {
     // read-only FS or odd URL — the bootstrap will surface the real error
@@ -68,6 +68,8 @@ async function runBootstrap(base: PrismaClient): Promise<void> {
   const missing = MODEL_TABLES.filter((t) => !before.has(t));
   if (missing.length > 0) {
     console.warn(`[db] schema bootstrap — created missing table(s): ${missing.join(", ")}`);
+  } else {
+    console.warn(`[db] schema bootstrap — ok (all ${MODEL_TABLES.length} tables present)`);
   }
 }
 

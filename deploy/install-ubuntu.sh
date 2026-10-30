@@ -9,6 +9,10 @@
 #     git clone https://github.com/DuoLE3383/Elliot /tmp/elliott-installer
 #     sudo bash /tmp/elliott-installer/deploy/install-ubuntu.sh
 #
+#  Repo PRIVATE? truyền PAT qua env (clone cũng cần):
+#     git clone https://<PAT>@github.com/DuoLE3383/Elliot /tmp/elliott-installer
+#     sudo GITHUB_TOKEN=<PAT> bash /tmp/elliott-installer/deploy/install-ubuntu.sh
+#
 #  Tùy chọn (env):
 #     APP_DIR=/opt/elliott          # nơi đặt app
 #     PORT=3000                     # port nội bộ
@@ -18,6 +22,10 @@
 set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/DuoLE3383/Elliot.git}"
+# Repo private: tự nhét PAT vào URL clone (env GITHUB_TOKEN; REPO_URL giữ nguyên)
+if [[ -n "${GITHUB_TOKEN:-}" && "$REPO_URL" == https://github.com/* && "$REPO_URL" != *"@"* ]]; then
+  REPO_URL="https://${GITHUB_TOKEN}@${REPO_URL#https://}"
+fi
 APP_DIR="${APP_DIR:-/opt/elliott}"
 DATA_DIR="$APP_DIR/data"
 PORT="${PORT:-3000}"

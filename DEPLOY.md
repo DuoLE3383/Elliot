@@ -51,7 +51,25 @@ sudo systemctl restart cloudflared
 
 → **https://elliott.huyenbao.com** chạy app hoàn chỉnh. Update sau này: `cd` vào thư mục repo (bất kể clone ở đâu — `/opt/elliott`, `~/Elliot`, …) rồi `sudo bash deploy/update.sh` (pull → build → **schema sync `prisma db push` vào đúng DB mà `.env` trỏ tới** — hết lỗi `main.Suggestion does not exist` → restart, **không bao giờ mất data** vì SQLite + JSON nằm ngoài thư mục code; script tự suy repo theo vị trí của nó, hoặc ép đường dẫn bằng `sudo APP_DIR=/đường/dẫn bash deploy/update.sh`). Xem log: `journalctl -u elliott -f`.
 
-**Schema tự chữa lành (bản mới)**: app không còn phụ thuộc `db push` chạy đúng chỗ nữa — ngay lần truy vấn DB đầu tiên sau khi boot, nó tự tạo BẤT KỲ bảng nào còn thiếu (`Suggestion`, `FinetuneRun`, `AutoTrade`, …) qua đúng `DATABASE_URL` mà process đang dùng, và nếu gặp P2021 giữa chừng (DB bị thay file, restore, gộp DB…) thì tự dựng lại bảng rồi tự retry lệnh. Nghĩa là kể cả khi `db push` trong update.sh lỡ chạy nhầm DB, app vẫn tự phục hồi và các route `/api/suggestions` + `/api/finetune` + `/api/autotrade` hết 500/503 mà không cần can thiệp tay. Log khi đó in rõ: `[db] schema bootstrap — created missing table(s): …`.
+**Schema tự chữa lành (bản mới)**: app không còn phụ thuộc `db push` chạy đúng chỗ nữa — ngay lần truy vấn DB đầu tiên sau khi boot, nó tự tạo BẤT KỲ bảng nào còn thiếu (`Suggestion`, `FinetuneRun`, `AutoTrade`, …) qua đúng `DATABASE_URL` mà process đang dùng, và nếu gặp P2021 giữa chừng (DB bị thay file, restore, gộp DB…) thì tự dựng lại bảng rồi tự retry lệnh. Nghĩa là kể cả khi `db push` trong update.sh lỡ chạy nhầm DB, app vẫn tự phục hồi và các route `/api/suggestions` + `/api/finetune` + `/api/autotrade` hết 500/503 mà không cần can thiệp tay. Log khi đó in rõ: `[db] schema bootstrap — created missing table(s): …` (hoặc `— ok (all 5 tables present)` khi DB đã đủ).
+
+### Repo PRIVATE — VPS pull cần PAT (cấu hình 1 lần)
+
+Repo đã chuyển **private** để giấu domain/đường dẫn server. Lần pull/clone đầu sau khi chuyển sẽ lỗi auth — cấu hình 1 lần:
+
+```bash
+# VPS đang chạy app — cách 1 (khuyến nghị): update.sh tự ghi PAT vào remote URL, nhớ cho các lần sau
+sudo GITHUB_TOKEN=<PAT> bash deploy/update.sh
+
+# VPS — cách 2 (tay): cd vào repo rồi
+git remote set-url origin https://<PAT>@github.com/DuoLE3383/Elliot.git
+
+# Cài mới trên VPS:
+git clone https://<PAT>@github.com/DuoLE3383/Elliot /tmp/elliott-installer
+sudo GITHUB_TOKEN=<PAT> bash /tmp/elliott-installer/deploy/install-ubuntu.sh
+```
+
+Lưu ý: PAT không nằm trong code — chỉ nằm trong `.git/config` của chính máy bạn (update.sh tự `chmod 600`). Muốn xoá: `git remote set-url origin https://github.com/DuoLE3383/Elliot.git`.
 
 ### ⚠️ Lưu ý vận hành quan trọng
 
