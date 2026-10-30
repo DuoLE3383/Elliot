@@ -11,4 +11,4 @@ import path from "path";
 export const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "db");
 
 /** absolute path of a JSON state file inside DATA_DIR */
-export const dataFile = (name: string): string => path.join(DATA_DIR, name);
+export const dataFile = (name: string): string => path.join(/* turbopackIgnore: true */ DATA_DIR, name);
