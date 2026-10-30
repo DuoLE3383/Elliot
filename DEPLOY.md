@@ -51,6 +51,8 @@ sudo systemctl restart cloudflared
 
 → **https://elliott.huyenbao.com** chạy app hoàn chỉnh. Update sau này: `cd` vào thư mục repo (bất kể clone ở đâu — `/opt/elliott`, `~/Elliot`, …) rồi `sudo bash deploy/update.sh` (pull → build → **schema sync `prisma db push` vào đúng DB mà `.env` trỏ tới** — hết lỗi `main.Suggestion does not exist` → restart, **không bao giờ mất data** vì SQLite + JSON nằm ngoài thư mục code; script tự suy repo theo vị trí của nó, hoặc ép đường dẫn bằng `sudo APP_DIR=/đường/dẫn bash deploy/update.sh`). Xem log: `journalctl -u elliott -f`.
 
+**Schema tự chữa lành (bản mới)**: app không còn phụ thuộc `db push` chạy đúng chỗ nữa — ngay lần truy vấn DB đầu tiên sau khi boot, nó tự tạo BẤT KỲ bảng nào còn thiếu (`Suggestion`, `FinetuneRun`, `AutoTrade`, …) qua đúng `DATABASE_URL` mà process đang dùng, và nếu gặp P2021 giữa chừng (DB bị thay file, restore, gộp DB…) thì tự dựng lại bảng rồi tự retry lệnh. Nghĩa là kể cả khi `db push` trong update.sh lỡ chạy nhầm DB, app vẫn tự phục hồi và các route `/api/suggestions` + `/api/finetune` + `/api/autotrade` hết 500/503 mà không cần can thiệp tay. Log khi đó in rõ: `[db] schema bootstrap — created missing table(s): …`.
+
 ### ⚠️ Lưu ý vận hành quan trọng
 
 - **Auto-trade (dry-run) chạy trong tab trình duyệt**, không phải trên server: engine quét + train XGB chạy client-side, server chỉ lưu trades + gửi Telegram. Muốn auto chạy 24/7 phải **giữ mở 1 tab** (desktop/điện thoại bất kỳ). Đây là design hiện tại — nếu muốn engine chạy server-side (không cần mở tab) là một tính năng mới cần triển khai thêm.
