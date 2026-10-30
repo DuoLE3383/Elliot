@@ -480,7 +480,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
             )
             .join("\n");
           void sendTelegram(
-            `🔄 <b>Vũ trụ quét 8h</b> — top ${top.length} (ATR + trending, dữ liệu 10 ngày qua):\n<code>${lines}</code>`,
+            `🔄 <b>Vũ trụ quét (lặp mỗi 8h)</b> — top ${top.length} — ATR + trending · dữ liệu 10 ngày qua:\n<code>${lines}</code>`,
             { html: true, key: `universe:${universeBucket()}` },
           );
         }
