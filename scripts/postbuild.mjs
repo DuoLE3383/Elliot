@@ -55,6 +55,34 @@ function stripMaps(dir) {
 const maps = stripMaps(STANDALONE) + stripMaps(path.join(ROOT, ".next", "static"));
 console.log(`[postbuild] removed ${maps} sourcemap(s)`);
 
+// ── 2b. bundle the BACKEND XGB worker (worker_threads) with esbuild ─────────
+// The engine (src/lib/engine.ts) spawns .next/standalone/xgb-node.worker.mjs
+// for real multi-thread training on the server. esbuild is a devDependency —
+// missing it (NODE_ENV=production installs) only degrades to the in-process
+// sequential fallback, NEVER fails the build.
+try {
+  const { build } = await import("esbuild");
+  await build({
+    entryPoints: [path.join(ROOT, "src", "workers", "xgb-node.worker.ts")],
+    outfile: path.join(STANDALONE, "xgb-node.worker.mjs"),
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    target: "node20",
+    minify: true,
+    sourcemap: false,
+    logLevel: "silent",
+    // the worker bundle must stay self-contained — pure libs only (xgb chain +
+    // klines-direct), no prisma/next imports reach it by design
+    external: ["prisma", "@prisma/client", "next"],
+  });
+  console.log("[postbuild] bundled xgb-node.worker.mjs (backend XGB pool worker)");
+} catch (e) {
+  console.warn(
+    `[postbuild] worker bundle skipped: ${e instanceof Error ? e.message : e} — engine falls back to sequential in-process training`,
+  );
+}
+
 // ── 3. optional obfuscation — opt-in, failure-tolerant ───────────────────────
 if (process.env.OBFUSCATE !== "1") {
   console.log("[postbuild] obfuscation skipped (set OBFUSCATE=1 to harden the bundle)");

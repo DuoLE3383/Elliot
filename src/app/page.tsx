@@ -23,8 +23,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtCompact } from "@/lib/market";
-import { fetchRuns, markApplied, resolveBatch, saveRun, saveSuggestion, type RunRow, type SuggestionRow } from "@/lib/history";
-import { fetchKlines, scoreOf, sendTelegram } from "@/lib/autotrade";
+import { fetchRuns, markApplied, resolveBatch, type RunRow } from "@/lib/history";
 import { fmtPct, fmtPrice, fmtTime, symbolLabel, t, type Lang } from "@/lib/i18n";
 import { kpiFrom, papersFrom } from "@/lib/papers";
 import { signalsFrom } from "@/lib/signals";
@@ -47,8 +46,7 @@ import {
   matchPreset,
   migratePairsTo,
 } from "@/lib/types";
-import { MAX_DIFFICULTY, type XgbResult } from "@/lib/xgb";
-import { XgbPool } from "@/lib/xgb-pool";
+import { type XgbResult } from "@/lib/xgb";
 import { ElliottLogo } from "@/components/logo";
 import { AlertTriangle, ArrowLeftRight, BrainCircuit, ChevronRight, Eye, EyeOff, Landmark, RefreshCw, Settings2 } from "lucide-react";
 
@@ -72,46 +70,15 @@ interface AllTrainState {
   best: { symbol: string; interval: string; acc: number; auc: number; score: number } | null;
 }
 
-/** Persist one train result (Suggestion + FinetuneRun) — shared by manual train and train-all.
- *  entryPrice = last CLOSED candle close (the worker/pool already extracted it). */
-async function persistXgbResult(
-  res: XgbResult,
-  sym: string,
-  itv: string,
-  entryPrice: number,
-): Promise<[SuggestionRow | null, RunRow | null]> {
-  return Promise.all([
-    saveSuggestion({
-      symbol: sym,
-      interval: itv,
-      bias: res.suggestion.bias,
-      prob: res.suggestion.prob,
-      confidence: res.suggestion.confidence,
-      slPct: res.suggestion.slPct,
-      tpPct: res.suggestion.tpPct,
-      atrKey: res.suggestion.atrKey,
-      atrPeriod: res.suggestion.atrPeriod,
-      smaFilter: res.suggestion.smaFilter,
-      smaPeriod: res.suggestion.smaPeriod,
-      acc: res.acc,
-      auc: res.auc,
-      horizonBars: res.horizon,
-      entryPrice,
-    }),
-    saveRun({
-      symbol: sym,
-      interval: itv,
-      samples: res.samples,
-      valSamples: res.valSamples,
-      acc: res.acc,
-      auc: res.auc,
-      logloss: res.logloss,
-      trees: res.trees,
-      horizon: res.horizon,
-      importance: res.importance,
-      params: { ...res.params, lv: res.difficulty, marginAtr: Number(res.marginAtr.toFixed(3)) },
-    }),
-  ]);
+/** train job view from GET /api/engine — the backend trains, the page mirrors */
+interface EngineJobView {
+  id: string;
+  kind: string;
+  label: string;
+  state: "queued" | "running" | "done" | "failed";
+  position: number;
+  progress: { done: number; total: number; current: string } | null;
+  extra: Record<string, unknown>;
 }
 
 /** "pepe" → "PEPEUSDT", "PEPEUSDT" → "PEPEUSDT" */
@@ -187,7 +154,6 @@ export default function Home() {
   const [xgbRuns, setXgbRuns] = useState<RunRow[]>([]);
   /** progress of a "train ALL pairs × all timeframes" pass (null = idle) */
   const [allTrain, setAllTrain] = useState<AllTrainState | null>(null);
-  const allTrainBusyRef = useRef(false);
   /** bumped after any DB mutation → history lists reload */
   const [histRefresh, setHistRefresh] = useState(0);
   // ── market context (ticker strip + watchlist sparklines) ────────────────────
@@ -525,53 +491,108 @@ export default function Home() {
 
   // ── XGBoost train + apply ──────────────────────────────────────────
   /**
-   * Train (or retrain) the model for the CURRENT pair+interval.
-   * persist=true  → manual click: also writes Suggestion + FinetuneRun rows and
-   *                 bumps the difficulty level (one level per persisted run).
+   * Train (or retrain) the CURRENT pair+interval — ON THE BACKEND. The heavy
+   * work (fetch klines + 120 trees + 22 engine sims) runs in the Node worker
+   * pool; this only enqueues a job and mirrors its progress via the poller.
+   * persist=true  → manual click: server writes Suggestion + FinetuneRun rows.
    * persist=false → silent auto-retrain after a pair/interval switch: compute
    *                 only, nothing written — suggestion history stays user-driven.
    */
   const trainXgb = useCallback(
     async (persist: boolean) => {
-      if (xgbBusy || allTrainBusyRef.current || klines.length < 200) return;
+      if (xgbBusy || klines.length < 200) return;
       setXgbBusy(true);
       setXgbProgress(0);
-      // single-combo pool — the train itself (120 trees + 22 engine sims) runs
-      // in a Web Worker so the chart/panel stay fully responsive while it goes
-      const pool = new XgbPool(1);
       try {
-        // difficulty grows with every persisted run for this pair+interval
-        const lv = Math.min(MAX_DIFFICULTY, xgbRuns.length);
-        const out = await pool.train(
-          { sym: symbol, itv: interval, settings, difficulty: lv, klines },
-          (p) => setXgbProgress(p),
-        );
-        if (!out.ok) throw new Error(out.error);
-        setXgb(out.res);
-        if (!persist) return;
-        pushToast({
-          kind: "xgb",
-          text: t(lang, "toast.xgbDone", { acc: out.res.acc.toFixed(1), auc: out.res.auc.toFixed(2) }),
+        const res = await fetch("/api/engine", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "train", single: { sym: symbol, itv: interval }, persist }),
         });
-        // persist run + suggestion per (pair, interval, time) — outcomes are
-        // scored later by resolve-batch once the horizon bars have elapsed
-        const [saved, runSaved] = await persistXgbResult(out.res, symbol, interval, out.entryPrice);
-        setXgbSavedId(saved?.id ?? null);
-        setXgbRunId(runSaved?.id ?? null);
-        pushToast({
-          kind: "xgb",
-          text: saved && runSaved ? t(lang, "sg.saved") : t(lang, "sg.saveFail"),
-        });
-        bumpHist();
+        const j = (await res.json().catch(() => null)) as { coalesced?: boolean } | null;
+        if (j?.coalesced) pushToast({ kind: "wy", text: t(lang, "engine.queued") });
+        // the job poller below mirrors progress + result; the local klines are
+        // NOT needed anymore — the worker fetches fresh candles from Binance
       } catch {
-        if (persist) pushToast({ kind: "error", text: t(lang, "toast.xgbFail") });
-      } finally {
-        pool.destroy();
         setXgbBusy(false);
+        if (persist) pushToast({ kind: "error", text: t(lang, "toast.xgbFail") });
       }
     },
-    [xgbBusy, xgbRuns.length, klines, settings, interval, symbol, lang, pushToast, bumpHist],
+    [xgbBusy, klines.length, interval, symbol, lang, pushToast],
   );
+
+  // train job mirror — one poll every 2s while a train job exists; updates the
+  // single-train AND train-all panels from the same server truth. Toasts fire
+  // once per finished job (guarded by job id).
+  const trainHandledRef = useRef("");
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      try {
+        const res = await fetch("/api/engine", { cache: "no-store" });
+        if (!res.ok) return;
+        const snap = (await res.json()) as { jobs: EngineJobView[] };
+        if (!alive) return;
+        const job = snap.jobs.find((j) => j.kind === "train");
+        if (!job) {
+          setAllTrain((prev) => (prev?.busy ? { ...prev, busy: false } : prev));
+          setXgbBusy(false);
+          return;
+        }
+        const active = job.state === "running" || job.state === "queued";
+        if (job.label === "all") {
+          setAllTrain({
+            busy: active,
+            done: job.progress?.done ?? 0,
+            total: job.progress?.total ?? 0,
+            current: job.progress?.current ?? "",
+            saved: Number(job.extra?.saved ?? 0),
+            workers: Number(job.extra?.workers ?? 1),
+            best: (job.extra?.best as AllTrainState["best"]) ?? null,
+          });
+          if (active) trainHandledRef.current = "";
+          else if (job.state === "done" && trainHandledRef.current !== job.id) {
+            trainHandledRef.current = job.id;
+            const saved = Number(job.extra?.saved ?? 0);
+            const total = Number(job.extra?.total ?? 0);
+            pushToast({ kind: "xgb", text: t(lang, "xgb.trainAll.done", { saved: String(saved), total: String(total) }) });
+            bumpHist();
+          } else if (job.state === "failed" && trainHandledRef.current !== job.id) {
+            trainHandledRef.current = job.id;
+            pushToast({ kind: "error", text: t(lang, "toast.xgbFail") });
+          }
+        } else {
+          // single-combo job — busy flag + progress + the resulting model
+          setXgbBusy(active);
+          const p = job.extra?.progress;
+          if (typeof p === "number") setXgbProgress(p);
+          if (!active && trainHandledRef.current !== job.id) {
+            trainHandledRef.current = job.id;
+            const r = job.extra?.result as
+              | { res?: XgbResult; entryPrice?: number; suggestionId?: string; runId?: string }
+              | undefined;
+            if (job.state === "done" && r?.res) {
+              setXgb(r.res);
+              setXgbSavedId(r.suggestionId ?? null);
+              setXgbRunId(r.runId ?? null);
+              if (r.suggestionId || r.runId) pushToast({ kind: "xgb", text: t(lang, "sg.saved") });
+              bumpHist();
+            } else if (job.state === "failed") {
+              pushToast({ kind: "error", text: t(lang, "toast.xgbFail") });
+            }
+          }
+        }
+      } catch {
+        // server restarting — keep the last state on screen
+      }
+    };
+    void poll();
+    const id = window.setInterval(() => void poll(), 2_000);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, [lang, pushToast, bumpHist]);
 
   const applyXgb = useCallback(() => {
     if (!xgb) return;
@@ -748,77 +769,27 @@ export default function Home() {
    * own persisted run count), and the whole batch is reported to the Telegram
    * channel when it finishes.
    */
+  /**
+   * Train ALL watched pairs × all timeframes — ON THE BACKEND. Enqueues the
+   * "train:all" job (the Node worker pool runs it, persists every combo and
+   * posts the 🧠 TRAIN TOÀN BỘ XONG summary to Telegram itself). The poller
+   * above mirrors done/total/current/saved/best into the panel; concurrent
+   * clicks coalesce or WAIT in the queue ("nhiều người ấn chạy thì bắt chờ").
+   */
   const trainAllXgb = useCallback(async () => {
-    if (allTrainBusyRef.current || xgbBusy) return;
-    allTrainBusyRef.current = true;
-    const combos = allPairs.length * INTERVALS.length;
-    const pool = new XgbPool();
-    let done = 0;
-    let saved = 0;
-    let best: AllTrainState["best"] = null;
-    /** only combos whose FinetuneRun actually persisted — ranked after the pass */
-    const ranked: { sym: string; itv: string; res: XgbResult }[] = [];
-    const snap = (busy: boolean, current: string): AllTrainState => ({
-      busy,
-      done,
-      total: combos,
-      current,
-      saved,
-      best,
-      workers: pool.parallelism,
-    });
-    setAllTrain(snap(true, ""));
+    if (xgbBusy) return;
     try {
-      await pool.runQueue(
-        allPairs.flatMap((sym) => INTERVALS.map((itv) => ({ sym, itv }))),
-        settings,
-        {
-          onComboStart: (sym, itv) => setAllTrain(snap(true, `${sym} ${itv}`)),
-          onComboDone: async (sym, itv, res, entryPrice) => {
-            try {
-              const [, runSaved] = await persistXgbResult(res, sym, itv, entryPrice);
-              if (runSaved) ranked.push({ sym, itv, res });
-            } catch {
-              // persist failure → combo counts as done but not saved
-            }
-            done++;
-            setAllTrain(snap(true, ""));
-          },
-          onComboFail: () => {
-            done++;
-            setAllTrain(snap(true, ""));
-          },
-        },
-      );
-      // best/saved finalize after the pass — the panel shows them on the
-      // "Lần trước" line only, so per-combo live updates are unnecessary
-      saved = ranked.length;
-      for (const r of ranked) {
-        const score = scoreOf(r.res);
-        if (!best || score > best.score) best = { symbol: r.sym, interval: r.itv, acc: r.res.acc, auc: r.res.auc, score };
-      }
-    } finally {
-      pool.destroy();
-      allTrainBusyRef.current = false;
-      setAllTrain(snap(false, ""));
-      pushToast({ kind: "xgb", text: t(lang, "xgb.trainAll.done", { saved: String(saved), total: String(combos) }) });
-      bumpHist();
+      const res = await fetch("/api/engine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "train" }),
+      });
+      const j = (await res.json().catch(() => null)) as { coalesced?: boolean } | null;
+      if (j?.coalesced) pushToast({ kind: "wy", text: t(lang, "engine.queued") });
+    } catch {
+      pushToast({ kind: "error", text: t(lang, "engine.submitFail") });
     }
-    if (saved > 0) {
-      // channel convention is Vietnamese — matches the scan / open / close messages
-      void sendTelegram(
-        [
-          "🧠 <b>TRAIN TOÀN BỘ XONG</b>",
-          `${allPairs.length} pair × ${INTERVALS.length} TF · đã lưu <b>${saved}/${combos}</b> combo`,
-          best
-            ? `🏆 Tốt nhất: <b>#${best.symbol}</b> ${best.interval} · ACC ${best.acc.toFixed(1)}% · AUC ${best.auc.toFixed(2)} · Score ${best.score.toFixed(1)}`
-            : "",
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      );
-    }
-  }, [xgbBusy, allPairs, settings, lang, pushToast, bumpHist]);
+  }, [xgbBusy, lang, pushToast]);
 
   const langLabel = lang === "vi" ? "EN" : "VI";
 

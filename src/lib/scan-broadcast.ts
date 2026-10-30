@@ -21,10 +21,20 @@
 // per candidate for 24h volume / taker-buy pressure + the winning-interval
 // klines for EMA/RSI/MACD/S&R. Filters: 24h quote volume ≥ $7M, PL1 (TP1 %)
 // ≥ 5, one best combo per symbol, at most TOP_N coins per message.
+//
+// SERVER-SIDE since the backend-engine refactor: the broadcast runs in the
+// Node scheduler (src/lib/engine.ts), klines come straight from Binance via
+// klines-direct (no HTTP self-call), the counter/seen state lives in
+// $DATA_DIR/scan-bcast.json (localStorage is a browser thing), and the clock
+// is Asia/Ho_Chi_Minh — the channel's timezone.
 
+import { mkdirSync, readFileSync, writeFileSync } from "fs";
+import path from "path";
+import { dataFile } from "./data-dir";
 import { atr, ema, macd, rsi } from "./indicators";
-import { fetchKlines, type ScanRow } from "./autotrade";
+import { fetchKlinesDirect } from "./klines-direct";
 import { fmtPrice, symbolLabel } from "./i18n";
+import type { ScanRow } from "./autotrade";
 import type { Kline, Ticker } from "./types";
 
 export const BCAST_VOL_MIN = 7e6; // $7M 24h quote volume
@@ -47,9 +57,12 @@ export interface BcastState {
 
 export const BCAST_LS_KEY = "utp.bcast";
 
+// state file — same shape the browser localStorage used, now server-persisted
+const STATE_FILE = dataFile("scan-bcast.json");
+
 export function loadBcastState(): BcastState {
   try {
-    const raw = localStorage.getItem(BCAST_LS_KEY);
+    const raw = readFileSync(STATE_FILE, "utf8");
     if (!raw) return { n: 0, seen: {} };
     const p = JSON.parse(raw) as Partial<BcastState>;
     return {
@@ -65,9 +78,10 @@ export function saveBcastState(st: BcastState): void {
   try {
     // keep the seen-map bounded — only the last 400 keys matter for ⚡NEW
     const entries = Object.entries(st.seen).sort((a, b) => b[1] - a[1]).slice(0, 400);
-    localStorage.setItem(BCAST_LS_KEY, JSON.stringify({ n: st.n, seen: Object.fromEntries(entries) }));
+    mkdirSync(path.dirname(STATE_FILE), { recursive: true });
+    writeFileSync(STATE_FILE, JSON.stringify({ n: st.n, seen: Object.fromEntries(entries) }), "utf8");
   } catch {
-    // storage blocked — counters live for this session only
+    // unwritable DATA_DIR — counters live for this process only
   }
 }
 
@@ -177,7 +191,10 @@ const sideTag = (bias: string): string => (bias === "SHORT" ? "SELL 🔴" : "BUY
 
 async function enrich(row: ScanRow, tickers: Record<string, Ticker>, seen: Record<string, number>): Promise<CoinTech | null> {
   try {
-    const [tfKlines, hourly] = await Promise.all([fetchKlines(row.symbol, row.interval), fetchKlines(row.symbol, "1h")]);
+    const [tfKlines, hourly] = await Promise.all([
+      fetchKlinesDirect(row.symbol, row.interval),
+      fetchKlinesDirect(row.symbol, "1h"),
+    ]);
     if (tfKlines.length < 60 || hourly.length < 48) return null;
     const { vol24h, volRatio, buyPressure } = dayStats(hourly);
     if (vol24h < BCAST_VOL_MIN) return null;
@@ -285,10 +302,25 @@ export async function buildTopCoinsMessage(
   }
   if (picked.length === 0) return null;
 
+  // clock in the CHANNEL's timezone — the server runs UTC, the reader is VN
   const now = new Date();
-  const hh = String(now.getHours()).padStart(2, "0");
-  const mm = String(now.getMinutes()).padStart(2, "0");
-  const dateStr = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
+  const vn = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const vnDate = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+  const [hm, dmy] = [vn.format(now), vnDate.format(now)]; // hm = "HH:MM", dmy = "dd/mm/yyyy"
+  const hh = hm.slice(0, 2);
+  const mm = hm.slice(3, 5);
+  const [dd, mo, yyyy] = dmy.split("/");
+  const dateStr = `${dd}/${mo}/${yyyy}`;
   const names = picked.map((c) => symbolLabel(c.row.symbol)).join(" ");
 
   const out: string[] = [

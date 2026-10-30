@@ -70,4 +70,13 @@ export async function register(): Promise<void> {
   } catch {
     // scheduler unavailable — notifications triggered from the UI still work
   }
+  // 4. Backend engine scheduler — scan / train / universe / TOP-coin broadcast
+  //    / paper-trade cycle / digests ALL run in this Node process now (the
+  //    browser is display-only). Idempotent; idle until the first client sync.
+  try {
+    const en = await import("./lib/engine");
+    en.startEngineScheduler();
+  } catch {
+    // engine unavailable — the UI still works with manual client actions
+  }
 }

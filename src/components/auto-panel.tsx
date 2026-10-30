@@ -7,23 +7,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
-  bestTradeableAvoid,
   closeAutoTrade,
   COOLDOWN_CHOICES,
   CYCLE_CHOICES,
   fetchAutoState,
-  fetchKlines,
-  liquidationHit,
   loadAutoConfig,
-  nearHit,
-  openAutoTrade,
   pushAutoStats,
   RISK_CHOICES,
   roeOf,
   saveAutoConfig,
-  scanAll,
   sendTelegram,
-  slTpHit,
   TP_MODES,
   telegramConfigured,
   telegramStatus,
@@ -35,23 +28,11 @@ import {
   type ScanRow,
 } from "@/lib/autotrade";
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
-import { atrLevelsAtEntry } from "@/lib/indicators";
-import { useLeaderElection } from "@/lib/leader";
 import type { EngineSettings, Ticker } from "@/lib/types";
 import { INTERVALS } from "@/lib/types";
-import { llmReviewViaApi, type LlmVerdict } from "@/lib/llm";
-import { buildTopCoinsMessage, loadBcastState, saveBcastState } from "@/lib/scan-broadcast";
+import { UNIVERSE, UNIVERSE_INTERVAL, type UniverseRow } from "@/lib/universe";
+import { msgClose, slPrice, tpPrice } from "@/lib/tg-msgs";
 import { NOISE_BAND } from "@/lib/xgb";
-import {
-  UNIVERSE,
-  UNIVERSE_INTERVAL,
-  UNIVERSE_LOOKBACK_CANDLES,
-  UNIVERSE_SCAN_MS,
-  rankUniverse,
-  scorePair,
-  universeBucket,
-  type UniverseRow,
-} from "@/lib/universe";
 import { Bot, ScanLine, Send, Square } from "lucide-react";
 
 interface Props {
@@ -72,19 +53,52 @@ interface Props {
 }
 
 /** rescan when the snapshot is older than this */
-const SCAN_TTL = 30 * 60_000;
 const TOP_N = 6;
 
-/** last LLM risk-officer review, shown next to the config row */
+/** last LLM risk-officer review (server-side), shown next to the config row */
 interface LlmLast {
   symbol: string;
   interval: string;
   side: string;
-  verdict: "go" | "skip" | "down";
+  verdict: string; // "go" | "skip" | "down"
   reason: string;
   ms: number;
   at: number;
 }
+
+/** snapshot of GET /api/engine — the backend engine is the single source of truth */
+interface EngineSnap {
+  synced: boolean;
+  syncedAt: number | null;
+  cfg: { on: boolean };
+  scan: { rows: ScanRow[]; at: number } | null;
+  universe: { rows: UniverseRow[]; at: number } | null;
+  cycle: { lastAt: number; status: string; nextAt: number };
+  llmLast: LlmLast | null;
+  jobs: {
+    id: string;
+    kind: string;
+    state: "queued" | "running" | "done" | "failed";
+    position: number;
+    progress: { done: number; total: number; current: string } | null;
+  }[];
+  workers: { pool: number; bundled: boolean };
+  telegram: boolean;
+}
+
+const postEngine = async (body: Record<string, unknown>): Promise<{ ok: boolean; coalesced?: boolean }> => {
+  try {
+    const res = await fetch("/api/engine", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return { ok: false };
+    return (await res.json()) as { ok: boolean; coalesced?: boolean };
+  } catch {
+    return { ok: false };
+  }
+};
 
 /** humanize a seconds count — "45s" · "12m" · "2h 15m" · "3d 6h" (unit-neutral) */
 const fmtLeft = (s: number): string => {
@@ -99,83 +113,10 @@ const fmtLeft = (s: number): string => {
   return rh ? `${d}d ${rh}h` : `${d}d`;
 };
 
-// ─── Telegram message builders (HTML parse mode, trading terms) ──────────────
-
-const HR = "━━━━━━━━━━━━━━━━━━";
-const levTxt = (x: number): string => `×${x % 1 === 0 ? x : x.toFixed(1)}`;
-const sideTxt = (side: string): string => (side === "LONG" ? "LONG 🟢" : side === "SHORT" ? "SHORT 🔴" : "NEUTRAL ⚪");
-
-/** absolute SL price level for a side (price-move %, before leverage) */
-const slPrice = (side: string, entry: number, slPct: number): number =>
-  side === "SHORT" ? entry * (1 + Math.abs(slPct) / 100) : entry * (1 - Math.abs(slPct) / 100);
-/** absolute TP price level for a side */
-const tpPrice = (side: string, entry: number, tpPct: number): number =>
-  side === "SHORT" ? entry * (1 - Math.abs(tpPct) / 100) : entry * (1 + Math.abs(tpPct) / 100);
-
-const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string): string => {
-  const stake = (equity * (r.stakePct ?? 100)) / 100;
-  const notional = stake * r.leverage;
-  const rr = r.slPct > 0 ? r.tpPct / r.slPct : 0;
-  const slRoe = -(r.slPct * r.leverage);
-  const tpRoe = r.tpPct * r.leverage;
-  const lines = [
-    `🤖 <b>AUTO OPEN (dry-run) · ${r.side === "LONG" ? "LONG 🟢" : "SHORT 🔴"}</b>`,
-    `📌 <b>#${r.symbol}</b> · ${r.interval}`,
-    HR,
-    `🎯 Entry: <b>${fmtPrice(r.entryPrice)}</b>`,
-    `🛑 SL: <b>${fmtPrice(slPrice(r.side, r.entryPrice, r.slPct))}</b> · −${r.slPct.toFixed(1)}% giá (ROE ${slRoe.toFixed(1)}% @ ${levTxt(r.leverage)})`,
-    `🏁 TP: <b>${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(1)}% giá (ROE +${tpRoe.toFixed(1)}% @ ${levTxt(r.leverage)})`,
-  ];
-  if (atrNote) lines.push(atrNote);
-  lines.push(
-    `⚖️ Leverage ${levTxt(r.leverage)} · R:R 1:${rr.toFixed(2)}`,
-    `📦 Stake: <b>${stake.toFixed(2)}</b> USDT · ${r.stakePct ?? 100}% equity · Notional ${notional.toFixed(2)} USDT`,
-    `🧠 Prob ${((r.prob ?? 0) * 100).toFixed(1)}% · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(1)}% · Score ${(r.score ?? 0).toFixed(1)}`,
-  );
-  return lines.join("\n");
-};
-
-const kindTag = (k: string | null): string =>
-  k === "tp" ? "TAKE PROFIT ✅" : k === "sl" ? "STOP LOSS 🔻" : "ĐÓNG THỦ CÔNG ✋";
-
-const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPnlPct: number): string =>
-  [
-    `🤖 <b>AUTO CLOSE · ${kindTag(r.exitKind)}</b>`,
-    `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
-    HR,
-    `🎯 Entry ${fmtPrice(r.entryPrice)} → 🚪 Exit <b>${fmtPrice(r.exitPrice ?? 0)}</b>`,
-    `💵 PnL (ROE): <b>${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}%</b>`,
-    `💰 Equity: ${(r.capitalBefore ?? 0).toFixed(2)} → <b>${(r.capitalAfter ?? 0).toFixed(2)}</b> USDT`,
-    `📈 Track record: ${closed} lệnh · Win rate ${winRate.toFixed(0)}% · Net ROE ${netPnlPct >= 0 ? "+" : ""}${netPnlPct.toFixed(1)}%`,
-  ].join("\n");
+// ─── Telegram builders live in src/lib/tg-msgs (shared with the backend engine)
 
 const TEST_MSG =
   "✅ <b>Elliott Terminal — kết nối Telegram OK</b>\nAuto trade (dry-run) sẽ báo mở/đóng lệnh, cảnh báo sát TP/SL, kết quả quét và báo cáo thống kê tại kênh này.";
-
-const msgNear = (r: AutoTradeRow, price: number, kind: "tp" | "sl"): string => {
-  const target = kind === "tp" ? tpPrice(r.side, r.entryPrice, r.tpPct) : slPrice(r.side, r.entryPrice, r.slPct);
-  const awayPct = price > 0 ? Math.abs((target - price) / price) * 100 : 0;
-  const roe = roeOf(r.side, r.entryPrice, price, r.leverage);
-  return [
-    kind === "tp" ? "⚠️ <b>GIÁ SÁT TAKE PROFIT — SẴN SÀNG CHỐT LỜI</b>" : "⚠️ <b>GIÁ SÁT STOP LOSS — THEO DÕI RỦI RO</b>",
-    `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
-    HR,
-    `${kind === "tp" ? "🏁" : "🛑"} ${kind === "tp" ? "Take Profit" : "Stop Loss"} ${fmtPrice(target)} · còn <b>${awayPct.toFixed(2)}%</b>`,
-    `📈 Giá ${fmtPrice(price)} · ROE <b>${roe >= 0 ? "+" : ""}${roe.toFixed(1)}%</b> · Lev ${levTxt(r.leverage)}`,
-  ].join("\n");
-};
-
-const escHtml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-/** LLM veto notice — the pending entry was reviewed and rejected by the local model */
-const msgLlmVeto = (r: ScanRow, v: LlmVerdict): string =>
-  [
-    `🛑 <b>LLM VETO — setup bị chặn trước khi vào lệnh</b>`,
-    `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.bias)}`,
-    HR,
-    `🧠 Prob ${(r.prob * 100).toFixed(1)}% · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(1)}% · Score ${r.score.toFixed(1)}`,
-    `💬 ${escHtml(v.reasons.slice(0, 3).join(" · ")) || "—"}`,
-  ].join("\n");
 
 // hourly / daily digest builders (statLines · msgHourly · msgDaily) now live in
 // src/lib/autotrade.ts and run SERVER-SIDE via /api/autotrade/push — one sender
@@ -186,15 +127,14 @@ const msgLlmVeto = (r: ScanRow, v: LlmVerdict): string =>
 
 export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair, onUniverseTop, pushToast }: Props) {
   const [cfg, setCfg] = useState<AutoConfig>(loadAutoConfigSafe());
-  // one engine per browser: the elected leader tab drives cycles/scans/sends,
-  // standby tabs keep the UI live but never train, trade or notify
-  const { leader } = useLeaderElection();
-  const leaderRef = useRef(leader);
+  // BACKEND ENGINE since the server-side refactor: scan / train / universe /
+  // TOP-coin broadcast / paper-trade cycle / digests ALL run in the Node
+  // process (src/lib/engine.ts) 24/7 with no tab open. This panel is
+  // display + control only: it syncs config up and polls the snapshot down.
   const [rows, setRows] = useState<ScanRow[]>([]);
   const [scanAt, setScanAt] = useState<number | null>(null);
-  const [scanning, setScanning] = useState<{ done: number; total: number; current: string } | null>(null);
+  const [scanning, setScanning] = useState<{ done: number; total: number; current: string; queued: number } | null>(null);
   const [universe, setUniverse] = useState<UniverseRow[]>([]);
-  const uniRef = useRef<UniverseRow[]>([]); // top-30 8h — lọc digest "TOP coin tiềm năng"
   const [auto, setAuto] = useState<AutoState | null>(null);
   const [tgConfigured, setTgConfigured] = useState<boolean | null>(null);
   const [tgState, setTgState] = useState<"idle" | "sending" | "ok" | "fail">("idle");
@@ -204,56 +144,18 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const [status, setStatus] = useState<string>("");
   const [countdown, setCountdown] = useState<number | null>(null);
   const [llmLast, setLlmLast] = useState<LlmLast | null>(null);
+  const [engineInfo, setEngineInfo] = useState<{ pool: number; bundled: boolean } | null>(null);
 
-  // refs mirror props/state for the interval callbacks (no stale closures,
-  // and the cycle interval is NOT reset every time a prop changes)
-  const cfgRef = useRef(cfg);
-  const rowsRef = useRef(rows);
-  const scanAgeRef = useRef(scanAt);
-  const tickersRef = useRef(tickers);
-  const pairsRef = useRef(pairs);
-  const settingsRef = useRef(settings);
-  const leverageRef = useRef(leverage);
   const langRef = useRef(lang);
-  const busyRef = useRef(false);
   const scanBusyRef = useRef(false);
   const closingRef = useRef(false);
   const mountedRef = useRef(true);
-  const nextAtRef = useRef<number>(0);
-  // near-hit warning state — one shot per side per position (persisted so a
-  // page reload does not re-warn about the same position)
-  const warnedRef = useRef<{ id: string; tp: boolean; sl: boolean }>({ id: "", tp: false, sl: false });
-  const statBusyRef = useRef(false);
-  const lastHourRef = useRef("");
-  const lastDayRef = useRef("");
+  // top-30 universe → watchlist merge callback (ref: the poller has no deps)
+  const uniTopRef = useRef(onUniverseTop);
+  useEffect(() => {
+    uniTopRef.current = onUniverseTop;
+  }, [onUniverseTop]);
 
-  useEffect(() => {
-    cfgRef.current = cfg;
-  }, [cfg]);
-  useEffect(() => {
-    leaderRef.current = leader;
-  }, [leader]);
-  useEffect(() => {
-    rowsRef.current = rows;
-  }, [rows]);
-  useEffect(() => {
-    scanAgeRef.current = scanAt;
-  }, [scanAt]);
-  useEffect(() => {
-    tickersRef.current = tickers;
-  }, [tickers]);
-  useEffect(() => {
-    uniRef.current = universe;
-  }, [universe]);
-  useEffect(() => {
-    pairsRef.current = pairs;
-  }, [pairs]);
-  useEffect(() => {
-    settingsRef.current = settings;
-  }, [settings]);
-  useEffect(() => {
-    leverageRef.current = leverage;
-  }, [leverage]);
   useEffect(() => {
     langRef.current = lang;
   }, [lang]);
@@ -274,7 +176,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
     }
   }, []);
 
-  // mirror for the 15s watcher (no stale closures)
+  // mirror for the manual-close button (no stale closures)
   const autoRef = useRef<AutoState | null>(null);
   useEffect(() => {
     autoRef.current = auto;
@@ -315,483 +217,113 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
       setTgChatId(s.chatId);
       setTgChatSrc(s.source ?? null);
     });
-    // start clocks at the CURRENT hour/day so the first digest goes out at the
-    // next boundary, not the second the app opens
-    const now = new Date();
-    lastHourRef.current = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours()}`;
-    lastDayRef.current = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
-    try {
-      const raw = localStorage.getItem("utp.auto.warn");
-      if (raw) warnedRef.current = JSON.parse(raw) as { id: string; tp: boolean; sl: boolean };
-    } catch {
-      // stale/corrupt flag — start fresh
-    }
   }, [refreshAuto]);
 
-  // ── TOP-coin broadcast — template "TOP coin tiềm năng" sent to Telegram ────
-  // Candidates PHẢI nằm trong top-30 vũ trụ 8h (ATR + trending) — nếu không có
-  // combo nào của top-30 trong kết quả quét watchlist thì quét nhanh riêng
-  // top-30 (1h+4h) thay vì gợi ý coin ngoài top (điểm thấp, không đáng tin).
-  const lastBcastRef = useRef(0);
-  const sendTopCoins = useCallback(
-    async (rows: ScanRow[]) => {
-      const uniSyms = uniRef.current.map((r) => r.symbol);
-      let pool: ScanRow[] = rows;
-      if (uniSyms.length > 0) {
-        const rank = new Map(uniSyms.map((s, i) => [s, i]));
-        pool = rows
-          .filter((r) => rank.has(r.symbol))
-          .sort((a, b) => (rank.get(a.symbol) ?? 99) - (rank.get(b.symbol) ?? 99));
-        if (pool.length === 0) {
-          // watchlist ∩ top-30 = ∅ → quét nhanh riêng top-30 (1h+4h)
-          try {
-            pool = await scanAll({
-              pairs: [...uniSyms],
-              intervals: ["1h", "4h"],
-              settings: settingsRef.current,
-            });
-          } catch {
-            pool = [];
-          }
-        }
-      }
-      if (pool.length === 0) return; // không có ứng viên trong top-30 → im lặng
-      const state = loadBcastState();
-      const built = await buildTopCoinsMessage(pool, tickersRef.current, state);
-      if (!built) {
-        pushToast({ kind: "wy", text: t(langRef.current, "auto.bcast.none") });
-        return;
-      }
-      state.n += 1;
-      const now = Date.now();
-      for (const r of built.picked) state.seen[`${r.symbol}-${r.interval}`] = now;
-      saveBcastState(state);
-      // key = 5-minute bucket — the metronome runs per tab, but one digest per
-      // bucket goes out GLOBALLY no matter how many tabs/devices are open
-      const res = await sendTelegram(built.text, { key: `top:${Math.floor(now / 300_000)}` });
-      if (mountedRef.current && !res.ok && !/telegram_not_configured/i.test(res.detail ?? "")) {
-        const busy = /telegram_busy|HTTP 50\d|Overload/i.test(res.detail ?? "");
-        pushToast({
-          kind: "error",
-          text: busy ? t(langRef.current, "auto.tg.busy") : t(langRef.current, "auto.tg.err", { detail: res.detail ?? "?" }),
-        });
-      }
-    },
-    [pushToast],
-  );
-
+  // ── doScan — submit a scan job to the BACKEND and let the poller draw it ────
+  // The heavy XGB scan runs in the Node process (worker_threads pool); this
+  // button only enqueues. Concurrent clicks coalesce/queue server-side
+  // ("nhiều người ấn chạy thì bắt chờ") — the snapshot poll shows the queue.
   const doScan = useCallback(async (): Promise<ScanRow[]> => {
-    if (scanBusyRef.current) return rowsRef.current;
+    if (scanBusyRef.current) return [];
     scanBusyRef.current = true;
-    setScanning({
-      done: 0,
-      total: (pairsRef.current.length > 0 ? pairsRef.current.length : UNIVERSE.length) * INTERVALS.length,
-      current: "",
-    });
     try {
-      const out = await scanAll({
-        // watchlist người dùng là chính; rỗng thì dùng bộ cặp CỨNG trong source
-        pairs: pairsRef.current.length > 0 ? pairsRef.current : [...UNIVERSE],
-        settings: settingsRef.current,
-        onProgress: (p) => mountedRef.current && setScanning(p),
-      });
-      if (mountedRef.current) {
-        setRows(out);
-        setScanAt(Date.now());
+      const res = await postEngine({ action: "scan" });
+      if (!res.ok) {
+        pushToast({ kind: "error", text: t(langRef.current, "engine.submitFail") });
+      } else if (res.coalesced) {
+        pushToast({ kind: "wy", text: t(langRef.current, "engine.queued") });
       }
-      if (out.length > 0 && Date.now() - lastBcastRef.current > 60_000) {
-        lastBcastRef.current = Date.now();
-        void sendTopCoins(out);
-      }
-      return out;
     } finally {
       scanBusyRef.current = false;
-      if (mountedRef.current) setScanning(null);
     }
-  }, []);
+    return [];
+  }, [pushToast]);
 
-  // ── broadcast metronome — the TOP-coin digest goes out every 5 minutes ──────
-  // Reuses a fresh scan when one is younger than 4.5 min (avoids double sends
-  // with the auto cycle), otherwise triggers doScan() which broadcasts itself.
-  // Standby tabs do NOT run this — the leader tab broadcasts for the browser
-  // (the `top:` dedupe key still guards multi-device overlaps).
+  // ── engine sync — push the localStorage config up to the backend scheduler ──
+  // cfg / settings / pairs / leverage stay editable HERE (localStorage); the
+  // server keeps a persisted copy and uses it for every scheduled loop. Runs
+  // debounced on every change + right after mount (also resumes after a server
+  // reboot, which wiped its in-memory copy).
   useEffect(() => {
-    if (!cfg.broadcast || !leader) return;
-    const tick = async () => {
-      if (busyRef.current || scanBusyRef.current) return;
-      const fresh = rowsRef.current.length > 0 && Date.now() - (scanAgeRef.current ?? 0) <= 4.5 * 60_000;
-      if (fresh) {
-        if (Date.now() - lastBcastRef.current > 4.5 * 60_000) {
-          lastBcastRef.current = Date.now();
-          await sendTopCoins(rowsRef.current);
-        }
-      } else {
-        await doScan(); // broadcasts on completion
-      }
-    };
-    void tick(); // enabling → first digest right away (empty rows → silent no-op)
-    const id = window.setInterval(() => void tick(), 5 * 60_000);
-    return () => window.clearInterval(id);
-  }, [cfg.broadcast, leader, doScan, sendTopCoins]);
+    const id = window.setTimeout(() => {
+      void postEngine({ action: "sync", cfg, settings, pairs, leverage });
+    }, 800);
+    return () => window.clearTimeout(id);
+  }, [cfg, settings, pairs, leverage]);
 
-  // ── Universe 8h — bộ cặp cứng trong source, xếp hạng theo ATR + trending ──
-  // Chỉ tab TRƯỞNG quét (fetch 1h × 48 cặp × 240 nến = 10 ngày dữ liệu, nhẹ
-  // — không train); kết quả hiển thị ở card dưới và gửi Telegram mỗi bucket
-  // 8h (dedupe key universe:<bucket>).
-  const uniBusyRef = useRef(false);
+  // ── engine poll — the single source of truth for everything on screen ──────
+  // rows / scan age / scan progress (incl. queue position) / universe /
+  // cycle status + countdown / llm review — all from GET /api/engine.
   useEffect(() => {
-    if (!leader) return;
-    const LS_KEY = "utp.universe";
-    const LS_AT = "utp.universe.at";
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) setUniverse(JSON.parse(raw) as UniverseRow[]);
-    } catch { /* cache hỏng — quét lại */ }
     let alive = true;
-    const run = async () => {
-      if (uniBusyRef.current) return;
-      uniBusyRef.current = true;
+    const poll = async () => {
       try {
-        const out: UniverseRow[] = [];
-        for (const sym of UNIVERSE) {
-          if (!alive) return;
-          try {
-            const k = await fetchKlines(sym, UNIVERSE_INTERVAL, UNIVERSE_LOOKBACK_CANDLES);
-            if (k.length >= 55) out.push(scorePair(sym, k));
-          } catch { /* một pair lỗi không cản lần quét */ }
-          await new Promise((r) => setTimeout(r, 150));
-        }
-        if (!alive || out.length === 0) return;
-        const top = rankUniverse(out);
-        setUniverse(top);
+        const res = await fetch("/api/engine", { cache: "no-store" });
+        if (!res.ok) return;
+        const snap = (await res.json()) as EngineSnap;
+        if (!alive) return;
+        setRows(snap.scan?.rows ?? []);
+        setScanAt(snap.scan?.at ?? null);
+        const scanJob = snap.jobs.find((j) => j.kind === "scan" && (j.state === "running" || j.state === "queued"));
+        setScanning(
+          scanJob
+            ? {
+                done: scanJob.progress?.done ?? 0,
+                total: scanJob.progress?.total ?? 0,
+                current: scanJob.progress?.current ?? "",
+                queued: scanJob.state === "queued" ? scanJob.position + 1 : 0,
+              }
+            : null,
+        );
+        setUniverse(snap.universe?.rows ?? []);
         // TOP-30 tự vào watchlist (gộp, giữ pair người dùng thêm trước, không trùng)
-        try {
-          onUniverseTop(top.map((r) => r.symbol));
-        } catch { /* callback lỗi không cản scan */ }
-        try {
-          localStorage.setItem(LS_KEY, JSON.stringify(top));
-          localStorage.setItem(LS_AT, String(Date.now()));
-        } catch { /* storage đầy — bỏ qua */ }
-        if (cfgRef.current.broadcast) {
-          const lines = top
-            .map(
-              (r, i) =>
-                `${String(i + 1).padStart(2, " ")}. ${r.symbol.replace("USDT", "")} — ATR ${r.atrPct.toFixed(2)}% · trend ${(r.trend * 100).toFixed(0)}% · 24h ${(r.ret24h * 100).toFixed(1)}% · 10d ${(r.ret10d * 100).toFixed(1)}%`,
-            )
-            .join("\n");
-          void sendTelegram(
-            `🔄 <b>Vũ trụ quét (lặp mỗi 8h)</b> — top ${top.length} — ATR + trending · dữ liệu 10 ngày qua:\n<code>${lines}</code>`,
-            { html: true, key: `universe:${universeBucket()}` },
-          );
+        const topSyms = (snap.universe?.rows ?? []).map((r) => r.symbol);
+        if (topSyms.length > 0) {
+          try {
+            uniTopRef.current(topSyms);
+          } catch {
+            // callback lỗi không cản poll
+          }
         }
-      } finally {
-        uniBusyRef.current = false;
+        setStatus(snap.cycle?.status ?? "");
+        setCountdown(
+          snap.cfg?.on && snap.cycle?.nextAt > 0 ? Math.max(0, Math.round((snap.cycle.nextAt - Date.now()) / 1000)) : null,
+        );
+        setLlmLast(snap.llmLast ?? null);
+        setEngineInfo(snap.workers ?? null);
+      } catch {
+        // server restarting — keep the last snapshot on screen
       }
     };
-    const tick = () => {
-      const last = Number(localStorage.getItem(LS_AT) ?? 0);
-      if (Date.now() - last >= UNIVERSE_SCAN_MS) void run();
-    };
-    tick();
-    const iv = setInterval(tick, 15 * 60_000);
+    void poll();
+    const id = window.setInterval(() => void poll(), 3_000);
     return () => {
       alive = false;
-      clearInterval(iv);
+      window.clearInterval(id);
     };
-  }, [leader]);
-
-  // ── one auto cycle: manage the open position, then maybe enter the best pick
-  const runCycle = useCallback(async () => {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    const c = cfgRef.current;
-    try {
-      const st = await refreshAuto();
-      if (!st) {
-        setStatus("DB error");
-        return;
-      }
-
-      // 1) manage the open position against the live price
-      if (st.open) {
-        const open = st.open;
-        const price = tickersRef.current[open.symbol]?.price ?? 0;
-        if (price > 0) {
-          const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
-          const liq = liquidationHit(open.side, price, open.entryPrice, open.leverage);
-          if (kind || liq) {
-            await closeOpen(open, price, liq ? "sl" : (kind ?? "sl"));
-          } else {
-            const roe = roeOf(open.side, open.entryPrice, price, open.leverage);
-            setStatus(`${open.symbol} ${open.interval} ${open.side} · ROE ${roe >= 0 ? "+" : ""}${roe.toFixed(2)}%`);
-          }
-        }
-        return; // one position at a time — no new entry while one is open
-      }
-
-      // 2) no open position → rank the scan and enter the best tradeable row
-      let current = rowsRef.current;
-      if (current.length === 0 || Date.now() - (scanAgeRef.current ?? 0) > SCAN_TTL) {
-        setStatus(t(langRef.current, "auto.scan.busy", { done: 0, total: pairsRef.current.length * INTERVALS.length, current: "…" }));
-        current = await doScan();
-      }
-      if (current.length === 0) {
-        setStatus(t(langRef.current, "auto.scan.empty"));
-        return;
-      }
-      const { best, allInCooldown } = bestTradeableAvoid(current, c.minAuc, c.minAcc, st.trades, c.cooldownMin, c.whaleFilter);
-      if (!best) {
-        setStatus(allInCooldown ? t(langRef.current, "auto.cooldown.all") : t(langRef.current, "auto.rank.hint"));
-        return;
-      }
-      const price = tickersRef.current[best.symbol]?.price ?? 0;
-      if (price <= 0) return; // no live price for that pair — wait for the next cycle
-
-      // 2.2) live ATR levels — tpMode "atr" re-measures the pair's REAL volatility
-      // right before entry (SL% = ATR% × coef, TP% = SL% × 1.4): a quiet coin gets
-      // a tight stop, a hot coin a wide one — no more one-size-fits-all % values.
-      // coef = the multiplier RETRAINED per coin by the finetuner's expectancy
-      // scan (falls back to the UI coefficient). Fails open to the train-time
-      // levels (already ATR-scaled) when klines can't be fetched.
-      const coef = best.atrCoef > 0 ? best.atrCoef : c.atrCoef;
-      let live: { slPct: number; tpPct: number; atrPct: number } | null = null;
-      if (c.tpMode === "atr") {
-        try {
-          live = atrLevelsAtEntry(await fetchKlines(best.symbol, best.interval), coef);
-        } catch {
-          // fail-open — keep the train-time scan-row levels
-        }
-      }
-      const entrySl = c.tpMode === "manual" ? c.slPct : (c.tpMode === "atr" && live ? live.slPct : best.slPct);
-      const entryTp = c.tpMode === "manual" ? c.tpPct : (c.tpMode === "atr" && live ? live.tpPct : best.tpPct);
-      if (c.tpMode === "atr" && live) {
-        setStatus(
-          `${best.symbol} ${best.interval} · ATR ${live.atrPct.toFixed(2)}% × ${coef} → SL ${entrySl.toFixed(1)}% / TP ${entryTp.toFixed(1)}%`,
-        );
-      }
-
-      // 2.5) LLM risk officer — runs silently in the backend (no UI toggle):
-      // the browser posts the setup to the same-origin /api/llm/review route and
-      // the SERVER reviews it against the local llama-server. Fail-open: a
-      // dead/slow/misbehaving server never blocks trading, it just downgrades
-      // to the XGBoost flow (a circuit breaker stops repeated dead-end calls).
-      {
-        setStatus(t(langRef.current, "auto.llm.checking", { pair: best.symbol, tf: best.interval }));
-        const v = await llmReviewViaApi(c.llmUrl, c.llmModel, {
-          symbol: best.symbol,
-          interval: best.interval,
-          side: best.bias as "LONG" | "SHORT", // isTradeable already excluded NEUTRAL
-          prob: best.prob,
-          confidence: best.confidence,
-          auc: best.auc,
-          acc: best.acc,
-          slPct: entrySl,
-          tpPct: entryTp,
-          leverage: leverageRef.current,
-          stakePct: c.riskPct,
-          horizon: best.horizon,
-          samples: best.samples,
-        });
-        if (mountedRef.current) {
-          setLlmLast({
-            symbol: best.symbol,
-            interval: best.interval,
-            side: best.bias,
-            verdict: v ? v.verdict : "down",
-            reason: v?.reasons[0] ?? "",
-            ms: v?.ms ?? 0,
-            at: Date.now(),
-          });
-        }
-        if (v && v.verdict === "skip") {
-          const why = v.reasons[0] ?? "—";
-          pushToast({ kind: "wy", text: t(langRef.current, "auto.llm.veto", { pair: best.symbol, tf: best.interval, reason: why }) });
-          // key = setup + 5-min bucket — every tab reviewing the SAME setup in
-          // this cycle window vetoes once, the server collapses the repeats
-          void sendTelegram(msgLlmVeto(best, v), {
-            key: `veto:${best.symbol}:${best.interval}:${best.bias}:${Math.floor(Date.now() / 300_000)}`,
-          });
-          setStatus(t(langRef.current, "auto.llm.veto", { pair: best.symbol, tf: best.interval, reason: why }));
-          return; // stay flat — the next cycle re-evaluates with a fresh scan
-        }
-        if (!v) setStatus(t(langRef.current, "auto.llm.down"));
-      }
-
-      const capitalNow = (await refreshAuto())?.capital ?? c.capital;
-      const trade = await openAutoTrade({
-        symbol: best.symbol,
-        interval: best.interval,
-        side: best.bias,
-        entryPrice: price,
-        // "manual" overrides with fixed %, "atr" uses levels measured at entry time,
-        // "auto" keeps the scan row's train-time ATR levels
-        slPct: entrySl,
-        tpPct: entryTp,
-        stakePct: c.riskPct,
-        leverage: leverageRef.current,
-        prob: best.prob,
-        acc: best.acc,
-        auc: best.auc,
-        score: best.score,
-        capitalBefore: capitalNow,
-      });
-      if (trade) {
-        pushToast({
-          kind: "entry",
-          text: t(langRef.current, "auto.opened", { side: trade.side, pair: trade.symbol, tf: trade.interval, price: fmtPrice(trade.entryPrice) }),
-        });
-        void sendTelegram(
-          msgOpen(
-            trade,
-            capitalNow,
-            c.tpMode === "atr" && live
-              ? `📏 SL/TP = ATR ${live.atrPct.toFixed(2)}% × ${coef} — đo lúc vào lệnh`
-              : undefined,
-          ),
-          // key = the DB trade id — only the tab whose openAutoTrade() won the
-          // 409 race has an id anyway, but keep the guard explicit
-          { key: `open:${trade.id}` },
-        );
-        await refreshAuto();
-        setStatus(`${trade.symbol} ${trade.interval} ${trade.side} @ ${fmtPrice(trade.entryPrice)}`);
-      }
-    } finally {
-      busyRef.current = false;
-      nextAtRef.current = Date.now() + cfgRef.current.cycleMin * 60_000;
-    }
-  }, [closeOpen, doScan, pushToast, refreshAuto]);
-
-  // auto cycle — immediate tick on enable, then every cycleMin minutes.
-  // Only the elected LEADER tab runs it: 10 open tabs used to mean 10 XGBoost
-  // trainings + 10 scan loops fighting over the same one-position book. A
-  // standby tab takes over within seconds when the leader closes.
-  useEffect(() => {
-    if (!cfg.on || !leader) {
-      setCountdown(null);
-      return;
-    }
-    nextAtRef.current = Date.now() + 2_000;
-    void runCycle();
-    const id = window.setInterval(() => void runCycle(), cfg.cycleMin * 60_000);
-    return () => window.clearInterval(id);
-  }, [cfg.on, cfg.cycleMin, leader, runCycle]);
-
-  // intra-cycle watcher — SL/TP/liquidation can hit BETWEEN cycles; this books
-  // them within ~15s from the live tickers instead of waiting for the next
-  // full cycle, then kicks a fresh entry a few seconds later. It also fires
-  // the one-shot "approaching TP/SL" Telegram warning (70% of the way there).
-  // Leader-only — 20 tabs would each book the same hit (one wins the DB race)
-  // and each fire its own near-warn; the `near:` key mops up devices.
-  useEffect(() => {
-    if (!cfg.on || !leader) return;
-    const id = window.setInterval(() => {
-      const open = autoRef.current?.open;
-      if (!open || busyRef.current || closingRef.current) return;
-      const price = tickersRef.current[open.symbol]?.price ?? 0;
-      if (price <= 0) return;
-      const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
-      const liq = liquidationHit(open.side, price, open.entryPrice, open.leverage);
-      if (kind || liq) {
-        void closeOpen(open, price, liq ? "sl" : (kind ?? "sl")).then((closed) => {
-          if (closed && cfgRef.current.on) {
-            window.setTimeout(() => void runCycle(), 3_000);
-          }
-        });
-        return;
-      }
-      // near-hit warning — once per side per position
-      if (warnedRef.current.id !== open.id) {
-        warnedRef.current = { id: open.id, tp: false, sl: false };
-        try {
-          localStorage.setItem("utp.auto.warn", JSON.stringify(warnedRef.current));
-        } catch {
-          // storage blocked — flags live for this session only
-        }
-      }
-      const near = nearHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
-      if (near && !warnedRef.current[near]) {
-        warnedRef.current[near] = true;
-        try {
-          localStorage.setItem("utp.auto.warn", JSON.stringify(warnedRef.current));
-        } catch {
-          // storage blocked — flags live for this session only
-        }
-        void sendTelegram(msgNear(open, price, near), { key: `near:${open.id}:${near}` });
-        pushToast({
-          kind: "wy",
-          text: t(
-            langRef.current,
-            near === "tp" ? "auto.near.tp" : "auto.near.sl",
-            { pair: open.symbol, tf: open.interval, roe: roeOf(open.side, open.entryPrice, price, open.leverage).toFixed(1) },
-          ),
-        });
-      }
-    }, 15_000);
-    return () => window.clearInterval(id);
-  }, [cfg.on, leader, closeOpen, runCycle, pushToast]);
-
-  // hourly / daily Telegram digests — checked every minute. The boundary dedupe
-  // AND the send happen on the SERVER (one digest per hour/day no matter how
-  // many tabs or devices are open). Local refs only stop us re-posting the same
-  // boundary every minute. force=true → extra manual "gửi ngay" digest.
-  // Digests only fire while Auto is ON — a parked terminal with Auto off must
-  // stay silent instead of spamming empty "0 mở · 0 đóng" reports every hour.
-  const sendPeriodicStats = useCallback(async (force = false) => {
-    if (statBusyRef.current) return;
-    const c = cfgRef.current;
-    const now = new Date();
-    const hourKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours()}`;
-    const dayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
-    if (force) {
-      statBusyRef.current = true;
-      try {
-        await pushAutoStats({ force: true });
-      } finally {
-        statBusyRef.current = false;
-      }
-      return;
-    }
-    const dueHour = c.on && c.statHourly && lastHourRef.current !== hourKey;
-    const dueDay = c.on && c.statDaily && lastDayRef.current !== dayKey;
-    if (!dueHour && !dueDay) return;
-    statBusyRef.current = true;
-    try {
-      const ok = await pushAutoStats({ hourly: dueHour, daily: dueDay });
-      if (ok) {
-        // the server is the single sender — marking locally just stops re-posting
-        lastHourRef.current = hourKey;
-        lastDayRef.current = dayKey;
-      }
-    } finally {
-      statBusyRef.current = false;
-    }
   }, []);
 
-  // hourly / daily digests — only the leader posts the intent (the server-side
-  // boundary markers are the real guard, this just keeps one poster per browser)
-  useEffect(() => {
-    if (!leader) return;
-    const id = window.setInterval(() => void sendPeriodicStats(), 60_000);
-    return () => window.clearInterval(id);
-  }, [leader, sendPeriodicStats]);
+  // The paper-trade CYCLE itself now lives in the backend scheduler
+  // (src/lib/engine.ts → cycleTick + watcherTick): position management, ATR
+  // entry levels, the LLM risk officer, opening/closing — all server-side,
+  // 24/7, no tab needed. This panel only displays its status via the poll.
 
-  // standby tabs still keep the on-screen position book fresh (display only —
-  // they never trade, scan, train or notify)
+  // hourly / daily digests: the BACKEND scheduler fires them (marker-guarded,
+  // cfg-gated — statHourly/statDaily above). This button only posts a manual
+  // "gửi ngay" 24h digest intent to the server route.
+  const sendStatsNow = useCallback(async () => {
+    const ok = await pushAutoStats({ force: true });
+    if (mountedRef.current) {
+      pushToast({ kind: ok ? "xgb" : "error", text: t(langRef.current, ok ? "auto.tg.sent" : "engine.submitFail") });
+    }
+  }, [pushToast]);
+
+  // keep the on-screen position book fresh on EVERY tab (display only — the
+  // backend engine trades, scans, trains and notifies)
   useEffect(() => {
-    if (leader) return;
     const id = window.setInterval(() => void refreshAuto(), 30_000);
     return () => window.clearInterval(id);
-  }, [leader, refreshAuto]);
-
-  // 1 s countdown to the next cycle (leader tab only — standby shows the badge)
-  useEffect(() => {
-    if (!cfg.on || !leader) return;
-    const id = window.setInterval(() => {
-      const left = Math.max(0, Math.round((nextAtRef.current - Date.now()) / 1000));
-      setCountdown(left);
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [cfg.on, leader]);
+  }, [refreshAuto]);
 
   const updateCfg = (patch: Partial<AutoConfig>) => {
     setCfg((prev) => {
@@ -834,7 +366,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
 
   const closeNow = async () => {
     const open = auto?.open;
-    if (!open || busyRef.current) return;
+    if (!open || closingRef.current) return;
     const price = tickers[open.symbol]?.price ?? open.entryPrice;
     // delegate to closeOpen — it refreshes stats BEFORE building the Telegram
     // close message (the old inline path read the pre-close state, so the very
@@ -1025,7 +557,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
               className="h-7 px-2 text-[11px] text-zinc-400 hover:bg-zinc-800"
               disabled={tgState === "sending"}
               title={t(lang, "auto.cfg.statNowTip")}
-              onClick={() => void sendPeriodicStats(true)}
+              onClick={() => void sendStatsNow()}
             >
               <Send className="mr-1 h-3 w-3" />
               {t(lang, "auto.cfg.statNow")}
@@ -1108,6 +640,11 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
               {t(lang, "auto.scan.ago", { time: new Date(scanAt).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit" }) })}
             </span>
           )}
+          {engineInfo && (
+            <span className="text-[11px] text-zinc-600" title={t(lang, "engine.backendTip")}>
+              ⚙️ {t(lang, "engine.backend", { w: engineInfo.bundled ? engineInfo.pool : 1 })}
+            </span>
+          )}
         </div>
 
         {/* telegram hint — shown after a failed test send; config lives in .env */}
@@ -1135,20 +672,16 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
         {scanning && (
           <div className="space-y-1">
             <p className="font-mono text-[11px] text-teal-300">
-              {t(lang, "auto.scan.busy", { done: scanning.done, total: scanning.total, current: scanning.current })}
+              {scanning.queued > 0
+                ? t(lang, "engine.queuedAt", { n: scanning.queued })
+                : t(lang, "auto.scan.busy", { done: scanning.done, total: scanning.total, current: scanning.current })}
             </p>
             <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
-              <div className="h-full rounded-full bg-teal-500 transition-all" style={{ width: `${scanning.total ? (scanning.done / scanning.total) * 100 : 0}%` }} />
+              <div className="h-full rounded-full bg-teal-500 transition-all" style={{ width: `${scanning.queued > 0 ? 0 : scanning.total ? (scanning.done / scanning.total) * 100 : 0}%` }} />
             </div>
           </div>
         )}
-        {cfg.on && !leader && (
-          <p className="flex items-center gap-1.5 text-[11px] text-amber-400">
-            <Bot className="h-3.5 w-3.5" />
-            {t(lang, "auto.standby")}
-          </p>
-        )}
-        {cfg.on && leader && countdown != null && (
+        {cfg.on && countdown != null && (
           <p className="text-[11px] text-zinc-500">
             {countdown < 120
               ? t(lang, "auto.cycle.next", { s: countdown })
