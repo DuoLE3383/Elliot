@@ -12,6 +12,22 @@
 import { atr, ema } from "./indicators";
 import type { Kline } from "./types";
 
+// Tham số universe scan sống ở ./params — MỘT nguồn; re-export cho chỗ cũ.
+export {
+  UNIVERSE_BCAST_TOP,
+  UNIVERSE_INTERVAL,
+  UNIVERSE_LOOKBACK_CANDLES,
+  UNIVERSE_SCAN_MS,
+  UNIVERSE_TOP,
+} from "./params";
+import {
+  UNIVERSE_BCAST_TOP,
+  UNIVERSE_INTERVAL,
+  UNIVERSE_LOOKBACK_CANDLES,
+  UNIVERSE_SCAN_MS,
+  UNIVERSE_TOP,
+} from "./params";
+
 /** majors + high-ATR alts — Binance USDT-M Futures symbols, every entry
  * verified live on the perp board (TONUSDT delisted → removed). The 11 staple
  * pairs (BTC ETH BNB XRP SOL TRX ZEC DOGE XMR ADA BCH) always lead the list
@@ -30,13 +46,6 @@ export const UNIVERSE: readonly string[] = [
   "1000FLOKIUSDT", "1000BONKUSDT", "VIRTUALUSDT",
 ];
 
-export const UNIVERSE_INTERVAL = "1h";
-/** cadence: quét LẠI mỗi 8 tiếng (không phải quét dữ liệu 8h) */
-export const UNIVERSE_SCAN_MS = 8 * 3_600_000;
-/** cửa sổ dữ liệu mỗi lần quét = 10 ngày qua (240 nến 1h đóng) */
-export const UNIVERSE_LOOKBACK_CANDLES = 10 * 24;
-/** TOP coin universe = 30 — tất cả được tự thêm vào watchlist sau mỗi lần quét */
-export const UNIVERSE_TOP = 30;
 /** ATR% at which the volatility term of the score saturates */
 const ATR_SATURATION = 5;
 
@@ -134,10 +143,6 @@ export function rankUniverse(rows: UniverseRow[], top = UNIVERSE_TOP): UniverseR
 export function universeBucket(now = Date.now()): number {
   return Math.floor(now / UNIVERSE_SCAN_MS);
 }
-
-/** Số coin hiển thị trong tin Telegram "Vũ trụ quét" — 30 coins 1 nùi là spam
- *  (yêu cầu: chỉ gửi top gọn, phần còn lại xem trên panel). */
-export const UNIVERSE_BCAST_TOP = 10;
 
 /**
  * Telegram broadcast text — TOP-10 compact. The full top-30 stays on the

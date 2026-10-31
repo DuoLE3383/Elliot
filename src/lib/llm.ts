@@ -8,9 +8,9 @@
 //   • temperature 0 + JSON-schema-constrained output → deterministic verdicts
 //   • one short call per cycle, only for the candidate about to be entered
 
-export const LLM_URL_DEFAULT = "http://127.0.0.8:8888";
-export const LLM_MODEL_DEFAULT = "local";
-export const LLM_TIMEOUT_MS = 12_000;
+// Hằng LLM sống ở ./params — MỘT nguồn config; re-export cho autotrade/chỗ cũ.
+import { LLM_MODEL_DEFAULT, LLM_TIMEOUT_MS, LLM_URL_DEFAULT } from "./params";
+export { LLM_MODEL_DEFAULT, LLM_TIMEOUT_MS, LLM_URL_DEFAULT } from "./params";
 
 export interface LlmSetup {
   symbol: string;

@@ -29,14 +29,16 @@ import {
 import type { Kline } from "./types";
 import { getSqueezeReport, squeezeLine, type SqueezeReport } from "./squeeze";
 import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store";
-
-const BCAST_SYMBOL = "BTCUSDT";
-const BCAST_INTERVAL = "1h";
-const KLINE_COUNT = 500; // ≈ 20 days of 1h history — same window the panel loads
-/** how many minutes BEFORE the open the announcement fires */
-const EARLY_MIN = 5;
-/** ticks within this many minutes AFTER the open still count (boot-late catch-up) */
-const LATE_WINDOW_MIN = 10;
+import {
+  SESS_BULL_LONG_MIN,
+  SESS_BULL_SHORT_MAX,
+  SESS_EARLY_MIN,
+  SESS_INTERVAL,
+  SESS_KLINE_COUNT,
+  SESS_LATE_WINDOW_MIN,
+  SESS_SYMBOL,
+  SESS_TICK_MS,
+} from "./params";
 
 /** Binance USDT-M Futures — same board the chart reads, prices can differ from spot */
 const HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com"];
@@ -95,8 +97,8 @@ function inLabel(min: number): string {
  */
 export function sessionDirection(bullPct: number): { dir: "LONG" | "SHORT" | "SIDEWAYS"; pPct: number; pTxt: string } {
   const b = bullPct;
-  if (b >= 60) return { dir: "LONG", pPct: b, pTxt: `P≈${b.toFixed(1)}% nến tăng` };
-  if (b <= 40) return { dir: "SHORT", pPct: 100 - b, pTxt: `P≈${(100 - b).toFixed(1)}% nến giảm` };
+  if (b >= SESS_BULL_LONG_MIN) return { dir: "LONG", pPct: b, pTxt: `P≈${b.toFixed(1)}% nến tăng` };
+  if (b <= SESS_BULL_SHORT_MAX) return { dir: "SHORT", pPct: 100 - b, pTxt: `P≈${(100 - b).toFixed(1)}% nến giảm` };
   return { dir: "SIDEWAYS", pPct: Math.max(b, 100 - b), pTxt: `${b.toFixed(1)}% nến tăng — không thiên hướng rõ` };
 }
 
@@ -154,7 +156,7 @@ export function buildSessionOpenMessage(
   if (sq) lines.push(squeezeLine(sq));
 
   lines.push(
-    `💡 Thống kê lịch sử (${BCAST_SYMBOL} ${BCAST_INTERVAL}) · ⛓ = OI + long/short + taker + funding từ Binance Futures — nguồn gốc mà Coinglass tổng hợp. Thống kê ≠ bảo đảm — luôn đặt SL.`,
+    `💡 Thống kê lịch sử (${SESS_SYMBOL} ${SESS_INTERVAL}) · ⛓ = OI + long/short + taker + funding từ Binance Futures — nguồn gốc mà Coinglass tổng hợp. Thống kê ≠ bảo đảm — luôn đặt SL.`,
   );
   return lines.join("\n");
 }
@@ -212,7 +214,7 @@ export async function tickSessionBroadcast(now = Date.now()): Promise<TickResult
     // today's open — or tomorrow's for the pre-midnight window (Tokyo 00:00 → fires 23:55)
     for (const add of [0, 86_400_000]) {
       const openTs = midnight + s.from * 3_600_000 + add;
-      if (now < openTs - EARLY_MIN * 60_000 || now > openTs + LATE_WINDOW_MIN * 60_000) continue;
+      if (now < openTs - SESS_EARLY_MIN * 60_000 || now > openTs + SESS_LATE_WINDOW_MIN * 60_000) continue;
       const dateKey = new Date(openTs).toISOString().slice(0, 10); // the OPEN date, not the fire date
       if (state[s.key] !== dateKey) due.push({ key: s.key, openTs, dateKey });
       break;
@@ -222,7 +224,7 @@ export async function tickSessionBroadcast(now = Date.now()): Promise<TickResult
 
   let klines: Kline[];
   try {
-    klines = await fetchKlinesDirect(BCAST_SYMBOL, BCAST_INTERVAL, KLINE_COUNT);
+    klines = await fetchKlinesDirect(SESS_SYMBOL, SESS_INTERVAL, SESS_KLINE_COUNT);
   } catch (e) {
     console.error(`[session-bcast] kline fetch failed: ${e instanceof Error ? e.message : e}`);
     return { due: due.map((x) => x.key), sent: [], reason: "kline_fetch_failed" };
@@ -263,8 +265,8 @@ export async function sendSessionPreview(): Promise<{ ok: boolean; detail?: stri
     "london";
   try {
     const [klines, sq] = await Promise.all([
-      fetchKlinesDirect(BCAST_SYMBOL, BCAST_INTERVAL, KLINE_COUNT),
-      getSqueezeReport(BCAST_SYMBOL).catch(() => null),
+      fetchKlinesDirect(SESS_SYMBOL, SESS_INTERVAL, SESS_KLINE_COUNT),
+      getSqueezeReport(SESS_SYMBOL).catch(() => null),
     ]);
     const text = `🧪 <b> — thông báo phiên</b>\n\n${buildSessionOpenMessage(opened, now, klines, now, sq)}`;
     return await tgSendMessage(text, "HTML");
@@ -311,6 +313,6 @@ export function startSessionBroadcastScheduler(): void {
     }
   }, 20_000);
   boot.unref?.();
-  const iv = setInterval(tick, 60_000);
+  const iv = setInterval(tick, SESS_TICK_MS);
   iv.unref?.();
 }

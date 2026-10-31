@@ -109,19 +109,16 @@ const VAL_FRAC = 0.25; // chronological hold-out share
 //   • +1 bar of horizon every 2 levels (predicting further ahead is harder)
 //   • a label dead-zone of marginAtr × ATR: bars whose future move stays
 //     inside the noise band are dropped, so classes only contain decisive moves
-export const MAX_DIFFICULTY = 12;
+import { LESSON_WEIGHT, MAX_DIFFICULTY, NOISE_BAND } from "./params";
+
+// Knob train/Prob sống ở ./params — MỘT nguồn; re-export cho engine/autotrade
+// và chỗ cũ không đổi path.
+export { LESSON_WEIGHT, MAX_DIFFICULTY, NOISE_BAND } from "./params";
 const HORIZON_STEP = 2; // one extra bar per N difficulty levels
 const HORIZON_CAP = 3; // never extend the horizon by more than this
 const MARGIN_STEP = 0.05; // dead-zone growth per level (× ATR)
 const MARGIN_CAP = 0.3; // dead-zone ceiling (× ATR)
 const MIN_ROWS_WITH_MARGIN = 150; // fall back to no dead-zone below this
-
-/**
- * Khử nhiễu XGBoost — model probability inside 0.5 ± NOISE_BAND means the
- * model has NO decisive lean (coin-flip territory). The auto engine refuses
- * to open such entries (statistical noise, not signals). 0 = tắt cổng này.
- */
-export const NOISE_BAND = 0.06;
 
 /** Ngưỡng chết cho bias — prob trong (0.44, 0.56) là "không rõ", không trade.
  *  Xuất khẩu để confluence pooling (autotrade.ts) sinh lại bias bằng ĐÚNG
@@ -487,9 +484,8 @@ const ITV_MS: Record<string, number> = {
   "1w": 604_800_000,
 };
 
-/** Repetition factor of each real-trade sample in the train split — a handful
- *  of trades must outshout ~300 synthetic kline rows to leave a mark. */
-export const LESSON_WEIGHT = 8;
+// LESSON_WEIGHT sống ở ./params (re-export đầu file) — "a handful of trades
+// must outshout ~300 synthetic kline rows to leave a mark".
 
 export interface LessonSample {
   feats: number[];

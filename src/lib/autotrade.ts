@@ -13,8 +13,18 @@
 
 import type { EngineSettings, Kline } from "./types";
 import { INTERVALS } from "./types";
-import { NOISE_BAND, biasFrom, runXgb, type WhaleReadout, type WhaleTag, type XgbBias, type XgbResult } from "./xgb";
+import { biasFrom, runXgb, type WhaleReadout, type WhaleTag, type XgbBias, type XgbResult } from "./xgb";
 import { LLM_MODEL_DEFAULT, LLM_URL_DEFAULT } from "./llm";
+import {
+  NEAR_FRAC,
+  NOISE_BAND,
+  PROB_CAP,
+  REGRESS_EPS,
+  SIBLING_DISCOUNT,
+} from "./params";
+
+// Knob sống ở ./params — MỘT nguồn config; re-export cho chỗ cũ không đổi path.
+export { NEAR_FRAC, REGRESS_EPS } from "./params";
 import { fmtPrice } from "./i18n";
 
 // ─── Scan rows ────────────────────────────────────────────────────────────────
@@ -113,10 +123,8 @@ export const bestTradeable = (rows: ScanRow[], minAuc: number, minAcc: number, m
 // chiều call của model gốc — hội đồng bất đồng thì đứng ngoài), và prob cuối
 // kẹp [0.05, 0.95] — bỏ phiếu correlate không được biến thành tuyệt đối.
 // prob/confidence/bias/score sau ghép dùng ĐÚNG công thức gốc (biasFrom,
-// |p−0.5|×2, scoreFrom) — vẫn chỉ một thuật toán.
-
-const SIBLING_DISCOUNT = 0.5; // khung correlate — không phải bằng chứng độc lập
-const PROB_CAP = 0.95; // trần chắc chắn sau ghép
+// |p−0.5|×2, scoreFrom) — vẫn chỉ một thuật toán. SIBLING_DISCOUNT + PROB_CAP
+// sống ở ./params (nhóm CONFLUENCE) để finetune một chỗ.
 
 const logitC = (p: number): number => {
   const q = Math.min(0.98, Math.max(0.02, p)); // chống ±∞ ở đầu mút
@@ -218,8 +226,8 @@ export function passesChaseGuard(
   return side === "SHORT" ? price < last.exitPrice - eps : price > last.exitPrice + eps;
 }
 
-/** AUC drop vs the combo's champion that marks a retrain as a regression. */
-export const REGRESS_EPS = 0.02;
+/** AUC drop vs the combo's champion that marks a retrain as a regression —
+ *  giá trị sống ở ./params (re-export đầu file). */
 
 /** Attach the combo's champion metrics to a fresh scan row (+ regression flag). */
 export function withChampion(r: ScanRow, champAuc: number, champAcc: number): ScanRow {
@@ -346,8 +354,8 @@ export function liquidationHit(side: string, price: number, entry: number, lever
   return move <= -(100 / leverage);
 }
 
-/** Warn once the price has covered this share of the way to TP/SL (0..1). */
-export const NEAR_FRAC = 0.7;
+/** Warn once the price has covered this share of the way to TP/SL (0..1) —
+ *  giá trị sống ở ./params (re-export đầu file). */
 
 /** "tp" | "sl" | null — price is INSIDE the near-hit band but has NOT crossed yet. */
 export function nearHit(side: string, price: number, entry: number, slPct: number, tpPct: number): "tp" | "sl" | null {

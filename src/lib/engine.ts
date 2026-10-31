@@ -73,12 +73,14 @@ import { pushAutoDigests } from "./autodigest";
 import { msgClose, msgDca, msgLlmVeto, msgNear, msgOpen } from "./tg-msgs";
 import { enqueueJob, jobViews } from "./engine-jobs";
 import { directionalPnl, outcomeOf } from "./history";
-import { NOISE_BAND, type TradeLesson, type XgbResult } from "./xgb";
-
-const SCAN_FRESH_MS = 4.5 * 60_000; // the 5-min metronome reuses a scan younger than this
-const SCAN_TTL = 30 * 60_000; // the cycle rescans when the snapshot is older than this
-const TICKERS_TTL = 30_000;
-const UNIVERSE_MIN_CANDLES = 55;
+import {
+  NOISE_BAND,
+  SCAN_FRESH_MS,
+  SCAN_TTL,
+  TICKERS_TTL,
+  UNIVERSE_MIN_CANDLES,
+} from "./params";
+import { type TradeLesson, type XgbResult } from "./xgb";
 
 // ─── engine state (global + persisted) ───────────────────────────────────────
 
