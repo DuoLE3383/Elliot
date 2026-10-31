@@ -46,7 +46,9 @@ local-*
 *.log
 dev.log
 dev.out.log
-test
+# chỉ ignore thư mục test ở GỐC repo — pattern `test` trần trụi sẽ nuốt cả
+# src/app/api/llm/test/ (đã gây 404 /api/llm/test trên VPS trên mọi build!)
+/test
 prompt
 
 server.log
