@@ -110,21 +110,44 @@ function setupPrompt(s: LlmSetup): string {
   ].join("\n");
 }
 
-/** One review call. Returns null on ANY failure — the caller stays fail-open. */
-export async function llmReview(
+/** Full result of one review attempt — for the /ai "duyệt thử" test button. */
+export interface LlmDebugResult {
+  /** true = got a parsed go/skip verdict */
+  ok: boolean;
+  /** null = fail-open path (server down, timeout, JSON hỏng, verdict lạ) */
+  verdict: LlmVerdict | null;
+  /** raw model text — rỗng khi request chết trước khi trả lời */
+  raw: string;
+  /** "ok" | "timeout" | "error" | "http-<status>" | "no-json" | "bad-json" | "bad-verdict" */
+  detail: string;
+  /** exact user prompt sent (system prompt stays in SYSTEM_PROMPT) */
+  prompt: string;
+  url: string;
+  model: string;
+  ms: number;
+}
+
+/**
+ * One review call with full logging — same code path as llmReview, but keeps
+ * the raw response and a failure reason instead of swallowing everything.
+ * The /ai test button uses this so "lệnh giả duyệt thử" cho xem đúng những gì
+ * production sẽ gửi và nhận.
+ */
+export async function llmReviewDebug(
   url: string,
   model: string,
   s: LlmSetup,
   timeoutMs = LLM_TIMEOUT_MS,
-): Promise<LlmVerdict | null> {
+): Promise<LlmDebugResult> {
   const started = Date.now();
+  const prompt = setupPrompt(s);
+  const base = { prompt, url, model };
   try {
-    const base = baseOf(url);
     const payload = (withSchema: boolean) => ({
       model: model.trim() || LLM_MODEL_DEFAULT,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: setupPrompt(s) },
+        { role: "user", content: prompt },
       ],
       temperature: 0,
       max_tokens: 160,
@@ -132,7 +155,7 @@ export async function llmReview(
         ? { response_format: { type: "json_schema", json_schema: { name: "verdict", strict: true, schema: VERDICT_SCHEMA } } }
         : {}),
     });
-    let res = await fetch(`${base}/v1/chat/completions`, {
+    let res = await fetch(`${baseOf(url)}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: AbortSignal.timeout(timeoutMs),
@@ -140,21 +163,22 @@ export async function llmReview(
     });
     // older llama-server builds reject json_schema → retry once, prompt-only
     if (res.status === 400) {
-      res = await fetch(`${base}/v1/chat/completions`, {
+      res = await fetch(`${baseOf(url)}/v1/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: AbortSignal.timeout(timeoutMs),
         body: JSON.stringify(payload(false)),
       });
     }
-    if (!res.ok) return null;
+    const ms = Date.now() - started;
+    if (!res.ok) return { ok: false, verdict: null, raw: "", detail: `http-${res.status}`, ...base, ms };
     const j = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const text = j.choices?.[0]?.message?.content ?? "";
     const m = text.match(/\{[\s\S]*\}/);
-    if (!m) return null;
+    if (!m) return { ok: false, verdict: null, raw: text, detail: "no-json", ...base, ms };
     const parsed = JSON.parse(m[0]) as { verdict?: unknown; confidence?: unknown; reasons?: unknown };
     const verdict = parsed.verdict === "skip" ? "skip" : parsed.verdict === "go" ? "go" : null;
-    if (!verdict) return null;
+    if (!verdict) return { ok: false, verdict: null, raw: text, detail: "bad-verdict", ...base, ms };
     const reasons = Array.isArray(parsed.reasons)
       ? parsed.reasons
           .filter((x): x is string => typeof x === "string")
@@ -162,8 +186,33 @@ export async function llmReview(
           .map((x) => x.slice(0, 120))
       : [];
     const confidence = typeof parsed.confidence === "number" ? Math.min(1, Math.max(0, parsed.confidence)) : 0.5;
-    return { verdict, confidence, reasons, ms: Date.now() - started };
-  } catch {
-    return null;
+    return {
+      ok: true,
+      verdict: { verdict, confidence, reasons, ms },
+      raw: text,
+      detail: "ok",
+      ...base,
+      ms,
+    };
+  } catch (e) {
+    const timedOut = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
+    return {
+      ok: false,
+      verdict: null,
+      raw: "",
+      detail: timedOut ? "timeout" : "error",
+      ...base,
+      ms: Date.now() - started,
+    };
   }
+}
+
+/** One review call. Returns null on ANY failure — the caller stays fail-open. */
+export async function llmReview(
+  url: string,
+  model: string,
+  s: LlmSetup,
+  timeoutMs = LLM_TIMEOUT_MS,
+): Promise<LlmVerdict | null> {
+  return (await llmReviewDebug(url, model, s, timeoutMs)).verdict;
 }

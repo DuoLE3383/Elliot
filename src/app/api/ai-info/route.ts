@@ -128,6 +128,16 @@ async function pingLlm(url: string): Promise<{ ok: boolean; ms: number }> {
   }
 }
 
+/** một dòng champion — best-ever của 1 combo symbol×interval */
+type ChampRow = {
+  symbol: string;
+  interval: string;
+  acc: number;
+  auc: number;
+  params: unknown;
+  createdAt: string;
+};
+
 export async function GET() {
   // 1) engine snapshot — cfg hiện hành + workers + llmLast + cycle (không ném khi chưa sync)
   let engine: ReturnType<typeof engineSnapshot> | null = null;
@@ -142,7 +152,7 @@ export async function GET() {
   let runsError = false;
   let tradesError = false;
   let pheError = false;
-  const [runsRaw, tradesRaw, pheRaw, llm] = await Promise.all([
+  const [runsRaw, tradesRaw, pheRaw, llm, champRows] = await Promise.all([
     db.finetuneRun
       .findMany({ orderBy: { createdAt: "desc" }, take: 400 })
       .then((rows) =>
@@ -208,15 +218,32 @@ export async function GET() {
         return [] as { p: number; won: boolean }[];
       }),
     pingLlm(llmUrl),
+    // champion mỗi combo — best-ever trên TOÀN BỘ lịch sử: distinct theo
+    // symbol×interval trên bảng xếp AUC giảm dần (hoà → ACC → mới nhất).
+    // Trước đây champion được tính CHỈ trên 400 run mới nhất nên sau vài lượt
+    // train-all (~90 run/lượt) các combo cũ bị rơi khỏi danh sách — trang /ai
+    // coi như mất champion của chúng.
+    db.finetuneRun
+      .findMany({
+        orderBy: [{ auc: "desc" }, { acc: "desc" }, { createdAt: "desc" }],
+        distinct: ["symbol", "interval"],
+        take: 400, // >400 combo thì mới cắt — thực tế xa với số combo đang chạy
+        select: { symbol: true, interval: true, acc: true, auc: true, params: true, createdAt: true },
+      })
+      .then((rows) =>
+        rows.map(
+          (r): ChampRow => ({
+            symbol: r.symbol,
+            interval: r.interval,
+            acc: r.acc,
+            auc: r.auc,
+            params: safeJson(r.params),
+            createdAt: r.createdAt.toISOString(),
+          }),
+        ),
+      )
+      .catch(() => [] as ChampRow[]),
   ]);
-
-  // champion mỗi combo — best-ever theo AUC (hoà → ACC → mới nhất)
-  const champMap = new Map<string, (typeof runsRaw)[number]>();
-  for (const r of runsRaw) {
-    const k = `${r.symbol}-${r.interval}`;
-    const cur = champMap.get(k);
-    if (!cur || r.auc > cur.auc || (r.auc === cur.auc && r.acc > cur.acc)) champMap.set(k, r);
-  }
 
   // 3) knobs — read-only, theo nhóm (nguồn: params.ts — MỘT file config)
   const knobGroups = [
@@ -310,14 +337,7 @@ export async function GET() {
   return NextResponse.json(
     {
       runs: runsRaw,
-      champions: [...champMap.values()].map((r) => ({
-        symbol: r.symbol,
-        interval: r.interval,
-        acc: r.acc,
-        auc: r.auc,
-        params: r.params,
-        createdAt: r.createdAt,
-      })),
+      champions: champRows,
       autoStats: {
         opened: tradesRaw.opened,
         closed: tradesRaw.closed,

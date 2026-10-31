@@ -21,8 +21,12 @@ import {
   BookOpen,
   BrainCircuit,
   Bot,
+  ChevronDown,
+  ChevronUp,
   Crown,
   Database,
+  FlaskConical,
+  Loader2,
   RefreshCw,
   ShieldCheck,
   ShieldX,
@@ -57,6 +61,17 @@ interface ChampionRow {
   auc: number;
   params: { lr?: number; depth?: number; lambda?: number } | null;
   createdAt: string;
+}
+
+interface LlmTestInfo {
+  ok: boolean;
+  verdict: { verdict: "go" | "skip"; confidence: number; reasons: string[]; ms: number } | null;
+  raw: string;
+  detail: string;
+  prompt: string;
+  url: string;
+  model: string;
+  ms: number;
 }
 
 interface KnobGroup {
@@ -126,6 +141,9 @@ export default function AiPage() {
   const [loading, setLoading] = useState(true);
   const [at, setAt] = useState(0);
   const [syncState, setSyncState] = useState<"idle" | "sending" | "ok" | "fail">("idle");
+  const [champAll, setChampAll] = useState(false);
+  const [llmTest, setLlmTest] = useState<LlmTestInfo | null>(null);
+  const [llmTestBusy, setLlmTestBusy] = useState(false);
 
   useEffect(() => {
     const lg = localStorage.getItem("utp.lang");
@@ -193,6 +211,25 @@ export default function AiPage() {
       setSyncState("fail");
     }
   }, [load]);
+
+  // ── duyệt thử 1 lệnh GIẢ qua đúng đường llmReview production ───────────────
+  // llama-server là inference-only — không có gì để "train"; nút này cho xem
+  // model nói gì với một setup giả, prompt thật và phản hồi thô của nó.
+  const runLlmTest = useCallback(async () => {
+    setLlmTestBusy(true);
+    try {
+      const r = await fetch("/api/llm/test", { method: "POST", headers: { "Content-Type": "application/json" } });
+      if (r.ok) {
+        setLlmTest((await r.json()) as LlmTestInfo);
+      } else {
+        setLlmTest({ ok: false, verdict: null, raw: "", detail: `http-${r.status}`, prompt: "", url: "", model: "", ms: 0 });
+      }
+    } catch {
+      setLlmTest({ ok: false, verdict: null, raw: "", detail: "network", prompt: "", url: "", model: "", ms: 0 });
+    } finally {
+      setLlmTestBusy(false);
+    }
+  }, []);
 
   const switchLang = () => {
     const next: Lang = lang === "vi" ? "en" : "vi";
@@ -398,7 +435,9 @@ export default function AiPage() {
             </CardHeader>
             <CardContent className="pt-0">
               <div className="grid gap-1.5 sm:grid-cols-2">
-                {data.champions.map((c) => (
+                {/* mặc định top 10 — bấm nút dưới để mở hết (danh sách có thể
+                    dài hơn khung nhìn khi đã train nhiều combo) */}
+                {data.champions.slice(0, champAll ? undefined : 10).map((c) => (
                   <div key={`${c.symbol}-${c.interval}`} className="flex items-center gap-2 rounded-md border border-amber-800/40 bg-amber-950/10 px-2 py-1.5 text-[11px]">
                     <Crown className="h-3 w-3 shrink-0 text-amber-400" />
                     <span className="shrink-0 font-mono font-bold text-zinc-200">#{c.symbol}</span>
@@ -409,6 +448,17 @@ export default function AiPage() {
                   </div>
                 ))}
               </div>
+              {data.champions.length > 10 && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="mt-2 h-7 w-full gap-1 text-[11px] text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
+                  onClick={() => setChampAll((v) => !v)}
+                >
+                  {champAll ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  {champAll ? t(lang, "ai.champ.less") : t(lang, "ai.champ.more", { n: data.champions.length })}
+                </Button>
+              )}
             </CardContent>
           </Card>
         )}
@@ -447,6 +497,61 @@ export default function AiPage() {
               </p>
             ) : (
               <p className="text-[11px] text-zinc-600">{t(lang, "ai.llm.none")}</p>
+            )}
+            {/* duyệt thử 1 lệnh giả — test kết nối + xem prompt/phản hồi thô */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1.5 border-zinc-700 px-2.5 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                disabled={llmTestBusy}
+                onClick={() => void runLlmTest()}
+              >
+                {llmTestBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="h-3.5 w-3.5 text-teal-400" />}
+                {t(lang, "ai.llm.test")}
+              </Button>
+              <span className="text-[10px] text-zinc-600">
+                {llmTestBusy ? t(lang, "ai.llm.test.busy") : t(lang, "ai.llm.test.hint")}
+              </span>
+            </div>
+            {llmTest && (
+              <div className="rail-scroll space-y-1.5 rounded-lg border border-zinc-800 bg-zinc-950/60 p-2.5 font-mono text-[10px]">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className={
+                      llmTest.verdict?.verdict === "go"
+                        ? "border-emerald-700 bg-emerald-950/40 text-emerald-300"
+                        : llmTest.verdict?.verdict === "skip"
+                          ? "border-rose-700 bg-rose-950/40 text-rose-300"
+                          : "border-amber-700 bg-amber-950/40 text-amber-300"
+                    }
+                  >
+                    {llmTest.verdict
+                      ? `${llmTest.verdict.verdict} · ${Math.round(llmTest.verdict.confidence * 100)}%`
+                      : t(lang, "ai.llm.test.fail")}
+                  </Badge>
+                  <span className="text-zinc-400">{llmTest.url || "—"}</span>
+                  {llmTest.model && <span className="text-zinc-600">· {llmTest.model}</span>}
+                  <span className="ml-auto text-zinc-500">{llmTest.ms}ms</span>
+                  {llmTest.detail !== "ok" && <span className="text-amber-400">{llmTest.detail}</span>}
+                </div>
+                {llmTest.verdict?.reasons.map((rs, i) => (
+                  <p key={i} className="text-zinc-300">
+                    • {rs}
+                  </p>
+                ))}
+                {llmTest.prompt && (
+                  <div>
+                    <p className="text-zinc-600">{t(lang, "ai.llm.test.prompt")}</p>
+                    <pre className="mt-0.5 max-h-28 overflow-y-auto whitespace-pre-wrap text-zinc-400">{llmTest.prompt}</pre>
+                  </div>
+                )}
+                <div>
+                  <p className="text-zinc-600">{t(lang, "ai.llm.test.raw")}</p>
+                  <pre className="mt-0.5 max-h-28 overflow-y-auto whitespace-pre-wrap text-zinc-300">{llmTest.raw || "—"}</pre>
+                </div>
+              </div>
             )}
           </CardContent>
         </Card>
