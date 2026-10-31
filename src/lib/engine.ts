@@ -44,12 +44,13 @@ import {
   withChampion,
   dcaFloors,
   confluenceBlend,
+  sanitizeRunTf,
   type AutoConfig,
   type AutoTradeRow,
   type ScanRow,
 } from "./autotrade";
 import { readAutoState, serialize } from "./autostate";
-import { INTERVALS, aliasFuturesSymbol, type EngineSettings, type Ticker } from "./types";
+import { aliasFuturesSymbol, type EngineSettings, type Ticker } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 import { atrLevelsAtEntry } from "./indicators";
 import { llmReview } from "./llm";
@@ -152,7 +153,10 @@ function loadEngine(): void {
     if (existsSync(file)) {
       const raw = JSON.parse(readFileSync(file, "utf8")) as Partial<EnginePersisted>;
       const p = g.__elliottEngine.p;
-      if (raw.cfg) p.cfg = { ...AUTO_DEFAULTS, ...raw.cfg };
+      if (raw.cfg) {
+        p.cfg = { ...AUTO_DEFAULTS, ...raw.cfg };
+        p.cfg.runTf = sanitizeRunTf(p.cfg.runTf);
+      }
       if (raw.settings) p.settings = { ...DEFAULT_SETTINGS, ...raw.settings };
       if (Array.isArray(raw.pairs)) p.pairs = raw.pairs.filter((x) => typeof x === "string").slice(0, 200);
       if (typeof raw.leverage === "number" && raw.leverage >= 1) p.leverage = raw.leverage;
@@ -303,7 +307,7 @@ async function scanCore(
 ): Promise<Record<string, unknown>> {
   const { p, v } = eng();
   const pairs = opts?.pairs ?? p.pairs;
-  const intervals = opts?.intervals ?? [...INTERVALS];
+  const intervals = opts?.intervals ?? p.cfg.runTf;
   const pool = new XgbPoolNode();
   const combos = pairs.length * intervals.length;
   const collected: ScanRow[] = [];
@@ -369,8 +373,9 @@ async function trainCore(
   opts: { mode: "all" } | { mode: "single"; sym: string; itv: string; persist: boolean },
 ): Promise<Record<string, unknown>> {
   const { p } = eng();
+  const tfs = p.cfg.runTf; // chỉ train các khung đang bật
   const list =
-    opts.mode === "all" ? p.pairs.flatMap((sym) => INTERVALS.map((itv) => ({ sym, itv }))) : [{ sym: opts.sym, itv: opts.itv }];
+    opts.mode === "all" ? p.pairs.flatMap((sym) => tfs.map((itv) => ({ sym, itv }))) : [{ sym: opts.sym, itv: opts.itv }];
   if (list.length === 0) return { saved: 0, total: 0 };
 
   const pool = new XgbPoolNode();
@@ -468,7 +473,7 @@ async function trainCore(
     try {
       const lines = [
         "🧠 <b>TRAIN TOÀN BỘ XONG</b>",
-        `${p.pairs.length} pair × ${INTERVALS.length} TF · đã lưu <b>${saved}/${combos}</b> combo`,
+        `${p.pairs.length} pair × ${p.cfg.runTf.length} TF (${p.cfg.runTf.join(",")}) · đã lưu <b>${saved}/${combos}</b> combo`,
         best
           ? `🏆 Tốt nhất: <b>#${best.symbol}</b> ${best.interval} · ACC ${best.acc.toFixed(1)}% · AUC ${best.auc.toFixed(2)} · Score ${best.score.toFixed(1)}`
           : "",
@@ -1132,7 +1137,10 @@ export function syncEngine(input: {
   leverage?: number;
 }): void {
   const { p } = eng();
-  if (input.cfg) p.cfg = { ...p.cfg, ...input.cfg };
+  if (input.cfg) {
+    p.cfg = { ...p.cfg, ...input.cfg };
+    p.cfg.runTf = sanitizeRunTf(p.cfg.runTf);
+  }
   if (input.settings) p.settings = { ...p.settings, ...input.settings };
   if (Array.isArray(input.pairs)) {
     p.pairs = input.pairs
@@ -1149,7 +1157,7 @@ export function syncEngine(input: {
   if (!p.cfg.on) p.nextCycleAt = 0;
   persistEngine();
   console.log(
-    `[engine] synced — pairs ${p.pairs.length} · auto ${p.cfg.on ? "ON" : "off"} · broadcast ${p.cfg.broadcast ? "ON" : "off"} · cycle ${p.cfg.cycleMin}m`,
+    `[engine] synced — pairs ${p.pairs.length} · TF ${p.cfg.runTf.join("/")} · auto ${p.cfg.on ? "ON" : "off"} · broadcast ${p.cfg.broadcast ? "ON" : "off"} · cycle ${p.cfg.cycleMin}m`,
   );
 }
 

@@ -643,6 +643,9 @@ export interface AutoConfig {
   atrCoef: number;
   /** cycle interval, minutes */
   cycleMin: number;
+  /** các khung giờ engine CHẠY (scan + train + vào lệnh) — bật tắt trên panel;
+   *  khung tắt bị bỏ hẳn khỏi vòng quét/train kế tiếp */
+  runTf: string[];
   /** min validation AUC to trade a scan row (internal quality gate, no UI) */
   minAuc: number;
   /** min validation accuracy % to trade a scan row (internal quality gate, no UI) */
@@ -677,6 +680,7 @@ export const AUTO_DEFAULTS: AutoConfig = {
   tpPct: 1.5,
   atrCoef: 1.5,
   cycleMin: 5,
+  runTf: [...INTERVALS],
   minAuc: 0.55,
   minAcc: 55,
   cooldownMin: 30,
@@ -706,6 +710,17 @@ export const CYCLE_CHOICES = [
   { m: 10080, label: "1w" },
 ] as const;
 
+/** Chuẩn hoá danh sách khung giờ chạy: chỉ nhận member hợp lệ của INTERVALS,
+ *  sắp theo thứ tự gốc, trùng thì gộp — rỗng/toàn sai thì trả về tất cả
+ *  (không bao giờ để engine chạy 0 khung). */
+export function sanitizeRunTf(v: unknown): string[] {
+  const set = new Set(
+    (Array.isArray(v) ? v : []).filter((x): x is string => typeof x === "string" && (INTERVALS as readonly string[]).includes(x)),
+  );
+  const list = INTERVALS.filter((i) => set.has(i));
+  return list.length ? [...list] : [...INTERVALS];
+}
+
 export function loadAutoConfig(): AutoConfig {
   try {
     const raw = localStorage.getItem(AUTO_LS_KEY);
@@ -726,6 +741,7 @@ export function loadAutoConfig(): AutoConfig {
         ? (p.cooldownMin as number)
         : AUTO_DEFAULTS.cooldownMin,
       dcaMax: DCA_CHOICES.includes(p.dcaMax as 0 | 1 | 2) ? (p.dcaMax as number) : AUTO_DEFAULTS.dcaMax,
+      runTf: sanitizeRunTf(p.runTf),
       statHourly: p.statHourly !== false,
       statDaily: p.statDaily !== false,
       llmUrl:

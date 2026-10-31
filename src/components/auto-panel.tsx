@@ -9,7 +9,6 @@ import { Switch } from "@/components/ui/switch";
 import {
   closeAutoTrade,
   COOLDOWN_CHOICES,
-  CYCLE_CHOICES,
   DCA_CHOICES,
   fetchAutoState,
   loadAutoConfig,
@@ -524,23 +523,32 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.cycle")}>
-            <span className="mr-0.5 text-[11px] text-zinc-500">{t(lang, "auto.cfg.cycle")}</span>
-            {CYCLE_CHOICES.map((c) => (
-              <button
-                key={c.m}
-                type="button"
-                onClick={() => updateCfg({ cycleMin: c.m })}
-                className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
-                  cfg.cycleMin === c.m
-                    ? "border-teal-700 bg-teal-950/40 text-teal-300"
-                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
-                }`}
-              >
-                {c.label}
-              </button>
-            ))}
-            {cfg.cycleMin < 60 && <span className="text-[11px] text-zinc-600">{t(lang, "auto.cfg.cycleUnit")}</span>}
+          <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.tf")}>
+            <span className="mr-0.5 text-[11px] text-zinc-500" title={t(lang, "auto.cfg.tfTip")}>
+              {t(lang, "auto.cfg.tf")}
+            </span>
+            {INTERVALS.map((tf) => {
+              const on = cfg.runTf.includes(tf);
+              return (
+                <button
+                  key={tf}
+                  type="button"
+                  title={t(lang, "auto.cfg.tfTip")}
+                  onClick={() => {
+                    const next = on ? cfg.runTf.filter((x) => x !== tf) : [...cfg.runTf, tf];
+                    if (next.length === 0) return; // phải còn ít nhất 1 khung
+                    updateCfg({ runTf: INTERVALS.filter((i) => next.includes(i)) }); // thứ tự gốc
+                  }}
+                  className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
+                    on
+                      ? "border-teal-700 bg-teal-950/40 text-teal-300"
+                      : "border-zinc-800 bg-zinc-950/40 text-zinc-600 line-through hover:bg-zinc-800"
+                  }`}
+                >
+                  {tf}
+                </button>
+              );
+            })}
           </div>
           <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.cooldown")}>
             <span className="mr-0.5 text-[11px] text-zinc-500">{t(lang, "auto.cfg.cooldown")}</span>

@@ -1,6 +1,7 @@
 // Quick sanity test for the chase guard + DCA math — HBAR numbers from the user's screenshot:
 // SHORT entry 0.071214, SL 0.07147 (≈0.36% giá), stopped out, then re-entered SHORT @ 0.07147.
-import { passesChaseGuard, slCooldownLeft, lastSlExit, dcaFloors, type AutoTradeRow } from "../src/lib/autotrade";
+import { passesChaseGuard, slCooldownLeft, lastSlExit, dcaFloors, sanitizeRunTf, type AutoTradeRow } from "../src/lib/autotrade";
+import { INTERVALS } from "../src/lib/types";
 
 const mk = (over: Partial<AutoTradeRow>): AutoTradeRow => ({
   id: "t1",
@@ -79,6 +80,13 @@ check("model biên (AUC 0.60 · ACC 70) — allowed", dcaOk(0.6, 70), true);
 check("dưới biên 1 chút (AUC 0.59 · ACC 72) — BLOCKED", dcaOk(0.59, 72), false);
 check("panel siết 0.7: model 0.65/78 — BLOCKED", dcaOk(0.65, 78, 0.7, 70), false);
 check("panel siết 0.7: model 0.71/76 — allowed", dcaOk(0.71, 76, 0.7, 70), true);
+
+// ── runTf sanitize — bật tắt timeframe run trên panel ────────────────────────
+check("runTf rỗng → trả về tất cả khung", sanitizeRunTf([]), [...INTERVALS]);
+check("runTf sai hết → trả về tất cả", sanitizeRunTf(["2h", "abc", 42 as never]), [...INTERVALS]);
+check("runTf lọc rác + sắp theo thứ tự gốc", sanitizeRunTf(["1h", "1m", "xyz", "15m"]), ["1m", "15m", "1h"]);
+check("runTf trùng → gộp", sanitizeRunTf(["1m", "1m", "1h"]), ["1m", "1h"]);
+check("runTf đủ 8 khung → giữ nguyên", sanitizeRunTf([...INTERVALS]), [...INTERVALS]);
 
 console.log(fail === 0 ? "\nALL PASS" : `\n${fail} FAILURES`);
 process.exit(fail === 0 ? 0 : 1);
