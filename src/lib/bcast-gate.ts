@@ -9,13 +9,17 @@
 
 import type { ScanRow } from "./autotrade";
 
-// ── cổng chất lượng (bản user setpoint 31/10: 60 / 0.8 / 70) ─────────────────
+// ── cổng chất lượng (user setpoint 31/10: 60 / 0.8 / 70) ─────────────────
 export const BCAST_VOL_MIN = 7e6; // $7M 24h quote volume
 export const BCAST_PL1_MIN = 5; // TP1 ≥ +5% từ entry
 export const BCAST_TOP_N = 2; // coins mỗi tin
-/** Điểm tối thiểu để đăng broadcast — scoreOf = (AUC−0.5)×100 + (ACC−50) + tin cậy×15.
- *  User setpoint 31/10: 60. AUC .8 + ACC 70 cho sẵn 30+20 = 50 → điểm 60 còn yêu
- *  cầu tin cậy ≥ ~2/3: model đạt sàn metrics nhưng thiếu tự tin vẫn bị giữ lại. */
+/** SÀN CHẤT LƯỢNG CHUNG — bộ ba dưới đây là MẶC ĐỊNH của setpoint duy nhất
+ *  áp cho MỌI tầng (mở lệnh, bù DCA, đăng broadcast). Runtime lấy từ
+ *  cfg.minScore/minAuc/minAcc (chỉnh trên Auto panel — xem AUTO_DEFAULTS);
+ *  hằng số chỉ còn vai trò fallback khi caller không truyền ctx.sp.
+ *  Điểm tối thiểu: scoreOf = (AUC−0.5)×100 + (ACC−50) + tin cậy×15.
+ *  AUC .8 + ACC 70 cho sẵn 30+20 = 50 → điểm 60 còn yêu cầu tin cậy ≥ ~2/3:
+ *  model đạt sàn metrics nhưng thiếu tự tin vẫn bị giữ lại. */
 export const BCAST_SCORE_MIN = 60;
 /** Sàn AUC của model — 0.8 nghĩa là model phải xếp hạng thật sự giỏi trên tập
  *  validation (out-of-sample), chỉ hơn tung đồng xu là không đủ tin. */
@@ -23,6 +27,13 @@ export const BCAST_AUC_MIN = 0.8;
 /** Sàn ACC của model — user nới từ 80 xuống 70 (31/10): vẫn lọc sạch nhiễu
  *  32–38 điểm, nhưng kênh không còn im lặng triền miên vì sàn 80. */
 export const BCAST_ACC_MIN = 70;
+
+/** Bộ ba setpoint chung (engine truyền từ cfg — panel chỉnh một chỗ) */
+export interface QualSp {
+  score: number;
+  auc: number;
+  acc: number;
+}
 /** Chống lặp: 1 coin (mọi khung giờ) chỉ được broadcast lại sau mỗi 3 giờ.
  *  RUNE 30m xuất hiện 4 lần trong 15 phút (4:11/4:15/4:21/4:25) vì `seen` cũ
  *  chỉ dùng để tag ⚡NEW chứ không chặn re-pick — đây là bản vá. */
@@ -46,6 +57,9 @@ export interface GateCtx {
   uniSyms?: Set<string>;
   /** quoteVolume 24h từ ticker (khi có — pre-filter trước khi trả tiền fetch kline) */
   tickerVol?: number;
+  /** sàn chất lượng chung từ cfg — KHÔNG truyền → dùng BCAST_* mặc định.
+   *  Cùng bộ ba này còn được isTradeable() dùng lúc mở lệnh/bù DCA. */
+  sp?: QualSp;
 }
 
 export interface GateVerdict {
@@ -61,12 +75,13 @@ export interface GateVerdict {
  * cũng nằm trong module này nên vẫn là một nguồn.)
  */
 export function gateRow(r: ScanRow, ctx: GateCtx): GateVerdict {
+  const sp = ctx.sp ?? { score: BCAST_SCORE_MIN, auc: BCAST_AUC_MIN, acc: BCAST_ACC_MIN };
   if (ctx.uniSyms && !ctx.uniSyms.has(r.symbol)) {
     return { pass: false, reason: "ngoài top-30 universe 8h" };
   }
-  if (r.auc < BCAST_AUC_MIN) return { pass: false, reason: `AUC ${r.auc.toFixed(2)} < ${BCAST_AUC_MIN}` };
-  if (r.acc < BCAST_ACC_MIN) return { pass: false, reason: `ACC ${r.acc.toFixed(0)}% < ${BCAST_ACC_MIN}%` };
-  if (r.score < BCAST_SCORE_MIN) return { pass: false, reason: `điểm ${r.score.toFixed(1)} < ${BCAST_SCORE_MIN}` };
+  if (r.auc < sp.auc) return { pass: false, reason: `AUC ${r.auc.toFixed(2)} < ${sp.auc}` };
+  if (r.acc < sp.acc) return { pass: false, reason: `ACC ${r.acc.toFixed(0)}% < ${sp.acc}%` };
+  if (r.score < sp.score) return { pass: false, reason: `điểm ${r.score.toFixed(1)} < ${sp.score}` };
   if (r.tpPct < BCAST_PL1_MIN) return { pass: false, reason: `PL1 ${r.tpPct.toFixed(1)}% < ${BCAST_PL1_MIN}%` };
   if (ctx.tickerVol != null && ctx.tickerVol > 0 && ctx.tickerVol < BCAST_VOL_MIN) {
     return { pass: false, reason: `vol24h $${(ctx.tickerVol / 1e6).toFixed(1)}M < $${(BCAST_VOL_MIN / 1e6).toFixed(0)}M` };

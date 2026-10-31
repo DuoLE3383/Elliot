@@ -523,6 +523,44 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.floor")}>
+            <span className="mr-0.5 text-[11px] text-zinc-500" title={t(lang, "auto.cfg.floorTip", { s: cfg.minScore, a: cfg.minAuc, c: cfg.minAcc })}>
+              {t(lang, "auto.cfg.floor")}
+            </span>
+            <Input
+              type="number"
+              min={0.5}
+              max={0.95}
+              step={0.01}
+              value={cfg.minAuc}
+              onChange={(e) => updateCfg({ minAuc: Math.min(0.95, Math.max(0.5, Number(e.target.value) || 0.8)) })}
+              aria-label={t(lang, "auto.cfg.floorAuc")}
+              title={t(lang, "auto.cfg.floorAuc")}
+              className="h-7 w-14 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
+            />
+            <Input
+              type="number"
+              min={50}
+              max={90}
+              step={1}
+              value={cfg.minAcc}
+              onChange={(e) => updateCfg({ minAcc: Math.min(90, Math.max(50, Number(e.target.value) || 70)) })}
+              aria-label={t(lang, "auto.cfg.floorAcc")}
+              title={t(lang, "auto.cfg.floorAcc")}
+              className="h-7 w-14 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
+            />
+            <Input
+              type="number"
+              min={0}
+              max={95}
+              step={1}
+              value={cfg.minScore}
+              onChange={(e) => updateCfg({ minScore: Math.min(95, Math.max(0, Number(e.target.value) || 60)) })}
+              aria-label={t(lang, "auto.cfg.floorScore")}
+              title={t(lang, "auto.cfg.floorScore")}
+              className="h-7 w-14 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
+            />
+          </div>
           <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.tf")}>
             <span className="mr-0.5 text-[11px] text-zinc-500" title={t(lang, "auto.cfg.tfTip")}>
               {t(lang, "auto.cfg.tf")}
@@ -646,7 +684,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
               if (v) void doScan(); // enabling → scan now, first digest lands in seconds
             }}
             aria-pressed={cfg.broadcast}
-            title={t(lang, "auto.bcast.tip")}
+            title={t(lang, "auto.bcast.tip", { s: cfg.minScore, a: cfg.minAuc, c: cfg.minAcc })}
             className={`h-7 rounded-md border px-2 text-[11px] ${
               cfg.broadcast
                 ? "border-violet-700 bg-violet-950/40 text-violet-300"

@@ -42,9 +42,9 @@ import {
   slCooldownLeft,
   slTpHit,
   withChampion,
-  dcaFloors,
   confluenceBlend,
   sanitizeRunTf,
+  sanitizeFloors,
   type AutoConfig,
   type AutoTradeRow,
   type ScanRow,
@@ -155,6 +155,8 @@ function loadEngine(): void {
       const p = g.__elliottEngine.p;
       if (raw.cfg) {
         p.cfg = { ...AUTO_DEFAULTS, ...raw.cfg };
+        // sàn chung — kẹp + migration legacy 0.55/55 (thời "no UI") trong một nguồn
+        Object.assign(p.cfg, sanitizeFloors(p.cfg.minAuc, p.cfg.minAcc, p.cfg.minScore));
         p.cfg.runTf = sanitizeRunTf(p.cfg.runTf);
       }
       if (raw.settings) p.settings = { ...DEFAULT_SETTINGS, ...raw.settings };
@@ -711,8 +713,13 @@ async function broadcastTick(): Promise<void> {
   let built: Awaited<ReturnType<typeof buildTopCoinsMessage>> = null;
   try {
     // MỘT thuật toán gate — uniSet truyền thẳng vào gateRow, mọi combo đều
-    // được chấm (kể cả ngoài universe) và phán quyết được ghi vào DB
-    built = await buildTopCoinsMessage(rows, tickers, state, uniSet);
+    // được chấm (kể cả ngoài universe) và phán quyết được ghi vào DB;
+    // sp = cùng bộ ba sàn chung mà entry/DCA đang dùng (cfg — panel chỉnh một chỗ)
+    built = await buildTopCoinsMessage(rows, tickers, state, uniSet, {
+      score: p.cfg.minScore,
+      auc: p.cfg.minAuc,
+      acc: p.cfg.minAcc,
+    });
   } catch (e) {
     console.error(`[engine] broadcast build failed: ${e instanceof Error ? e.message : e}`);
     return;
@@ -872,7 +879,16 @@ async function cycleTick(): Promise<void> {
       v.lastCycleStatus = "scan empty";
       return;
     }
-    const { allInCooldown, cands, regressedCount } = bestTradeableAvoid(rows, c.minAuc, c.minAcc, st.trades, c.cooldownMin, c.whaleFilter);
+    const { allInCooldown, cands, regressedCount } = bestTradeableAvoid(
+      rows,
+      c.minAuc,
+      c.minAcc,
+      st.trades,
+      c.cooldownMin,
+      c.whaleFilter,
+      NOISE_BAND,
+      c.minScore,
+    );
     // walk the ranked candidates: regressed/cooldown-blocked combos are skipped,
     // then the chase guard rejects same-side re-entries until price has reversed
     // back through the level that stopped us ("SL xong vào lại giá cao hơn" → hết)
@@ -1032,11 +1048,11 @@ async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "c
   if (!scan || Date.now() - scan.at > SCAN_TTL) return false;
   const row = scan.rows.find((r) => r.symbol === open.symbol && r.interval === open.interval);
   if (!row || row.bias !== open.side || Math.abs(row.prob - 0.5) < NOISE_BAND) return false;
-  // model-quality floor — user setpoint 31/10: DCA cũng phải giữ AUC > 0.6 · ACC > 70
-  const fl = dcaFloors(c.minAuc, c.minAcc);
-  if (row.auc < fl.auc || row.acc < fl.acc) {
+  // model-quality floor — SÀN CHUNG (cùng bộ ba với broadcast gate): model dưới
+  // sàn thì không bù thêm — để SL làm việc
+  if (row.auc < c.minAuc || row.acc < c.minAcc || row.score < c.minScore) {
     console.info(
-      `[engine] DCA ${open.symbol} ${open.interval} bỏ: model thoái hóa AUC ${row.auc.toFixed(2)} / ACC ${row.acc.toFixed(1)}% dưới sàn ${fl.auc.toFixed(2)} / ${fl.acc.toFixed(0)}% — để SL làm việc`,
+      `[engine] DCA ${open.symbol} ${open.interval} bỏ: model thoái hóa AUC ${row.auc.toFixed(2)} / ACC ${row.acc.toFixed(1)}% / điểm ${row.score.toFixed(1)} dưới sàn chung ${c.minAuc.toFixed(2)} / ${c.minAcc.toFixed(0)}% / ${c.minScore} — để SL làm việc`,
     );
     return false;
   }
@@ -1139,6 +1155,9 @@ export function syncEngine(input: {
   const { p } = eng();
   if (input.cfg) {
     p.cfg = { ...p.cfg, ...input.cfg };
+    // sàn chung — browser gửi gì cũng bị kẹp về vùng hợp lệ (một nguồn với
+    // engine.json/localStorage); migration legacy nằm trong sanitizeFloors
+    Object.assign(p.cfg, sanitizeFloors(p.cfg.minAuc, p.cfg.minAcc, p.cfg.minScore));
     p.cfg.runTf = sanitizeRunTf(p.cfg.runTf);
   }
   if (input.settings) p.settings = { ...p.settings, ...input.settings };
@@ -1157,7 +1176,7 @@ export function syncEngine(input: {
   if (!p.cfg.on) p.nextCycleAt = 0;
   persistEngine();
   console.log(
-    `[engine] synced — pairs ${p.pairs.length} · TF ${p.cfg.runTf.join("/")} · auto ${p.cfg.on ? "ON" : "off"} · broadcast ${p.cfg.broadcast ? "ON" : "off"} · cycle ${p.cfg.cycleMin}m`,
+    `[engine] synced — pairs ${p.pairs.length} · TF ${p.cfg.runTf.join("/")} · sàn ${p.cfg.minScore}/${p.cfg.minAuc}/${p.cfg.minAcc} (điểm/AUC/ACC) · auto ${p.cfg.on ? "ON" : "off"} · broadcast ${p.cfg.broadcast ? "ON" : "off"} · cycle ${p.cfg.cycleMin}m`,
   );
 }
 

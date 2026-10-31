@@ -83,26 +83,17 @@ export function rowOf(res: XgbResult, symbol: string, interval: string): ScanRow
   };
 }
 
-export const isTradeable = (r: ScanRow, minAuc: number, minAcc: number): boolean =>
-  r.bias !== "NEUTRAL" && r.auc >= minAuc && r.acc >= minAcc;
-
-/** Sàn chất lượng model RIÊNG cho DCA (user setpoint 31/10: AUC > 0.6 · ACC > 70).
- *  Bù lệnh là gấp tiền vào vị thế đang lỗ, và metrics dùng là của FRESH scan
- *  lúc DCA — champion có thể đã thoái hóa sau khi lệnh mở (ETHUSDT 1m 31/10:
- *  bù lần 2/2 với model AUC 0.47 · ACC 46.9%, thua cả tung xu). Sàn DCA lấy
- *  max(sàn entry trên Auto panel, hằng số dưới đây): không bao giờ nới hơn
- *  entry, không bao giờ bù thêm bằng model dưới sàn. */
-export const DCA_AUC_MIN = 0.6;
-export const DCA_ACC_MIN = 70;
-export const dcaFloors = (minAuc: number, minAcc: number): { auc: number; acc: number } => ({
-  auc: Math.max(minAuc, DCA_AUC_MIN),
-  acc: Math.max(minAcc, DCA_ACC_MIN),
-});
+/** Cổng tradeable dùng chung MỌI tầng: mở lệnh, bù DCA, best-pick. minScore = 0
+ *  nghĩa là không chấm điểm (giữ backward-compat cho test); engine luôn truyền
+ *  sàn chung cfg.minScore. Model dưới sàn nào trong ba (AUC/ACC/Điểm) thì đứng
+ *  ngoài — một setpoint duy nhất, không có sàn riêng thứ hai. */
+export const isTradeable = (r: ScanRow, minAuc: number, minAcc: number, minScore = 0): boolean =>
+  r.bias !== "NEUTRAL" && r.auc >= minAuc && r.acc >= minAcc && (minScore <= 0 || r.score >= minScore);
 
 export const rankRows = (rows: ScanRow[]): ScanRow[] => [...rows].sort((a, b) => b.score - a.score);
 
-export const bestTradeable = (rows: ScanRow[], minAuc: number, minAcc: number): ScanRow | null =>
-  rankRows(rows.filter((r) => isTradeable(r, minAuc, minAcc)))[0] ?? null;
+export const bestTradeable = (rows: ScanRow[], minAuc: number, minAcc: number, minScore = 0): ScanRow | null =>
+  rankRows(rows.filter((r) => isTradeable(r, minAuc, minAcc, minScore)))[0] ?? null;
 
 // ─── Confluence pooling — các model train riêng của CÙNG symbol vote chung ───
 // Trước đây mỗi combo (symbol × khung) là một hòn đảo: BTC 15m và BTC 1h train
@@ -249,6 +240,8 @@ export function bestTradeableAvoid(
   whaleFilter = true,
   /** khử nhiễu XGBoost — skip coin-flip probs (|P−0.5| < band); 0 = tắt */
   noiseBand = NOISE_BAND,
+  /** sàn điểm của cùng bộ setpoint chung — 0 = không chấm điểm */
+  minScore = 0,
 ): { best: ScanRow | null; allInCooldown: boolean; cands: ScanRow[]; regressedCount: number } {
   // whaleFilter (default on) skips combos whose last closed candle is a full
   // whale bar (≥4σ volume) — entries opened into those get wicked out.
@@ -259,13 +252,13 @@ export function bestTradeableAvoid(
   const cands = rankRows(
     rows.filter(
       (r) =>
-        isTradeable(r, minAuc, minAcc) &&
+        isTradeable(r, minAuc, minAcc, minScore) &&
         !r.regressed &&
         (!whaleFilter || r.whale?.tag !== "whale") &&
         (noiseBand <= 0 || Math.abs(r.prob - 0.5) >= noiseBand),
     ),
   );
-  const regressedCount = rows.filter((r) => isTradeable(r, minAuc, minAcc) && r.regressed).length;
+  const regressedCount = rows.filter((r) => isTradeable(r, minAuc, minAcc, minScore) && r.regressed).length;
   const free = cands.find((r) => slCooldownLeft(trades, r.symbol, r.interval, cooldownMin) === 0) ?? null;
   return { best: free, allInCooldown: free == null && cands.length > 0, cands, regressedCount };
 }
@@ -646,10 +639,13 @@ export interface AutoConfig {
   /** các khung giờ engine CHẠY (scan + train + vào lệnh) — bật tắt trên panel;
    *  khung tắt bị bỏ hẳn khỏi vòng quét/train kế tiếp */
   runTf: string[];
-  /** min validation AUC to trade a scan row (internal quality gate, no UI) */
+  /** SÀN CHẤT LƯỢNG CHUNG — một bộ ba setpoint duy nhất áp cho MỌI tầng: mở
+   *  lệnh, bù DCA và đăng broadcast (gateRow). Chỉnh một chỗ trên Auto panel. */
   minAuc: number;
-  /** min validation accuracy % to trade a scan row (internal quality gate, no UI) */
   minAcc: number;
+  /** min score (= (AUC−0.5)×100 + (ACC−50) + tin cậy×15) — lọc model đạt sàn
+   *  metrics nhưng thiếu tự tin */
+  minScore: number;
   /** wait after an SL exit on the same combo, minutes (0 = off) */
   cooldownMin: number;
   /** max DCA adds into a losing position while the model still confirms the
@@ -681,8 +677,12 @@ export const AUTO_DEFAULTS: AutoConfig = {
   atrCoef: 1.5,
   cycleMin: 5,
   runTf: [...INTERVALS],
-  minAuc: 0.55,
-  minAcc: 55,
+  // sàn chung mặc định = setpoint broadcast 31/10 (60 / 0.8 / 70) — đồng bộ
+  // BCAST_* trong bcast-gate.ts; migration từ 0.55/55 thời "no UI" nằm ở
+  // loadAutoConfig + engine.loadEngine
+  minAuc: 0.8,
+  minAcc: 70,
+  minScore: 60,
   cooldownMin: 30,
   dcaMax: 1,
   statHourly: true,
@@ -721,6 +721,26 @@ export function sanitizeRunTf(v: unknown): string[] {
   return list.length ? [...list] : [...INTERVALS];
 }
 
+/** Kẹp bộ ba SÀN CHẤT LƯỢNG CHUNG vào vùng hợp lệ — dùng ở MỌI cửa nhận cfg
+ *  (localStorage, engine.json, POST /api/engine sync) để không đường nào đánh
+ *  lọt giá trị lệch. Migration: bộ 0.55/55 là default thời minAuc/minAcc còn
+ *  "no UI" (trước 1/11) — chưa từng được chỉnh tay nên nâng thẳng lên sàn
+ *  chung mới thay vì giữ lại. */
+export function sanitizeFloors(
+  auc: unknown,
+  acc: unknown,
+  score: unknown,
+): { minAuc: number; minAcc: number; minScore: number } {
+  const legacy = auc === 0.55 && acc === 55;
+  const num = (x: unknown, lo: number, hi: number, dflt: number): number =>
+    typeof x === "number" && Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : dflt;
+  return {
+    minAuc: legacy ? AUTO_DEFAULTS.minAuc : num(auc, 0.5, 0.95, AUTO_DEFAULTS.minAuc),
+    minAcc: legacy ? AUTO_DEFAULTS.minAcc : num(acc, 50, 90, AUTO_DEFAULTS.minAcc),
+    minScore: num(score, 0, 95, AUTO_DEFAULTS.minScore),
+  };
+}
+
 export function loadAutoConfig(): AutoConfig {
   try {
     const raw = localStorage.getItem(AUTO_LS_KEY);
@@ -735,8 +755,8 @@ export function loadAutoConfig(): AutoConfig {
       tpPct: typeof p.tpPct === "number" ? Math.min(30, Math.max(0.2, p.tpPct)) : AUTO_DEFAULTS.tpPct,
       atrCoef: typeof p.atrCoef === "number" && p.atrCoef > 0 ? Math.min(5, Math.max(0.5, p.atrCoef)) : AUTO_DEFAULTS.atrCoef,
       cycleMin: CYCLE_CHOICES.some((c) => c.m === p.cycleMin) ? (p.cycleMin as number) : AUTO_DEFAULTS.cycleMin,
-      minAuc: typeof p.minAuc === "number" ? Math.min(0.8, Math.max(0.5, p.minAuc)) : AUTO_DEFAULTS.minAuc,
-      minAcc: typeof p.minAcc === "number" ? Math.min(80, Math.max(50, p.minAcc)) : AUTO_DEFAULTS.minAcc,
+      // sàn chung — kẹp + migration legacy trong sanitizeFloors (một nguồn)
+      ...sanitizeFloors(p.minAuc, p.minAcc, p.minScore),
       cooldownMin: COOLDOWN_CHOICES.includes(p.cooldownMin as 0 | 15 | 30 | 60)
         ? (p.cooldownMin as number)
         : AUTO_DEFAULTS.cooldownMin,

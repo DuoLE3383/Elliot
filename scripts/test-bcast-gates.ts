@@ -151,5 +151,27 @@ ok(
 );
 ok(gateRow(mkRow({}), baseCtx).reason === "", "pass → reason rỗng (panel hiện 'TG')");
 
+console.log("── gateRow · ctx.sp — SÀN CHUNG từ cfg (panel chỉnh một chỗ, 1/11)");
+// LINKUSDT 15m 1/11: AUTO OPEN với model 0.74/65.6/44.8 — với sàn chung 0.8/70/60
+// combo này không còn là nhiễu đăng được (cũng không còn là lệnh mở được)
+const link = mkRow({ symbol: "LINKUSDT", score: 44.8, auc: 0.74, acc: 65.6 });
+ok(gateRow(link, baseCtx).reason.startsWith("AUC"), "sàn mặc định 0.8 → LINKUSDT chặn ở AUC");
+ok(
+  gateRow(link, { ...baseCtx, sp: { score: 60, auc: 0.8, acc: 70 } }).reason.startsWith("AUC"),
+  "sp trùng mặc định → cùng verdict (một nguồn)",
+);
+ok(
+  gateRow(link, { ...baseCtx, sp: { score: 44, auc: 0.7, acc: 65 } }).pass === true,
+  "panel nới sp 0.7/65/44 → LINKUSDT qua (chỉnh một chỗ, mọi tầng ăn theo)",
+);
+ok(
+  gateRow(mkRow({ auc: 0.81, acc: 69, score: 65 }), { ...baseCtx, sp: { score: 50, auc: 0.6, acc: 70 } }).reason.startsWith("ACC"),
+  "reason phản chiếu đúng sp đang dùng (ACC < 70)",
+);
+ok(
+  gateRow(mkRow({ auc: 0.61, acc: 72, score: 52 }), { ...baseCtx, sp: { score: 50, auc: 0.6, acc: 70 } }).pass === true,
+  "sp lỏng hơn mặc định → model 0.61/72/52 qua gate broadcast (cùng bộ ba với entry)",
+);
+
 console.log(`\n${fail === 0 ? "🟢 ALL PASS" : "🔴 FAIL"} — ${pass} pass, ${fail} fail`);
 process.exit(fail === 0 ? 0 : 1);

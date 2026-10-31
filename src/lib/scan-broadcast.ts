@@ -46,6 +46,7 @@ import {
   BCAST_VOL_MIN,
   gateRow,
   passesCoherence,
+  type QualSp,
 } from "./bcast-gate";
 
 // MỘT thuật toán gate sống ở ./bcast-gate — re-export để chỗ cũ (test, panel)
@@ -345,7 +346,10 @@ export async function buildTopCoinsMessage(
   tickers: Record<string, Ticker>,
   state: BcastState,
   uniSyms?: Set<string>,
+  /** sàn chất lượng chung từ cfg — không truyền → BCAST_* mặc định */
+  sp?: QualSp,
 ): Promise<{ text: string | null; picked: ScanRow[]; verdicts: BcastVerdictRow[] }> {
+  const spEff = sp ?? { score: BCAST_SCORE_MIN, auc: BCAST_AUC_MIN, acc: BCAST_ACC_MIN };
   const nowMs = Date.now();
   // ── MỘT lần chấm duy nhất bằng gateRow cho TẤT CẢ combo ──────────────────
   const verdicts: BcastVerdictRow[] = rows.map((r) => {
@@ -354,6 +358,7 @@ export async function buildTopCoinsMessage(
       lastB: state.lastB,
       uniSyms,
       tickerVol: tickers[r.symbol]?.quoteVolume,
+      sp,
     });
     return {
       symbol: r.symbol,
@@ -429,7 +434,7 @@ export async function buildTopCoinsMessage(
     `============================`,
     `🏆 <b>${names} </b> — TOP ${picked.length} COIN TIỀM NĂNG NHẤT`,
     `⏰ ${hh}h${mm} ${dateStr} │ Lần #${state.n + 1}`,
-    `📋 Vol ≥ $${(BCAST_VOL_MIN / 1e6).toFixed(0)}M │ PL1 ≥ ${BCAST_PL1_MIN}% │ Điểm ≥ ${BCAST_SCORE_MIN} │ AUC ≥ ${BCAST_AUC_MIN} │ ACC ≥ ${BCAST_ACC_MIN}% │ Lặp ≥ ${Math.round(BCAST_REPEAT_MS / 3_600_000)}h`,
+    `📋 Vol ≥ $${(BCAST_VOL_MIN / 1e6).toFixed(0)}M │ PL1 ≥ ${BCAST_PL1_MIN}% │ Điểm ≥ ${spEff.score} │ AUC ≥ ${spEff.auc} │ ACC ≥ ${spEff.acc}% │ Lặp ≥ ${Math.round(BCAST_REPEAT_MS / 3_600_000)}h`,
     `Dữ liệu: ${CANDIDATE_POOL} combo tốt nhất từ ${rows.length} combo quét`
   ];
   for (const c of picked) out.push(...coinBlock(c), "");
