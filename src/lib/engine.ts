@@ -276,6 +276,8 @@ async function persistTrainResult(
         ...res.params,
         lv,
         marginAtr: Number(res.marginAtr.toFixed(3)),
+        ...(res.platt ? { platt: { a: res.platt.a, b: res.platt.b, eceRaw: Number(res.platt.eceRaw.toFixed(4)), eceCal: Number(res.platt.eceCal.toFixed(4)) } } : {}),
+        ...(res.reliability ? { reliability: res.reliability.map((r) => ({ ...r, avgP: Number(r.avgP.toFixed(4)), win: Number(r.win.toFixed(4)) })) } : {}),
         ...(res.lessons ? { lessons: res.lessons } : {}),
         ...(res.tuned ? { tuned: res.tuned } : {}),
       }),

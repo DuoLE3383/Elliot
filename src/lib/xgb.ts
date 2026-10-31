@@ -79,6 +79,16 @@ export interface XgbResult {
   /** champion–challenger finetune — điểm val của từng ứng viên trong grid +
    *  bộ thắng. Vắng mặt khi TUNE_GRID = false (train 1 bộ base). */
   tuned?: { picked: string; grid: { name: string; auc: number; logloss: number }[] };
+  /** prob thô trước calibration tại nến đóng cuối — chẩn đoán: so với
+   *  suggestion.prob để thấy Platt kéo prob về mức trung thực bao nhiêu */
+  probRaw?: number;
+  /** Platt scaling fit trên val split (§6c params.ts) — vắng mặt khi
+   *  CALIBRATE = false hoặc val quá ít / suy biến (chỉ 1 class, a ≤ 0) */
+  platt?: PlattCal;
+  /** bảng độ tin cậy trên val (prob phe model nghiêng về vs tỉ lệ thắng
+   *  thật theo bucket) — prob phe model nghiêng về vs tỉ lệ thắng thật theo
+   *  bucket — sau calibration nếu có, không thì prob thô. n = 4 bucket. */
+  reliability?: ReliabilityBin[];
 }
 
 // XgbParams + bộ hyper gốc (XGB_BASE) + grid finetune (XGB_GRID/TUNE_GRID)
@@ -96,9 +106,11 @@ const VAL_FRAC = 0.25; // chronological hold-out share
 //   • a label dead-zone of marginAtr × ATR: bars whose future move stays
 //     inside the noise band are dropped, so classes only contain decisive moves
 import {
+  CALIBRATE,
   LESSON_WEIGHT,
   MAX_DIFFICULTY,
   NOISE_BAND,
+  PLATT_MIN_VAL,
   TUNE_GRID,
   XGB_BASE,
   XGB_GRID,
@@ -107,7 +119,7 @@ import {
 
 // Knob train/Prob sống ở ./params — MỘT nguồn; re-export cho engine/autotrade
 // và chỗ cũ không đổi path.
-export { LESSON_WEIGHT, MAX_DIFFICULTY, NOISE_BAND, TUNE_GRID, XGB_BASE, XGB_GRID } from "./params";
+export { CALIBRATE, LESSON_WEIGHT, MAX_DIFFICULTY, NOISE_BAND, PLATT_MIN_VAL, TUNE_GRID, XGB_BASE, XGB_GRID } from "./params";
 export type { XgbParams } from "./params";
 const HORIZON_STEP = 2; // one extra bar per N difficulty levels
 const HORIZON_CAP = 3; // never extend the horizon by more than this
@@ -761,6 +773,164 @@ export function rocAuc(y: number[], p: number[]): number {
   return (sumPos - (nPos * (nPos + 1)) / 2) / (nPos * nNeg);
 }
 
+// ─── Calibration — prob "nói thật" trên val split (params.ts §6c) ─────────────
+
+const LOGIT_EPS = 1e-6;
+/** logit an toàn — kẹp cả hai mép để không overflow khi prob bão hoà 0/1. */
+export const logitOf = (p: number): number => {
+  const q = Math.min(1 - LOGIT_EPS, Math.max(LOGIT_EPS, p));
+  return Math.log(q / (1 - q));
+};
+
+/** Platt scaling — p_cal = σ(a·logit(p_raw) + b). a,b fit trên val split nên
+ *  prob mà model đưa ra giờ ĐÚNG NGHĨA xác suất (bucket 80%+ thật sự thắng
+ *  quanh 80% trên dữ liệu chưa thấy). */
+export interface PlattCal {
+  a: number;
+  b: number;
+  /** Expected Calibration Error theo phe model — TRƯỚC hiệu chỉnh */
+  eceRaw: number;
+  /** ECE SAU hiệu chỉnh — phải ≤ eceRaw trong hầu hết trường hợp */
+  eceCal: number;
+}
+
+export function applyPlatt(p: number, cal: { a: number; b: number }): number {
+  return sigmoid(cal.a * logitOf(p) + cal.b);
+}
+
+/**
+ * Fit Platt bằng Newton–Raphson (IRLS) + line search trên (x = logit p_raw, y)
+ * — 2 tham số, loss LỒI nên có line search thì LUÔN hội tụ optimum toàn cục.
+ * Ba bảo hộ:
+ *  • target làm mượt Laplace t± = (N± ± 1)/(N± + 2) — MLE tồn tại cả khi val
+ *    gần tách lớp hoàn hảo (Newton target 0/1 sẽ chạy ra ∞);
+ *  • line search backtracking — Newton thuần KHÔNG toàn cục: trên val nhiễu/
+ *    interleaved nó dao động và đậu ở điểm rác (đã gặp thật: a=3.16 trên dữ
+ *    liệu win 46%); mỗi bước phải giảm loss mới được nhận;
+ *  • guard vào/ra — val quá ít, 1 class, model đảo chiều (AUC < 0.5) hay a ≤ 0
+ *    đều trả null → caller giữ nguyên prob thô (an toàn hơn fit rác).
+ */
+export function fitPlatt(pRaw: number[], y: number[]): { a: number; b: number } | null {
+  const n = pRaw.length;
+  if (n < PLATT_MIN_VAL || n !== y.length) { if (process.env.DEBUG_PLATT) console.error("[platt] null: n", n); return null; }
+  let nPos = 0;
+  for (const v of y) nPos += v === 1 ? 1 : 0;
+  if (nPos === 0 || nPos === n) { if (process.env.DEBUG_PLATT) console.error("[platt] null: single class", nPos, n); return null; }
+  if (rocAuc(y, pRaw) < 0.5) { if (process.env.DEBUG_PLATT) console.error("[platt] null: inverted model, auc<0.5"); return null; }
+  const x = pRaw.map(logitOf);
+  // target làm mượt — hết "tách lớp hoàn hảo" cho MLE chạy trốn ra vô cực
+  const tPos = (nPos + 1) / (nPos + 2);
+  const tNeg = 1 / (n - nPos + 2);
+  const RIDGE = 1e-6; // Hessian có thể gần suy biến khi prob bão hoà
+  // negative log-likelihood (có ridge) — loss cần giảm mỗi bước line search
+  const lossOf = (a: number, b: number): number => {
+    let s = RIDGE * (a * a + b * b);
+    for (let i = 0; i < n; i++) {
+      const p = sigmoid(a * x[i] + b);
+      const t = y[i] === 1 ? tPos : tNeg;
+      s -= t * Math.log(Math.max(p, 1e-12)) + (1 - t) * Math.log(Math.max(1 - p, 1e-12));
+    }
+    return s;
+  };
+  let a = 1;
+  let b = 0;
+  let cur = lossOf(a, b);
+  for (let it = 0; it < 60; it++) {
+    let gA = 0;
+    let gB = 0;
+    let hAA = RIDGE;
+    let hAB = 0;
+    let hBB = RIDGE;
+    for (let i = 0; i < n; i++) {
+      const p = sigmoid(a * x[i] + b);
+      const r = (y[i] === 1 ? tPos : tNeg) - p;
+      const w = Math.max(p * (1 - p), 1e-12);
+      gA += r * x[i];
+      gB += r;
+      hAA += w * x[i] * x[i];
+      hAB += w * x[i];
+      hBB += w;
+    }
+    const det = hAA * hBB - hAB * hAB;
+    if (!Number.isFinite(det) || Math.abs(det) < 1e-12) { if (process.env.DEBUG_PLATT) console.error("[platt] null: det", det, "it", it); return null; }
+    let dA = (hBB * gA - hAB * gB) / det;
+    let dB = (hAA * gB - hAB * gA) / det;
+    dA = Math.max(-5, Math.min(5, dA)); // kẹp bước gốc — line search lo phần còn lại
+    dB = Math.max(-5, Math.min(5, dB));
+    let step = 1;
+    let na = a + dA;
+    let nb = b + dB;
+    let lNew = lossOf(na, nb);
+    while (lNew > cur && step > 1e-9) {
+      step /= 2;
+      na = a + dA * step;
+      nb = b + dB * step;
+      lNew = lossOf(na, nb);
+    }
+    const gain = cur - lNew;
+    a = na;
+    b = nb;
+    cur = lNew;
+    if (gain < 1e-10) break; // đã tới đáy — thêm vòng chỉ phí thời gian
+  }
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0) { if (process.env.DEBUG_PLATT) console.error("[platt] null: final", a, b); return null; }
+  return { a, b };
+}
+
+/** ECE theo PHE model nghiêng về: q = max(p, 1−p), thắng = phe đó đúng không.
+ *  Đây là con số trả lời trực tiếp "nói 85% thì có thật 85% thắng không". */
+export function eceSide(p: number[], y: number[], bins = 10): number {
+  if (p.length === 0 || p.length !== y.length) return 0;
+  const byBin: { sumQ: number; sumW: number; n: number }[] = Array.from({ length: bins }, () => ({ sumQ: 0, sumW: 0, n: 0 }));
+  for (let i = 0; i < p.length; i++) {
+    const q = Math.max(p[i], 1 - p[i]);
+    const w = p[i] >= 0.5 ? y[i] : 1 - y[i];
+    const bi = Math.min(bins - 1, Math.floor((q - 0.5) * 2 * bins));
+    byBin[bi].sumQ += q;
+    byBin[bi].sumW += w;
+    byBin[bi].n++;
+  }
+  let e = 0;
+  for (const b of byBin) {
+    if (b.n === 0) continue;
+    e += (b.n / p.length) * Math.abs(b.sumQ / b.n - b.sumW / b.n);
+  }
+  return e;
+}
+
+export interface ReliabilityBin {
+  /** mép dưới/không của bucket theo prob PHE model nghiêng về */
+  lo: number;
+  hi: number;
+  /** số mẫu val trong bucket */
+  n: number;
+  /** prob trung bình model hứa trong bucket */
+  avgP: number;
+  /** tỉ lệ thắng THẬT của bucket — chênh xa avgP là model vẫn nói phét */
+  win: number;
+}
+
+/** Bảng độ tin cậy kiểu sàn: gom mẫu val theo prob phe model nghiêng về
+ *  (50–60 / 60–70 / 70–80 / 80+%), so với tỉ lệ thắng thật. Truyền probs ĐÃ
+ *  hiệu chỉnh (applyPlatt từng phần tử) nếu muốn bảng sau calibration. */
+export function reliabilityTable(p: number[], y: number[]): ReliabilityBin[] {
+  const edges = [0.5, 0.6, 0.7, 0.8, 1.0];
+  return edges.slice(0, -1).map((lo, i) => {
+    const hi = edges[i + 1];
+    let n = 0;
+    let sumQ = 0;
+    let sumW = 0;
+    for (let k = 0; k < p.length; k++) {
+      const q = Math.max(p[k], 1 - p[k]);
+      if (q < lo || q > hi) continue; // 1.0 rơi vào bucket cuối (q ≤ hi)
+      n++;
+      sumQ += q;
+      sumW += p[k] >= 0.5 ? y[k] : 1 - y[k];
+    }
+    return { lo, hi, n, avgP: n ? sumQ / n : 0, win: n ? sumW / n : 0 };
+  });
+}
+
 // ─── Strategy suggestion (finetune) ───────────────────────────────────────────
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -940,10 +1110,19 @@ export async function runXgb(
   const valP = winner.valP;
   const correct = valP.reduce((acc, p, i) => acc + ((p >= 0.5 ? 1 : 0) === valY[i] ? 1 : 0), 0);
 
+  // ── calibration — prob nói thật trước khi thành confidence/bias/score ──────
+  // Fit trên CHÍNH val split (out-of-sample) rồi áp lên probNow. AUC/ACC/logloss
+  // giữ nguyên (Platt với a>0 đơn điệu tăng) — chỉ phần "đọc" prob được sửa.
+  const plattFit = CALIBRATE ? fitPlatt(valP, valY) : null;
+  const eceRaw = eceSide(valP, valY);
+  const calP = plattFit ? valP.map((p) => applyPlatt(p, plattFit)) : valP;
+  const reliability = reliabilityTable(calP, valY);
+
   // current read-out at the last CLOSED candle — model của bộ thắng
   const lastClosed = klines.length - 2;
   const featsNow = featuresAt(klines, lastClosed, ds.ctx);
-  const probNow = featsNow ? predictProb(winner.model, featsNow) : 0.5;
+  const probNowRaw = featsNow ? predictProb(winner.model, featsNow) : 0.5;
+  const probNow = plattFit ? applyPlatt(probNowRaw, plattFit) : probNowRaw;
   const whale = whaleOf(volZAt(klines, lastClosed, ds.ctx));
 
   // how well does the final ensemble label the REAL trades it just learned
@@ -981,6 +1160,9 @@ export async function runXgb(
     horizonBase,
     suggestion,
     whale,
+    probRaw: probNowRaw,
+    reliability,
+    ...(plattFit ? { platt: { ...plattFit, eceRaw, eceCal: eceSide(calP, valY) } } : {}),
     ...(lessons ? { lessons } : {}),
     ...(cands.length > 1 ? { tuned: { picked: winner.name, grid } } : {}),
   };

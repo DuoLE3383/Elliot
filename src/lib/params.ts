@@ -33,9 +33,11 @@ export const PRESSURE_CAP_SHORT = 58; // SELL bị chặn khi áp lực mua ≥ 
 // Bộ ba dưới đây là fallback khi engine chưa có cfg (runtime lấy từ
 // cfg.minScore/minAuc/minAcc — chỉnh trên Auto panel, xem AUTO_DEFAULTS trong
 // autotrade.ts). Cùng bộ ba này áp cho MỌI tầng: mở lệnh, bù DCA, đăng broadcast.
-/** Điểm tối thiểu — scoreOf = (AUC−0.5)×100 + (ACC−50) + tin cậy×15.
+/** Điểm tối thiểu — scoreOf = (AUC−0.5)×100 + (ACC−50) + tin cậy×CONF_W.
  *  AUC .8 + ACC 70 cho sẵn 30+20 = 50 → điểm 60 còn yêu cầu tin cậy ≥ ~2/3:
- *  model đạt sàn metrics nhưng thiếu tự tin vẫn bị giữ lại. */
+ *  model đạt sàn metrics nhưng thiếu tự tin vẫn bị giữ lại.
+ *  NOTE 31/10: prob đầu vào đã qua calibration (§6c) nên "tin cậy" là số
+ *  trung thực — mọi nghi ngờ prob phồng phải sửa ở §6c, không hạ weight mù. */
 export const BCAST_SCORE_MIN = 60;
 /** Sàn AUC của model — 0.8 nghĩa là model phải xếp hạng thật sự giỏi trên tập
  *  validation (out-of-sample), chỉ hơn tung đồng xu là không đủ tin. */
@@ -180,6 +182,26 @@ export const XGB_GRID: { name: string; patch: Partial<XgbParams> }[] = [
 ];
 export const TUNE_GRID = true;
 
+// ── 6c · CALIBRATION — prob "nói thật" trước khi thành confidence/score ──────
+// Vấn đề thật (31/10): XGBoost không được calibrate — 120 cây × lr 0.1 đẩy prob
+// ra xa 0.5, LESSON_WEIGHT khuếch đại thêm, nên model AUC 0.74 / ACC 67% lại
+// nói "85.7% giá giảm". Nếu prob trung thực thì tỉ lệ thắng của nhóm prob
+// 80%+ phải QUANH 80% — thực tế val chỉ cho ~55–65%. Score có thành phần
+// confidence × 15 nên prob phồng kéo score phồng theo (ARB: ~10.7/51.3 điểm).
+//
+// Cách vá: sau khi chọn winner, fit Platt scaling p_cal = σ(a·logit(p) + b)
+// trên CHÍNH val split (out-of-sample, 2 tham số — không lo overfit) rồi áp
+// lên probNow trước khi tính confidence/bias/score. AUC/ACC/logloss KHÔNG
+// đổi (a>0 là biến đổi đơn điệu — gate champion–challenger vẫn so được).
+// Nhóm 6b chọn model GIỎI RANK; nhóm này làm prob NÓI THẬT — hai việc khác
+// nhau và cần cả hai.
+
+/** Bật calibration — tắt thì probNow về prob thô như cũ. */
+export const CALIBRATE = true;
+/** Số mẫu val tối thiểu để fit Platt — ít hơn thì giữ prob thô (2 tham số
+ *  vẫn cần đủ điểm; val 25% của dataset thường ≥ 80 nên hiếm khi chạm). */
+export const PLATT_MIN_VAL = 40;
+
 // ── 7 · CHAMPION + CONFLUENCE — chất lượng vào lệnh & Prob tổng ──────────────
 
 /** Vô hiệu champion: retrain mới kém hơn champion quá 0.02 AUC là coi như
@@ -197,6 +219,10 @@ export const NEAR_FRAC = 0.7;
 //    tuyệt đối (0.95 = chốt tối đa 90% confidence).
 export const SIBLING_DISCOUNT = 0.5;
 export const PROB_CAP = 0.95;
+/** Trọng số thành phần "tin cậy" trong scoreFrom — knob hoá từ hằng 15 cứng
+ *  (31/10) để hạ nhanh khi nghi prob phồng. Với calibration §6c bật, prob đã
+ *  trung thực nên 15 là mức cân bằng hợp lý; tắt calibration thì cân nhắc hạ. */
+export const CONF_W = 15;
 
 // ── 8 · LLM RISK OFFICER — kiểm tra rủi ro im lặng trước khi vào lệnh ────────
 

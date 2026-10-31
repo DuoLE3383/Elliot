@@ -16,6 +16,7 @@ import { INTERVALS } from "./types";
 import { biasFrom, runXgb, type WhaleReadout, type WhaleTag, type XgbBias, type XgbResult } from "./xgb";
 import { LLM_MODEL_DEFAULT, LLM_URL_DEFAULT } from "./llm";
 import {
+  CONF_W,
   NEAR_FRAC,
   NOISE_BAND,
   PROB_CAP,
@@ -24,7 +25,7 @@ import {
 } from "./params";
 
 // Knob sống ở ./params — MỘT nguồn config; re-export cho chỗ cũ không đổi path.
-export { NEAR_FRAC, REGRESS_EPS } from "./params";
+export { CONF_W, NEAR_FRAC, REGRESS_EPS } from "./params";
 import { fmtPrice } from "./i18n";
 
 // ─── Scan rows ────────────────────────────────────────────────────────────────
@@ -60,10 +61,12 @@ export interface ScanRow {
  * Composite quality score — "how much do we trust this model's edge":
  *   (auc − 0.5) × 100   rank quality beyond a coin flip
  * + (acc − 50)          validation accuracy beyond a coin flip
- * + confidence × 15     how decisively the model leans at the last candle
+ * + confidence × CONF_W how decisively the model leans at the last candle
+ * (CONF_W = 15 trong params.ts §7 — prob đầu vào đã qua calibration §6c,
+ *  nên "confidence" là số trung thực, không còn kiểu 86% chỉ để rồi thắng 60%.)
  */
 export const scoreFrom = (auc: number, acc: number, confidence: number): number =>
-  Math.round(((auc - 0.5) * 100 + (acc - 50) + confidence * 15) * 10) / 10;
+  Math.round(((auc - 0.5) * 100 + (acc - 50) + confidence * CONF_W) * 10) / 10;
 
 export function scoreOf(res: XgbResult): number {
   return scoreFrom(res.auc, res.acc, res.suggestion.confidence);

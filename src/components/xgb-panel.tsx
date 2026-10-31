@@ -7,7 +7,7 @@ import { t, type Lang } from "@/lib/i18n";
 import type { RunRow } from "@/lib/history";
 import { INTERVALS } from "@/lib/types";
 import type { XgbResult } from "@/lib/xgb";
-import { BrainCircuit, CheckCircle2, Cpu, Crown, History, Layers, Sparkles } from "lucide-react";
+import { BrainCircuit, CheckCircle2, Cpu, Crown, History, Layers, Scale, Sparkles } from "lucide-react";
 
 interface Props {
   lang: Lang;
@@ -147,6 +147,54 @@ export function XgbPanel({
               <Tile label={t(lang, "xgb.trees")} value={String(result.trees)} />
               <Tile label={t(lang, "xgb.samples")} value={`${result.samples}/${result.valSamples}`} />
             </div>
+
+            {/* calibration — prob HỨA vs tỉ lệ thắng THẬT theo bucket trên val
+                (Platt scaling fit trên chính val split — params.ts §6c).
+                Thanh = win thật; vạch teal = prob model hứa; chênh xa = nói phét.
+                ECE raw → cal cho thấy Platt đã kéo sai lệch về bao nhiêu. */}
+            {result.reliability && result.reliability.some((b) => b.n > 0) && (
+              <div>
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                    <Scale className="h-3 w-3" />
+                    {t(lang, "xgb.cal")}
+                  </p>
+                  {result.platt && (
+                    <span
+                      className="shrink-0 font-mono text-[10px] text-zinc-500"
+                      title={`${t(lang, "xgb.cal.tip")} · a=${result.platt.a.toFixed(2)} b=${result.platt.b.toFixed(2)}`}
+                    >
+                      ECE {pct(result.platt.eceRaw)} → {pct(result.platt.eceCal)}
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  {result.reliability.filter((b) => b.n > 0).map((b) => {
+                    const gap = b.win - b.avgP; // âm = thắng thật thấp hơn prob hứa
+                    return (
+                      <div key={b.lo} className="flex items-center gap-2">
+                        <span className="w-14 shrink-0 font-mono text-[10px] text-zinc-400">
+                          {(b.lo * 100).toFixed(0)}–{b.hi >= 1 ? "100" : (b.hi * 100).toFixed(0)}%
+                        </span>
+                        <div className="relative h-2 flex-1 rounded-full bg-zinc-800">
+                          <div
+                            className={`h-2 rounded-full ${gap >= -0.02 ? "bg-emerald-500/70" : gap >= -0.08 ? "bg-amber-500/70" : "bg-rose-500/70"}`}
+                            style={{ width: `${Math.max(3, b.win * 100)}%` }}
+                          />
+                          <div
+                            className="absolute -top-0.5 h-3 w-0.5 bg-teal-300"
+                            style={{ left: `${b.avgP * 100}%` }}
+                          />
+                        </div>
+                        <span className="w-24 shrink-0 text-right font-mono text-[10px] text-zinc-500">
+                          n {b.n} · win {(b.win * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* importance */}
             <div>
