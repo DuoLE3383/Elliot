@@ -826,7 +826,7 @@ export function PriceChart({
           <Button
             size="sm"
             variant="outline"
-            className="h-6 w-6 rounded-md border-zinc-700 p-0 text-zinc-300 hover:bg-zinc-800"
+            className="h-7 w-7 rounded-md border-zinc-700 p-0 text-zinc-300 hover:bg-zinc-800 sm:h-6 sm:w-6"
             title={t(lang, "chart.zoom.in")}
             aria-label={t(lang, "chart.zoom.in")}
             onClick={() => zoom(1)}
@@ -836,7 +836,7 @@ export function PriceChart({
           <Button
             size="sm"
             variant="outline"
-            className="h-6 w-6 rounded-md border-zinc-700 p-0 text-zinc-300 hover:bg-zinc-800"
+            className="h-7 w-7 rounded-md border-zinc-700 p-0 text-zinc-300 hover:bg-zinc-800 sm:h-6 sm:w-6"
             title={t(lang, "chart.zoom.out")}
             aria-label={t(lang, "chart.zoom.out")}
             onClick={() => zoom(-1)}
@@ -847,7 +847,7 @@ export function PriceChart({
             <Button
               size="sm"
               variant="outline"
-              className="ml-1 h-6 rounded-md border-zinc-700 px-2 text-[11px] text-zinc-300 hover:bg-zinc-800"
+              className="ml-1 h-7 rounded-md border-zinc-700 px-2 text-[11px] text-zinc-300 hover:bg-zinc-800 sm:h-6"
               onClick={jumpLatest}
             >
               ⟶ {t(lang, "chart.zoom.latest")}
@@ -858,7 +858,7 @@ export function PriceChart({
           <Button
             size="sm"
             variant="outline"
-            className={`h-6 rounded-md border-zinc-700 px-2 text-[11px] ${
+            className={`h-7 rounded-md border-zinc-700 px-2 text-[11px] sm:h-6 ${
               candleStyle === "normal"
                 ? "bg-zinc-100 text-zinc-900 hover:bg-zinc-200"
                 : "bg-transparent text-zinc-300 hover:bg-zinc-800"

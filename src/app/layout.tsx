@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { readFileSync } from "fs";
 import path from "path";
@@ -39,6 +39,14 @@ export const metadata: Metadata = {
     icon: "/elliott.svg",
   },
   other: { "elliott-build": BUILD_ID },
+};
+
+// Mobile browser chrome (address bar) tô cùng màu nền terminal — hết sọc trắng
+// trên đỉnh/dưới màn hình điện thoại.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#09090b",
 };
 
 export default function RootLayout({

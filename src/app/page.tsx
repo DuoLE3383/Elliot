@@ -902,8 +902,9 @@ export default function Home() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-zinc-950 text-zinc-100 lg:h-dvh lg:min-h-0 lg:overflow-hidden">
-      {/* ── Header — ELLIOTT terminal bar ──────────────────────────── */}
-      <header className="shrink-0 border-b border-zinc-800 bg-zinc-950/95 backdrop-blur">
+      {/* ── Header — ELLIOTT terminal bar (sticky trên mobile: refresh/settings
+          luôn trong tầm tay khi cuộn dọc panel dài) ─────────────────── */}
+      <header className="sticky top-0 z-40 shrink-0 border-b border-zinc-800 bg-zinc-950/95 backdrop-blur">
         <div className="flex h-12 items-center gap-2 px-3">
           <div className="flex min-w-0 items-center gap-2">
             <div className="flex h-8 shrink-0 items-center gap-2 rounded-lg border border-zinc-800 bg-gradient-to-b from-zinc-900 to-zinc-950 p-1.5 shadow-[0_0_18px_-6px_rgba(16,185,129,0.45)] lg:pr-3">
@@ -916,8 +917,9 @@ export default function Home() {
             </div>
           </div>
 
-          {/* timeframes */}
-          <div className="ml-1 flex shrink-0 overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {/* timeframes — mobile: chiếm phần dư và CUỘN NGANG trong lòng nó
+              (đừng đẩy EN/settings/refresh tràn khỏi màn hình); lg: lại cố định */}
+          <div className="ml-1 flex min-w-0 flex-1 overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900 p-0.5 [scrollbar-width:none] lg:flex-none lg:shrink-0 [&::-webkit-scrollbar]:hidden">
             {INTERVALS.map((itv) => (
               <button
                 key={itv}
@@ -1089,26 +1091,44 @@ export default function Home() {
                       )}
                       <span className="text-[10px] text-zinc-600 sm:hidden">{interval}</span>
                     </div>
-                    <div className="hidden items-center gap-3 font-mono text-[11px] text-zinc-500 md:flex">
-                      {activeTicker?.high != null && (
-                        <span>
-                          {t(lang, "chart.ohlc.high")} <b className="font-semibold text-zinc-300">{fmtPrice(activeTicker.high)}</b>
-                        </span>
-                      )}
-                      {activeTicker?.low != null && (
-                        <span>
-                          {t(lang, "chart.ohlc.low")} <b className="font-semibold text-zinc-300">{fmtPrice(activeTicker.low)}</b>
-                        </span>
-                      )}
-                      {activeTicker?.quoteVolume != null && (
-                        <span>
-                          {t(lang, "chart.ohlc.vol")}{" "}
-                          <b className="font-semibold text-zinc-300">{fmtCompact(activeTicker.quoteVolume)}</b>
-                        </span>
-                      )}
-                      <span className="text-zinc-600">
+                    {/* phải: giờ cập nhật compact cho mobile + nút refresh chart
+                        — hiện ở MỌI breakpoint (cả mobile lẫn desktop giống hệt) */}
+                    <div className="ml-auto flex shrink-0 items-center gap-2">
+                      <span className="font-mono text-[10px] text-zinc-600 md:hidden">
                         {updatedAt ? `${t(lang, "header.updated")} ${fmtTime(updatedAt, lang)}` : t(lang, "header.loading")}
                       </span>
+                      <div className="hidden items-center gap-3 font-mono text-[11px] text-zinc-500 md:flex">
+                        {activeTicker?.high != null && (
+                          <span>
+                            {t(lang, "chart.ohlc.high")} <b className="font-semibold text-zinc-300">{fmtPrice(activeTicker.high)}</b>
+                          </span>
+                        )}
+                        {activeTicker?.low != null && (
+                          <span>
+                            {t(lang, "chart.ohlc.low")} <b className="font-semibold text-zinc-300">{fmtPrice(activeTicker.low)}</b>
+                          </span>
+                        )}
+                        {activeTicker?.quoteVolume != null && (
+                          <span>
+                            {t(lang, "chart.ohlc.vol")}{" "}
+                            <b className="font-semibold text-zinc-300">{fmtCompact(activeTicker.quoteVolume)}</b>
+                          </span>
+                        )}
+                        <span className="text-zinc-600">
+                          {updatedAt ? `${t(lang, "header.updated")} ${fmtTime(updatedAt, lang)}` : t(lang, "header.loading")}
+                        </span>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 w-7 shrink-0 rounded-md border-zinc-700 p-0 text-zinc-300 hover:bg-zinc-800"
+                        disabled={loading}
+                        title={t(lang, "chart.refresh")}
+                        aria-label={t(lang, "chart.refresh")}
+                        onClick={() => void loadData(symbol, interval, true)}
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+                      </Button>
                     </div>
                   </div>
                 </CardHeader>
