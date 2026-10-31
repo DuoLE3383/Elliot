@@ -123,6 +123,14 @@ const MIN_ROWS_WITH_MARGIN = 150; // fall back to no dead-zone below this
  */
 export const NOISE_BAND = 0.06;
 
+/** Ngưỡng chết cho bias — prob trong (0.44, 0.56) là "không rõ", không trade.
+ *  Xuất khẩu để confluence pooling (autotrade.ts) sinh lại bias bằng ĐÚNG
+ *  công thức gốc sau khi ghép phiếu đa khung — không có thuật toán thứ hai. */
+export const BIAS_LONG_MIN = 0.56;
+export const BIAS_SHORT_MAX = 0.44;
+export const biasFrom = (prob: number): XgbBias =>
+  prob >= BIAS_LONG_MIN ? "LONG" : prob <= BIAS_SHORT_MAX ? "SHORT" : "NEUTRAL";
+
 // ─── Features ─────────────────────────────────────────────────────────────────
 
 export const FEATURE_NAMES = [
@@ -850,7 +858,7 @@ export function suggestFrom(
     if (score > bestGate.score) bestGate = { ...g, score };
   }
 
-  const bias: XgbBias = probNow >= 0.56 ? "LONG" : probNow <= 0.44 ? "SHORT" : "NEUTRAL";
+  const bias: XgbBias = biasFrom(probNow);
   return {
     bias,
     prob: probNow,

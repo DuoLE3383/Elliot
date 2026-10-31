@@ -43,6 +43,7 @@ import {
   slTpHit,
   withChampion,
   dcaFloors,
+  confluenceBlend,
   type AutoConfig,
   type AutoTradeRow,
   type ScanRow,
@@ -328,7 +329,12 @@ async function scanCore(
   } finally {
     pool.destroy();
   }
-  const ranked = rankRows(collected);
+  // confluence — các model cùng symbol vote chung bằng log-odds (autotrade.ts):
+  // khung giờ đồng thuận → prob/score đội lên, lệch nhau → xả về 0.5 → NEUTRAL
+  const blended = confluenceBlend(collected);
+  const nBlend = blended.filter((r, i) => r.prob !== collected[i].prob).length;
+  if (nBlend > 0) console.log(`[engine] confluence — ${nBlend}/${blended.length} row ghép phiếu đa khung cùng symbol`);
+  const ranked = rankRows(blended);
   // champion map — best-ever run per combo from the persisted history; a fresh
   // retrain that rolled measurably worse (auc < champ − 0.02) is flagged and
   // the auto-cycle skips it ("mỗi lần train phải tốt hơn" — no gambling on a

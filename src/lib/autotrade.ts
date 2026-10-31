@@ -13,7 +13,7 @@
 
 import type { EngineSettings, Kline } from "./types";
 import { INTERVALS } from "./types";
-import { NOISE_BAND, runXgb, type WhaleReadout, type WhaleTag, type XgbBias, type XgbResult } from "./xgb";
+import { NOISE_BAND, biasFrom, runXgb, type WhaleReadout, type WhaleTag, type XgbBias, type XgbResult } from "./xgb";
 import { LLM_MODEL_DEFAULT, LLM_URL_DEFAULT } from "./llm";
 import { fmtPrice } from "./i18n";
 
@@ -52,8 +52,11 @@ export interface ScanRow {
  * + (acc − 50)          validation accuracy beyond a coin flip
  * + confidence × 15     how decisively the model leans at the last candle
  */
+export const scoreFrom = (auc: number, acc: number, confidence: number): number =>
+  Math.round(((auc - 0.5) * 100 + (acc - 50) + confidence * 15) * 10) / 10;
+
 export function scoreOf(res: XgbResult): number {
-  return Math.round(((res.auc - 0.5) * 100 + (res.acc - 50) + res.suggestion.confidence * 15) * 10) / 10;
+  return scoreFrom(res.auc, res.acc, res.suggestion.confidence);
 }
 
 export function rowOf(res: XgbResult, symbol: string, interval: string): ScanRow {
@@ -100,6 +103,73 @@ export const rankRows = (rows: ScanRow[]): ScanRow[] => [...rows].sort((a, b) =>
 
 export const bestTradeable = (rows: ScanRow[], minAuc: number, minAcc: number): ScanRow | null =>
   rankRows(rows.filter((r) => isTradeable(r, minAuc, minAcc)))[0] ?? null;
+
+// ─── Confluence pooling — các model train riêng của CÙNG symbol vote chung ───
+// Trước đây mỗi combo (symbol × khung) là một hòn đảo: BTC 15m và BTC 1h train
+// riêng, chấm riêng, không biết nhau tồn tại. Nhưng chúng là những bằng chứng
+// về CÙNG chiều giá — ghép lại bằng log-odds pooling (Naive-Bayes):
+//
+//   p_pool = sigmoid( ( w_self·logit(p_self) + Σ λ·wⱼ·logit(pⱼ) ) / ( w_self + Σ λ·wⱼ ) )
+//   wᵢ = max(0.2, (aucᵢ − 0.5) × 4)    model yếu → phiếu nhẹ
+//   phiếu từ khung KHÁC × λ = 0.5       các khung correlate, không độc lập hoàn toàn
+//
+// prob LUÔN là P(giá đi lên) nên dấu logit tự mã hóa hướng — pool thô trong
+// một hệ quy chiếu duy nhất, KHÔNG map theo phía từng row. Các khung cùng
+// hướng → |logit| cộng dồn → Prob tổng đội lên thật sự; lệch hướng → các
+// logit triệt tiêu nhau → xả về 0.5 → bias NEUTRAL → không trade. Model
+// NEUTRAL (prob ≈ 0.5) tự động bỏ phiếu trắng vì logit(0.5) = 0. An toàn:
+// bất đồng quá mức có thể kéo prob vắt qua 0.5 → kẹp về đúng 0.5 (KHÔNG lật
+// chiều call của model gốc — hội đồng bất đồng thì đứng ngoài), và prob cuối
+// kẹp [0.05, 0.95] — bỏ phiếu correlate không được biến thành tuyệt đối.
+// prob/confidence/bias/score sau ghép dùng ĐÚNG công thức gốc (biasFrom,
+// |p−0.5|×2, scoreFrom) — vẫn chỉ một thuật toán.
+
+const SIBLING_DISCOUNT = 0.5; // khung correlate — không phải bằng chứng độc lập
+const PROB_CAP = 0.95; // trần chắc chắn sau ghép
+
+const logitC = (p: number): number => {
+  const q = Math.min(0.98, Math.max(0.02, p)); // chống ±∞ ở đầu mút
+  return Math.log(q / (1 - q));
+};
+const sigmoid = (x: number): number => 1 / (1 + Math.exp(-x));
+
+export function confluenceBlend(rows: ScanRow[]): ScanRow[] {
+  const bySym = new Map<string, ScanRow[]>();
+  for (const r of rows) {
+    const l = bySym.get(r.symbol);
+    if (l) l.push(r);
+    else bySym.set(r.symbol, [r]);
+  }
+  const out = rows.map((r) => ({ ...r }));
+  const outByKey = new Map(out.map((r) => [`${r.symbol}|${r.interval}`, r]));
+  for (const group of bySym.values()) {
+    if (group.length < 2) continue; // không có anh em cùng symbol → giữ nguyên
+    for (const r of group) {
+      const dev = r.prob - 0.5;
+      if (Math.abs(dev) < NOISE_BAND) continue; // row tự thân coin-flip → không mượn phiếu
+      const side = dev > 0 ? 1 : -1;
+      const wSelf = Math.max(0.2, (r.auc - 0.5) * 4);
+      let num = wSelf * logitC(r.prob);
+      let den = wSelf;
+      for (const s of group) {
+        if (s === r) continue;
+        const w = Math.max(0.2, (s.auc - 0.5) * 4) * SIBLING_DISCOUNT;
+        num += w * logitC(s.prob); // dấu logit tự mã hóa hướng — pool thô
+        den += w;
+      }
+      const pooled = sigmoid(num / den);
+      // bất đồng quá mức có thể kéo prob vắt qua 0.5 — không bao giờ lật chiều
+      // call của model gốc: kẹp về đúng 0.5 → bias NEUTRAL → đứng ngoài cuộc
+      const kept = side > 0 ? Math.max(pooled, 0.5) : Math.min(pooled, 0.5);
+      const row = outByKey.get(`${r.symbol}|${r.interval}`)!;
+      row.prob = Math.round(Math.min(PROB_CAP, Math.max(1 - PROB_CAP, kept)) * 10_000) / 10_000;
+      row.confidence = Math.abs(row.prob - 0.5) * 2; // công thức gốc xgb.ts
+      row.bias = biasFrom(row.prob); // ngưỡng chết gốc 0.56/0.44
+      row.score = scoreFrom(row.auc, row.acc, row.confidence);
+    }
+  }
+  return out;
+}
 
 /**
  * Pick the best tradeable row whose combo is NOT in an SL cooldown. A combo
