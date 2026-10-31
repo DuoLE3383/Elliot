@@ -11,6 +11,20 @@ const HR = "━━━━━━━━━━━━━━━━━━";
 const levTxt = (x: number): string => `×${x % 1 === 0 ? x : x.toFixed(1)}`;
 const sideTxt = (side: string): string => (side === "LONG" ? "LONG 🟢" : side === "SHORT" ? "SHORT 🔴" : "NEUTRAL ⚪");
 
+/** prob HIỂN THỊ THEO PHÍA model nghiêng về (cùng chuẩn PHE của §6c reliability).
+ *  prob gốc LUÔN là P(giá đi lên) — SHORT P(up)=20.1% thật ra là tin 79.9% giá
+ *  giảm. In thô "Prob 20.1%" cạnh chữ SHORT khiến người đọc tưởng model chỉ
+ *  tin 20% mà vẫn mở lệnh. Flip về phía nghiêng về, kèm nhãn phía cho khỏi
+ *  phải tự đảo trong đầu. NEUTRAL giữ prob thô (không có phía để đảo). */
+const probTxt = (side: string, prob: number): string => {
+  const p = side === "SHORT" ? 1 - prob : prob;
+  return side === "LONG"
+    ? `Prob ${(p * 100).toFixed(1)}% theo phía LONG 🟢`
+    : side === "SHORT"
+      ? `Prob ${(p * 100).toFixed(1)}% theo phía SHORT 🔴`
+      : `Prob ${(p * 100).toFixed(1)}%`;
+};
+
 /** absolute SL price level for a side (price-move %, before leverage) */
 export const slPrice = (side: string, entry: number, slPct: number): number =>
   side === "SHORT" ? entry * (1 + Math.abs(slPct) / 100) : entry * (1 - Math.abs(slPct) / 100);
@@ -36,7 +50,7 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string): stri
   lines.push(
     `⚖️ Leverage ${levTxt(r.leverage)} · R:R 1:${rr.toFixed(2)}`,
     `📦 Stake: <b>${stake.toFixed(2)}</b> USDT · ${r.stakePct ?? 100}% equity · Notional ${notional.toFixed(2)} USDT`,
-    `🧠 Prob ${((r.prob ?? 0) * 100).toFixed(1)}% · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(1)}% · Score ${(r.score ?? 0).toFixed(1)}`,
+    `🧠 ${probTxt(r.side, r.prob ?? 0)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(1)}% · Score ${(r.score ?? 0).toFixed(1)}`,
   );
   return lines.join("\n");
 };
@@ -99,7 +113,7 @@ export const msgDca = (
     `🏁 TP mới: <b>${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(1)}% giá từ avg`,
     `📦 Stake: <b>${stake.toFixed(2)}</b> USDT · ${r.stakePct ?? 100}% equity · Notional ${notional.toFixed(2)} USDT`,
     `📈 ROE tại giá DCA: ${roe >= 0 ? "+" : ""}${roe.toFixed(1)}% @ ${levTxt(r.leverage)}`,
-    `🧠 Model vẫn xác nhận ${sideTxt(r.side)}: Prob ${(confirm.prob * 100).toFixed(1)}% · AUC ${confirm.auc.toFixed(2)} · ACC ${confirm.acc.toFixed(1)}%`,
+    `🧠 Model vẫn xác nhận · ${probTxt(r.side, confirm.prob)} · AUC ${confirm.auc.toFixed(2)} · ACC ${confirm.acc.toFixed(1)}%`,
   ].join("\n");
 };
 
@@ -109,6 +123,6 @@ export const msgLlmVeto = (r: ScanRow, v: LlmVerdict): string =>
     `🛑 <b>LLM VETO — setup bị chặn trước khi vào lệnh</b>`,
     `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.bias)}`,
     HR,
-    `🧠 Prob ${(r.prob * 100).toFixed(1)}% · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(1)}% · Score ${r.score.toFixed(1)}`,
+    `🧠 ${probTxt(r.bias, r.prob)} · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(1)}% · Score ${r.score.toFixed(1)}`,
     `💬 ${escHtml(v.reasons.slice(0, 3).join(" · ")) || "—"}`,
   ].join("\n");
