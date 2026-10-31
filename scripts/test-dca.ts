@@ -1,6 +1,6 @@
 // Quick sanity test for the chase guard + DCA math — HBAR numbers from the user's screenshot:
 // SHORT entry 0.071214, SL 0.07147 (≈0.36% giá), stopped out, then re-entered SHORT @ 0.07147.
-import { passesChaseGuard, slCooldownLeft, lastSlExit, type AutoTradeRow } from "../src/lib/autotrade";
+import { passesChaseGuard, slCooldownLeft, lastSlExit, dcaFloors, type AutoTradeRow } from "../src/lib/autotrade";
 
 const mk = (over: Partial<AutoTradeRow>): AutoTradeRow => ({
   id: "t1",
@@ -64,6 +64,21 @@ const insideNew = dca < newSl;
 check("price @DCA inside new SL (no instant re-stop)", crossedOld && insideNew, true);
 // stake 10% + 10% = 20%
 check("stake doubles", 10 + 10, 20);
+
+// ── DCA model-quality floor (user setpoint 31/10: AUC > 0.6 · ACC > 70) ──────
+// ETHUSDT 1m 31/10: bù lệnh lần 2/2 cho model AUC 0.47 · ACC 46.9% — thua cả
+// tung xu. Từ giờ bị chặn ở cổng chất lượng, để SL làm việc.
+check("floors trên panel mặc định (0.55/55) → max = 0.6/70", dcaFloors(0.55, 55), { auc: 0.6, acc: 70 });
+check("floors khi panel siết cao hơn (0.7/75) → lấy sàn entry", dcaFloors(0.7, 75), { auc: 0.7, acc: 75 });
+const dcaOk = (auc: number, acc: number, minAuc = 0.55, minAcc = 55): boolean => {
+  const fl = dcaFloors(minAuc, minAcc);
+  return auc >= fl.auc && acc >= fl.acc;
+};
+check("model thua tung xu (AUC 0.47 · ACC 46.9) — BLOCKED", dcaOk(0.47, 46.9), false);
+check("model biên (AUC 0.60 · ACC 70) — allowed", dcaOk(0.6, 70), true);
+check("dưới biên 1 chút (AUC 0.59 · ACC 72) — BLOCKED", dcaOk(0.59, 72), false);
+check("panel siết 0.7: model 0.65/78 — BLOCKED", dcaOk(0.65, 78, 0.7, 70), false);
+check("panel siết 0.7: model 0.71/76 — allowed", dcaOk(0.71, 76, 0.7, 70), true);
 
 console.log(fail === 0 ? "\nALL PASS" : `\n${fail} FAILURES`);
 process.exit(fail === 0 ? 0 : 1);

@@ -42,6 +42,7 @@ import {
   slCooldownLeft,
   slTpHit,
   withChampion,
+  dcaFloors,
   type AutoConfig,
   type AutoTradeRow,
   type ScanRow,
@@ -999,8 +1000,10 @@ async function cycleTick(): Promise<void> {
 // decisive probability, the engine adds ONE more tranche of the original stake
 // instead: entryPrice becomes the notional-weighted average of the tranches,
 // and SL/TP re-anchor on that average automatically (they are % distances, the
-// absolute levels always derive from entryPrice). Model stale, flipped or in
-// the coin-flip band → fail-safe: no DCA, the stop does its job. Hard caps:
+// absolute levels always derive from entryPrice). Model stale, flipped, in
+// the coin-flip band or below the DCA quality floor (AUC 0.6 · ACC 70,
+// never looser than the panel's entry floors) → fail-safe: no DCA, the stop
+// does its job. Hard caps:
 // cfg.dcaMax adds per position; liquidation is never rescued.
 
 async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "cross"): Promise<boolean> {
@@ -1018,6 +1021,14 @@ async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "c
   if (!scan || Date.now() - scan.at > SCAN_TTL) return false;
   const row = scan.rows.find((r) => r.symbol === open.symbol && r.interval === open.interval);
   if (!row || row.bias !== open.side || Math.abs(row.prob - 0.5) < NOISE_BAND) return false;
+  // model-quality floor — user setpoint 31/10: DCA cũng phải giữ AUC > 0.6 · ACC > 70
+  const fl = dcaFloors(c.minAuc, c.minAcc);
+  if (row.auc < fl.auc || row.acc < fl.acc) {
+    console.info(
+      `[engine] DCA ${open.symbol} ${open.interval} bỏ: model thoái hóa AUC ${row.auc.toFixed(2)} / ACC ${row.acc.toFixed(1)}% dưới sàn ${fl.auc.toFixed(2)} / ${fl.acc.toFixed(0)}% — để SL làm việc`,
+    );
+    return false;
+  }
 
   const stake0 = p.dca.stake0 || open.stakePct || c.riskPct;
   const tranchePrices = p.dca.prices.length > 0 ? p.dca.prices : [open.entryPrice];

@@ -83,6 +83,19 @@ export function rowOf(res: XgbResult, symbol: string, interval: string): ScanRow
 export const isTradeable = (r: ScanRow, minAuc: number, minAcc: number): boolean =>
   r.bias !== "NEUTRAL" && r.auc >= minAuc && r.acc >= minAcc;
 
+/** Sàn chất lượng model RIÊNG cho DCA (user setpoint 31/10: AUC > 0.6 · ACC > 70).
+ *  Bù lệnh là gấp tiền vào vị thế đang lỗ, và metrics dùng là của FRESH scan
+ *  lúc DCA — champion có thể đã thoái hóa sau khi lệnh mở (ETHUSDT 1m 31/10:
+ *  bù lần 2/2 với model AUC 0.47 · ACC 46.9%, thua cả tung xu). Sàn DCA lấy
+ *  max(sàn entry trên Auto panel, hằng số dưới đây): không bao giờ nới hơn
+ *  entry, không bao giờ bù thêm bằng model dưới sàn. */
+export const DCA_AUC_MIN = 0.6;
+export const DCA_ACC_MIN = 70;
+export const dcaFloors = (minAuc: number, minAcc: number): { auc: number; acc: number } => ({
+  auc: Math.max(minAuc, DCA_AUC_MIN),
+  acc: Math.max(minAcc, DCA_ACC_MIN),
+});
+
 export const rankRows = (rows: ScanRow[]): ScanRow[] => [...rows].sort((a, b) => b.score - a.score);
 
 export const bestTradeable = (rows: ScanRow[], minAuc: number, minAcc: number): ScanRow | null =>
