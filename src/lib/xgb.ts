@@ -76,29 +76,15 @@ export interface XgbResult {
    *  trades existed for the combo: n samples from real win/lose outcomes,
    *  `agree` = how many the trained model labels correctly (in-sample fit) */
   lessons?: { n: number; wins: number; losses: number; agree: number };
+  /** champion–challenger finetune — điểm val của từng ứng viên trong grid +
+   *  bộ thắng. Vắng mặt khi TUNE_GRID = false (train 1 bộ base). */
+  tuned?: { picked: string; grid: { name: string; auc: number; logloss: number }[] };
 }
 
-export interface XgbParams {
-  trees: number;
-  lr: number;
-  depth: number;
-  lambda: number;
-  rowSub: number;
-  colSub: number;
-  minChild: number;
-  bins: number;
-}
-
-const PARAMS: XgbParams = {
-  trees: 120,
-  lr: 0.1,
-  depth: 3,
-  lambda: 1,
-  rowSub: 0.85,
-  colSub: 0.85,
-  minChild: 8,
-  bins: 32,
-};
+// XgbParams + bộ hyper gốc (XGB_BASE) + grid finetune (XGB_GRID/TUNE_GRID)
+// sống ở ./params (section 6b) — MỘT file config dùng chung; import + re-export
+// ngay dưới (khối "Knob train/Prob"). Type dùng ở XgbResult phía trên vẫn hợp
+// lệ: interface không cần khai báo trước điểm nhắc tới.
 
 /** Forward horizon per timeframe — "how many bars ahead do we predict". */
 const HORIZON: Record<string, number> = { "1m": 6, "5m": 6, "15m": 5, "30m": 4, "1h": 4, "4h": 3, "1d": 2, "1w": 1 };
@@ -109,11 +95,20 @@ const VAL_FRAC = 0.25; // chronological hold-out share
 //   • +1 bar of horizon every 2 levels (predicting further ahead is harder)
 //   • a label dead-zone of marginAtr × ATR: bars whose future move stays
 //     inside the noise band are dropped, so classes only contain decisive moves
-import { LESSON_WEIGHT, MAX_DIFFICULTY, NOISE_BAND } from "./params";
+import {
+  LESSON_WEIGHT,
+  MAX_DIFFICULTY,
+  NOISE_BAND,
+  TUNE_GRID,
+  XGB_BASE,
+  XGB_GRID,
+  type XgbParams,
+} from "./params";
 
 // Knob train/Prob sống ở ./params — MỘT nguồn; re-export cho engine/autotrade
 // và chỗ cũ không đổi path.
-export { LESSON_WEIGHT, MAX_DIFFICULTY, NOISE_BAND } from "./params";
+export { LESSON_WEIGHT, MAX_DIFFICULTY, NOISE_BAND, TUNE_GRID, XGB_BASE, XGB_GRID } from "./params";
+export type { XgbParams } from "./params";
 const HORIZON_STEP = 2; // one extra bar per N difficulty levels
 const HORIZON_CAP = 3; // never extend the horizon by more than this
 const MARGIN_STEP = 0.05; // dead-zone growth per level (× ATR)
@@ -907,27 +902,48 @@ export async function runXgb(
     }
   }
 
-  const { model, imp } = await trainTrees(
-    trainRows,
-    trainY,
-    makeBins(trainRows, PARAMS.bins),
-    PARAMS,
-    20260101 + lv * 7919, // per-level seed → each difficulty trains a fresh ensemble
-    onProgress,
-  );
-
-  const valP = valRows.map((r) => predictProb(model, r));
+  // ── champion–challenger finetune (XGB_GRID, params.ts §6b) ─────────────────
+  // Mọi ứng viên đấu trên CÙNG split train/val, CÙNG seed (row/col mask giữ
+  // hằng — khác nhau chỉ hyper) và CÙNG bins → khác biệt thuần là hyper.
+  // Winner = AUC val cao nhất, hoà → logloss thấp hơn; base luôn có mặt làm
+  // mốc nên grid không bao giờ thua "làm như cũ".
+  const cands: { name: string; p: XgbParams }[] = TUNE_GRID
+    ? XGB_GRID.map((g) => ({ name: g.name, p: { ...XGB_BASE, ...g.patch } }))
+    : [{ name: "base", p: { ...XGB_BASE } }];
+  const bins = makeBins(trainRows, XGB_BASE.bins); // quantise 1 lần, dùng chung
+  const seed = 20260101 + lv * 7919; // per-level seed → each difficulty trains a fresh ensemble
+  const grid: { name: string; auc: number; logloss: number }[] = [];
+  let best: { name: string; model: TrainedModel; imp: number[]; valP: number[]; auc: number; ll: number } | null = null;
+  for (let ci = 0; ci < cands.length; ci++) {
+    const c = cands[ci];
+    const { model, imp } = await trainTrees(
+      trainRows,
+      trainY,
+      bins,
+      c.p,
+      seed,
+      onProgress ? (frac: number) => onProgress((ci + frac) / cands.length) : undefined,
+    );
+    const candP = valRows.map((r) => predictProb(model, r));
+    const auc = rocAuc(valY, candP);
+    const ll =
+      candP.reduce((s, p, i) => {
+        const q = Math.min(1 - 1e-9, Math.max(1e-9, valY[i] === 1 ? p : 1 - p));
+        return s - Math.log(q);
+      }, 0) / (candP.length || 1);
+    grid.push({ name: c.name, auc, logloss: ll });
+    if (!best || auc > best.auc || (auc === best.auc && ll < best.ll)) {
+      best = { name: c.name, model, imp, valP: candP, auc, ll };
+    }
+  }
+  const winner = best!; // cands luôn ≥ 1 ứng viên
+  const valP = winner.valP;
   const correct = valP.reduce((acc, p, i) => acc + ((p >= 0.5 ? 1 : 0) === valY[i] ? 1 : 0), 0);
-  const ll =
-    valP.reduce((acc, p, i) => {
-      const q = Math.min(1 - 1e-9, Math.max(1e-9, valY[i] === 1 ? p : 1 - p));
-      return acc - Math.log(q);
-    }, 0) / (valP.length || 1);
 
-  // current read-out at the last CLOSED candle
+  // current read-out at the last CLOSED candle — model của bộ thắng
   const lastClosed = klines.length - 2;
   const featsNow = featuresAt(klines, lastClosed, ds.ctx);
-  const probNow = featsNow ? predictProb(model, featsNow) : 0.5;
+  const probNow = featsNow ? predictProb(winner.model, featsNow) : 0.5;
   const whale = whaleOf(volZAt(klines, lastClosed, ds.ctx));
 
   // how well does the final ensemble label the REAL trades it just learned
@@ -938,7 +954,7 @@ export async function runXgb(
           n: lessonSamples.length,
           wins: lessonSamples.filter((s) => s.win).length,
           losses: lessonSamples.filter((s) => !s.win).length,
-          agree: lessonSamples.reduce((a, s) => a + ((predictProb(model, s.feats) >= 0.5 ? 1 : 0) === s.y ? 1 : 0), 0),
+          agree: lessonSamples.reduce((a, s) => a + ((predictProb(winner.model, s.feats) >= 0.5 ? 1 : 0) === s.y ? 1 : 0), 0),
         }
       : undefined;
 
@@ -951,20 +967,21 @@ export async function runXgb(
     samples: trainRows.length,
     valSamples: valRows.length,
     acc: (correct / (valP.length || 1)) * 100,
-    auc: rocAuc(valY, valP),
-    logloss: ll,
-    trees: model.params.trees,
+    auc: winner.auc,
+    logloss: winner.ll,
+    trees: winner.model.params.trees,
     horizon,
     importance: names
-      .map((name, i) => ({ name, gain: imp[i] }))
+      .map((name, i) => ({ name, gain: winner.imp[i] }))
       .sort((a, b) => b.gain - a.gain)
       .slice(0, 6),
-    params: model.params,
+    params: winner.model.params,
     difficulty: lv,
     marginAtr,
     horizonBase,
     suggestion,
     whale,
     ...(lessons ? { lessons } : {}),
+    ...(cands.length > 1 ? { tuned: { picked: winner.name, grid } } : {}),
   };
 }

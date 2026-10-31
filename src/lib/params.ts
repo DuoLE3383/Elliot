@@ -108,6 +108,49 @@ export const NOISE_BAND = 0.06;
  *  kline) — model học từ chính track record của mình. */
 export const LESSON_WEIGHT = 8;
 
+// ── 6b · BOOSTER HYPERPARAMETERS — champion–challenger finetune ──────────────
+// Mỗi lần train, engine chạy QUA TẤT CẢ ứng viên dưới đây trên cùng một split
+// train/val và cùng seed (RNG may mắn giữ hằng — khác nhau chỉ hyper), rồi giữ
+// bộ thắng theo AUC out-of-sample (hoà → logloss thấp hơn). Đây là "finetune
+// để tăng Prob" đúng nghĩa: mỗi combo tự tìm hyper hợp với dữ liệu của nó thay
+// vì ăn theo một bộ cứng cho toàn vũ trụ. Winner được lưu vào finetuneRun
+// (cột params JSON) để sau này nhìn lại combo nào hợp hyper nào.
+
+export interface XgbParams {
+  trees: number;
+  lr: number;
+  depth: number;
+  lambda: number;
+  rowSub: number;
+  colSub: number;
+  minChild: number;
+  bins: number;
+}
+
+/** Bộ gốc — mốc so sánh, luôn có mặt trong grid. */
+export const XGB_BASE: XgbParams = {
+  trees: 120,
+  lr: 0.1,
+  depth: 3,
+  lambda: 1,
+  rowSub: 0.85,
+  colSub: 0.85,
+  minChild: 8,
+  bins: 32,
+};
+
+/** Ứng viên thử đấu. Giữ `trees` + `bins` nguyên ở mọi ứng viên → chi phí
+ *  train chỉ tăng theo số ứng viên (≈ mỗi ứng viên 1× base), quantisation
+ *  giống nhau nên khác biệt thuần là hyper. Thêm ứng viên = thêm 1 dòng patch.
+ *  Tắt hẳn grid: TUNE_GRID = false (train đúng 1 bộ base như cũ). */
+export const XGB_GRID: { name: string; patch: Partial<XgbParams> }[] = [
+  { name: "base", patch: {} }, // bộ gốc — mốc
+  { name: "deep", patch: { depth: 4, lr: 0.08 } }, // cây sâu hơn — bắt tương tác, lr bù xuống
+  { name: "smooth", patch: { lr: 0.05, lambda: 3, minChild: 16 } }, // siết mạnh — prob mượt, ít nhảy theo nhiễu
+  { name: "stumps", patch: { depth: 2, lr: 0.12, minChild: 12 } }, // cây còi — tín hiệu thô nhưng chắc
+];
+export const TUNE_GRID = true;
+
 // ── 7 · CHAMPION + CONFLUENCE — chất lượng vào lệnh & Prob tổng ──────────────
 
 /** Vô hiệu champion: retrain mới kém hơn champion quá 0.02 AUC là coi như

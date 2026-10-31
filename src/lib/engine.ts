@@ -277,6 +277,7 @@ async function persistTrainResult(
         lv,
         marginAtr: Number(res.marginAtr.toFixed(3)),
         ...(res.lessons ? { lessons: res.lessons } : {}),
+        ...(res.tuned ? { tuned: res.tuned } : {}),
       }),
     },
   });
