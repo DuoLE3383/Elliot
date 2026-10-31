@@ -51,6 +51,9 @@ interface Props {
   candleStyle?: "neon" | "normal";
   /** style switch — omit to hide the toggle */
   onCandleStyle?: (style: "neon" | "normal") => void;
+  /** giá hiện tại (close nến đang chạy từ luồng live) — vẽ last-price line +
+   *  tag trục phải kiểu sàn; omit/null để ẩn */
+  livePrice?: number | null;
 }
 
 const PAD_L = 8;
@@ -77,6 +80,7 @@ export function PriceChart({
   fill = false,
   candleStyle = "neon",
   onCandleStyle,
+  livePrice,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<HTMLDivElement>(null);
@@ -126,6 +130,22 @@ export function PriceChart({
   }, [width]);
 
   const n = klines.length;
+
+  // Neo view theo THỜI GIAN khi dãy nến trượt (live nối nến mới / nạp đè 500
+  // nến sau LIVE_REPAIR_MS): đang xem lịch sử mà mép phải bị “kéo” lệch vài nến
+  // sau mỗi tick là chết — bump viewEndRaw theo đúng số nến mép phải đã dịch.
+  const anchorRef = useRef<{ n: number; lastT: number }>({ n: 0, lastT: 0 });
+  useEffect(() => {
+    const prev = anchorRef.current;
+    const lastT = n ? klines[n - 1].t : 0;
+    anchorRef.current = { n, lastT };
+    if (!n || !prev.lastT || lastT <= prev.lastT) return;
+    const dt = n >= 2 ? klines[n - 1].t - klines[n - 2].t : 0;
+    if (dt <= 0) return;
+    const shift = Math.round((lastT - prev.lastT) / dt);
+    if (shift > 0) setViewEndRaw((v) => (v == null ? null : Math.min(n - 1, v + shift)));
+  }, [n, klines]);
+
   const winSize = Math.max(20, Math.min(bars ?? autoBars(width), n || 1));
   const viewEnd = Math.min(viewEndRaw ?? n - 1, n - 1);
   const viewStart = Math.max(0, viewEnd - winSize + 1);
@@ -772,6 +792,42 @@ export function PriceChart({
               </g>
             );
           })}
+          {/* ── Last-price line + tag trục phải (kiểu sàn): giá hiện tại của
+              nến đang chạy từ luồng live; tag neo mép khi giá trượt khỏi view */}
+          {livePrice != null &&
+            (() => {
+              const ly = y(livePrice);
+              const tagY = Math.max(PAD_T + 8, Math.min(PAD_T + plotH - 8, ly));
+              const lastK = klines[n - 1];
+              const col = livePrice >= (lastK ? lastK.o : livePrice) ? UP : DOWN;
+              return (
+                <g pointerEvents="none">
+                  {ly >= PAD_T && ly <= PAD_T + plotH && (
+                    <line
+                      x1={PAD_L}
+                      x2={PAD_L + plotW}
+                      y1={ly}
+                      y2={ly}
+                      stroke={col}
+                      strokeWidth={1}
+                      strokeDasharray="2 4"
+                      opacity={0.75}
+                    />
+                  )}
+                  <rect x={PAD_L + plotW + 2} y={tagY - 8} width={60} height={16} rx={3} fill={col} />
+                  <text
+                    x={PAD_L + plotW + 6}
+                    y={tagY + 3.5}
+                    fill="#fafafa"
+                    fontSize={10}
+                    fontWeight={700}
+                    fontFamily="ui-monospace, monospace"
+                  >
+                    {fmtPrice(livePrice)}
+                  </text>
+                </g>
+              );
+            })()}
           {/* crosshair + price tag under the cursor (hover) */}
           {hover && (
             <g pointerEvents="none">

@@ -25,6 +25,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtCompact } from "@/lib/market";
 import { applyBestSuggestion, fetchChampionRun, fetchRuns, markApplied, resolveBatch, type RunRow } from "@/lib/history";
 import { fmtPct, fmtPrice, fmtTime, symbolLabel, t, type Lang } from "@/lib/i18n";
+import { LIVE_REPAIR_MS } from "@/lib/params";
+import { mergeTail, type LiveSrc } from "@/lib/live-stream";
 import { kpiFrom, papersFrom } from "@/lib/papers";
 import { signalsFrom } from "@/lib/signals";
 import { wyckoffFrom } from "@/lib/wyckoff";
@@ -34,6 +36,7 @@ import {
   EngineSettings,
   INTERVALS,
   Interval,
+  KLINE_LIMIT,
   Kline,
   MAX_CUSTOM_PAIRS,
   Paper,
@@ -163,6 +166,15 @@ export default function Home() {
   // ── market context (ticker strip + watchlist sparklines) ────────────────────
   const [tickers, setTickers] = useState<Record<string, Ticker>>({});
   const [minis, setMinis] = useState<Record<string, Kline[]>>({});
+  // ── live chart (SSE /api/stream — giá realtime kiểu sàn) ────────────────────
+  /** hướng tick gần nhất → giá lớn trong header chấm màu xanh/đỏ như sàn */
+  const [live, setLive] = useState<{ price: number; up: boolean } | null>(null);
+  /** luồng SSE đang nối — badge LIVE nháy xanh; false = đang tự nối lại */
+  const [liveOn, setLiveOn] = useState(false);
+  /** "ws" = bám websocket Binance server-side, "poll" = Node cũ rơi về REST */
+  const [liveMode, setLiveMode] = useState<LiveSrc | null>(null);
+  /** ticker 24h tươi đi kèm luồng live — đè lên board 30s cho ĐÚNG cặp đang mở */
+  const [liveTicker, setLiveTicker] = useState<Ticker | null>(null);
 
   const prevPapersRef = useRef<Map<string, Paper> | null>(null);
   const prevKeyRef = useRef<string>("");
@@ -268,8 +280,9 @@ export default function Home() {
     if (hydratedRef.current) localStorage.setItem("utp.extra", showExtra ? "1" : "0");
   }, [showExtra]);
 
-  const loadData = useCallback(async (sym: string, itv: Interval, announce: boolean) => {
-    setLoading(true);
+  const loadData = useCallback(async (sym: string, itv: Interval, announce: boolean, silent = false) => {
+    // silent — nạp đè nền (vá lịch sử giữa luồng live): không bật spinner
+    if (!silent) setLoading(true);
     try {
       const res = await fetch(`/api/klines?symbol=${encodeURIComponent(sym)}&interval=${itv}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -296,12 +309,83 @@ export default function Home() {
     setPinnedTime(null);
   }, [symbol, interval, loadData]);
 
+  // Nhịp "vá lịch sử" — luồng SSE chỉ vá ĐUÔI dãy nến (nến đang chạy + nến mới);
+  // mỗi LIVE_REPAIR_MS nạp đè toàn bộ 500 nến để trượt cửa sổ/khớp server, kèm
+  // ticker board cho các cặp KHÁC cặp đang mở. Spinner tắt (silent) vì chart
+  // đã cập nhật liên tục — chớp spinner mỗi 90s giữa luồng live là nhiễu mắt.
   useEffect(() => {
     const timer = window.setInterval(() => {
-      void loadData(symbol, interval, true);
-    }, 30000);
+      void loadData(symbol, interval, true, true);
+    }, LIVE_REPAIR_MS);
     return () => window.clearInterval(timer);
   }, [symbol, interval, loadData]);
+
+  // ── LIVE STREAM — SSE /api/stream: nến hiện tại nhảy từng tick như sàn ──────
+  // Mỗi event chỉ vá 1-2 nến cuối (mergeTail) → engine/wyckoff memo recompute
+  // nhẹ (~vài ms) thay vì nạp lại 500 nến. NGUYÊN TẮC SỐNG SÓT: server trả HTTP
+  // lỗi (502 lúc pm2 restart, 503 cloudflared flip) thì EventSource đóng HẲN và
+  // KHÔNG tự nối lại theo spec — mình tự ping lại sau 5s, chart không bao giờ
+  // chết vĩnh viễn; badge LIVE xám trong lúc chờ là hành vi đúng.
+  useEffect(() => {
+    let es: EventSource | null = null;
+    let retryTimer: number | null = null;
+    let stopped = false;
+
+    const onKline = (e: MessageEvent) => {
+      try {
+        const d = JSON.parse(e.data) as {
+          symbol: string;
+          interval: string;
+          src: LiveSrc;
+          tail: Kline[];
+          tk?: Ticker;
+        };
+        if (dataKeyRef.current !== `${symbol}-${interval}`) return; // dữ liệu cặp cũ
+        if (Array.isArray(d.tail) && d.tail.length) {
+          const candle = d.tail[d.tail.length - 1];
+          setKlines((prev) => mergeTail(prev, d.tail, KLINE_LIMIT));
+          setLive((prevLive) => ({
+            price: candle.c,
+            up: prevLive ? candle.c >= prevLive.price : candle.c >= candle.o,
+          }));
+          setUpdatedAt(Date.now());
+        }
+        if (d.tk && d.tk.price > 0) setLiveTicker(d.tk);
+        setLiveMode(d.src);
+      } catch {
+        // event bẩn → bỏ qua, luồng vẫn chạy
+      }
+    };
+
+    const connect = () => {
+      if (stopped) return;
+      es = new EventSource(`/api/stream?symbol=${encodeURIComponent(symbol)}&interval=${interval}`);
+      es.onopen = () => setLiveOn(true);
+      es.onerror = () => {
+        setLiveOn(false); // badge xám — đang chờ nối lại
+        if (es && es.readyState === EventSource.CLOSED && !stopped) {
+          es.close();
+          retryTimer = window.setTimeout(connect, 5_000);
+        }
+        // readyState CONNECTING → browser đang tự retry theo `retry:` của SSE
+      };
+      es.addEventListener("hello", () => {
+        setLiveOn(true);
+      });
+      es.addEventListener("kline", onKline as EventListener);
+    };
+
+    connect();
+    return () => {
+      stopped = true;
+      if (retryTimer != null) window.clearTimeout(retryTimer);
+      es?.close();
+      setLiveOn(false);
+      setLiveMode(null);
+      setLive(null);
+      setLiveTicker(null);
+    };
+  }, [symbol, interval]);
 
   const key = `${symbol}-${interval}`;
   const engine = useMemo(() => {
@@ -897,7 +981,9 @@ export default function Home() {
     };
   }, [pairListKey, interval]);
 
-  const activeTicker = tickers[symbol];
+  // Ticker hiển thị cho cặp ĐANG MỞ: luồng live (60s/refresh, đi kèm mỗi flush)
+  // đè lên board 30s — % đổi + H/L + vol của header chart luôn khớp giá đang chạy
+  const activeTicker = liveTicker ?? tickers[symbol];
   const tickerUp = (activeTicker?.changePct ?? 0) >= 0;
 
   return (
@@ -934,13 +1020,29 @@ export default function Home() {
             ))}
           </div>
 
-          {/* live badge */}
-          <span className="hidden shrink-0 items-center gap-1.5 rounded-full border border-emerald-900 bg-emerald-950/40 px-2.5 py-1 text-[11px] font-medium text-emerald-400 md:flex">
+          {/* live badge — NÓI THẬT: xanh nháy khi luồng SSE đang chảy, xám khi
+              đang tự nối lại (mạng chớp/pm2 restart); tooltip kèm nguồn dữ liệu */}
+          <span
+            className={`hidden shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium md:flex ${
+              liveOn
+                ? "border-emerald-900 bg-emerald-950/40 text-emerald-400"
+                : "border-zinc-800 bg-zinc-900 text-zinc-500"
+            }`}
+            title={
+              liveOn
+                ? liveMode === "ws"
+                  ? t(lang, "live.tip")
+                  : t(lang, "live.tipPoll")
+                : t(lang, "live.offTip")
+            }
+          >
             <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              {liveOn && (
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+              )}
+              <span className={`relative inline-flex h-2 w-2 rounded-full ${liveOn ? "bg-emerald-500" : "bg-zinc-600"}`} />
             </span>
-            {t(lang, "header.live")}
+            {liveOn ? t(lang, "live.badge") : t(lang, "live.off")}
           </span>
 
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -1078,7 +1180,14 @@ export default function Home() {
                           )}
                         </span>
                       </CardTitle>
-                      <span className="font-mono text-sm font-bold text-zinc-100">{fmtPrice(lastClose)}</span>
+                      {/* giá lớn chấm màu theo hướng tick gần nhất — như sàn */}
+                      <span
+                        className={`font-mono text-sm font-bold transition-colors duration-300 ${
+                          live ? (live.up ? "text-emerald-400" : "text-rose-400") : "text-zinc-100"
+                        }`}
+                      >
+                        {fmtPrice(lastClose)}
+                      </span>
                       {activeTicker && (
                         <span
                           className={`font-mono text-[11px] font-semibold ${
@@ -1089,6 +1198,23 @@ export default function Home() {
                           {activeTicker.changePct.toFixed(2)}%
                         </span>
                       )}
+                      {/* LIVE chip nhỏ cho mobile — desktop đã có badge ở thanh
+                          terminal; mất kết nối thì xám, tooltip nói đang nối lại */}
+                      <span
+                        className={`flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-bold tracking-wider md:hidden ${
+                          liveOn
+                            ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+                            : "border-zinc-700 text-zinc-500"
+                        }`}
+                        title={liveOn ? t(lang, "live.tip") : t(lang, "live.offTip")}
+                      >
+                        <span
+                          className={`inline-block h-1.5 w-1.5 rounded-full ${
+                            liveOn ? "animate-pulse bg-emerald-400" : "bg-zinc-600"
+                          }`}
+                        />
+                        {liveOn ? t(lang, "live.badge") : t(lang, "live.off")}
+                      </span>
                       <span className="text-[10px] text-zinc-600 sm:hidden">{interval}</span>
                     </div>
                     {/* phải: giờ cập nhật compact cho mobile + nút refresh chart
@@ -1150,6 +1276,7 @@ export default function Home() {
                       wyckoffOn={wySettings.enabled}
                       candleStyle={candleStyle}
                       onCandleStyle={setCandleStyle}
+                      livePrice={lastClose}
                       fill
                     />
                   </div>

@@ -88,6 +88,35 @@ export const SCAN_TTL = 30 * 60_000;
 /** Cache ticker 24h — 30s là đủ fresh cho volume + giá đóng lệnh. */
 export const TICKERS_TTL = 30_000;
 
+// ── 5b · LIVE CHART — giá realtime kiểu sàn (SSE + websocket Binance) ────────
+// /api/stream mở MỘT luồng SSE cho mỗi tab: server bám websocket kline của
+// Binance futures (fstream) và đẩy phần đuôi nến về browser ~1 lần/giây; Node
+// không có WebSocket (18/20 cũ) thì tự rơi về REST poll. Client cũng nạp đè
+// toàn bộ klines định kỳ để vá lịch sử (cửa sổ 500 nến trượt đều).
+
+/** Nhịp gộp tin websocket rồi đẩy về client — 1s là "realtime" mắt thường
+ *  trên khung ≥1m, đồng thời giữ số lần recompute engine trên mobile ở mức lành. */
+export const LIVE_FLUSH_MS = 1_000;
+/** Nhịp REST poll khi server không nói được websocket với Binance. */
+export const LIVE_POLL_MS = 2_500;
+/** Refresh ticker 24h (giá + % đổi + H/L + vol) cho header chart đang mở. */
+export const LIVE_TICKER_MS = 60_000;
+/** Heartbeat comment giữ kết nối SSE xuyên qua cloudflared/proxy (15s < mọi idle timeout phổ biến). */
+export const LIVE_HEARTBEAT_MS = 15_000;
+/** Tuổi thọ tối đa một luồng SSE — đóng cho client tự nối lại (EventSource
+ *  reconnect sẵn), tránh dồn kết nối zombie sau khi pm2/cloudflared flip. */
+export const LIVE_MAX_AGE_MS = 30 * 60_000;
+/** Client nạp đè toàn bộ klines ( vá lịch sử + toast diff) sau mỗi khoảng này. */
+export const LIVE_REPAIR_MS = 90_000;
+/** Cảnh giác websocket câm: đã thấy dữ liệu rồi nhưng quá lâu không nhận tin
+ *  kline nào → đóng để reconnect (hết 2 lần thử → hạ xuống poll). */
+export const LIVE_WS_STALE_MS = 60_000;
+/** Probe lúc mới nối: 10s mà chưa thấy MỘT message kline nào (mạng/proxy cho
+ *  handshake nhưng chặn frame dữ liệu — gặp ở sandbox/VPS ISP) → hạ poll ngay,
+ *  đỡ để chart đứng im cả phút đầu. Pair hiếm vốn im lâu cũng chẳng sao: poll
+ *  2.5s đường REST vẫn live đầy đủ, chỉ là không sub-giây. */
+export const LIVE_WS_PROBE_MS = 10_000;
+
 // ── 6 · TRAIN / PROB — finetune để Prob tổng tăng ─────────────────────────────
 // Các knob ảnh hưởng TRỰC TIẾP tới Prob/confidence:
 //  • LESSON_WEIGHT ↑  → model "nhớ" các lệnh đã đóng rõ hơn → Prob quyết đoán

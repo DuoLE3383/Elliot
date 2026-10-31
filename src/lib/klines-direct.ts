@@ -166,6 +166,40 @@ export async function fetchBoard24h(): Promise<Map<string, TickerRow>> {
   throw new Error(`binance_unreachable: ${lastErr ?? "fetch failed"}`);
 }
 
+/** 24h ticker cho MỘT symbol (failover host) — luồng live /api/stream dùng để
+ *  đính kèm % đổi + H/L + vol tươi vào mỗi flush thay vì chờ board 30s. */
+export async function fetchTicker24Direct(symbol: string): Promise<TickerRow | null> {
+  const sym = symbol.toUpperCase();
+  if (!/^[A-Z0-9]{5,20}$/.test(sym)) return null;
+  for (const host of HOSTS) {
+    try {
+      const res = await fetch(`${host}/fapi/v1/ticker/24hr?symbol=${sym}`, {
+        signal: AbortSignal.timeout(9000),
+      });
+      if (!res.ok) continue;
+      const r = (await res.json()) as {
+        symbol: string;
+        lastPrice: string;
+        priceChangePercent: string;
+        highPrice: string;
+        lowPrice: string;
+        quoteVolume: string;
+      };
+      return {
+        symbol: r.symbol,
+        price: Number(r.lastPrice) || 0,
+        changePct: Number(r.priceChangePercent) || 0,
+        high: Number(r.highPrice) || 0,
+        low: Number(r.lowPrice) || 0,
+        quoteVolume: Number(r.quoteVolume) || 0,
+      };
+    } catch {
+      // host chết → thử host kế
+    }
+  }
+  return null;
+}
+
 export interface TickerRow {
   symbol: string;
   price: number;
