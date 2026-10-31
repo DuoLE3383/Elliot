@@ -52,6 +52,7 @@ import {
 import { type XgbResult } from "@/lib/xgb";
 import { ElliottLogo } from "@/components/logo";
 import { AlertTriangle, ArrowLeftRight, BrainCircuit, ChevronRight, Eye, EyeOff, Landmark, RefreshCw, Settings2 } from "lucide-react";
+import Link from "next/link";
 
 interface Toast {
   id: number;
@@ -1047,6 +1048,18 @@ export default function Home() {
 
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <Clocks lang={lang} />
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800"
+              title={t(lang, "ai.title")}
+              asChild
+            >
+              <Link href="/ai">
+                <BrainCircuit className="h-3.5 w-3.5 text-teal-400" />
+                <span className="hidden sm:inline">{t(lang, "ai.title")}</span>
+              </Link>
+            </Button>
             <Button
               size="sm"
               variant="outline"
