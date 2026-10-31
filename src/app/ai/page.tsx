@@ -135,6 +135,17 @@ const hyper = (p: { lr?: number; depth?: number; lambda?: number } | null): stri
 const verdictCls = (v: string): string =>
   v === "go" ? "text-emerald-400" : v === "skip" ? "text-rose-400" : "text-amber-400";
 
+/** ẨN đường dẫn LLM trên UI (ảnh chụp sẽ lộ IP nội bộ) — chỉ hiện local/remote */
+const llmScope = (url: string): string => {
+  if (!url) return "—";
+  try {
+    const host = new URL(url).hostname;
+    return /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|localhost|::1)$/i.test(host) ? "local" : "remote";
+  } catch {
+    return "remote";
+  }
+};
+
 export default function AiPage() {
   const [lang, setLang] = useState<Lang>("vi");
   const [data, setData] = useState<AiInfo | null>(null);
@@ -482,7 +493,9 @@ export default function AiPage() {
                   {data.llm.failClosed ? t(lang, "ai.llm.failclosed") : t(lang, "ai.llm.failopen")}
                 </Badge>
               )}
-              <span className="font-mono text-zinc-400">{data?.llm.url ?? "—"}</span>
+              <Badge variant="outline" className="border-zinc-700 bg-zinc-950/40 text-zinc-400">
+                {llmScope(data?.llm.url ?? "")}
+              </Badge>
               {cfg?.llmModel && <span className="font-mono text-zinc-500">· {cfg.llmModel}</span>}
             </div>
             {data?.engine?.llmLast ? (
@@ -531,11 +544,14 @@ export default function AiPage() {
                       ? `${llmTest.verdict.verdict} · ${Math.round(llmTest.verdict.confidence * 100)}%`
                       : t(lang, "ai.llm.test.fail")}
                   </Badge>
-                  <span className="text-zinc-400">{llmTest.url || "—"}</span>
+                  <span className="text-zinc-400">{llmScope(llmTest.url)}</span>
                   {llmTest.model && <span className="text-zinc-600">· {llmTest.model}</span>}
                   <span className="ml-auto text-zinc-500">{llmTest.ms}ms</span>
                   {llmTest.detail !== "ok" && <span className="text-amber-400">{llmTest.detail}</span>}
                 </div>
+                {llmTest.detail === "http-404" && (
+                  <p className="text-amber-400">{t(lang, "ai.llm.test.h404")}</p>
+                )}
                 {llmTest.verdict?.reasons.map((rs, i) => (
                   <p key={i} className="text-zinc-300">
                     • {rs}
