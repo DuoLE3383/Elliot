@@ -12,7 +12,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { t, type Lang } from "@/lib/i18n";
+import { loadAutoConfig } from "@/lib/autotrade";
+import { DEFAULT_SETTINGS, migratePairsTo, type EngineSettings } from "@/lib/types";
 import {
+  Activity,
+  AlertTriangle,
   ArrowLeft,
   BookOpen,
   BrainCircuit,
@@ -23,6 +27,8 @@ import {
   ShieldCheck,
   ShieldX,
   SlidersHorizontal,
+  Target,
+  UploadCloud,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -59,19 +65,36 @@ interface KnobGroup {
   items: [string, unknown][];
 }
 
+interface RelBucket {
+  label: string;
+  n: number;
+  wins: number;
+  /** win rate %, -1 = chưa có mẫu */
+  wr: number;
+}
+
 interface AiInfo {
   runs: RunRow[];
   champions: ChampionRow[];
   autoStats: { opened: number; closed: number; wins: number; lessonSamples: number; lessonWeight: number };
+  reliability: {
+    trades: { n: number; buckets: RelBucket[] };
+    phe: { n: number; buckets: RelBucket[] };
+    errors: { trades: boolean; phe: boolean };
+  };
+  db: { runsError: boolean };
+  build: string;
   engine: {
     synced: boolean;
+    syncedAt: number | null;
     pairs: number;
     cfg: {
       minAuc: number;
       minAcc: number;
       minScore: number;
       leverage: number;
-      stakePct: number;
+      /** AutoConfig.riskPct — % equity mỗi lệnh */
+      riskPct: number;
       dcaMax: number;
       cooldownMin: number;
       llmUrl: string;
@@ -82,20 +105,27 @@ interface AiInfo {
     } | null;
     workers: { pool: number; bundled: boolean };
     telegram: boolean;
+    leverage: number;
     llmLast: { symbol: string; interval: string; side: string; verdict: string; reason: string; ms: number; at: number } | null;
+    cycle: { lastAt: number; status: string; nextAt: number };
   } | null;
-  llm: { url: string; ping: { ok: boolean; ms: number } };
+  llm: { url: string; ping: { ok: boolean; ms: number }; failClosed: boolean };
   knobs: KnobGroup[];
 }
 
 const hyper = (p: { lr?: number; depth?: number; lambda?: number } | null): string =>
   p ? `lr ${p.lr ?? "—"} · d${p.depth ?? "—"} · λ${p.lambda ?? "—"}` : "—";
 
+/** màu verdict: go = xanh, skip = đỏ, unreachable = vàng */
+const verdictCls = (v: string): string =>
+  v === "go" ? "text-emerald-400" : v === "skip" ? "text-rose-400" : "text-amber-400";
+
 export default function AiPage() {
   const [lang, setLang] = useState<Lang>("vi");
   const [data, setData] = useState<AiInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [at, setAt] = useState(0);
+  const [syncState, setSyncState] = useState<"idle" | "sending" | "ok" | "fail">("idle");
 
   useEffect(() => {
     const lg = localStorage.getItem("utp.lang");
@@ -123,6 +153,47 @@ export default function AiPage() {
     return () => clearInterval(iv);
   }, [load]);
 
+  // ── sync cfg từ TRÌNH DUYỆT NÀY lên backend engine (giống Auto panel) ──────
+  // Nguồn = localStorage cùng origin (utp.auto / utp.settings / utp.pairs) —
+  // đọc đúng như dashboard hydration: settings gộp DEFAULT_SETTINGS + bản vá
+  // gate.v2 (không ghi localStorage), pairs chạy migratePairsTo. Server tự kẹp
+  // giá trị (sanitizeFloors/sanitizeRunTf) nên payload thô cũng an toàn.
+  const syncNow = useCallback(async () => {
+    setSyncState("sending");
+    try {
+      let settings: EngineSettings = { ...DEFAULT_SETTINGS };
+      try {
+        const raw = localStorage.getItem("utp.settings");
+        if (raw) {
+          let parsed = JSON.parse(raw) as Partial<EngineSettings>;
+          if (localStorage.getItem("utp.gate.v2") !== "1") parsed = { ...parsed, smaFilter: false };
+          settings = { ...DEFAULT_SETTINGS, ...parsed };
+        }
+      } catch {
+        // settings hỏng → gửi default
+      }
+      let pairs: string[] = [];
+      try {
+        const raw = localStorage.getItem("utp.pairs");
+        const arr = raw ? (JSON.parse(raw) as unknown) : [];
+        if (Array.isArray(arr)) {
+          pairs = migratePairsTo(arr.filter((x): x is string => typeof x === "string")).slice(0, 200);
+        }
+      } catch {
+        // pairs hỏng → gửi rỗng (server giữ nguyên pairs cũ)
+      }
+      const res = await fetch("/api/engine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "sync", cfg: loadAutoConfig(), settings, pairs, leverage: settings.leverage }),
+      });
+      setSyncState(res.ok ? "ok" : "fail");
+      if (res.ok) void load();
+    } catch {
+      setSyncState("fail");
+    }
+  }, [load]);
+
   const switchLang = () => {
     const next: Lang = lang === "vi" ? "en" : "vi";
     setLang(next);
@@ -131,6 +202,7 @@ export default function AiPage() {
 
   const cfg = data?.engine?.cfg ?? null;
   const winRate = data && data.autoStats.closed > 0 ? (data.autoStats.wins / data.autoStats.closed) * 100 : null;
+  const unsynced = data?.engine ? !data.engine.synced : false;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-200">
@@ -163,7 +235,17 @@ export default function AiPage() {
             <span className="hidden sm:inline">{t(lang, "ai.refresh")}</span>
           </Button>
         </header>
-        {at > 0 && <p className="text-right text-[10px] text-zinc-600">{t(lang, "ai.updated")}: {new Date(at).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB")}</p>}
+        {at > 0 && (
+          <p className="text-right text-[10px] text-zinc-600">
+            {t(lang, "ai.updated")}: {new Date(at).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB")}
+            {data?.build && data.build !== "unknown" ? (
+              <>
+                {" · "}
+                {t(lang, "ai.build")}: <span className="font-mono">{data.build}</span>
+              </>
+            ) : null}
+          </p>
+        )}
 
         {/* 1 — hai lớp AI */}
         <Card className="border-zinc-800 bg-zinc-900/60">
@@ -203,6 +285,59 @@ export default function AiPage() {
           </CardContent>
         </Card>
 
+        {/* 2b — độ tin cậy prob trên dữ liệu THẬT */}
+        <Card className="border-zinc-800 bg-zinc-900/60">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
+              <Target className="h-4 w-4 text-teal-400" />
+              {t(lang, "ai.reliab.title")}
+            </CardTitle>
+            <p className="text-[11px] text-zinc-500">{t(lang, "ai.reliab.sub")}</p>
+          </CardHeader>
+          <CardContent className="space-y-3 pt-0">
+            <div className="grid gap-3 md:grid-cols-2">
+              {([
+                [t(lang, "ai.reliab.trades"), data?.reliability?.trades],
+                [t(lang, "ai.reliab.phe"), data?.reliability?.phe],
+              ] as const).map(([name, table], idx) => (
+                <div key={name} className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+                  <p className="flex items-center justify-between text-xs font-bold text-zinc-200">
+                    <span>{name}</span>
+                    <span className="font-mono text-[10px] font-normal text-zinc-500">n = {table?.n ?? 0}</span>
+                  </p>
+                  {data?.reliability && (idx === 0 ? data.reliability.errors.trades : data.reliability.errors.phe) ? (
+                    <p className="mt-2 text-[11px] text-rose-400">{t(lang, "ai.db.error")}</p>
+                  ) : !table || table.n === 0 ? (
+                    <p className="mt-2 text-[11px] text-zinc-600">{t(lang, "ai.reliab.empty")}</p>
+                  ) : (
+                    <table className="mt-2 w-full text-[11px]">
+                      <thead>
+                        <tr className="text-zinc-500">
+                          <th className="text-left font-normal">{t(lang, "ai.reliab.bucket")}</th>
+                          <th className="text-right font-normal">{t(lang, "ai.reliab.n")}</th>
+                          <th className="text-right font-normal">{t(lang, "ai.reliab.wr")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {table.buckets.map((b) => (
+                          <tr key={b.label} className="border-t border-zinc-800/60">
+                            <td className="py-0.5 font-mono text-zinc-300">{b.label}</td>
+                            <td className="py-0.5 text-right font-mono text-zinc-500">{b.n}</td>
+                            <td className={`py-0.5 text-right font-mono font-bold ${b.wr >= 50 ? "text-emerald-400" : b.wr >= 0 ? "text-rose-400" : "text-zinc-600"}`}>
+                              {b.wr >= 0 ? `${b.wr.toFixed(1)}%` : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] leading-relaxed text-zinc-600">{t(lang, "ai.reliab.note")}</p>
+          </CardContent>
+        </Card>
+
         {/* 3 — đã học bao nhiêu dữ liệu */}
         <Card className="border-zinc-800 bg-zinc-900/60">
           <CardHeader className="pb-2">
@@ -225,7 +360,9 @@ export default function AiPage() {
               </p>
             )}
             {!data || data.runs.length === 0 ? (
-              <p className="text-[11px] text-zinc-600">{t(lang, "ai.data.empty")}</p>
+              <p className="text-[11px] text-zinc-600">
+                {data?.db?.runsError ? t(lang, "ai.db.error") : t(lang, "ai.data.empty")}
+              </p>
             ) : (
               <div className="rail-scroll max-h-80 space-y-1 overflow-y-auto pr-0.5">
                 {data.runs.slice(0, 80).map((r) => (
@@ -290,6 +427,11 @@ export default function AiPage() {
                 {data?.llm.ping.ok ? t(lang, "ai.llm.ok") : t(lang, "ai.llm.down")}
                 {data ? ` · ${data.llm.ping.ms}ms` : ""}
               </Badge>
+              {!data?.llm.ping.ok && data && (
+                <Badge variant="outline" className="border-amber-700 bg-amber-950/40 text-amber-300">
+                  {data.llm.failClosed ? t(lang, "ai.llm.failclosed") : t(lang, "ai.llm.failopen")}
+                </Badge>
+              )}
               <span className="font-mono text-zinc-400">{data?.llm.url ?? "—"}</span>
               {cfg?.llmModel && <span className="font-mono text-zinc-500">· {cfg.llmModel}</span>}
             </div>
@@ -298,7 +440,7 @@ export default function AiPage() {
                 <span className="font-bold text-zinc-200">{t(lang, "ai.llm.last")}: </span>
                 <span className="font-mono text-zinc-300">
                   #{data.engine.llmLast.symbol} {data.engine.llmLast.interval} {data.engine.llmLast.side} →{" "}
-                  <span className={data.engine.llmLast.verdict.toUpperCase().includes("VETO") ? "text-rose-400" : "text-emerald-400"}>{data.engine.llmLast.verdict}</span>{" "}
+                  <span className={verdictCls(data.engine.llmLast.verdict)}>{data.engine.llmLast.verdict}</span>{" "}
                   ({data.engine.llmLast.ms}ms)
                 </span>
                 <span className="mt-0.5 block truncate text-zinc-500">{data.engine.llmLast.reason}</span>
@@ -314,7 +456,29 @@ export default function AiPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold text-zinc-100">{t(lang, "ai.engine.title")}</CardTitle>
           </CardHeader>
-          <CardContent className="pt-0">
+          <CardContent className="space-y-2 pt-0">
+            {data?.engine && unsynced && (
+              <div className="rounded-lg border border-amber-800/60 bg-amber-950/20 p-2.5 text-[11px] leading-relaxed text-amber-200/90">
+                <p className="flex items-start gap-1.5 font-bold text-amber-300">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  {t(lang, "ai.engine.idle")}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    className="h-7 gap-1.5 bg-amber-400 px-2.5 text-[11px] font-bold text-zinc-950 hover:bg-amber-300"
+                    disabled={syncState === "sending"}
+                    onClick={() => void syncNow()}
+                  >
+                    <UploadCloud className={`h-3.5 w-3.5 ${syncState === "sending" ? "animate-pulse" : ""}`} />
+                    {syncState === "sending" ? t(lang, "ai.engine.syncing") : t(lang, "ai.engine.syncbtn")}
+                  </Button>
+                  <span className="text-[10px] text-amber-200/70">
+                    {syncState === "ok" ? t(lang, "ai.engine.syncok") : syncState === "fail" ? t(lang, "ai.engine.syncfail") : ""}
+                  </span>
+                </div>
+              </div>
+            )}
             {!cfg || !data?.engine ? (
               <p className="text-[11px] text-zinc-600">{t(lang, "ai.engine.notsynced")}</p>
             ) : (
@@ -323,8 +487,8 @@ export default function AiPage() {
                   ["minScore", cfg.minScore],
                   ["minAuc", cfg.minAuc],
                   ["minAcc", `${cfg.minAcc}%`],
-                  ["leverage", `×${cfg.leverage}`],
-                  ["stakePct", `${cfg.stakePct}%`],
+                  ["leverage", `×${data.engine.leverage}`],
+                  ["stakePct", `${cfg.riskPct}%`],
                   ["dcaMax", cfg.dcaMax],
                   ["cooldownMin", `${cfg.cooldownMin}m`],
                   ["runTf", cfg.runTf?.join(" ") || "—"],
@@ -340,6 +504,21 @@ export default function AiPage() {
                   </div>
                 ))}
               </div>
+            )}
+            {data?.engine && (
+              <p className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5 text-[11px]">
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                  <span className="flex items-center gap-1 text-zinc-500">
+                    <Activity className="h-3 w-3" />
+                    {t(lang, "ai.engine.status")}: <span className="font-mono text-zinc-300">{data.engine.cycle?.status || "—"}</span>
+                  </span>
+                  {data.engine.syncedAt ? (
+                    <span className="text-zinc-500">
+                      {t(lang, "ai.engine.syncedAt")}: <span className="font-mono text-zinc-300">{new Date(data.engine.syncedAt).toLocaleString(lang === "vi" ? "vi-VN" : "en-GB")}</span>
+                    </span>
+                  ) : null}
+                </span>
+              </p>
             )}
             <p className="mt-2 text-[10px] text-zinc-600">{data?.engine?.synced ? t(lang, "ai.engine.synced") : t(lang, "ai.engine.notsynced")}</p>
           </CardContent>

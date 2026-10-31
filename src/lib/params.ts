@@ -229,3 +229,12 @@ export const CONF_W = 15;
 export const LLM_URL_DEFAULT = "http://127.0.0.8:8888";
 export const LLM_MODEL_DEFAULT = "local";
 export const LLM_TIMEOUT_MS = 12_000;
+/** LLM chết thì xử lý thế nào?
+ *  • false (mặc định, fail-OPEN) — llama-server không trả lời (chết/timeout/JSON
+ *    hỏng) → lệnh vẫn vào theo đường XGBoost-only. Nhẹ tay cho paper-trading:
+ *    engine không vì một dịch vụ phụ tắt mà ngừng sinh bài học. Lượt duyệt bỏ
+ *    qua vẫn được ghi llmLast verdict "unreachable" để trang /ai hiện rõ.
+ *  • true (fail-CLOSED) — LLM không trả lời = KHÔNG duyệt = chặn mở lệnh.
+ *    Bật khi muốn Risk Officer là chốt chặn CỨNG (VPS không chạy llama-server
+ *    + knob này = engine không bao giờ mở lệnh mới). */
+export const LLM_FAIL_CLOSED = false;

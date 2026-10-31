@@ -74,6 +74,7 @@ import { msgClose, msgDca, msgLlmVeto, msgNear, msgOpen } from "./tg-msgs";
 import { enqueueJob, jobViews } from "./engine-jobs";
 import { directionalPnl, outcomeOf } from "./history";
 import {
+  LLM_FAIL_CLOSED,
   NOISE_BAND,
   SCAN_FRESH_MS,
   SCAN_TTL,
@@ -940,7 +941,11 @@ async function cycleTick(): Promise<void> {
     const entrySl = c.tpMode === "manual" ? c.slPct : c.tpMode === "atr" && live ? live.slPct : best.slPct;
     const entryTp = c.tpMode === "manual" ? c.tpPct : c.tpMode === "atr" && live ? live.tpPct : best.tpPct;
 
-    // 2.5) LLM risk officer — silent, fail-open (same as the old flow)
+    // 2.5) LLM risk officer — silent. LLM CHẾT thì tuỳ knob LLM_FAIL_CLOSED:
+    //  • fail-open (mặc định)  → lệnh vẫn vào đường XGBoost-only, nhưng lượt
+    //    duyệt bị bỏ qua được ghi llmLast "unreachable" (trang /ai hiện rõ —
+    //    hết cảnh "chốt chặn cuối im lặng vô hình").
+    //  • fail-closed (knob on) → không duyệt được = không mở lệnh.
     let vetoed = false;
     try {
       const verdict = await llmReview(c.llmUrl, c.llmModel, {
@@ -969,6 +974,24 @@ async function cycleTick(): Promise<void> {
           at: Date.now(),
         };
         persistEngine();
+      } else {
+        // không gọi được / JSON hỏng — ghi nhận thay vì im lặng
+        p.llmLast = {
+          symbol: best.symbol,
+          interval: best.interval,
+          side: best.bias,
+          verdict: "unreachable",
+          reason: LLM_FAIL_CLOSED
+            ? "llama-server không trả lời — fail-CLOSED chặn lệnh này"
+            : "llama-server không trả lời — fail-OPEN cho lệnh qua (mặc định)",
+          ms: LLM_TIMEOUT_MS,
+          at: Date.now(),
+        };
+        persistEngine();
+        if (LLM_FAIL_CLOSED) {
+          vetoed = true;
+          v.lastCycleStatus = `LLM unreachable — fail-closed chặn ${best.symbol} ${best.interval}`;
+        }
       }
       if (verdict && verdict.verdict === "skip") {
         vetoed = true;
@@ -976,7 +999,11 @@ async function cycleTick(): Promise<void> {
         if (tgReady()) void tgSendMessage(msgLlmVeto(best, verdict), "HTML");
       }
     } catch {
-      // LLM down → proceed on the XGBoost-only path
+      // LLM threw unexpectedly — same policy as a null verdict
+      if (LLM_FAIL_CLOSED) {
+        vetoed = true;
+        v.lastCycleStatus = `LLM error — fail-closed chặn ${best.symbol} ${best.interval}`;
+      }
     }
     if (vetoed) return;
 
@@ -1191,6 +1218,8 @@ export function engineSnapshot(): {
   synced: boolean;
   syncedAt: number | null;
   cfg: AutoConfig;
+  /** đòn bẩy engine đang dùng (p.leverage — KHÔNG nằm trong AutoConfig) */
+  leverage: number;
   pairs: number;
   scan: { rows: ScanRow[]; at: number } | null;
   universe: { rows: UniverseRow[]; at: number } | null;
@@ -1207,6 +1236,7 @@ export function engineSnapshot(): {
     synced: p.syncedAt != null,
     syncedAt: p.syncedAt,
     cfg: p.cfg,
+    leverage: p.leverage,
     pairs: p.pairs.length,
     scan: v.scan,
     universe: v.universe,
