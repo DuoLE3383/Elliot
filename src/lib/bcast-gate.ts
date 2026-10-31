@@ -9,19 +9,20 @@
 
 import type { ScanRow } from "./autotrade";
 
-// ── cổng chất lượng (bản user setpoint 31/10: 70 / 0.8 / 80) ─────────────────
+// ── cổng chất lượng (bản user setpoint 31/10: 60 / 0.8 / 70) ─────────────────
 export const BCAST_VOL_MIN = 7e6; // $7M 24h quote volume
 export const BCAST_PL1_MIN = 5; // TP1 ≥ +5% từ entry
 export const BCAST_TOP_N = 2; // coins mỗi tin
 /** Điểm tối thiểu để đăng broadcast — scoreOf = (AUC−0.5)×100 + (ACC−50) + tin cậy×15.
- *  User siết 70: chỉ AUC ≥ .8 · ACC ≥ 80 mới đạt sàn dưới (30+30), nên điểm 70
- *  còn yêu cầu tin cậy ≥ ~2/3. Kênh gần như chắc chắn im lặng — im lặng vẫn hơn rác. */
-export const BCAST_SCORE_MIN = 70;
+ *  User setpoint 31/10: 60. AUC .8 + ACC 70 cho sẵn 30+20 = 50 → điểm 60 còn yêu
+ *  cầu tin cậy ≥ ~2/3: model đạt sàn metrics nhưng thiếu tự tin vẫn bị giữ lại. */
+export const BCAST_SCORE_MIN = 60;
 /** Sàn AUC của model — 0.8 nghĩa là model phải xếp hạng thật sự giỏi trên tập
  *  validation (out-of-sample), chỉ hơn tung đồng xu là không đủ tin. */
 export const BCAST_AUC_MIN = 0.8;
-/** Sàn ACC của model — dưới 80% không đủ tin theo ngưỡng user đặt. */
-export const BCAST_ACC_MIN = 80;
+/** Sàn ACC của model — user nới từ 80 xuống 70 (31/10): vẫn lọc sạch nhiễu
+ *  32–38 điểm, nhưng kênh không còn im lặng triền miên vì sàn 80. */
+export const BCAST_ACC_MIN = 70;
 /** Chống lặp: 1 coin (mọi khung giờ) chỉ được broadcast lại sau mỗi 3 giờ.
  *  RUNE 30m xuất hiện 4 lần trong 15 phút (4:11/4:15/4:21/4:25) vì `seen` cũ
  *  chỉ dùng để tag ⚡NEW chứ không chặn re-pick — đây là bản vá. */

@@ -139,12 +139,12 @@ console.log("\n[3] universeBroadcastText — 30 coins không thành 1 nùi");
 // (static import hoisting đóng băng DATA_DIR trước khi test kịp set env —
 //  phần này cần env TRƯỚC khi module data-dir khởi tạo)
 
-// ── 5 · broadcast gates (hình 3 — điểm thấp đừng gợi ý; user setpoint 70/.8/80)
-console.log("\n[5] broadcast gates — ngưỡng user 70 / 0.8 / 80: dưới đó không gửi");
+// ── 5 · broadcast gates (hình 3 — điểm thấp đừng gợi ý; user setpoint 60/.8/70)
+console.log("\n[5] broadcast gates — ngưỡng user 60 / 0.8 / 70: dưới đó không gửi");
 {
-  check("BCAST_SCORE_MIN = 70", BCAST_SCORE_MIN === 70);
+  check("BCAST_SCORE_MIN = 60", BCAST_SCORE_MIN === 60);
   check("BCAST_AUC_MIN = 0.8", BCAST_AUC_MIN === 0.8);
-  check("BCAST_ACC_MIN = 80", BCAST_ACC_MIN === 80);
+  check("BCAST_ACC_MIN = 70", BCAST_ACC_MIN === 70);
   // score kiểu img3: PEPE 30.30 / NEAR 39.90 → dưới gate
   check("score 30.30 < gate", 30.3 < BCAST_SCORE_MIN);
   check("score 39.90 < gate", 39.9 < BCAST_SCORE_MIN);
