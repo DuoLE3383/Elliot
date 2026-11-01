@@ -49,6 +49,7 @@ import {
   type QualSp,
 } from "./bcast-gate";
 import { SCAN_DIGEST_POOL, SCAN_DIGEST_TOP_N } from "./params";
+import { getMarketPulse } from "./market-pulse";
 
 // MỘT thuật toán gate sống ở ./bcast-gate — re-export để chỗ cũ (test, panel)
 // vẫn import từ đây được mà không tạo bản sao thuật toán.
@@ -72,9 +73,7 @@ const CANDIDATE_POOL = 8; // ranked rows inspected before giving up on filters
 
 const HR_LINE = "─────────────────";
 const HEAVY_LINE = "═══════════════";
-
-/** HTML escape cho text nhúng vào tin parse_mode HTML (lý do gate, …). */
-const escHtml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+// (escHtml đã bỏ 0.2.45 — tin quét không còn nhúng lý do chặn từ dữ liệu động)
 
 export interface BcastState {
   /** message counter — "Lần #N" */
@@ -454,14 +453,49 @@ export async function buildTopCoinsMessage(
   return { text: out.join("\n"), picked: picked.map((c) => c.row), verdicts: [] };
 }
 
-// ─── Scan digest — tin "QUÉT LỆNH · TOP 10" 8 giờ/lần (0.2.35) ────────────────
-// "thêm tin nhắn scan lệnh vào telegram, tin nhắn scan top 10 coin chỉ thông
-// báo 8 tiếng 1 lần". Khác tin "🏆 TOP coin tiềm năng" (chỉ liệt kê combo ĐẠT
-// CỔNG và từng gửi mỗi 5 phút — nay đã ngừng tự gửi): tin này là BỨC TRANH
-// TOÀN CẢNH định kỳ — 10 combo tốt nhất theo điểm model, KỂ CẢ chưa đạt cổng
-// (kèm lý do bị chặn) để người đọc thấy engine đang nhìn thấy gì giữa 2 lần
-// tổng hợp. Combo đạt cổng được tô 🚀 kèm SL/TP; mọi phán quyết (kèm coherence)
-// vẫn ghi đủ vào bảng BcastVerdict cho panel.
+// ─── Scan digest — tin "QUÉT LỆNH" 8 giờ/lần (0.2.35, khoét gọn 0.2.45) ─────
+// 0.2.35: tin tổng hợp 8h/lần — 10 combo tốt nhất theo điểm model KỂ CẢ chưa
+// đạt cổng (kèm lý do chặn). 0.2.45 theo yêu cầu "điểm dưới điểm cài đặt thì
+// khỏi post cho đỡ spam — post những thứ cần thiết thôi như thông tin thị
+// trường, tình hình phiên": tin CHỈ liệt kê combo ĐẠT CỔNG (🚀 + SL/TP);
+// 0 combo đạt → KHÔNG gửi gì cả (verdict vẫn ghi đủ bảng BcastVerdict cho
+// panel web). Đáy tin thêm 1 dòng thông tin thị trường (F&G · BTC.D ·
+// funding · long/short) từ market-pulse (0.2.43) — fail-soft, lỗi nguồn ngoài
+// không cản tin quét.
+
+/** Nhãn F&G tiếng Việt cho dòng thị trường đáy tin. */
+const FG_VN: Record<string, string> = {
+  "Extreme Fear": "Hoảng loạn",
+  Fear: "Sợ hãi",
+  Neutral: "Trung tính",
+  Greed: "Tham lam",
+  "Extreme Greed": "Tham lam cực độ",
+};
+
+/** 1 dòng "🌡 Thị trường: …" — F&G · BTC.D · funding · long/short. */
+async function marketPulseLine(): Promise<string | null> {
+  try {
+    const mp = await getMarketPulse();
+    const parts: string[] = [];
+    if (mp.fearGreed) {
+      parts.push(`F&G ${mp.fearGreed.now.value} (${FG_VN[mp.fearGreed.now.label] ?? mp.fearGreed.now.label})`);
+    }
+    if (mp.global?.btcDominance != null) parts.push(`BTC.D ${mp.global.btcDominance.toFixed(1)}%`);
+    if (mp.derivatives?.fundingRatePct != null) {
+      const f = mp.derivatives.fundingRatePct;
+      parts.push(`Funding ${f >= 0 ? "+" : ""}${f.toFixed(3)}%`);
+    }
+    if (mp.derivatives?.longAccountPct != null) {
+      const l = mp.derivatives.longAccountPct;
+      parts.push(`L/S ${l.toFixed(0)}/${(100 - l).toFixed(0)}`);
+    }
+    if (parts.length === 0) return null;
+    return `🌡 <b>Thị trường:</b> ${parts.join(" · ")}`;
+  } catch {
+    return null; // nguồn ngoài chết — tin quét vẫn gửi, chỉ thiếu dòng này
+  }
+}
+
 export async function buildScanTop10Message(
   rows: ScanRow[],
   tickers: Record<string, Ticker>,
@@ -492,11 +526,13 @@ export async function buildScanTop10Message(
     };
   });
 
-  // pool: các combo TỐT NHẤT theo điểm (rows từ scanCore đã sort nhưng tự sort
-  // lại cho chắc — digest luôn liệt kê theo điểm giảm dần), mỗi symbol một combo
+  // pool: CHỈ combo ĐẠT CỔNG (0.2.45 — combo bị chặn không vào tin nữa), mỗi
+  // symbol một combo, điểm giảm dần, tối đa SCAN_DIGEST_POOL để làm giàu
   const seenSym = new Set<string>();
   const candidates: ScanRow[] = [];
   for (const r of [...rows].sort((a, b) => b.score - a.score)) {
+    const vd = verdicts.find((x) => x.symbol === r.symbol && x.interval === r.interval);
+    if (vd?.verdict !== "pass") continue;
     if (seenSym.has(r.symbol)) continue;
     seenSym.add(r.symbol);
     candidates.push(r);
@@ -506,7 +542,7 @@ export async function buildScanTop10Message(
   const enriched: CoinTech[] = [];
   for (const cand of candidates) {
     const c = await enrich(cand, tickers, state.seen);
-    if (!c) continue;
+    if (!c) continue; // vol/fetch hỏng — bỏ khỏi tin (verdict giữ như buildTopCoinsMessage)
     const vd = verdicts.find((x) => x.symbol === cand.symbol && x.interval === cand.interval);
     const contra = passesCoherence({
       long: cand.bias !== "SHORT",
@@ -518,10 +554,13 @@ export async function buildScanTop10Message(
     if (contra && vd) {
       vd.verdict = "reject";
       vd.reason = contra;
+      continue; // tự mâu thuẫn → thành reject — không liệt kê
     }
     enriched.push(c);
     if (enriched.length >= SCAN_DIGEST_TOP_N) break;
   }
+  // 0 combo đạt cổng sau enrich → KHÔNG gửi tin (đỡ spam — 0.2.45);
+  // verdict đã đầy đủ ở trên, engine vẫn ghi DB cho panel trước khi check text.
   if (enriched.length === 0) return { text: null, picked: [], verdicts };
 
   // clock in the CHANNEL's timezone — the server runs UTC, the reader is VN
@@ -543,14 +582,12 @@ export async function buildScanTop10Message(
   const nPass = verdicts.filter((v) => v.verdict === "pass").length;
 
   const out: string[] = [
-    `🔍 <b>QUÉT LỆNH · TOP ${enriched.length} COIN</b> (theo điểm model)`,
+    `🔍 <b>QUÉT LỆNH · ${enriched.length} COIN ĐẠT CỔNG</b> (theo điểm model)`,
     `⏰ ${hm} ${dd}/${mo}/${yyyy} │ Lần #${state.n + 1} │ <b>${nPass}/${rows.length}</b> combo đạt cổng`,
-    `📋 Sàn: Điểm ≥ ${spEff.score} │ AUC ≥ ${spEff.auc} │ ACC ≥ ${spEff.acc}% — 🚀 = đạt cổng, ✗ = lý do chặn`,
+    `📋 Sàn: Điểm ≥ ${spEff.score} │ AUC ≥ ${spEff.auc} │ ACC ≥ ${spEff.acc}% — chỉ liệt kê combo đạt cổng (lý do chặn xem panel web)`,
   ];
   enriched.forEach((c, i) => {
     const { row } = c;
-    const vd = verdicts.find((x) => x.symbol === row.symbol && x.interval === row.interval);
-    const pass = vd?.verdict === "pass";
     const long = row.bias !== "SHORT";
     const pTxt = long ? `${(row.prob * 100).toFixed(1)}% lên` : `${((1 - row.prob) * 100).toFixed(1)}% xuống`;
     const slPx = long ? c.price * (1 - row.slPct / 100) : c.price * (1 + row.slPct / 100);
@@ -559,14 +596,14 @@ export async function buildScanTop10Message(
       `${HR_LINE}`,
       `${i + 1}. ${sideTag(row.bias)} <b>${row.symbol}</b> ${row.interval} │ Điểm <b>${row.score.toFixed(1)}</b> · AUC ${row.auc.toFixed(2)} · ACC ${row.acc.toFixed(1)}% · Prob ${pTxt}`,
       `   💰 $${fmtPrice(c.price)} · 24h ${c.vol24h >= 1e6 ? `$${(c.vol24h / 1e6).toFixed(0)}M` : fmtPrice(c.vol24h)} · RSI ${c.rsiVal.toFixed(0)} · ATR ${c.atrPct.toFixed(2)}%${c.isNew ? " · ⚡NEW" : ""}`,
-      pass
-        ? `   🚀 <b>ĐẠT CỔNG</b> — SL $${fmtPrice(slPx)} (${row.slPct.toFixed(1)}%) · TP1 $${fmtPrice(tpPx)} (+${row.tpPct.toFixed(1)}%)`
-        : `   ✗ ${escHtml((vd?.reason ?? "chưa đạt cổng").slice(0, 90))}`,
+      `   🚀 <b>ĐẠT CỔNG</b> — SL $${fmtPrice(slPx)} (${row.slPct.toFixed(1)}%) · TP1 $${fmtPrice(tpPx)} (+${row.tpPct.toFixed(1)}%)`,
     );
   });
+  out.push(HEAVY_LINE);
+  const pulse = await marketPulseLine();
+  if (pulse) out.push(pulse);
   out.push(
-    HEAVY_LINE,
-    `⏱ Tin tổng hợp 8 giờ/lần · engine vẫn quét + chấm cổng mỗi 5 phút (panel web)`,
+    `⏱ Tin tổng hợp 8 giờ/lần · chỉ gửi khi CÓ combo đạt cổng · engine quét + chấm cổng mỗi 5 phút (panel web)`,
     `<i>Đây không phải lời khuyên đầu tư. Hãy tự chịu trách nhiệm với quyết định của mình.</i>`,
   );
   return { text: out.join("\n"), picked: enriched.map((c) => c.row), verdicts };

@@ -839,10 +839,11 @@ async function broadcastTick(): Promise<void> {
   // đếm theo lần GỬI, không phải lần chấm).
 }
 
-// ─── scan digest tick — tin "QUÉT LỆNH · TOP 10" ĐỀU ĐỊNH 8h/lần ─────────────
+// ─── scan digest tick — tin "QUÉT LỆNH" ĐỀU ĐỊNH 8h/lần ──────────────────────
 // "thêm tin nhắn scan lệnh vào telegram … tin nhắn scan top 10 coin chỉ thông
-// báo 8 tiếng 1 lần". Gửi KỂ CẢ khi không combo nào đạt cổng (đó là cái giá
-// của tin tổng hợp): 10 combo tốt nhất theo điểm + phán quyết cổng + lý do.
+// báo 8 tiếng 1 lần". 0.2.45 — "điểm dưới điểm cài đặt thì khỏi post cho đỡ
+// spam": chỉ gửi khi CÓ combo đạt cổng (kèm 1 dòng thị trường); 0 combo đạt →
+// text null, im lặng — verdict vẫn ghi DB cho panel web trước khi check text.
 // Lệch pha +4h so với bucket universe để hai tin dài không dồn một lúc.
 async function scanDigestTick(): Promise<void> {
   const { p, v } = eng();
