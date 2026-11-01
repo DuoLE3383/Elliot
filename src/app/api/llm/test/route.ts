@@ -13,14 +13,14 @@
 
 import { NextResponse } from "next/server";
 import { engineSnapshot } from "@/lib/engine";
-import { llmReviewDebug, LLM_MODEL_DEFAULT, LLM_URL_DEFAULT, type LlmSetup } from "@/lib/llm";
+import { llmEnvEndpoint, llmReviewDebug, LLM_MODEL_DEFAULT, LLM_URL_DEFAULT, type LlmSetup } from "@/lib/llm";
 
 export const dynamic = "force-dynamic";
 
-/** endpoint: env LLM_URL/LLM_MODEL thắng → cfg engine đã sync → mặc định params.ts */
+/** endpoint: env LLM_URL/LLAMA_SERVER_URL (bí danh) thắng → cfg engine đã sync
+ *  → mặc định params.ts — CÙNG helper với route review để hai đường không lệch */
 function resolveEndpoint(): { url: string; model: string } {
-  const envUrl = process.env.LLM_URL?.trim();
-  const envModel = process.env.LLM_MODEL?.trim();
+  const { url: envUrl, model: envModel } = llmEnvEndpoint();
   let cfgUrl = "";
   let cfgModel = "";
   try {

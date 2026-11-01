@@ -52,11 +52,24 @@ const baseOf = (url: string): string =>
 /** optional bearer auth — đặt LLM_API_KEY trong .env khi llama-server chạy
  *  với --api-key (bắt buộc nếu llama nằm sau tunnel/internet, không kịp thời
  *  thì ai biết URL cũng gọi được model của bạn) */
-const apiKey = (): string => process.env.LLM_API_KEY?.trim() || "";
+export const llmApiKey = (): string => process.env.LLM_API_KEY?.trim() || "";
 const jsonHeaders = (): Record<string, string> => ({
   "Content-Type": "application/json",
-  ...(apiKey() ? { Authorization: `Bearer ${apiKey()}` } : {}),
+  ...(llmApiKey() ? { Authorization: `Bearer ${llmApiKey()}` } : {}),
 });
+
+/** endpoint từ ENV — LLM_URL/LLM_MODEL là tên chuẩn; LLAMA_SERVER_URL/
+ *  LLAMA_SERVER_MODEL là BÍ DANH được chấp nhận (tên tự nhiên khi cấu hình
+ *  llama-server, đã có người dùng đặt trong .env). Mọi đường gọi llama
+ *  (route review/test, badge /ai) ĐỀU đi qua helper này để thứ tự ưu tiên
+ *  env → cfg → default thống nhất một chỗ.
+ *  Trả về "" khi không set — caller tự rơi về cfg engine / default. */
+export function llmEnvEndpoint(): { url: string; model: string } {
+  return {
+    url: process.env.LLM_URL?.trim() || process.env.LLAMA_SERVER_URL?.trim() || "",
+    model: process.env.LLM_MODEL?.trim() || process.env.LLAMA_SERVER_MODEL?.trim() || "",
+  };
+}
 
 const SYSTEM_PROMPT = [
   "You are the risk-control officer of a crypto futures paper-trading bot.",
