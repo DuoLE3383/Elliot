@@ -1,0 +1,53 @@
+0.2.27 — chấm sẵn 2 điều kiện skip còn lại (coin-flip, liquidation-vs-SL) + cờ lý do "số mạnh bị quay ngược"
+
+Kết quả 0.2.26 trên máy user: 3/3 lý do của model ĐÃ trích đúng field=value
+theo lệnh — hết hẳn bịa số liệu. Nhưng lộ 2 việc chưa xong:
+
+  • "val_acc=78.1% is above 50%" (verdict skip) — số liệu ĐÚNG nhưng LOGIC
+    NGHIÊNG: acc cao hơn coin-flip 28.1 điểm là điểm MẠNH, không thể là lý
+    do skip. Fact-check cũ chỉ bắt SAI SỐ LIỆU, không bắt mượn rubric
+    coin-flip cho số mạnh (mẫu "close to 50%" bắt được, mẫu "is above 50%"
+    thì lọt vì không có từ gần nghĩa).
+  • "rr 1:1.42 is thin" + "train_samples=288 is small" — model NHẠI LẠI
+    NGUYÊN VĂN hai ví dụ nằm trong system prompt 0.2.26 (e.g. 'rr 1:1.42 is
+    thin', 'train_samples=288 is small'). Hai nhận định này TRÚNG THẬT (288
+    mẫu ít vì KLINE_LIMIT=500; rr 1.42 mỏng) nên skip vẫn chính đáng —
+    nhưng nguồn lý do là chép, không phải suy.
+
+Cách sửa — chấm sẵn nốt phần rubric còn lại, gỡ chỗ nhại, cờ theo hướng:
+
+- llm.ts setupPrompt thêm 2 dòng checks (tổng 5):
+  • coinflip_check — acc/auc cách coin-flip bao nhiêu điểm, điều kiện skip
+    "barely above coin flip" does NOT apply hay MAY apply (acc ≥ 60 / auc
+    ≥ 0.60 → NOT). Case user: val_acc=78.1% (+28.1 pts, not barely) ·
+    val_auc=0.845 (+0.345, not barely) → does NOT apply — model không còn
+    chỗ mượn.
+  • liq_check — liquidation cách SL bao nhiêu lần: ≥ 2x NOT dangerously
+    close (x20 liq 5% vs SL 1.2% → 4.2x), < 2x dangerously close, < 1x liq
+    INSIDE the SL (chết trước stop). Trước đây model có thể bịa hướng này,
+    giờ chấm sẵn.
+- llm.ts SYSTEM_PROMPT: GỠ 2 ví dụ nguyên văn (nguồn nhại), thay bằng quy
+  tắc trừu tượng; thêm dòng chốt "If none of the skip conditions applies
+  against the checks block, verdict MUST be 'go' — do not invent extra
+  skip conditions." (model 7B thiên skip — phải chốt rõ điều kiện go).
+- llm.ts factCheckReasons(reasons, s, verdict): nhận THÊM verdict — mẫu
+  "acc/auc + 50|coin flip" chỉ cờ khi verdict SKIP (⚠ trái coinflip_check:
+  ... cao hơn coin-flip 28.1 điểm); trong verdict go đó là lý do ủng hộ
+  hợp lệ, không cờ. Mẫu RR inconsistent giữ cờ mọi verdict. KHÔNG lật
+  verdict như cũ.
+- engine/autotrade: không đổi (đã gửi score/gatePassed từ 0.2.26).
+
+Test: test-llm-factcheck.mts mở rộng — 5 dòng checks đúng số (case LINKUSDT
+của user: 1.42 / +28.1 not barely / 4.2x / PASSED 66.5 / ~3.0 days); acc/auc
+yếu → MAY apply; SL 4.5% → only 1.1x dangerously close; SL 6% dưới liq →
+INSIDE the SL; skip cờ lý do mượn coin-flip (acc + auc), go không cờ oan;
+acc 55.2% nói "close to 50%" đúng → không cờ; đường production qua mock
+server: reason "val_acc=78.1% is above 50%" bị cờ, "train_samples=288 is
+small" giữ nguyên; system prompt có nudge go + hết ví dụ nhại. Rerun 3 test
+LLM cũ — PASS hết. Build sạch.
+
+Lưu ý vận hành: từ log llama của user, mỗi verdict 5.6-10.3s, prompt thêm
+~130 token — cách xa timeout 90s. Skip với setup này (288 mẫu, rr 1.42,
+conf 0.26) vẫn là phán quyết chính đáng của risk officer: muốn thấy "go"
+nhiều hơn thì tăng KLINE_LIMIT (nhiều mẫu train), nới rr (tp rộng hơn) hoặc
+nâng minScore gate để chỉ duyệt combo mạnh.

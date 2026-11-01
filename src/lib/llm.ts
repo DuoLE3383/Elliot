@@ -103,9 +103,10 @@ const SYSTEM_PROMPT = [
   "Skip when: validation AUC/accuracy is barely above coin flip; leverage puts liquidation dangerously close to the SL; stake is oversized; or the model trained on too few samples.",
   "Approve otherwise. Max 3 reasons, each under 90 characters, English, no markdown.",
   // ── chống nói bừa: khối checks trong user prompt là chuẩn, model không được mâu thuẫn ──
-  "The user prompt ends with a checks block computed by code (rr_check / gate_check / sample_base) — treat it as ground truth: never contradict it, never recompute it.",
-  "Hard rules: never say val_acc is close to 50% when val_acc >= 60%; never call R:R 'inconsistent' (rr_check already proved tp/sl match — if R:R is thin, say so numerically, e.g. 'rr 1:1.42 is thin'); never cite numbers absent from the prompt.",
-  "Every reason MUST quote the exact field=value it relies on (e.g. 'train_samples=288 is small'). A reason contradicting the checks block is invalid.",
+  "The user prompt ends with a checks block computed by code (rr_check / coinflip_check / liq_check / gate_check / sample_base) — treat it as ground truth: never contradict it, never recompute it.",
+  "If none of the skip conditions applies against the checks block, verdict MUST be 'go' — do not invent extra skip conditions.",
+  "Hard rules: never describe a strong val_acc/val_auc as near or barely above coin flip (coinflip_check has already judged it); never call R:R 'inconsistent' (rr_check already proved tp/sl match); never cite numbers absent from the prompt.",
+  "Every reason MUST quote the exact field=value it relies on; vague reasons are invalid. A reason contradicting the checks block is invalid.",
 ].join(" ");
 
 const VERDICT_SCHEMA = {
@@ -174,6 +175,12 @@ const TF_MINUTES: Record<string, number> = {
  * Khối "checks" là số liệu ĐÃ TÍNH SẴN bằng code, chèn CUỐI prompt:
  *   • rr_check — tp/sl khớp rr. rr ĐƯỢC ĐỊNH NGHĨA là tp/sl nên không bao giờ
  *     lệch, nhưng model 7B vẫn hay bịa "RR inconsistent" (đã gặp thật).
+ *   • coinflip_check — acc/auc cách coin-flip bao nhiêu điểm, điều kiện skip
+ *     "barely above coin flip" áp dụng hay không — chấm sẵn để model không
+ *     mượn rubric coin-flip cho số liệu MẠNH (lỗi thật: "val_acc=78.1% is
+ *     above 50%" làm lý do skip — 78.1% là +28.1 điểm, mạnh rõ).
+ *   • liq_check — liquidation cách SL bao nhiêu lần: < 1x là liq NẰM TRONG
+ *     stop (chết trước stop), < 2x là SL đặt sát liq — điều kiện skip thật.
  *   • gate_check — combo có qua sàn engine không (khi caller gửi score).
  *   • sample_base — quy mô dữ liệu quy ra ngày để model đừng tưởng 288 mẫu
  *     là "vài tháng", và đừng bảo "too few" một cách mơ hồ.
@@ -185,6 +192,24 @@ export function setupPrompt(s: LlmSetup): string {
   const liqPct = s.leverage > 1 ? 100 / s.leverage : 100;
   const tfMin = TF_MINUTES[s.interval] ?? 0;
   const days = tfMin > 0 ? (s.samples * tfMin) / 1440 : 0;
+  // coinflip_check — điều kiện skip "barely above coin flip" được CHẤM SẴN:
+  // acc/auc cách coin-flip bao nhiêu điểm. Lỗi thật gặp ở model 7B: mượn
+  // rubric coin-flip cho một số liệu MẠNH ("val_acc=78.1% is above 50%" làm
+  // lý do skip). Chấm sẵn để model không còn chỗ diễn.
+  const accNotBarely = s.acc >= 60;
+  const aucNotBarely = s.auc >= 0.6;
+  const coinflipLine = `coinflip_check: val_acc=${s.acc.toFixed(1)}% (+${(s.acc - 50).toFixed(1)} pts, ${accNotBarely ? "not barely" : "barely"}) · val_auc=${s.auc.toFixed(3)} (+${(s.auc - 0.5).toFixed(3)}${aucNotBarely ? ", not barely" : ", barely"}) — the "barely above coin flip" skip condition ${accNotBarely && aucNotBarely ? "does NOT apply" : "MAY apply"}`;
+  // liq_check — liquidation cách SL bao nhiêu lần: x20 → liq 5% vs SL 1.2% là
+  // 4.2x (an toàn — SL luôn khớp trước liq). Ratio < 2x = SL đặt sát liq
+  // (gap giá xuyên SL → liq vẫn xảy ra); ratio < 1 = liq NẰM TRONG stop —
+  // chắc chắn chết trước stop. Cả hai là điều kiện skip thật theo rubric.
+  const liqRatio = s.slPct > 0 ? liqPct / s.slPct : 99;
+  const liqLine =
+    liqRatio < 1
+      ? `liq_check: liquidation ${liqPct.toFixed(1)}% is INSIDE the SL ${s.slPct.toFixed(1)}% (liq hits first) — dangerously close`
+      : liqRatio < 2
+        ? `liq_check: liquidation ${liqPct.toFixed(1)}% is only ${liqRatio.toFixed(1)}x beyond the SL ${s.slPct.toFixed(1)}% — dangerously close`
+        : `liq_check: liquidation ${liqPct.toFixed(1)}% is ${liqRatio.toFixed(1)}x beyond the SL ${s.slPct.toFixed(1)}% — NOT dangerously close`;
   return [
     `pair=${s.symbol} tf=${s.interval} side=${s.side}`,
     `model_quality: prob=${s.prob.toFixed(3)} confidence=${s.confidence.toFixed(2)} val_auc=${s.auc.toFixed(3)} val_acc=${s.acc.toFixed(1)}% train_samples=${s.samples} horizon=${s.horizon}bars`,
@@ -194,6 +219,8 @@ export function setupPrompt(s: LlmSetup): string {
     ...(rr > 0
       ? [`rr_check: tp/sl = ${rr.toFixed(2)} -> matches rr=1:${rr.toFixed(2)} above -> CONSISTENT`]
       : []),
+    coinflipLine,
+    liqLine,
     ...(typeof s.score === "number"
       ? [
           s.gatePassed
@@ -209,32 +236,34 @@ export function setupPrompt(s: LlmSetup): string {
 
 /**
  * Kiểm chéo lý do của model với số liệu trong setup — gắn cờ vào CUỐI lý do
- * nói bừa thay vì im lặng cho qua. KHÔNG lật verdict: skip hợp lệ vẫn skip,
- * chỉ biến lý do giả thành vô hình trước user (cờ hiện thẳng trên /ai).
- * Hai mẫu nói bừa đã gặp thật với model 7B:
- *   • "val_acc close to 50%" khi val_acc=70.8% — bảo acc gần coin-flip.
+ * sai thay vì im lặng cho qua. KHÔNG lật verdict: skip hợp lệ vẫn skip, chỉ
+ * biến lý do giả thành vô hình trước user (cờ hiện thẳng trên /ai).
+ * Ba mẫu lỗi đã gặp thật với model 7B:
  *   • "RR inconsistent" khi rr CHÍNH LÀ tp/sl chia nhau (không bao giờ lệch).
- * Lý do ĐÚNG giữ nguyên: "too few train samples" với 288 mẫu là đúng (scan chỉ
- * nạp KLINE_LIMIT=500 nến) — không cờ, để model vẫn skip được vì lý do thật.
+ *   • "val_acc close to 50%" khi val_acc=70.8% — mượn rubric coin-flip.
+ *   • "val_acc=78.1% is above 50%" trong verdict skip — số MẠNH vẫn bị quay
+ *     thành lý do skip. Mẫu này CHỈ sai khi verdict skip (trong verdict go
+ *     thì là lý do ủng hộ hợp lệ) → kiểm theo hướng verdict.
+ * Lý do ĐÚNG giữ nguyên: "train_samples=288 is small" với 288 mẫu là đúng
+ * (scan chỉ nạp KLINE_LIMIT=500 nến) — model vẫn được skip vì lý do thật.
  */
-export function factCheckReasons(reasons: string[], s: LlmSetup): string[] {
+export function factCheckReasons(reasons: string[], s: LlmSetup, verdict: "go" | "skip"): string[] {
   const rr = s.slPct > 0 ? s.tpPct / s.slPct : 0;
   return reasons.map((reason) => {
     const low = reason.toLowerCase();
-    // bảo "val_acc ~50%" trong khi acc ≥ 60 → sai số liệu
-    if (
-      s.acc >= 60 &&
-      low.includes("50") &&
-      /(val_acc|accuracy|acc)/.test(low) &&
-      /(close|near|around|about|almost|barely|approx|~|≈)/.test(low)
-    )
-      return `${reason} ⚠ sai số liệu: val_acc=${s.acc.toFixed(1)}%`;
-    // bảo RR lệch trong khi rr = tp/sl (cùng công thức với số trên prompt)
+    // bảo RR lệch trong khi rr = tp/sl (cùng công thức với số trên prompt) — sai mọi verdict
     if (
       /(rr|r:r|reward).*(inconsist|mismatch|not match|do not match|doesn.t match|wrong)/.test(low) ||
       /(inconsist|mismatch|wrong).*(rr|r:r|reward)/.test(low)
     )
       return `${reason} ⚠ sai số liệu: tp/sl=${rr.toFixed(2)} = rr 1:${rr.toFixed(2)}`;
+    // verdict skip nhưng mượn coin-flip cho số liệu MẠNH → vô lý
+    if (verdict === "skip") {
+      if (s.acc >= 60 && /(val_acc|accuracy|acc)/.test(low) && /(50|coin.?flip)/.test(low))
+        return `${reason} ⚠ trái coinflip_check: val_acc=${s.acc.toFixed(1)}% cao hơn coin-flip ${(s.acc - 50).toFixed(1)} điểm`;
+      if (s.auc >= 0.6 && /(val_auc|auc)/.test(low) && /(0\.5|coin.?flip)/.test(low))
+        return `${reason} ⚠ trái coinflip_check: val_auc=${s.auc.toFixed(3)} cao hơn 0.5 tới ${(s.auc - 0.5).toFixed(3)}`;
+    }
     return reason;
   });
 }
@@ -319,9 +348,9 @@ export async function llmReviewDebug(
           .slice(0, 3)
           .map((x) => x.slice(0, 120))
       : [];
-    // kiểm chéo lý do với số liệu trong setup — lý do nói bừa bị gắn cờ thay
-    // vì im lặng cho qua (verdict giữ nguyên: không tự ý lật skip→go)
-    const reasons = factCheckReasons(rawReasons, s);
+    // kiểm chéo lý do với số liệu trong setup — lý do nói bừa/trái checks bị
+    // gắn cờ thay vì im lặng cho qua (verdict giữ nguyên: không tự ý lật)
+    const reasons = factCheckReasons(rawReasons, s, verdict);
     const confidence = typeof parsed.confidence === "number" ? Math.min(1, Math.max(0, parsed.confidence)) : 0.5;
     return {
       ok: true,
