@@ -49,6 +49,15 @@ const baseOf = (url: string): string =>
     .replace(/\/+$/, "")
     .replace(/\/v1$/, "");
 
+/** optional bearer auth — đặt LLM_API_KEY trong .env khi llama-server chạy
+ *  với --api-key (bắt buộc nếu llama nằm sau tunnel/internet, không kịp thời
+ *  thì ai biết URL cũng gọi được model của bạn) */
+const apiKey = (): string => process.env.LLM_API_KEY?.trim() || "";
+const jsonHeaders = (): Record<string, string> => ({
+  "Content-Type": "application/json",
+  ...(apiKey() ? { Authorization: `Bearer ${apiKey()}` } : {}),
+});
+
 const SYSTEM_PROMPT = [
   "You are the risk-control officer of a crypto futures paper-trading bot.",
   "A gradient-boosted tree model picked a setup. Review it against the rubric and reply with ONLY one JSON object:",
@@ -83,7 +92,7 @@ export async function llmReviewViaApi(
     const res = await fetch("/api/llm/review", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      signal: AbortSignal.timeout(14_000),
+      signal: AbortSignal.timeout(95_000), // browser chờ cùng nhịp server→llama (llama CPU có thể 30-90s)
       body: JSON.stringify({ url, model, setup: s }),
     });
     if (!res.ok) return null;
@@ -159,7 +168,7 @@ export async function llmReviewDebug(
     });
     let res = await fetch(`${baseOf(url)}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       signal: AbortSignal.timeout(timeoutMs),
       body: JSON.stringify(payload(true)),
     });
@@ -167,7 +176,7 @@ export async function llmReviewDebug(
     if (res.status === 400) {
       res = await fetch(`${baseOf(url)}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: jsonHeaders(),
         signal: AbortSignal.timeout(timeoutMs),
         body: JSON.stringify(payload(false)),
       });
