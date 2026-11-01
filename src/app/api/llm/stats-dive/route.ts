@@ -1,9 +1,8 @@
 // ─── /api/llm/stats-dive — LLM phân tích nguyên nhân gốc trên thống kê thật ──
 // POST (no body) → LlmTextResult { ok, text, detail, ms, url, model, prompt }.
 // Gom StatsSnapshot (cùng nguồn với /api/stats — MỘT nguồn không thể lệch),
-// nhét vào prompt, llama-server trả văn bản phân tích tiếng Việt. KHÔNG đụng
-// engine state; timeout 300s (LLM_TIMEOUT_MS) vì văn bản dài hơn verdict
-// go/skip nhiều.
+// Prompt is English-only long-form RCA. Does not touch engine state.
+// Timeout floor 300s (up to 600s) — deeper generation than go/skip verdicts.
 // 0.2.36: kết quả dive — kể cả fail — được LƯU vào bảng DiveReport (trước giờ
 // chạy xong chỉ hiện trên UI rồi mất, không so sánh dọc được). POST trả ngay,
 // việc lưu chạy nền; GET ?limit → lịch sử các lần dive đã lưu.
@@ -38,7 +37,15 @@ function resolveEndpoint(): { url: string; model: string } {
 export async function POST() {
   const { url, model } = resolveEndpoint();
   const snap = await buildStatsSnapshot();
-  const r = await llmStatsDive(url, model, JSON.stringify(snap), LLM_TIMEOUT_MS);
+  // Prefer engine cfg timeout when higher; floor 300s, cap 600s for long-form English RCA
+  let timeoutMs = Math.max(LLM_TIMEOUT_MS, 300_000);
+  try {
+    const sec = engineSnapshot().cfg?.llmTimeoutSec;
+    if (typeof sec === "number" && sec >= 60) timeoutMs = Math.min(600_000, Math.max(timeoutMs, sec * 1000));
+  } catch {
+    /* engine not ready */
+  }
+  const r = await llmStatsDive(url, model, JSON.stringify(snap), timeoutMs);
   // lưu bài phân tích vào DB — fire-and-forget, kể cả !ok (lỗi LLM cũng là dữ
   // kiện đáng nhớ: "hôm đó nó chết, không audit được"); lỗi lưu chỉ log.
   const modelName = (r.model ?? model ?? "").slice(0, 80);

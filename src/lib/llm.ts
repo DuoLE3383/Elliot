@@ -526,15 +526,18 @@ export interface LlmTextResult {
 }
 
 const STATS_DIVE_SYSTEM = [
-  "You are the quantitative auditor of the Elliott paper-trading bot (paper/dry-run only).",
-  "The JSON snapshot has sections with metrics, note (automated consistency check), accPct, and accNote.",
-  "CRITICAL DEFINITION: accPct is the Wilson 95% lower bound on a win-rate (or similar rate). It measures STATISTICAL CONFIDENCE given sample size n — NOT model accuracy, NOT code correctness, NOT 'acc' from XGBoost. Low accPct with small n means 'do not trust the win-rate figure yet', not 'the engine is broken'.",
-  "Write in Vietnamese, max ~350 words, tight bullets:",
-  "1) Consistency: for each section, state ok/warn from the note field only. Do not invent inconsistencies.",
-  "2) Risks ranked: prioritize (a) warn state, (b) negative net ROE with WR below break-even after fees, (c) tiny n (accPct low = uncertainty), (d) stale scan timestamps if present. Never treat low accPct as a math bug.",
-  "3) Verdict: can these numbers support a *parameter* decision (gates, stake, TF) or only 'need more samples'?",
-  "4) Actions: 3 items max, each must be (section key + number from JSON + one concrete UI/engine knob). Forbidden actions: 'increase universe scan frequency' (fixed 8h by design), 'recheck universe formula' when state=ok, 'increase leverage' when WR < 50%, vague 'train more'. Allowed: raise minScore/minAuc, lower riskPct, disable weak TFs, wait for n>=30 closed, keep fail-OPEN/CLOSED as configured.",
-  "HARD RULES: numbers only from JSON; no live-trade advice; no repeating the JSON; no contradictory pairs (e.g. both raise and cut leverage).",
+  "You are the quantitative auditor of the Elliott paper-trading bot (paper / dry-run only).",
+  "The user message is ONE JSON statistics snapshot. Each section includes metrics, note (automated consistency check), accPct, and accNote.",
+  "CRITICAL: accPct is the Wilson 95% lower bound on a rate given sample size n. It is STATISTICAL CONFIDENCE of the reported win-rate (or similar), NOT model accuracy, NOT code correctness, NOT XGBoost 'acc'. Low accPct with small n means 'do not trust the WR figure yet' — not 'the engine is broken'.",
+  "OUTPUT LANGUAGE: English only. Do not write Vietnamese.",
+  "FORMAT (tight bullets, ~400–700 words if needed for clarity):",
+  "1) Consistency — for each section key: ok or warn, using only the note field. Do not invent inconsistencies.",
+  "2) Risks ranked — priority order: (a) state=warn, (b) negative net ROE with WR below break-even, (c) tiny n (low accPct = uncertainty), (d) stale scan/universe timestamps if present. Never treat low accPct as a math bug.",
+  "3) Verdict — one paragraph: can these numbers support a *parameter* decision (gates, stake, TF) or only 'need more samples'?",
+  "4) Actions — at most 3 items. Each item MUST be: section key + a number from the JSON + one concrete engine/UI knob.",
+  "FORBIDDEN actions: change universe re-rank cadence (fixed 8h); 'recheck universe formula' when state=ok; increase leverage when WR < 50%; raise scan frequency when Dock is already sub-15m; vague 'train more' without a knob.",
+  "ALLOWED actions: raise minScore / minAuc / minAcc; lower riskPct or leverage; disable weak TFs; wait for n>=30 closed; leave LLM fail-OPEN/CLOSED as configured.",
+  "HARD RULES: use only numbers present in the JSON; no live-trading advice; do not paste the JSON; no contradictory action pairs.",
 ].join(" ");
 
 /**
@@ -546,7 +549,8 @@ export async function llmStatsDive(
   url: string,
   model: string,
   snapshotJson: string,
-  timeoutMs = LLM_TIMEOUT_MS,
+  /** Stats dive is long-form; default floor 300s even if review timeout is lower. */
+  timeoutMs = Math.max(LLM_TIMEOUT_MS, 300_000),
 ): Promise<LlmTextResult> {
   const started = Date.now();
   const base = { prompt: snapshotJson.slice(0, 4000), url, model };
@@ -559,10 +563,15 @@ export async function llmStatsDive(
         model: model.trim() || LLM_MODEL_DEFAULT,
         messages: [
           { role: "system", content: STATS_DIVE_SYSTEM },
-          { role: "user", content: `STATS SNAPSHOT (chỉ được dùng các số trong này):\n${snapshotJson}` },
+          {
+            role: "user",
+            content:
+              "STATS SNAPSHOT (use ONLY numbers that appear below; answer in English):\n" +
+              snapshotJson,
+          },
         ],
-        temperature: 0.2,
-        max_tokens: 900,
+        temperature: 0.15,
+        max_tokens: 1600,
       }),
     });
     const ms = Date.now() - started;
