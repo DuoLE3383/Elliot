@@ -75,6 +75,7 @@ import { enqueueJob, jobViews } from "./engine-jobs";
 import { directionalPnl, outcomeOf } from "./history";
 import {
   LLM_FAIL_CLOSED,
+  LLM_TIMEOUT_MS,
   NOISE_BAND,
   SCAN_FRESH_MS,
   SCAN_TTL,
@@ -716,7 +717,7 @@ async function broadcastTick(): Promise<void> {
   if (rows.length === 0) return;
   const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
   const state = loadBcastState();
-  let built: Awaited<ReturnType<typeof buildTopCoinsMessage>> = null;
+  let built: Awaited<ReturnType<typeof buildTopCoinsMessage>> | null = null;
   try {
     // MỘT thuật toán gate — uniSet truyền thẳng vào gateRow, mọi combo đều
     // được chấm (kể cả ngoài universe) và phán quyết được ghi vào DB;
@@ -730,6 +731,7 @@ async function broadcastTick(): Promise<void> {
     console.error(`[engine] broadcast build failed: ${e instanceof Error ? e.message : e}`);
     return;
   }
+  if (!built) return; // phòng thủ — catch đã return, nhánh này chỉ để TS thu hẹp kiểu
   // verdicts → bảng BcastVerdict (custom.db) — nguồn chung panel + Telegram
   try {
     for (const vd of built.verdicts) {

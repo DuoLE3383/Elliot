@@ -439,5 +439,5 @@ export async function buildTopCoinsMessage(
   ];
   for (const c of picked) out.push(...coinBlock(c), "");
   out.push(HEAVY_LINE, `📊 Tổng: ${picked.length} coins đạt tiêu chí`, `⏱ Quét lại sau 5 phút`);
-  return { text: out.join("\n"), picked: picked.map((c) => c.row) };
+  return { text: out.join("\n"), picked: picked.map((c) => c.row), verdicts: [] };
 }

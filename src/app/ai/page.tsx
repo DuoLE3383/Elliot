@@ -72,6 +72,7 @@ interface LlmTestInfo {
   url: string;
   model: string;
   ms: number;
+  bodySnippet?: string;
 }
 
 interface KnobGroup {
@@ -549,8 +550,14 @@ export default function AiPage() {
                   <span className="ml-auto text-zinc-500">{llmTest.ms}ms</span>
                   {llmTest.detail !== "ok" && <span className="text-amber-400">{llmTest.detail}</span>}
                 </div>
-                {llmTest.detail === "http-404" && (
+                {llmTest.detail === "http-404" && !llmTest.prompt && (
                   <p className="text-amber-400">{t(lang, "ai.llm.test.h404")}</p>
+                )}
+                {llmTest.detail === "http-404" && !!llmTest.prompt && (
+                  <p className="text-amber-400">{t(lang, "ai.llm.test.h404llm")}</p>
+                )}
+                {llmTest.detail.startsWith("http-") && llmTest.bodySnippet && (
+                  <p className="text-zinc-500">↳ {llmTest.bodySnippet}</p>
                 )}
                 {llmTest.verdict?.reasons.map((rs, i) => (
                   <p key={i} className="text-zinc-300">

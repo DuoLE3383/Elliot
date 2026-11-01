@@ -43,6 +43,10 @@ import {
 /** Binance USDT-M Futures — same board the chart reads, prices can differ from spot */
 const HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com"];
 
+// symbol tham chiếu cho radar đòn bẩy (squeeze report) trong tin session —
+// bị mất khai báo khi refactor params.ts (a4a8e64) → ReferenceError lúc chạy
+const BCAST_SYMBOL = "BTCUSDT";
+
 const NAME: Record<SessionKey, string> = { sydney: "Sydney", tokyo: "Tokyo", london: "London", newyork: "New York" };
 const HR = "━━━━━━━━━━━━━━━━━━━━";
 const pad2 = (n: number): string => String(n).padStart(2, "0");

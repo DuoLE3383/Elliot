@@ -125,6 +125,8 @@ export interface LlmDebugResult {
   url: string;
   model: string;
   ms: number;
+  /** body của response lỗi (≤240 ký tự) — giúp nhận diện server đang đứng sau LLM_URL */
+  bodySnippet?: string;
 }
 
 /**
@@ -171,7 +173,10 @@ export async function llmReviewDebug(
       });
     }
     const ms = Date.now() - started;
-    if (!res.ok) return { ok: false, verdict: null, raw: "", detail: `http-${res.status}`, ...base, ms };
+    if (!res.ok) {
+      const bodySnippet = (await res.text().catch(() => "")).slice(0, 240);
+      return { ok: false, verdict: null, raw: "", detail: `http-${res.status}`, bodySnippet, ...base, ms };
+    }
     const j = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const text = j.choices?.[0]?.message?.content ?? "";
     const m = text.match(/\{[\s\S]*\}/);
