@@ -166,7 +166,7 @@ function loadEngine(): void {
       const p = g.__elliottEngine.p;
       if (raw.cfg) {
         p.cfg = { ...AUTO_DEFAULTS, ...raw.cfg };
-        // sàn chung — kẹp + migration legacy 0.55/55 (thời "no UI") trong một nguồn
+        // ngưỡng chung — kẹp + migration legacy 0.55/55 (thời "no UI") trong một nguồn
         Object.assign(p.cfg, sanitizeFloors(p.cfg.minAuc, p.cfg.minAcc, p.cfg.minScore));
         p.cfg.runTf = sanitizeRunTf(p.cfg.runTf);
       }
@@ -794,7 +794,7 @@ async function broadcastTick(): Promise<void> {
   try {
     // MỘT thuật toán gate — uniSet truyền thẳng vào gateRow, mọi combo đều
     // được chấm (kể cả ngoài universe) và phán quyết được ghi vào DB;
-    // sp = cùng bộ ba sàn chung mà entry/DCA đang dùng (cfg — panel chỉnh một chỗ)
+    // sp = cùng bộ ba ngưỡng chung mà entry/DCA đang dùng (cfg — panel chỉnh một chỗ)
     built = await buildTopCoinsMessage(rows, tickers, state, uniSet, {
       score: p.cfg.minScore,
       auc: p.cfg.minAuc,
@@ -981,7 +981,7 @@ async function resolveTick(): Promise<void> {
  * LLM Risk Officer duyệt MỘT setup — dùng chung cho cả luồng vào lệnh thường
  * (cycleTick §2.5) và luồng LẬT CHIỀU (tryFlip): nạp bài học autopsy của cặp,
  * gọi llama, ghi llmLast (kể cả unreachable — hết "chốt chặn im lặng"), gửi
- * tin veto. LLM CHẾT thì tuỳ knob LLM_FAIL_CLOSED: fail-open (mặc định) cho
+ * tin veto. LLM CHẾT thì tuỳ tham số LLM_FAIL_CLOSED: fail-open (mặc định) cho
  * qua đường XGBoost-only; fail-closed chặn (vetoed=true). Verdict trả về để
  * caller ghi vào cột llmVerdict/llmReason của lệnh (autopsy đối chiếu sau).
  * Setup kèm champ_check — champion–challenger: LLM thấy model đang đứng gần
@@ -1116,7 +1116,7 @@ async function cycleTick(): Promise<void> {
           await tryFlip(open, row, price);
           return;
         }
-        // có tín hiệu ngược chiều nhưng chưa đạt sàn → hiện rõ LÝ DO chờ,
+        // có tín hiệu ngược chiều nhưng chưa đạt ngưỡng → hiện rõ LÝ DO chờ,
         // không âm thầm; model đồng thuận/NEUTRAL → giữ status ROE như cũ
         v.lastCycleStatus =
           row && row.bias !== "NEUTRAL" && row.bias !== open.side ? `${base} · flip chờ: ${d.why}` : base;
@@ -1196,11 +1196,11 @@ async function cycleTick(): Promise<void> {
     const entrySl = c.tpMode === "manual" ? c.slPct : c.tpMode === "atr" && live ? live.slPct : best.slPct;
     const entryTp = c.tpMode === "manual" ? c.tpPct : c.tpMode === "atr" && live ? live.tpPct : best.tpPct;
 
-    // 2.5) LLM risk officer — silent. LLM CHẾT thì tuỳ knob LLM_FAIL_CLOSED:
+    // 2.5) LLM risk officer — silent. LLM CHẾT thì tuỳ tham số LLM_FAIL_CLOSED:
     //  • fail-open (mặc định)  → lệnh vẫn vào đường XGBoost-only, nhưng lượt
     //    duyệt bị bỏ qua được ghi llmLast "unreachable" (trang /ai hiện rõ —
     //    hết cảnh "chốt chặn cuối im lặng vô hình").
-    //  • fail-closed (knob on) → không duyệt được = không mở lệnh.
+    //  • fail-closed (bật) → không duyệt được = không mở lệnh.
     // Track record thật của bot (st.stats) đi kèm setup — LLM phán trên bằng
     // chứng vận hành, không chỉ metrics của một run train đơn lẻ.
     const closedN = st.stats.closed;
@@ -1276,7 +1276,7 @@ async function cycleTick(): Promise<void> {
 //      vào lệnh thường.
 //   3. Risk Officer duyệt lệnh đảo chiều qua llmGate (chung luồng vào lệnh):
 //      veto → đứng ngoài chờ chu kỳ sau; unreachable → fail-open/closed theo
-//      knob như entry thường.
+//      tham số như entry thường.
 //   4. Mở lệnh ngược chiều trên CÙNG combo (race-safe như luồng thường) +
 //      Telegram. Trả true = lệnh cũ đã xử lý xong (kể cả khi không mở lệnh mới).
 
@@ -1396,11 +1396,11 @@ async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "c
   if (!scan || Date.now() - scan.at > SCAN_TTL) return false;
   const row = scan.rows.find((r) => r.symbol === open.symbol && r.interval === open.interval);
   if (!row || row.bias !== open.side || Math.abs(row.prob - 0.5) < NOISE_BAND) return false;
-  // model-quality floor — SÀN CHUNG (cùng bộ ba với broadcast gate): model dưới
-  // sàn thì không bù thêm — để SL làm việc
+  // model-quality floor — NGƯỠNG CHUNG (cùng bộ ba với broadcast gate): model dưới
+  // ngưỡng thì không bù thêm — để SL làm việc
   if (row.auc < c.minAuc || row.acc < c.minAcc || row.score < c.minScore) {
     console.info(
-      `[engine] DCA ${open.symbol} ${open.interval} bỏ: model thoái hóa AUC ${row.auc.toFixed(2)} / ACC ${row.acc.toFixed(1)}% / điểm ${row.score.toFixed(1)} dưới sàn chung ${c.minAuc.toFixed(2)} / ${c.minAcc.toFixed(0)}% / ${c.minScore} — để SL làm việc`,
+      `[engine] DCA ${open.symbol} ${open.interval} bỏ: model thoái hóa AUC ${row.auc.toFixed(2)} / ACC ${row.acc.toFixed(1)}% / điểm ${row.score.toFixed(1)} dưới ngưỡng chung ${c.minAuc.toFixed(2)} / ${c.minAcc.toFixed(0)}% / ${c.minScore} — để SL làm việc`,
     );
     return false;
   }
@@ -1503,7 +1503,7 @@ export function syncEngine(input: {
   const { p } = eng();
   if (input.cfg) {
     p.cfg = { ...p.cfg, ...input.cfg };
-    // sàn chung — browser gửi gì cũng bị kẹp về vùng hợp lệ (một nguồn với
+    // ngưỡng chung — browser gửi gì cũng bị kẹp về vùng hợp lệ (một nguồn với
     // engine.json/localStorage); migration legacy nằm trong sanitizeFloors
     Object.assign(p.cfg, sanitizeFloors(p.cfg.minAuc, p.cfg.minAcc, p.cfg.minScore));
     p.cfg.runTf = sanitizeRunTf(p.cfg.runTf);
@@ -1524,7 +1524,7 @@ export function syncEngine(input: {
   if (!p.cfg.on) p.nextCycleAt = 0;
   persistEngine();
   console.log(
-    `[engine] synced — pairs ${p.pairs.length} · TF ${p.cfg.runTf.join("/")} · sàn ${p.cfg.minScore}/${p.cfg.minAuc}/${p.cfg.minAcc} (điểm/AUC/ACC) · auto ${p.cfg.on ? "ON" : "off"} · broadcast ${p.cfg.broadcast ? "ON" : "off"} · cycle ${p.cfg.cycleMin}m`,
+    `[engine] synced — pairs ${p.pairs.length} · TF ${p.cfg.runTf.join("/")} · ngưỡng ${p.cfg.minScore}/${p.cfg.minAuc}/${p.cfg.minAcc} (điểm/AUC/ACC) · auto ${p.cfg.on ? "ON" : "off"} · broadcast ${p.cfg.broadcast ? "ON" : "off"} · cycle ${p.cfg.cycleMin}m`,
   );
 }
 
@@ -1613,7 +1613,7 @@ export function startEngineScheduler(): void {
     try {
       // hourly / daily stat digests (marker-guarded inside the lib) — 0.2.35:
       // KHÔNG còn đòi cfg.on: thống kê là báo cáo, không phải phần của auto
-      // trading — bật knob Giờ/Ngày là chảy, auto tắt vẫn chảy
+      // trading — bật chế độ Giờ/Ngày là chảy, auto tắt vẫn chảy
       if (p.cfg.statHourly || p.cfg.statDaily) {
         await pushAutoDigests({ hourly: p.cfg.statHourly, daily: p.cfg.statDaily }).catch(() => undefined);
       }

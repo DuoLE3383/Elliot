@@ -128,7 +128,7 @@ export const msgLlmVeto = (r: ScanRow, v: LlmVerdict): string =>
   ].join("\n");
 
 /**
- * Autopsy notice — lệnh ĐÃ ĐÓNG được LLM mổ xẻ (cả thắng lẫn thua): tag chế độ
+ * Autopsy notice — lệnh ĐÃ ĐÓNG được LLM phân tích chuyên sâu (cả thắng lẫn thua): tag chế độ
  * thắng/thua + bài học + các why trích số. Tham số khai báo structural (không
  * import autopsy.ts) để tránh vòng import — đủ hình dạng là ghép được.
  */

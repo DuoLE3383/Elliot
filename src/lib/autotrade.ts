@@ -98,8 +98,8 @@ export function rowOf(res: XgbResult, symbol: string, interval: string): ScanRow
 
 /** Cổng tradeable dùng chung MỌI tầng: mở lệnh, bù DCA, best-pick. minScore = 0
  *  nghĩa là không chấm điểm (giữ backward-compat cho test); engine luôn truyền
- *  sàn chung cfg.minScore. Model dưới sàn nào trong ba (AUC/ACC/Điểm) thì đứng
- *  ngoài — một setpoint duy nhất, không có sàn riêng thứ hai. */
+ *  ngưỡng chung cfg.minScore. Model dưới ngưỡng nào trong ba (AUC/ACC/Điểm) thì đứng
+ *  ngoài — một setpoint duy nhất, không có ngưỡng riêng thứ hai. */
 export const isTradeable = (r: ScanRow, minAuc: number, minAcc: number, minScore = 0): boolean =>
   r.bias !== "NEUTRAL" && r.auc >= minAuc && r.acc >= minAcc && (minScore <= 0 || r.score >= minScore);
 
@@ -152,7 +152,7 @@ export function llmTestSetup(
     setup,
     source: gated
       ? `setup THẬT — ứng viên tốt nhất engine đang thấy: ${id} · score ${pick.score.toFixed(1)} · đạt gate`
-      : `setup THẬT — top scan: ${id} · score ${pick.score.toFixed(1)} · CHƯA đạt gate (engine chưa có ứng viên đủ sàn)`,
+      : `setup THẬT — top scan: ${id} · score ${pick.score.toFixed(1)} · CHƯA đạt gate (engine chưa có ứng viên đủ ngưỡng)`,
   };
 }
 
@@ -299,7 +299,7 @@ export function bestTradeableAvoid(
   whaleFilter = true,
   /** khử nhiễu XGBoost — skip coin-flip probs (|P−0.5| < band); 0 = tắt */
   noiseBand = NOISE_BAND,
-  /** sàn điểm của cùng bộ setpoint chung — 0 = không chấm điểm */
+  /** ngưỡng điểm của cùng bộ setpoint chung — 0 = không chấm điểm */
   minScore = 0,
 ): { best: ScanRow | null; allInCooldown: boolean; cands: ScanRow[]; regressedCount: number } {
   // whaleFilter (default on) skips combos whose last closed candle is a full
@@ -324,7 +324,7 @@ export function bestTradeableAvoid(
 
 // ─── Auto-flip — thị trường luôn biến động, dự báo chỉ là dự báo ─────────────
 // Khi lệnh đang mở mà scan mới của CÙNG cặp/khung đảo chiều với tín hiệu ĐỦ
-// TIN CẬY (cùng sàn chất lượng với vào lệnh + noise band + không regressed +
+// TIN CẬY (cùng ngưỡng chất lượng với vào lệnh + noise band + không regressed +
 // sạch nến whale), engine lật lệnh NGAY thay vì ôm chiều cũ đến SL/TP. Hàm
 // này là bộ LOẠI thuần (không IO) — engine gọi rồi tự đóng/mở; test chạy thẳng.
 
@@ -338,7 +338,7 @@ export interface FlipDecision {
 /**
  * Đủ tin cậy để lật chiều lệnh `open` theo scan row `row` (CÙNG symbol+interval)?
  *  • row phải có bias NGƯỢC phía lệnh (NEUTRAL = model bỏ cuộc → không lật theo nhiễu)
- *  • cùng SÀN CHẤT LƯỢNG với vào lệnh: minAuc/minAcc/minScore (isTradeable)
+ *  • cùng NGƯỠNG CHẤT LƯỢNG với vào lệnh: minAuc/minAcc/minScore (isTradeable)
  *  • không regressed vs champion (mỗi lần lật phải tín hiệu thật, không phải model hỏng)
  *  • ngoài noise band |P−0.5| ≥ NOISE_BAND — model dứt khoát, không coin-flip
  *  • whale filter (nếu bật): nến khối lượng ≥4σ là bẫy wick, không lật vào đó
@@ -354,7 +354,7 @@ export function flipDecision(
   if (!isTradeable(row, cfg.minAuc, cfg.minAcc, cfg.minScore))
     return {
       ok: false,
-      why: `tín hiệu ngược chiều chưa đạt sàn (AUC ${row.auc.toFixed(2)} / ACC ${row.acc.toFixed(1)}% / điểm ${row.score.toFixed(1)})`,
+      why: `tín hiệu ngược chiều chưa đạt ngưỡng (AUC ${row.auc.toFixed(2)} / ACC ${row.acc.toFixed(1)}% / điểm ${row.score.toFixed(1)})`,
     };
   if (row.regressed) return { ok: false, why: "model combo này đang thoái hoá vs champion" };
   if (Math.abs(row.prob - 0.5) < NOISE_BAND) return { ok: false, why: "tín hiệu trong dải nhiễu coin-flip" };
@@ -744,11 +744,11 @@ export interface AutoConfig {
   /** các khung giờ engine CHẠY (scan + train + vào lệnh) — bật tắt trên panel;
    *  khung tắt bị bỏ hẳn khỏi vòng quét/train kế tiếp */
   runTf: string[];
-  /** SÀN CHẤT LƯỢNG CHUNG — một bộ ba setpoint duy nhất áp cho MỌI tầng: mở
+  /** NGƯỠNG CHẤT LƯỢNG CHUNG — một bộ ba setpoint duy nhất áp cho MỌI tầng: mở
    *  lệnh, bù DCA và đăng broadcast (gateRow). Chỉnh một chỗ trên Auto panel. */
   minAuc: number;
   minAcc: number;
-  /** min score (= (AUC−0.5)×100 + (ACC−50) + tin cậy×15) — lọc model đạt sàn
+  /** min score (= (AUC−0.5)×100 + (ACC−50) + tin cậy×15) — lọc model đạt ngưỡng
    *  metrics nhưng thiếu tự tin */
   minScore: number;
   /** wait after an SL exit on the same combo, minutes (0 = off) */
@@ -771,7 +771,7 @@ export interface AutoConfig {
   /** broadcast the "TOP coin tiềm năng" scan digest to Telegram every 5 min */
   broadcast: boolean;
   /** LẬT CHIỀU TỰ ĐỘNG — khi lệnh đang mở và scan mới của CÙNG cặp/khung đảo
-   *  chiều với tín hiệu đạt đủ sàn chất lượng (cùng gate vào lệnh + noise band
+   *  chiều với tín hiệu đạt đủ ngưỡng chất lượng (cùng gate vào lệnh + noise band
    *  + không regressed), engine đóng lệnh cũ (exitKind "flip") và mở lệnh
    *  ngược chiều NGAY trong chu kỳ đó. Thị trường luôn biến động — dự báo chỉ
    *  là dự báo; flip là cách bot theo kịch. false = giữ lệnh tới TP/SL. */
@@ -788,7 +788,7 @@ export const AUTO_DEFAULTS: AutoConfig = {
   atrCoef: 1.5,
   cycleMin: 5,
   runTf: [...INTERVALS],
-  // sàn chung mặc định = setpoint broadcast 31/10 (60 / 0.8 / 70) — đồng bộ
+  // ngưỡng chung mặc định = setpoint broadcast 31/10 (60 / 0.8 / 70) — đồng bộ
   // BCAST_* trong bcast-gate.ts; migration từ 0.55/55 thời "no UI" nằm ở
   // loadAutoConfig + engine.loadEngine
   minAuc: 0.8,
@@ -833,10 +833,10 @@ export function sanitizeRunTf(v: unknown): string[] {
   return list.length ? [...list] : [...INTERVALS];
 }
 
-/** Kẹp bộ ba SÀN CHẤT LƯỢNG CHUNG vào vùng hợp lệ — dùng ở MỌI cửa nhận cfg
+/** Kẹp bộ ba NGƯỠNG CHẤT LƯỢNG CHUNG vào vùng hợp lệ — dùng ở MỌI cửa nhận cfg
  *  (localStorage, engine.json, POST /api/engine sync) để không đường nào đánh
  *  lọt giá trị lệch. Migration: bộ 0.55/55 là default thời minAuc/minAcc còn
- *  "no UI" (trước 1/11) — chưa từng được chỉnh tay nên nâng thẳng lên sàn
+ *  "no UI" (trước 1/11) — chưa từng được chỉnh tay nên nâng thẳng lên ngưỡng
  *  chung mới thay vì giữ lại. */
 export function sanitizeFloors(
   auc: unknown,
@@ -867,7 +867,7 @@ export function loadAutoConfig(): AutoConfig {
       tpPct: typeof p.tpPct === "number" ? Math.min(30, Math.max(0.2, p.tpPct)) : AUTO_DEFAULTS.tpPct,
       atrCoef: typeof p.atrCoef === "number" && p.atrCoef > 0 ? Math.min(5, Math.max(0.5, p.atrCoef)) : AUTO_DEFAULTS.atrCoef,
       cycleMin: CYCLE_CHOICES.some((c) => c.m === p.cycleMin) ? (p.cycleMin as number) : AUTO_DEFAULTS.cycleMin,
-      // sàn chung — kẹp + migration legacy trong sanitizeFloors (một nguồn)
+      // ngưỡng chung — kẹp + migration legacy trong sanitizeFloors (một nguồn)
       ...sanitizeFloors(p.minAuc, p.minAcc, p.minScore),
       cooldownMin: COOLDOWN_CHOICES.includes(p.cooldownMin as 0 | 15 | 30 | 60)
         ? (p.cooldownMin as number)

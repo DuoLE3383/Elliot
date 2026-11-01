@@ -2,7 +2,7 @@
 // POST (no body) → LlmDebugResult (prompt / raw / verdict / ms / detail / setupSource)
 //
 // Mục đích: llama-server là inference-only (KHÔNG có gì để "train"), nên nút
-// test trên /ai bắn một setup qua ĐÚNG hàm llmReview production — cùng system
+// test trên /ai gửi một setup qua ĐÚNG hàm llmReview production — cùng system
 // prompt, cùng rubric, cùng đường parse JSON — để user thấy được:
 //   • llama-server còn sống không, phản hồi nhanh bao nhiêu (ms)
 //   • model nói gì với setup ĐÓ (verdict go/skip + lý do)

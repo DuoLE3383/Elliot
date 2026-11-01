@@ -55,7 +55,7 @@ export interface GateCtx {
   uniSyms?: Set<string>;
   /** quoteVolume 24h từ ticker (khi có — pre-filter trước khi trả tiền fetch kline) */
   tickerVol?: number;
-  /** sàn chất lượng chung từ cfg — KHÔNG truyền → dùng BCAST_* mặc định.
+  /** ngưỡng chất lượng chung từ cfg — KHÔNG truyền → dùng BCAST_* mặc định.
    *  Cùng bộ ba này còn được isTradeable() dùng lúc mở lệnh/bù DCA. */
   sp?: QualSp;
 }

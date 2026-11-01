@@ -29,7 +29,7 @@ import { DEFAULT_SETTINGS, type Kline } from "./types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-/** Không gian cấu hình một biến thể — đúng các knob engine có thật. */
+/** Không gian cấu hình một biến thể — đúng các tham số engine có thật. */
 export interface LabConfig {
   slPct: number;
   tpPct: number;

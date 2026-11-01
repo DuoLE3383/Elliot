@@ -773,7 +773,7 @@ export function rocAuc(y: number[], p: number[]): number {
   return (sumPos - (nPos * (nPos + 1)) / 2) / (nPos * nNeg);
 }
 
-// ─── Calibration — prob "nói thật" trên val split (params.ts §6c) ─────────────
+// ─── Calibration — prob sát thực tế trên val split (params.ts §6c) ─────────────
 
 const LOGIT_EPS = 1e-6;
 /** logit an toàn — kẹp cả hai mép để không overflow khi prob bão hoà 0/1. */
@@ -904,9 +904,9 @@ export interface ReliabilityBin {
   hi: number;
   /** số mẫu val trong bucket */
   n: number;
-  /** prob trung bình model hứa trong bucket */
+  /** prob trung bình model dự báo trong bucket */
   avgP: number;
-  /** tỉ lệ thắng THẬT của bucket — chênh xa avgP là model vẫn nói phét */
+  /** tỉ lệ thắng thực tế của bucket — chênh lệch xa avgP nghĩa là prob còn sai lệch */
   win: number;
 }
 
@@ -1110,7 +1110,7 @@ export async function runXgb(
   const valP = winner.valP;
   const correct = valP.reduce((acc, p, i) => acc + ((p >= 0.5 ? 1 : 0) === valY[i] ? 1 : 0), 0);
 
-  // ── calibration — prob nói thật trước khi thành confidence/bias/score ──────
+  // ── calibration — prob sát thực tế trước khi thành confidence/bias/score ──
   // Fit trên CHÍNH val split (out-of-sample) rồi áp lên probNow. AUC/ACC/logloss
   // giữ nguyên (Platt với a>0 đơn điệu tăng) — chỉ phần "đọc" prob được sửa.
   const plattFit = CALIBRATE ? fitPlatt(valP, valY) : null;

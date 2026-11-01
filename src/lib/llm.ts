@@ -33,7 +33,7 @@ export interface LlmSetup {
   horizon: number;
   /** training rows used by the run */
   samples: number;
-  /** score của combo trong scan — cho LLM thấy combo nằm ở đâu với sàn engine */
+  /** score của combo trong scan — cho LLM thấy combo nằm ở đâu với ngưỡng engine */
   score?: number;
   /** setup đã qua gate engine (minAuc/minAcc/minScore) chưa — false = engine
    *  sẽ KHÔNG tự trade combo này (chỉ nút "Duyệt thử" gửi để user so sánh) */
@@ -51,7 +51,7 @@ export interface LlmSetup {
   /** champion–challenger: best-ever val AUC của cặp symbol×interval này qua
    *  toàn bộ lịch sử train (DB). Cho LLM thấy model HIỆN TẠI đang đứng gần hay
    *  xa đỉnh tốt nhất từng đạt — model thoái hoá dù chưa chạm ngưỡng regressed
-   *  vẫn đáng bị soi. 0/không gửi = chưa có lịch sử train cho cặp này. */
+   *  vẫn cần rà soát. 0/không gửi = chưa có lịch sử train cho cặp này. */
   champAuc?: number;
   /** best-ever val ACC % đi kèm champion trên */
   champAcc?: number;
@@ -201,7 +201,7 @@ export const TF_MINUTES: Record<string, number> = {
  *     above 50%" làm lý do skip — 78.1% là +28.1 điểm, mạnh rõ).
  *   • liq_check — liquidation cách SL bao nhiêu lần: < 1x là liq NẰM TRONG
  *     stop (chết trước stop), < 2x là SL đặt sát liq — điều kiện skip thật.
- *   • gate_check — combo có qua sàn engine không (khi caller gửi score).
+ *   • gate_check — combo có qua ngưỡng engine không (khi caller gửi score).
  *   • sample_base — quy mô dữ liệu quy ra ngày để model đừng tưởng 288 mẫu
  *     là "vài tháng", và đừng bảo "too few" một cách mơ hồ.
  * System prompt cấm model mâu thuẫn khối này; factCheckReasons() gắn cờ lý
@@ -252,7 +252,7 @@ export function setupPrompt(s: LlmSetup): string {
     // champ_check — champion–challenger: model hiện tại so với đỉnh tốt nhất
     // từng train của cặp này. Engine chỉ trade combo KHÔNG regressed (champ −
     // 0.02) nên dòng này chủ yếu để LLM thấy khoảng cách tới đỉnh: model tụt
-    // gần giới hạn thì đáng bị soi kỹ hơn dù gate vẫn cho qua. Không có lịch
+    // gần giới hạn thì cần được xem xét kỹ hơn dù gate vẫn cho qua. Không có lịch
     // sử champion → bỏ dòng, prompt không thêm noise.
     ...(s.champAuc && s.champAuc > 0
       ? [
@@ -426,9 +426,9 @@ export async function llmReview(
   return (await llmReviewDebug(url, model, s, timeoutMs)).verdict;
 }
 
-// ─── Stats dive — LLM "vạch lá tìm sâu" trên snapshot thống kê ────────────────
+// ─── Stats dive — LLM phân tích nguyên nhân gốc trên snapshot thống kê ────────────────
 // Khác llmReview: đầu vào là TOÀN BỘ snapshot thống kê (/api/stats — đã kèm
-// nhãn cơ sở logic + kết quả các kiểm chéo nhất quan + độ tin cậy Wilson) và
+// nhãn cơ sở logic + kết quả các kiểm tra tính nhất quán + độ tin cậy Wilson) và
 // đầu ra là VĂN BẢN phân tích (không phải JSON verdict). Vẫn giữ nguyên các
 // chân ái vận hành của project này: temperature thấp, cấm bịa số, trả tiếng Việt.
 
@@ -448,8 +448,8 @@ export interface LlmTextResult {
 const STATS_DIVE_SYSTEM = [
   "You are the quantitative auditor of the Elliott paper-trading bot.",
   "The user prompt contains ONE JSON snapshot of live statistics. Every section already carries: metrics (real numbers from the database), a note field (result of automated cross-checks), accPct (Wilson 95% lower bound for rates — statistical confidence of the number, NOT accuracy of the computation), and accNote.",
-  "Your job — 'vạch lá tìm sâu' (root-cause analysis), in Vietnamese, max ~400 words, bullet style:",
-  "1) Đối chiếu cơ sở logic từng section với cách engine vận hành (gate minAuc/minAcc/minScore, champion-regression, flip 5m, LLM Risk Officer, dry-run thuần giấy) — chỉ ra chỗ nhất quán và chỗ KHÔNG.",
+  "Your job — 'phân tích nguyên nhân gốc' (root-cause analysis), in Vietnamese, max ~400 words, bullet style:",
+  "1) Đối chiếu cơ sở logic từng section với cách engine vận hành (gate minAuc/minAcc/minScore, champion-regression, flip 5m, LLM Risk Officer, dry-run thuần mô phỏng) — chỉ ra chỗ nhất quán và chỗ KHÔNG.",
   "2) Phát hiện điểm yếu theo mức độ nghiêm trọng: state=warn, accPct thấp (mẫu quá nhỏ để tin), win-rate không đủ bù rủi ro, scan/universe stale, lệnh treo >24h, số liệu mâu thuẫn nhau.",
   "3) Kết luận: hệ thống số liệu đang đủ tin để ra quyết định tới đâu.",
   "4) 3–5 hành động cụ thể, xếp theo ưu tiên, mỗi hành động gắn với section key và con số cụ thể.",
@@ -458,7 +458,7 @@ const STATS_DIVE_SYSTEM = [
 
 /**
  * One deep-dive call over the stats snapshot — plain text out, full logging in.
- * Dùng bởi /ai card "Vạch lá tìm sâu"; timeout mặc định 300s vì 7B CPU cần
+ * Dùng bởi /ai card "Phân tích nguyên nhân gốc"; timeout mặc định 300s vì 7B CPU cần
  * thời gian sinh văn bản dài hơn verdict go/skip.
  */
 export async function llmStatsDive(

@@ -4,7 +4,7 @@
 // Trang riêng trả lời 3 câu hỏi của user:
 //   1. Prob là gì, AI suy luận được bao nhiêu % ở lệnh này (đọc theo phía PHE)
 //   2. AI đã học bao nhiêu dữ liệu (runs từ DB + bài học dry-run)
-//   3. Cài đặt hệ thống (toàn bộ knob params.ts, read-only) + trạng thái
+//   3. Cài đặt hệ thống (toàn bộ tham số params.ts, read-only) + trạng thái
 //      llama-server (Risk Officer) — và nó KHÔNG được dùng để finetune.
 // Dữ liệu: GET /api/ai-info — read-only, refresh tay + tự động mỗi 60s.
 
@@ -182,12 +182,12 @@ export default function AiPage() {
   const [champAll, setChampAll] = useState(false);
   const [llmTest, setLlmTest] = useState<LlmTestInfo | null>(null);
   const [llmTestBusy, setLlmTestBusy] = useState(false);
-  // 0.2.32 — "vạch lá tìm sâu": LLM đọc snapshot thống kê (/api/stats) và chỉ
+  // 0.2.32 — "phân tích nguyên nhân gốc": LLM đọc snapshot thống kê (/api/stats) và chỉ
   // ra điểm yếu/mâu thuẫn — cùng nguồn số liệu nên không thể lệch bảng /stats
   const [statsDive, setStatsDive] = useState<{ ok: boolean; text: string; detail: string; ms: number } | null>(null);
   const [statsDiveBusy, setStatsDiveBusy] = useState(false);
-  // 0.2.36 — lịch sử các lần dive ĐÃ LƯU trong DB (DiveReport) — soi dọc theo
-  // thời gian: LLM nói gì hôm nay, có đổi ý so với đợt trước không.
+  // 0.2.36 — lịch sử các lần dive ĐÃ LƯU trong DB (DiveReport) — đối chiếu theo
+  // thời gian: LLM kết luận gì hôm nay, có đổi ý so với đợt trước không.
   const [diveHistory, setDiveHistory] = useState<DiveReportRow[] | null>(null);
   const [diveHistoryOpen, setDiveHistoryOpen] = useState(false);
 
@@ -290,7 +290,7 @@ export default function AiPage() {
     }
   }, []);
 
-  // ── vạch lá tìm sâu: LLM kiểm toán toàn bộ snapshot thống kê ──────────
+  // ── phân tích nguyên nhân gốc: LLM kiểm toán toàn bộ snapshot thống kê ──
   // llama-server 7B cần 30-120s sinh văn bản dài — busy state phải rõ ràng.
   const runStatsDive = useCallback(async () => {
     setStatsDiveBusy(true);
@@ -714,7 +714,7 @@ export default function AiPage() {
           </CardContent>
         </Card>
 
-        {/* 5b — Vạch lá tìm sâu: LLM kiểm toán snapshot thống kê (/stats) */}
+        {/* 5b — Phân tích nguyên nhân gốc: LLM kiểm toán snapshot thống kê (/stats) */}
         <Card className="border-zinc-800 bg-zinc-900/60">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">

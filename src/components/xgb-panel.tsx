@@ -148,9 +148,9 @@ export function XgbPanel({
               <Tile label={t(lang, "xgb.samples")} value={`${result.samples}/${result.valSamples}`} />
             </div>
 
-            {/* calibration — prob HỨA vs tỉ lệ thắng THẬT theo bucket trên val
+            {/* calibration — prob dự báo vs tỉ lệ thắng thực tế theo bucket trên val
                 (Platt scaling fit trên chính val split — params.ts §6c).
-                Thanh = win thật; vạch teal = prob model hứa; chênh xa = nói phét.
+                Thanh = win thực tế; vạch teal = prob model dự báo; chênh lệch lớn = sai lệch.
                 ECE raw → cal cho thấy Platt đã kéo sai lệch về bao nhiêu. */}
             {result.reliability && result.reliability.some((b) => b.n > 0) && (
               <div>
@@ -170,7 +170,7 @@ export function XgbPanel({
                 </div>
                 <div className="space-y-1">
                   {result.reliability.filter((b) => b.n > 0).map((b) => {
-                    const gap = b.win - b.avgP; // âm = thắng thật thấp hơn prob hứa
+                    const gap = b.win - b.avgP; // âm = thắng thực tế thấp hơn prob dự báo
                     return (
                       <div key={b.lo} className="flex items-center gap-2">
                         <span className="w-14 shrink-0 font-mono text-[10px] text-zinc-400">

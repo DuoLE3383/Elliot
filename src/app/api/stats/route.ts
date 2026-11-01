@@ -1,6 +1,6 @@
-// ─── /api/stats — thống kê toàn app cho trang /stats + LLM vạch lá tìm sâu ───
+// ─── /api/stats — thống kê toàn app cho trang /stats + LLM phân tích nguyên nhân gốc ───
 // GET → StatsSnapshot: mỗi section (sessions / combo / universe / auto / dock /
-// open / hist / sg) kèm metrics thật + CƠ SỞ LOGIC + kiểm chéo NHẤT QUAN chạy
+// open / hist / sg) kèm metrics thật + CƠ SỞ LOGIC + kiểm chéo NHẤT QUÁN chạy
 // thật + CHUẨN XÁC (Wilson 95% cận dưới). Read-only, không ghi DB.
 // Hai section client-side (journal / analysis) trang /stats tự tính từ
 // /api/klines bằng đúng hàm papersFrom/analyze của app — không đưa vào đây vì

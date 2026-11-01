@@ -1,13 +1,13 @@
 // ─── /api/ai-info — trang "AI & Cài đặt": model học gì, học bao nhiêu ────────
 // GET → gom một chỗ cho trang /ai:
 //   runs        — lịch sử train/finetune (FinetuneRun DB) + champion mỗi combo
-//   autoStats   — kinh nghiệm dry-run: số lệnh đóng/thắng → số lesson model ăn
+//   autoStats   — kinh nghiệm dry-run: số lệnh đóng/thắng → số mẫu bài học model nhận
 //   reliability — bảng độ tin cậy prob tính trên dữ liệu THẬT (không phải val):
 //                 lệnh dry-run đã đóng + PHE suggestions đã chấm outcome
 //   engine      — cfg hiện hành (gate/leverage/stake/DCA/LLM…), workers, llmLast,
 //                 cycle status, syncedAt
 //   llm         — ping llama-server /health + fail mode (LLM_FAIL_CLOSED)
-//   knobs       — toàn bộ knob params.ts read-only, theo nhóm
+//   knobs       — toàn bộ tham số params.ts read-only, theo nhóm
 //   build       — build-id của bản đang chạy (so với git HEAD)
 // Không ghi gì — thuần read-only.
 

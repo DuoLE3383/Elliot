@@ -1,14 +1,14 @@
 // ─── PARAMS — MỘT file config dùng chung cho toàn bộ app ─────────────────────
 // "các tham số nên đưa vào 1 file config riêng dùng chung cho toàn bộ"
 //
-// Mọi hằng số tinh chỉnh (knob) của engine sống ở đây, chia nhóm rõ ràng để
+// Mọi hằng số tinh chỉnh (tham số) của engine sống ở đây, chia nhóm rõ ràng để
 // finetune mà không phải rà soát 6-7 file. File này là NGUỒN ĐỊNH NGHĨA duy
 // nhất; các module (bcast-gate, universe, xgb, engine, llm…) import từ đây
 // và re-export để chỗ cũ không đổi import — re-export không tạo bản sao,
 // nên vẫn đúng nguyên tắc "một thuật toán + một database".
 //
 // Cách finetune an toàn: chỉnh giá trị → `npx tsx scripts/test-*.ts` chạy bộ
-// test liên quan → `npm run build` → deploy. Mỗi knob có comment nói rõ nó
+// test liên quan → `npm run build` → deploy. Mỗi tham số có comment nói rõ nó
 // kéo Prob/chất lượng theo hướng nào.
 
 // ── 1 · BROADCAST — tin "TOP coin tiềm năng" 5 phút lên Telegram ─────────────
@@ -44,29 +44,29 @@ export const SCAN_DIGEST_TOP_N = 10;
 /** Số combo tốt nhất được làm giàu kỹ thuật (kline fetch) trước khi chọn 10. */
 export const SCAN_DIGEST_POOL = 14;
 
-// ── 2 · SÀN CHẤT LƯỢNG CHUNG — MẶC ĐỊNH của setpoint duy nhất ────────────────
+// ── 2 · NGƯỠNG CHẤT LƯỢNG CHUNG — MẶC ĐỊNH của setpoint duy nhất ──────────────
 // Bộ ba dưới đây là fallback khi engine chưa có cfg (runtime lấy từ
 // cfg.minScore/minAuc/minAcc — chỉnh trên Auto panel, xem AUTO_DEFAULTS trong
 // autotrade.ts). Cùng bộ ba này áp cho MỌI tầng: mở lệnh, bù DCA, đăng broadcast.
 /** Điểm tối thiểu — scoreOf = (AUC−0.5)×100 + (ACC−50) + tin cậy×CONF_W.
  *  AUC .8 + ACC 70 cho sẵn 30+20 = 50 → điểm 60 còn yêu cầu tin cậy ≥ ~2/3:
- *  model đạt sàn metrics nhưng thiếu tự tin vẫn bị giữ lại.
+ *  model đạt ngưỡng metrics nhưng thiếu tự tin vẫn bị giữ lại.
  *  NOTE 31/10: prob đầu vào đã qua calibration (§6c) nên "tin cậy" là số
  *  trung thực — mọi nghi ngờ prob phồng phải sửa ở §6c, không hạ weight mù. */
 export const BCAST_SCORE_MIN = 60;
-/** Sàn AUC của model — 0.8 nghĩa là model phải xếp hạng thật sự giỏi trên tập
+/** Ngưỡng AUC của model — 0.8 nghĩa là model phải xếp hạng thật sự giỏi trên tập
  *  validation (out-of-sample), chỉ hơn tung đồng xu là không đủ tin. */
 export const BCAST_AUC_MIN = 0.8;
-/** Sàn ACC của model — user nới từ 80 xuống 70 (31/10): vẫn lọc sạch nhiễu
- *  32–38 điểm, nhưng kênh không còn im lặng triền miên vì sàn 80. */
+/** Ngưỡng ACC của model — user nới từ 80 xuống 70 (31/10): vẫn lọc sạch nhiễu
+ *  32–38 điểm, nhưng kênh không còn im lặng triền miên vì ngưỡng 80. */
 export const BCAST_ACC_MIN = 70;
 
 // ── 3 · UNIVERSE SCAN — "ATR + trending, re-ranks every 8h" ──────────────────
-// (danh sách cặp UNIVERSE là DATA — nằm trong universe.ts, không phải knob)
+// (danh sách cặp UNIVERSE là DATA — nằm trong universe.ts, không phải tham số)
 
 /** Khung nến dùng chấm điểm universe. */
 export const UNIVERSE_INTERVAL = "1h";
-/** Nhịp xếp hạng lại vũ trụ — mỗi 8 giờ. */
+/** Nhịp xếp hạng lại universe — mỗi 8 giờ. */
 export const UNIVERSE_SCAN_MS = 8 * 3_600_000;
 /** Độ dài cửa sổ chấm điểm — 240 nến 1h = 10 ngày giá đóng. */
 export const UNIVERSE_LOOKBACK_CANDLES = 10 * 24;
@@ -135,7 +135,7 @@ export const LIVE_WS_STALE_MS = 60_000;
 export const LIVE_WS_PROBE_MS = 10_000;
 
 // ── 6 · TRAIN / PROB — finetune để Prob tổng tăng ─────────────────────────────
-// Các knob ảnh hưởng TRỰC TIẾP tới Prob/confidence:
+// Các tham số ảnh hưởng TRỰC TIẾP tới Prob/confidence:
 //  • LESSON_WEIGHT ↑  → model "nhớ" các lệnh đã đóng rõ hơn → Prob quyết đoán
 //    hơn trên pattern từng thắng/thua (nhưng quá to → overfit lịch sử ngắn).
 //  • NOISE_BAND ↑     → chỉ còn tín hiệu quyết đoán được trade/đăng (Prob tổng
@@ -159,7 +159,7 @@ export const LESSON_WEIGHT = 8;
 // train/val và cùng seed (RNG may mắn giữ hằng — khác nhau chỉ hyper), rồi giữ
 // bộ thắng theo AUC out-of-sample (hoà → logloss thấp hơn). Đây là "finetune
 // để tăng Prob" đúng nghĩa: mỗi combo tự tìm hyper hợp với dữ liệu của nó thay
-// vì ăn theo một bộ cứng cho toàn vũ trụ. Winner được lưu vào finetuneRun
+// vì dùng chung một bộ cứng cho toàn universe. Winner được lưu vào finetuneRun
 // (cột params JSON) để sau này nhìn lại combo nào hợp hyper nào.
 
 export interface XgbParams {
@@ -197,7 +197,7 @@ export const XGB_GRID: { name: string; patch: Partial<XgbParams> }[] = [
 ];
 export const TUNE_GRID = true;
 
-// ── 6c · CALIBRATION — prob "nói thật" trước khi thành confidence/score ──────
+// ── 6c · CALIBRATION — prob sát thực tế trước khi thành confidence/score ────
 // Vấn đề thật (31/10): XGBoost không được calibrate — 120 cây × lr 0.1 đẩy prob
 // ra xa 0.5, LESSON_WEIGHT khuếch đại thêm, nên model AUC 0.74 / ACC 67% lại
 // nói "85.7% giá giảm". Nếu prob trung thực thì tỉ lệ thắng của nhóm prob
@@ -208,7 +208,7 @@ export const TUNE_GRID = true;
 // trên CHÍNH val split (out-of-sample, 2 tham số — không lo overfit) rồi áp
 // lên probNow trước khi tính confidence/bias/score. AUC/ACC/logloss KHÔNG
 // đổi (a>0 là biến đổi đơn điệu — gate champion–challenger vẫn so được).
-// Nhóm 6b chọn model GIỎI RANK; nhóm này làm prob NÓI THẬT — hai việc khác
+// Nhóm 6b chọn model GIỎI RANK; nhóm này làm prob SÁT THỰC TẾ — hai việc khác
 // nhau và cần cả hai.
 
 /** Bật calibration — tắt thì probNow về prob thô như cũ. */
@@ -234,7 +234,7 @@ export const NEAR_FRAC = 0.7;
 //    tuyệt đối (0.95 = chốt tối đa 90% confidence).
 export const SIBLING_DISCOUNT = 0.5;
 export const PROB_CAP = 0.95;
-/** Trọng số thành phần "tin cậy" trong scoreFrom — knob hoá từ hằng 15 cứng
+/** Trọng số thành phần "tin cậy" trong scoreFrom — tham số hoá từ hằng 15 cứng
  *  (31/10) để hạ nhanh khi nghi prob phồng. Với calibration §6c bật, prob đã
  *  trung thực nên 15 là mức cân bằng hợp lý; tắt calibration thì cân nhắc hạ. */
 export const CONF_W = 15;
@@ -256,11 +256,11 @@ export const LLM_TIMEOUT_MS = (() => {
   if (Number.isFinite(n) && n >= 10_000) return Math.min(Math.floor(n), 600_000);
   return 300_000;
 })();
-/** Giải phẫu lệnh (autopsy) — LLM mổ xẻ lệnh ĐÃ ĐÓNG (cả thắng lẫn thua) rồi
+/** Giải phẫu lệnh (autopsy) — LLM phân tích chuyên sâu lệnh ĐÃ ĐÓNG (cả thắng lẫn thua) rồi
  *  lưu bài học vào DB, nạp lại vào prompt duyệt các lệnh sau. Tắt = engine chỉ
  *  duyệt/rủi ro như 0.2.27, không sinh bài học mới (bài học cũ vẫn được nạp). */
 export const AUTOPSY_ON = true;
-/** Backfill autopsy — mỗi 6h mổ bổ sung tối đa vài lệnh đóng còn thiếu autopsy
+/** Backfill autopsy — mỗi 6h phân tích bổ sung tối đa vài lệnh đóng còn thiếu autopsy
  *  (lệnh đóng đúng lúc LLM chết từng bị bỏ lượt VĨNH VIỄN — 0.2.33 thêm vòng
  *  eventually-consistent; lượt đầu chạy ngay tick đầu tiên sau boot). */
 export const AUTOPSY_BACKFILL_MS = 6 * 3_600_000;
@@ -271,5 +271,5 @@ export const AUTOPSY_BACKFILL_MS = 6 * 3_600_000;
  *    qua vẫn được ghi llmLast verdict "unreachable" để trang /ai hiện rõ.
  *  • true (fail-CLOSED) — LLM không trả lời = KHÔNG duyệt = chặn mở lệnh.
  *    Bật khi muốn Risk Officer là chốt chặn CỨNG (VPS không chạy llama-server
- *    + knob này = engine không bao giờ mở lệnh mới). */
+ *    + tham số này = engine không bao giờ mở lệnh mới). */
 export const LLM_FAIL_CLOSED = false;

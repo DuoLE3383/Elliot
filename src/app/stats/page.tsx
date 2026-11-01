@@ -6,14 +6,14 @@
 // history, trade journal, deep analysis):
 //   1. CƠ SỞ LOGIC — số liệu được đưa ra từ nguồn nào, công thức nào
 //      (i18n stats.basis.* — khớp chữ với code thật).
-//   2. NHẤT QUAN với logic engine chưa — kiểm chéo chạy THẬT trên server
+//   2. NHẤT QUÁN với logic engine chưa — kiểm chéo chạy THẬT trên server
 //      (hai đường tính độc lập, chấm lại outcome từ giá, đối chiếu sổ vốn…).
 //   3. CHUẨN XÁC bao nhiêu % — Wilson 95% cận dưới cho tỉ lệ (độ tin cậy của
 //      con số), 100% cho số đếm/mô tả; note nói rõ vì sao.
 // Hai section cuối (journal + analysis) từ 0.2.35 cũng tính Ở SERVER qua
 // /api/view (papersFrom/analyze + thiết lập MẶC ĐỊNH) cho combo người dùng
 // chọn — trình duyệt chỉ render.
-// Nút "Vạch lá tìm sâu" trên /ai vẫn bắn CÙNG snapshot server vào LLM.
+// Nút "Phân tích nguyên nhân gốc" trên /ai vẫn gửi CÙNG snapshot server vào LLM.
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -231,7 +231,7 @@ export default function StatsPage() {
           {t(lang, "stats.summary", counts)}
           {" · "}
           <Link href="/ai" className="underline decoration-dotted hover:text-zinc-400">
-            /ai → Vạch lá tìm sâu (LLM)
+            /ai → Phân tích nguyên nhân gốc (LLM)
           </Link>
         </p>
 
@@ -353,7 +353,7 @@ export default function StatsPage() {
                     <span className="font-semibold text-zinc-300">⚖️ {t(lang, "stats.consist")}: </span>
                     <FlaskConical className="mr-1 inline h-3 w-3" />
                     {lang === "vi"
-                      ? "Cùng một hàm analyze() đang vẽ panel Phân tích sâu trên trang chính — nhất quan theo cấu trúc (cùng nguồn nến, cùng công thức)."
+                      ? "Cùng một hàm analyze() đang vẽ panel Phân tích sâu trên trang chính — nhất quán theo cấu trúc (cùng nguồn nến, cùng công thức)."
                       : "The same analyze() powering the main page's Deep analysis panel — consistent by construction (same candles, same formulas)."}
                   </p>
                 </div>

@@ -245,7 +245,7 @@ export function sanitizeAutopsy(raw: unknown, model: string, ms: number, input: 
 // ─── chạy giải phẫu — fetch nến → gọi LLM → lưu DB → Telegram ────────────────
 
 /** gọi llama — cùng nhịp /v1/chat/completions với llm.ts (schema + retry 400).
- *  Export cho test (test-autopsy.mts bắn vào mock server, kiểm đúng payload). */
+ *  Export cho test (test-autopsy.mts gửi vào mock server, kiểm đúng payload). */
 export async function autopsyLlmCall(url: string, model: string, system: string, user: string): Promise<{ text: string; ms: number } | null> {
   const started = Date.now();
   const payload = (withSchema: boolean) => ({

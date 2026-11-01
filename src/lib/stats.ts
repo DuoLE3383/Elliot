@@ -1,8 +1,8 @@
-// ─── Thống kê toàn app — /api/stats + LLM "vạch lá tìm sâu" ──────────────────
+// ─── Thống kê toàn app — /api/stats + LLM phân tích nguyên nhân gốc ──────────────
 // Một nguồn duy nhất tổng hợp số liệu THẬT từ DB + engine cho:
 //   • trang /stats  — mỗi section kèm 3 dòng kiểm toán:
 //       CƠ SỞ LOGIC (số liệu từ đâu, công thức nào) — do server gắn nhãn;
-//       NHẤT QUAN (state ok/warn/na + note — các kiểm chéo CHẠY THẬT: đối chiếu
+//       NHẤT QUÁN (state ok/warn/na + note — các kiểm chéo CHẠY THẬT: đối chiếu
 //       hai đường tính độc lập, tìm mẫu lệch outcome, lệnh treo, scan stale);
 //       CHUẨN XÁC ~% (Wilson 95% cận dưới cho mọi win-rate — thống kê trung thực
 //       với mẫu nhỏ thay vì "60% trên 5 lệnh" nghe oai hơn thực tế).
@@ -43,7 +43,7 @@ export interface StatMetric {
 export interface StatSection {
   key: string;
   state: StatState;
-  /** kiểm chéo đã chạy thật + kết luận nhất quan với logic engine */
+  /** kiểm chéo đã chạy thật + kết luận nhất quán với logic engine */
   note: string;
   /** độ tin cậy của con số: Wilson LB cho tỉ lệ, 100 cho số đếm/mô tả */
   accPct: number;
@@ -132,8 +132,8 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     return {
       state: (match ? "ok" : "warn") as StatState,
       note: match
-        ? "Hai đường tính độc lập (query count thắng trực tiếp vs comboStats cộng theo combo) ra CÙNG một số — nhất quan với logic 'win = ROE > 0' của autotrade.comboStats."
-        : `Lệch số: count()=${winsByCount} nhưng cộng tay=${wins} — có bản ghi pnlPct null/âm dương bất thường, cần soi.`,
+        ? "Hai đường tính độc lập (query count thắng trực tiếp vs comboStats cộng theo combo) ra CÙNG một số — nhất quán với logic 'win = ROE > 0' của autotrade.comboStats."
+        : `Lệch số: count()=${winsByCount} nhưng cộng tay=${wins} — có bản ghi pnlPct null/âm dương bất thường, cần rà soát.`,
       accPct: wilsonLB(wins, closed),
       accNote: `Wilson 95% cận dưới trên ${closed} lệnh đóng — con số win-rate xấu nhất vẫn đáng tin`,
       metrics: [
@@ -159,11 +159,11 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       state: (stale ? "warn" : "ok") as StatState,
       note: stale
         ? "Lần re-rank gần nhất đã quá chu kỳ 8h (+1h dung sai) — scheduler universe có thể chưa chạy/đang chạy, panel đang hiển thị dữ liệu cũ (đúng thiết kế: stale hiển thị, không trade theo)."
-        : "Snapshot universe mới hơn chu kỳ re-rank 8h — nhất quan với scheduler (UNIVERSE_SCAN_MS). Công thức điểm: 60% trend (EMA20/50 spread + vị trí Donchian 20 nến) + 40% ATR% bão hoà ở 5%, chấm trên 240 nến 1h (~10 ngày) nến ĐÃ ĐÓNG.",
+        : "Snapshot universe mới hơn chu kỳ re-rank 8h — nhất quán với scheduler (UNIVERSE_SCAN_MS). Công thức điểm: 60% trend (EMA20/50 spread + vị trí Donchian 20 nến) + 40% ATR% bão hoà ở 5%, chấm trên 240 nến 1h (~10 ngày) nến ĐÃ ĐÓNG.",
       accPct: 100,
       accNote: "số mô tả trạng thái xếp hạng — đúng công thức universe.ts 100%",
       metrics: [
-        { k: "Bể quét", v: `${UNIVERSE.length} cặp`, sub: "11 cặp trụ cột luôn dẫn đầu" },
+        { k: "Danh mục quét", v: `${UNIVERSE.length} cặp`, sub: "11 cặp trụ cột luôn dẫn đầu" },
         { k: "Top công bố", v: `${rows.length} cặp`, sub: u ? `chấm ${ago(u.at)}` : "chưa có snapshot" },
         ...(top
           ? [{

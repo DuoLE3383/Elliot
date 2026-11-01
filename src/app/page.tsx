@@ -865,7 +865,7 @@ export default function Home() {
     [symbol],
   );
 
-  /** TOP-30 vũ trụ 8h tự vào watchlist — gộp sau các pair người dùng đã có,
+  /** TOP-30 universe 8h tự vào watchlist — gộp sau các pair người dùng đã có,
    * dedupe, không đè cặp mặc định, giữ đúng cap MAX_CUSTOM_PAIRS */
   const handleUniverseTop = useCallback((topSyms: string[]) => {
     setCustomPairs((list) => {
@@ -1021,7 +1021,7 @@ export default function Home() {
             ))}
           </div>
 
-          {/* live badge — NÓI THẬT: xanh nháy khi luồng SSE đang chảy, xám khi
+          {/* live badge — TRUNG THỰC: xanh nháy khi luồng SSE đang chảy, xám khi
               đang tự nối lại (mạng chớp/pm2 restart); tooltip kèm nguồn dữ liệu */}
           <span
             className={`hidden shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium md:flex ${
@@ -1187,7 +1187,7 @@ export default function Home() {
               {/* gap-3/py-3 override the Card defaults (gap-6/py-6) — reclaims ~72px
                   of chart height; on lg the card fills the WHOLE visible rail height
                   (h-full + flex-none) so the chart stretches down over the old tabs
-                  area — Sổ giấy / Phân tích sit below the fold (scroll to reach).
+                  area — Sổ lệnh / Phân tích sit below the fold (scroll to reach).
                   lg:min-h keeps the chart usable on short viewports (the rail scrolls
                   instead of the card collapsing over the tabs) */}
               <Card className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden border-zinc-800 bg-zinc-900/60 py-3 lg:h-full lg:min-h-[460px] lg:flex-none">

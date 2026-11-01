@@ -406,8 +406,8 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const open = auto?.open ?? null;
   const best = rows.length > 0 ? rows[0] : null;
   // model đã LẬT CHIỀU trên cùng combo đang mở? (best pick ngược phía lệnh)
-  // — từ 0.2.30 engine TỰ LẬT khi knob 🔄 Lật chiều bật (flipDecision +
-  // tryFlip trong chu kỳ kế tiếp); khi knob tắt, DCA cũng tự tắt khi model
+  // — từ 0.2.30 engine TỰ LẬT khi chế độ 🔄 Lật chiều bật (flipDecision +
+  // tryFlip trong chu kỳ kế tiếp); khi chế độ tắt, DCA cũng tự tắt khi model
   // flipped. Badge để user NHÌN LÀ HIỂU ngay thay vì thấy "Tốt nhất: LINKUSDT
   // 15m LONG" cạnh lệnh SHORT đang mở mà tưởng bug.
   const flipped = !!(open && best && best.bias !== "NEUTRAL" && best.symbol === open.symbol && best.interval === open.interval && best.bias !== open.side);

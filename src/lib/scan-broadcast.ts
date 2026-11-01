@@ -358,7 +358,7 @@ export async function buildTopCoinsMessage(
   tickers: Record<string, Ticker>,
   state: BcastState,
   uniSyms?: Set<string>,
-  /** sàn chất lượng chung từ cfg — không truyền → BCAST_* mặc định */
+  /** ngưỡng chất lượng chung từ cfg — không truyền → BCAST_* mặc định */
   sp?: QualSp,
 ): Promise<{ text: string | null; picked: ScanRow[]; verdicts: BcastVerdictRow[] }> {
   const spEff = sp ?? { score: BCAST_SCORE_MIN, auc: BCAST_AUC_MIN, acc: BCAST_ACC_MIN };

@@ -1,4 +1,4 @@
-// ─── /api/llm/stats-dive — LLM "vạch lá tìm sâu" trên thống kê thật ──────────
+// ─── /api/llm/stats-dive — LLM phân tích nguyên nhân gốc trên thống kê thật ──
 // POST (no body) → LlmTextResult { ok, text, detail, ms, url, model, prompt }.
 // Gom StatsSnapshot (cùng nguồn với /api/stats — MỘT nguồn không thể lệch),
 // nhét vào prompt, llama-server trả văn bản phân tích tiếng Việt. KHÔNG đụng
@@ -58,7 +58,7 @@ export async function POST() {
 }
 
 // GET ?limit=10 → lịch sử các lần dive đã lưu (mới trước) — UI /ai hiển thị
-// "đợt trước LLM nói gì" để soi đổi ý theo thời gian.
+// "đợt trước LLM kết luận gì" để đối chiếu sự thay đổi kết luận theo thời gian.
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const n = Number(sp.get("limit"));
