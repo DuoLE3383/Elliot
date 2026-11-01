@@ -104,7 +104,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     }
     return {
       state: "ok" as StatState,
-      note: "Phiên là HẰNG SỐ cấu hình (khung giờ UTC cố định) — đúng hệ quy chiếu mà model ăn qua one-hot phiên (sessionOneHot) khi train. Không có gì kiểm chéo động được vì nó là định nghĩa.",
+      note: "Phiên là HẰNG SỐ cấu hình (khung giờ UTC cố định) — đúng hệ quy chiếu mà model nhận qua one-hot phiên (sessionOneHot) khi train. Không có gì kiểm chéo động được vì nó là định nghĩa.",
       accPct: 100,
       accNote: "số mô tả cấu hình — đúng 100% theo định nghĩa market.ts",
       metrics: [

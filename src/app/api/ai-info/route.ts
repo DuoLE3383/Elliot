@@ -422,7 +422,7 @@ export async function GET() {
         opened: tradesRaw.opened,
         closed: tradesRaw.closed,
         wins: tradesRaw.wins,
-        // số sample "kinh nghiệm" model ăn vào train: mỗi lệnh đóng lặp LESSON_WEIGHT lần
+        // số sample "kinh nghiệm" model nhận vào train: mỗi lệnh đóng lặp LESSON_WEIGHT lần
         lessonSamples: tradesRaw.closed * LESSON_WEIGHT,
         lessonWeight: LESSON_WEIGHT,
       },
