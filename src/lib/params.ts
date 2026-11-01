@@ -228,7 +228,7 @@ export const CONF_W = 15;
 
 export const LLM_URL_DEFAULT = "http://127.0.0.8:8888";
 export const LLM_MODEL_DEFAULT = "local";
-export const LLM_TIMEOUT_MS = 12_000;
+export const LLM_TIMEOUT_MS = 90_000; // llama CPU (7B Q4 ≈ 5-6 tok/s) cần 30-60s cho 1 verdict
 /** LLM chết thì xử lý thế nào?
  *  • false (mặc định, fail-OPEN) — llama-server không trả lời (chết/timeout/JSON
  *    hỏng) → lệnh vẫn vào theo đường XGBoost-only. Nhẹ tay cho paper-trading:

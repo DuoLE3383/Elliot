@@ -55,6 +55,6 @@ const SAMPLE: LlmSetup = {
 
 export async function POST() {
   const { url, model } = resolveEndpoint();
-  const dbg = await llmReviewDebug(url, model, SAMPLE, 10_000);
+  const dbg = await llmReviewDebug(url, model, SAMPLE, 90_000); // llama CPU có thể 30-60s/verdict
   return NextResponse.json(dbg);
 }
