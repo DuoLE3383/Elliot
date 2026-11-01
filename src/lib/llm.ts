@@ -33,6 +33,11 @@ export interface LlmSetup {
   horizon: number;
   /** training rows used by the run */
   samples: number;
+  /** track record của bot (optional, EN, 1 dòng) — "31W/19L · win rate 62% · net
+   *  +12.4% ROE (50 paper trades)". Cho LLM thấy bot đang vận hành RA SAO, không
+   *  chỉ metrics của một run đơn lẻ — giảm kiểu skip máy móc "too few samples"
+   *  khi track record thật đang tốt. Engine tự điền từ st.stats. */
+  track?: string;
 }
 
 export interface LlmVerdict {
@@ -129,6 +134,8 @@ function setupPrompt(s: LlmSetup): string {
     `pair=${s.symbol} tf=${s.interval} side=${s.side}`,
     `model_quality: prob=${s.prob.toFixed(3)} confidence=${s.confidence.toFixed(2)} val_auc=${s.auc.toFixed(3)} val_acc=${s.acc.toFixed(1)}% train_samples=${s.samples} horizon=${s.horizon}bars`,
     `risk: leverage=x${s.leverage} (liquidation at ${liqPct.toFixed(1)}% adverse) stake=${s.stakePct}%equity sl=${s.slPct.toFixed(1)}%price tp=${s.tpPct.toFixed(1)}%price rr=1:${rr.toFixed(2)}`,
+    // track record thật của bot (nếu có) — bằng chứng vận hành, không phải metrics train
+    ...(s.track ? [`bot_track_record: ${s.track}`] : []),
   ].join("\n");
 }
 

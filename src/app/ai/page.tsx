@@ -73,6 +73,8 @@ interface LlmTestInfo {
   model: string;
   ms: number;
   bodySnippet?: string;
+  /** setup dùng cho lần test này — THẬT (top scan engine) hay GIẢ mẫu */
+  setupSource?: string;
 }
 
 interface KnobGroup {
@@ -550,6 +552,7 @@ export default function AiPage() {
                   <span className="ml-auto text-zinc-500">{llmTest.ms}ms</span>
                   {llmTest.detail !== "ok" && <span className="text-amber-400">{llmTest.detail}</span>}
                 </div>
+                {llmTest.setupSource && <p className="text-zinc-500">{llmTest.setupSource}</p>}
                 {llmTest.detail === "http-404" && !llmTest.prompt && (
                   <p className="text-amber-400">{t(lang, "ai.llm.test.h404")}</p>
                 )}

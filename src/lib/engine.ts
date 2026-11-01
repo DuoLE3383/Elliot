@@ -948,6 +948,13 @@ async function cycleTick(): Promise<void> {
     //    duyệt bị bỏ qua được ghi llmLast "unreachable" (trang /ai hiện rõ —
     //    hết cảnh "chốt chặn cuối im lặng vô hình").
     //  • fail-closed (knob on) → không duyệt được = không mở lệnh.
+    // Track record thật của bot (st.stats) đi kèm setup — LLM phán trên bằng
+    // chứng vận hành, không chỉ metrics của một run train đơn lẻ.
+    const closedN = st.stats.closed;
+    const track =
+      closedN > 0
+        ? `${st.stats.wins}W/${closedN - st.stats.wins}L · win rate ${st.stats.winRate.toFixed(0)}% · net ${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(1)}% ROE (${closedN} paper trades)`
+        : undefined;
     let vetoed = false;
     try {
       const verdict = await llmReview(c.llmUrl, c.llmModel, {
@@ -964,6 +971,7 @@ async function cycleTick(): Promise<void> {
         stakePct: c.riskPct,
         horizon: best.horizon,
         samples: best.samples,
+        track,
       });
       if (verdict) {
         p.llmLast = {

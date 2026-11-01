@@ -14,7 +14,7 @@
 import type { EngineSettings, Kline } from "./types";
 import { INTERVALS } from "./types";
 import { biasFrom, runXgb, type WhaleReadout, type WhaleTag, type XgbBias, type XgbResult } from "./xgb";
-import { LLM_MODEL_DEFAULT, LLM_URL_DEFAULT } from "./llm";
+import { LLM_MODEL_DEFAULT, LLM_URL_DEFAULT, type LlmSetup } from "./llm";
 import {
   CONF_W,
   NEAR_FRAC,
@@ -107,6 +107,49 @@ export const rankRows = (rows: ScanRow[]): ScanRow[] => [...rows].sort((a, b) =>
 
 export const bestTradeable = (rows: ScanRow[], minAuc: number, minAcc: number, minScore = 0): ScanRow | null =>
   rankRows(rows.filter((r) => isTradeable(r, minAuc, minAcc, minScore)))[0] ?? null;
+
+/**
+ * Chọn setup THẬT cho nút "Duyệt thử" (test LLM) thay vì setup giả mid-strength:
+ * ứng viên tốt nhất hiện có trong scan gần nhất của engine, lọc ĐÚNG như
+ * auto-cycle (gate minAuc/minAcc/minScore + không regressed + noise band).
+ * Không ứng viên nào đạt gate → rơi về top scan có hướng LONG/SHORT, kèm nhãn
+ * "CHƯA đạt gate" để user biết engine thực tế sẽ KHÔNG gửi combo này đi.
+ * Scan rỗng/toàn NEUTRAL → null (caller dùng setup giả mẫu làm phương án cuối).
+ */
+export function llmTestSetup(
+  rows: ScanRow[],
+  cfg: Pick<AutoConfig, "minAuc" | "minAcc" | "minScore" | "tpMode" | "slPct" | "tpPct" | "riskPct">,
+  leverage: number,
+): { setup: LlmSetup; source: string } | null {
+  const cands = rows.filter(
+    (r) => isTradeable(r, cfg.minAuc, cfg.minAcc, cfg.minScore) && !r.regressed && Math.abs(r.prob - 0.5) >= NOISE_BAND,
+  );
+  const pick = rankRows(cands)[0] ?? rankRows(rows.filter((r) => r.bias !== "NEUTRAL"))[0] ?? null;
+  if (!pick) return null;
+  const gated = cands.includes(pick);
+  const setup: LlmSetup = {
+    symbol: pick.symbol,
+    interval: pick.interval,
+    side: pick.bias as "LONG" | "SHORT",
+    prob: pick.prob,
+    confidence: pick.confidence,
+    auc: pick.auc,
+    acc: pick.acc,
+    slPct: cfg.tpMode === "manual" ? cfg.slPct : pick.slPct,
+    tpPct: cfg.tpMode === "manual" ? cfg.tpPct : pick.tpPct,
+    leverage,
+    stakePct: cfg.riskPct,
+    horizon: pick.horizon,
+    samples: pick.samples,
+  };
+  const id = `${pick.symbol} ${pick.interval}`;
+  return {
+    setup,
+    source: gated
+      ? `setup THẬT — ứng viên tốt nhất engine đang thấy: ${id} · score ${pick.score.toFixed(1)} · đạt gate`
+      : `setup THẬT — top scan: ${id} · score ${pick.score.toFixed(1)} · CHƯA đạt gate (engine chưa có ứng viên đủ sàn)`,
+  };
+}
 
 // ─── Confluence pooling — các model train riêng của CÙNG symbol vote chung ───
 // Trước đây mỗi combo (symbol × khung) là một hòn đảo: BTC 15m và BTC 1h train
