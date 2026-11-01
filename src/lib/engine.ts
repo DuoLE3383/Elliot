@@ -67,6 +67,7 @@ import {
   rankUniverse,
   scorePair,
   universeBroadcastText,
+  universeFingerprint,
   type UniverseRow,
 } from "./universe";
 import { buildTopCoinsMessage, buildScanTop10Message, loadBcastState, saveBcastState } from "./scan-broadcast";
@@ -719,12 +720,25 @@ async function universeCore(
   }
   if (out.length === 0) return { top: 0 };
   const top = rankUniverse(out);
-  v.universe = { rows: top, at: Date.now() };
+  // Previous ranking for Δ + anti-spam (identical top-N → skip Telegram)
+  const prevRows = v.universe?.rows ?? [];
+  const prevSyms = prevRows.slice(0, 10).map((r) => r.symbol.replace("USDT", ""));
+  const prevFp = universeFingerprint(prevRows);
+  const nextFp = universeFingerprint(top);
+  const at = Date.now();
+  v.universe = { rows: top, at };
   saveScanState({ universe: v.universe });
-  // universe broadcast — TOP-10 compact (30 coins 1 nùi → hết; phần còn lại ở panel)
+  // Universe Telegram: only when ranking changed OR first post after cold start
   if (tgReady() && p.cfg.broadcast) {
     try {
-      await tgSendMessage(universeBroadcastText(top), "HTML");
+      if (prevFp && prevFp === nextFp) {
+        console.log(`[engine] universe TG skipped — top-${nextFp.split("|").length} unchanged`);
+      } else {
+        await tgSendMessage(
+          universeBroadcastText(top, { prevSyms, at }),
+          "HTML",
+        );
+      }
     } catch (e) {
       console.error(`[engine] universe broadcast failed: ${e instanceof Error ? e.message : e}`);
     }

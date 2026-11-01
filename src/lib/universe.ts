@@ -149,15 +149,63 @@ export function universeBucket(now = Date.now()): number {
  * panel; the message carries a "…và N coin khác" footer instead of dumping
  * the whole list into the channel.
  */
-export function universeBroadcastText(top: UniverseRow[]): string {
+/** Stable fingerprint of the ranked list — used to skip identical Telegram posts. */
+export function universeFingerprint(top: UniverseRow[], n = UNIVERSE_BCAST_TOP): string {
+  return top
+    .slice(0, n)
+    .map((r) => r.symbol.replace("USDT", ""))
+    .join("|");
+}
+
+/**
+ * Universe re-rank Telegram template (every ~8h).
+ * Design rules:
+ *  - One clear purpose: "which alts are most tradable right now" (ATR + trend)
+ *  - Show Δ rank when previous fingerprint is provided
+ *  - Compact rows; no wall of identical numbers every restart
+ *  - Footer: cadence + disclaimer (not a trade signal)
+ */
+export function universeBroadcastText(
+  top: UniverseRow[],
+  opts?: { prevSyms?: string[]; at?: number },
+): string {
   const show = top.slice(0, UNIVERSE_BCAST_TOP);
-  const lines = show
-    .map(
-      (r, idx) =>
-        `${String(idx + 1).padStart(2, " ")}. ${r.symbol.replace("USDT", "")} — ATR ${r.atrPct.toFixed(2)}% · trend ${(r.trend * 100).toFixed(0)}% · 24h ${(r.ret24h * 100).toFixed(1)}% · 10d ${(r.ret10d * 100).toFixed(1)}%`,
-    )
-    .join("\n");
-  const rest = top.length - show.length;
-  const more = rest > 0 ? `\n<i>…và ${rest} coin khác trong top-${top.length} — mở panel để xem đủ.</i>` : "";
-  return `🔄 TOP ${show.length}/${top.length} — ATR + trending\n<code>${lines}</code>${more}`;
+  const prev = opts?.prevSyms ?? [];
+  const prevRank = new Map(prev.map((s, i) => [s, i + 1]));
+  const when = opts?.at ? new Date(opts.at) : new Date();
+  const hhmm = when.toISOString().slice(11, 16) + " UTC";
+
+  const rows = show.map((r, idx) => {
+    const sym = r.symbol.replace("USDT", "");
+    const rank = idx + 1;
+    const old = prevRank.get(sym);
+    let delta = "·";
+    if (old == null) delta = "NEW";
+    else if (old > rank) delta = `↑${old - rank}`;
+    else if (old < rank) delta = `↓${rank - old}`;
+    else delta = "=";
+    const bias =
+      r.trend >= 0.08 ? "▲" : r.trend <= -0.08 ? "▼" : "→";
+    return `${String(rank).padStart(2, " ")}. ${sym.padEnd(8, " ")} ${bias} ATR ${r.atrPct.toFixed(2)}% · 24h ${(r.ret24h * 100).toFixed(1)}% · 10d ${(r.ret10d * 100).toFixed(1)}% · ${delta}`;
+  });
+
+  const entered = show
+    .map((r) => r.symbol.replace("USDT", ""))
+    .filter((s) => prev.length > 0 && !prevRank.has(s));
+  const exited = prev.filter((s) => !show.some((r) => r.symbol.replace("USDT", "") === s));
+
+  const changes: string[] = [];
+  if (entered.length) changes.push(`In: ${entered.join(", ")}`);
+  if (exited.length) changes.push(`Out: ${exited.join(", ")}`);
+
+  const lines = [
+    `📡 <b>UNIVERSE · TOP ${show.length}</b> · ATR + trend · ${hhmm}`,
+    `<code>${rows.join("\n")}</code>`,
+  ];
+  if (changes.length) lines.push(`🔀 ${changes.join(" · ")}`);
+  else if (prev.length) lines.push(`🔀 Rank unchanged vs last post`);
+  lines.push(
+    `⏱ Re-rank every 8h · not a trade signal · open the app for full top-${top.length}`,
+  );
+  return lines.join("\n");
 }
