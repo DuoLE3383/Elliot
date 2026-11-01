@@ -766,6 +766,10 @@ export interface AutoConfig {
   llmUrl: string;
   /** model name sent with each request (informational — the server binds one model) */
   llmModel: string;
+  /** seconds to wait for one LLM call (10–600). Overrides params LLM_TIMEOUT_MS when set. */
+  llmTimeoutSec: number;
+  /** true = skip entries when LLM is down; false = fail-OPEN (enter on XGB alone) */
+  llmFailClosed: boolean;
   /** skip auto-entries whose last closed candle is a whale bar (≥4σ volume) */
   whaleFilter: boolean;
   /** broadcast the "TOP coin tiềm năng" scan digest to Telegram every 5 min */
@@ -800,6 +804,8 @@ export const AUTO_DEFAULTS: AutoConfig = {
   statDaily: true,
   llmUrl: LLM_URL_DEFAULT,
   llmModel: LLM_MODEL_DEFAULT,
+  llmTimeoutSec: 300,
+  llmFailClosed: false,
   whaleFilter: true,
   broadcast: true,
   autoFlip: true,
@@ -879,6 +885,11 @@ export function loadAutoConfig(): AutoConfig {
       llmUrl:
         typeof p.llmUrl === "string" && /^https?:\/\/\S{1,120}$/.test(p.llmUrl.trim()) ? p.llmUrl.trim() : AUTO_DEFAULTS.llmUrl,
       llmModel: typeof p.llmModel === "string" && p.llmModel.length <= 60 ? p.llmModel : AUTO_DEFAULTS.llmModel,
+      llmTimeoutSec:
+        typeof p.llmTimeoutSec === "number" && p.llmTimeoutSec >= 10 && p.llmTimeoutSec <= 600
+          ? Math.round(p.llmTimeoutSec)
+          : AUTO_DEFAULTS.llmTimeoutSec,
+      llmFailClosed: p.llmFailClosed === true,
       whaleFilter: p.whaleFilter !== false,
       broadcast: p.broadcast !== false,
       autoFlip: p.autoFlip !== false,

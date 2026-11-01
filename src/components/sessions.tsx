@@ -182,18 +182,46 @@ export function SessionsPanel({
                 <Radar className="h-3.5 w-3.5" />
                 {t(lang, "sess.forecast.title")}
               </p>
-              {nx && nxStat?.bullPct != null && (
-                <p className="mt-1.5 text-[11px] text-zinc-300">
-                  {t(lang, "sess.forecast.next", { sess: t(lang, SESSION_LABEL[nx.key]), in: inLabel })}{" "}
-                  <span className={nxStat.bullPct >= 50 ? "font-semibold text-emerald-400" : "font-semibold text-rose-400"}>
-                    {t(lang, "sess.forecast.lean", {
-                      dir: nxStat.bullPct >= 50 ? "LONG" : "SHORT",
-                      p: Math.max(nxStat.bullPct, 100 - nxStat.bullPct).toFixed(0),
-                      n: nxStat.candles,
-                    })}
-                  </span>
-                </p>
-              )}
+              {nx && nxStat?.bullPct != null && (() => {
+                const bull = nxStat.bullPct!;
+                // Thresholds: <40 BEAR, >60 BULL, else NEUTRAL (user request)
+                const call = bull < 40 ? "BEAR" : bull > 60 ? "BULL" : "NEUTRAL";
+                const callCls =
+                  call === "BULL"
+                    ? "bg-emerald-950/60 text-emerald-300 border-emerald-800"
+                    : call === "BEAR"
+                      ? "bg-rose-950/60 text-rose-300 border-rose-800"
+                      : "bg-zinc-800/80 text-zinc-300 border-zinc-700";
+                const conf = call === "NEUTRAL" ? Math.abs(50 - bull) : Math.max(bull, 100 - bull);
+                return (
+                  <div className="mt-1.5 space-y-1.5">
+                    <p className="text-[11px] text-zinc-400">
+                      {t(lang, "sess.forecast.next", { sess: t(lang, SESSION_LABEL[nx.key]), in: inLabel })}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`rounded-md border px-2 py-0.5 font-mono text-sm font-bold ${callCls}`}>
+                        {call}
+                      </span>
+                      <span className="font-mono text-[12px] text-zinc-300">
+                        Bull {bull.toFixed(0)}%
+                        {nxStat.driftPct != null && (
+                          <span className={nxStat.driftPct >= 0 ? " text-emerald-400" : " text-rose-400"}>
+                            {" · drift "}
+                            {nxStat.driftPct >= 0 ? "+" : ""}
+                            {nxStat.driftPct.toFixed(3)}%
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-[10px] text-zinc-500">
+                        n={nxStat.candles} · {t(lang, "sess.forecast.conf", { p: conf.toFixed(0) })}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-zinc-600">
+                      {t(lang, "sess.forecast.rule")}
+                    </p>
+                  </div>
+                );
+              })()}
               <p className="mt-1 text-[11px] text-zinc-400">
                 {t(lang, "sess.forecast.best", {
                   hi: t(lang, SESSION_LABEL[best.key]),

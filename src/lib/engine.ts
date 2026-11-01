@@ -1004,27 +1004,33 @@ async function llmGate(
     // trước, ≤5 bài) đi kèm setup — Risk Officer phán trên hậu quả thật.
     const lessons = AUTOPSY_ON ? await recentAutopsyLessons(row.symbol).catch(() => []) : [];
     if (lessons.length > 0) console.log(`[engine] LLM review ${row.symbol} ${row.interval} — nạp ${lessons.length} bài học autopsy`);
-    const verdict = await llmReview(c.llmUrl, c.llmModel, {
-      symbol: row.symbol,
-      interval: row.interval,
-      side,
-      prob: row.prob,
-      confidence: row.confidence,
-      auc: row.auc,
-      acc: row.acc,
-      slPct,
-      tpPct,
-      leverage: p.leverage,
-      stakePct: c.riskPct,
-      horizon: row.horizon,
-      samples: row.samples,
-      score: row.score,
-      gatePassed: true, // caller đã qua gate + noise band trước khi gọi
-      track,
-      // champion–challenger — LLM đọc được đỉnh best-ever của cặp (0.2.30)
-      ...(row.champAuc ? { champAuc: row.champAuc, champAcc: row.champAcc } : {}),
-      lessons: lessons.length > 0 ? lessons : undefined,
-    });
+    const failClosed = c.llmFailClosed === true;
+    const timeoutMs = Math.max(10_000, Math.min(600_000, (c.llmTimeoutSec || 300) * 1000));
+    const verdict = await llmReview(
+      c.llmUrl,
+      c.llmModel,
+      {
+        symbol: row.symbol,
+        interval: row.interval,
+        side,
+        prob: row.prob,
+        confidence: row.confidence,
+        auc: row.auc,
+        acc: row.acc,
+        slPct,
+        tpPct,
+        leverage: p.leverage,
+        stakePct: c.riskPct,
+        horizon: row.horizon,
+        samples: row.samples,
+        score: row.score,
+        gatePassed: true, // caller already passed gate + noise band
+        track,
+        ...(row.champAuc ? { champAuc: row.champAuc, champAcc: row.champAcc } : {}),
+        lessons: lessons.length > 0 ? lessons : undefined,
+      },
+      timeoutMs,
+    );
     lastVerdict = verdict;
     if (verdict) {
       p.llmLast = {
@@ -1038,22 +1044,21 @@ async function llmGate(
       };
       persistEngine();
     } else {
-      // không gọi được / JSON hỏng — ghi nhận thay vì im lặng
       p.llmLast = {
         symbol: row.symbol,
         interval: row.interval,
         side,
         verdict: "unreachable",
-        reason: LLM_FAIL_CLOSED
-          ? "llama-server không trả lời — fail-CLOSED chặn lệnh này"
-          : "llama-server không trả lời — fail-OPEN cho lệnh qua (mặc định)",
-        ms: LLM_TIMEOUT_MS,
+        reason: failClosed
+          ? "llama-server unreachable — fail-CLOSED blocks this entry"
+          : "llama-server unreachable — fail-OPEN lets XGB entry through (default)",
+        ms: timeoutMs,
         at: Date.now(),
       };
       persistEngine();
-      if (LLM_FAIL_CLOSED) {
+      if (failClosed) {
         vetoed = true;
-        v.lastCycleStatus = `LLM unreachable — fail-closed chặn ${row.symbol} ${row.interval}`;
+        v.lastCycleStatus = `LLM unreachable — fail-closed blocks ${row.symbol} ${row.interval}`;
       }
     }
     if (verdict && verdict.verdict === "skip") {
@@ -1062,10 +1067,9 @@ async function llmGate(
       if (tgReady()) void tgSendMessage(msgLlmVeto(row, verdict), "HTML");
     }
   } catch {
-    // LLM threw unexpectedly — same policy as a null verdict
-    if (LLM_FAIL_CLOSED) {
+    if (c.llmFailClosed === true) {
       vetoed = true;
-      v.lastCycleStatus = `LLM error — fail-closed chặn ${row.symbol} ${row.interval}`;
+      v.lastCycleStatus = `LLM error — fail-closed blocks ${row.symbol} ${row.interval}`;
     }
   }
   return { verdict: lastVerdict, vetoed };

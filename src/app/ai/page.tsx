@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { t, type Lang } from "@/lib/i18n";
-import { loadAutoConfig } from "@/lib/autotrade";
+import { loadAutoConfig, saveAutoConfig } from "@/lib/autotrade";
 import { fetchDiveReports, type DiveReportRow } from "@/lib/history";
 import { DEFAULT_SETTINGS, migratePairsTo, type EngineSettings } from "@/lib/types";
 import {
@@ -182,6 +182,27 @@ export default function AiPage() {
   const [champAll, setChampAll] = useState(false);
   const [llmTest, setLlmTest] = useState<LlmTestInfo | null>(null);
   const [llmTestBusy, setLlmTestBusy] = useState(false);
+  // editable LLM setup (synced to engine via /api/engine)
+  const [llmDraftUrl, setLlmDraftUrl] = useState("");
+  const [llmDraftModel, setLlmDraftModel] = useState("local");
+  const [llmDraftTimeout, setLlmDraftTimeout] = useState(300);
+  const [llmDraftFailClosed, setLlmDraftFailClosed] = useState(false);
+  const [llmSaveState, setLlmSaveState] = useState<"idle" | "saving" | "ok" | "fail">("idle");
+
+  // seed LLM form from localStorage + engine snapshot
+  useEffect(() => {
+    try {
+      const c = loadAutoConfig();
+      setLlmDraftUrl(c.llmUrl || "");
+      setLlmDraftModel(c.llmModel || "local");
+      setLlmDraftTimeout(c.llmTimeoutSec || 300);
+      setLlmDraftFailClosed(c.llmFailClosed === true);
+    } catch {
+      /* ignore */
+    }
+  }, [data?.engine?.syncedAt]);
+
+
   // 0.2.32 — "phân tích nguyên nhân gốc": LLM đọc snapshot thống kê (/api/stats) và chỉ
   // ra điểm yếu/mâu thuẫn — cùng nguồn số liệu nên không thể lệch bảng /stats
   const [statsDive, setStatsDive] = useState<{ ok: boolean; text: string; detail: string; ms: number } | null>(null);
@@ -223,6 +244,48 @@ export default function AiPage() {
       setLoading(false);
     }
   }, []);
+
+  const saveLlmSetup = useCallback(async () => {
+    setLlmSaveState("saving");
+    try {
+      const prev = loadAutoConfig();
+      const url = llmDraftUrl.trim().replace(/\/+$/, "");
+      if (!/^https?:\/\/\S{3,120}$/.test(url)) {
+        setLlmSaveState("fail");
+        return;
+      }
+      const next = {
+        ...prev,
+        llmUrl: url,
+        llmModel: (llmDraftModel.trim() || "local").slice(0, 60),
+        llmTimeoutSec: Math.max(10, Math.min(600, Math.round(llmDraftTimeout) || 300)),
+        llmFailClosed: llmDraftFailClosed,
+      };
+      saveAutoConfig(next);
+      let settings = DEFAULT_SETTINGS;
+      let pairs: string[] = [];
+      let leverage = 1;
+      try {
+        const s = localStorage.getItem("utp.settings");
+        if (s) settings = { ...DEFAULT_SETTINGS, ...JSON.parse(s) };
+        leverage = settings.leverage ?? 1;
+        const pr = localStorage.getItem("utp.pairs");
+        if (pr) pairs = migratePairsTo(JSON.parse(pr));
+      } catch {
+        /* keep defaults */
+      }
+      const res = await fetch("/api/engine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "sync", cfg: next, settings, pairs, leverage }),
+      });
+      setLlmSaveState(res.ok ? "ok" : "fail");
+      if (res.ok) void load();
+    } catch {
+      setLlmSaveState("fail");
+    }
+  }, [llmDraftUrl, llmDraftModel, llmDraftTimeout, llmDraftFailClosed, load]);
+
 
   useEffect(() => {
     void load();
@@ -633,6 +696,68 @@ export default function AiPage() {
               )}
               {cfg?.llmModel && <span className="font-mono text-zinc-500">· {cfg.llmModel}</span>}
             </div>
+
+            {/* ── Editable LLM setup ─────────────────────────────────── */}
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-3 space-y-2.5">
+              <p className="text-[11px] font-semibold text-zinc-300">{t(lang, "ai.llm.setup")}</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="block space-y-1">
+                  <span className="text-[10px] uppercase tracking-wide text-zinc-500">{t(lang, "ai.llm.url")}</span>
+                  <input
+                    type="url"
+                    value={llmDraftUrl}
+                    onChange={(e) => setLlmDraftUrl(e.target.value)}
+                    placeholder="http://127.0.0.1:8080"
+                    className="h-8 w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 font-mono text-[11px] text-zinc-200 placeholder:text-zinc-600"
+                  />
+                  <span className="text-[10px] text-zinc-600">{t(lang, "ai.llm.urlHint")}</span>
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-[10px] uppercase tracking-wide text-zinc-500">{t(lang, "ai.llm.model")}</span>
+                  <input
+                    type="text"
+                    value={llmDraftModel}
+                    onChange={(e) => setLlmDraftModel(e.target.value)}
+                    placeholder="local"
+                    className="h-8 w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 font-mono text-[11px] text-zinc-200"
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-[10px] uppercase tracking-wide text-zinc-500">{t(lang, "ai.llm.timeout")}</span>
+                  <input
+                    type="number"
+                    min={10}
+                    max={600}
+                    value={llmDraftTimeout}
+                    onChange={(e) => setLlmDraftTimeout(Number(e.target.value))}
+                    className="h-8 w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 font-mono text-[11px] text-zinc-200"
+                  />
+                </label>
+                <label className="flex items-center gap-2 pt-5">
+                  <input
+                    type="checkbox"
+                    checked={llmDraftFailClosed}
+                    onChange={(e) => setLlmDraftFailClosed(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-zinc-600"
+                  />
+                  <span className="text-[11px] text-zinc-300">{t(lang, "ai.llm.failClosedLabel")}</span>
+                </label>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  className="h-7 gap-1.5 bg-teal-600 px-3 text-[11px] font-bold text-white hover:bg-teal-500"
+                  disabled={llmSaveState === "saving"}
+                  onClick={() => void saveLlmSetup()}
+                >
+                  {llmSaveState === "saving" ? t(lang, "ai.llm.saving") : t(lang, "ai.llm.save")}
+                </Button>
+                <span className="text-[10px] text-zinc-500">
+                  {llmSaveState === "ok" ? t(lang, "ai.llm.saveOk") : llmSaveState === "fail" ? t(lang, "ai.llm.saveFail") : t(lang, "ai.llm.saveNote")}
+                </span>
+              </div>
+            </div>
+
             {data?.engine?.llmLast ? (
               <p className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5 text-[11px]">
                 <span className="font-bold text-zinc-200">{t(lang, "ai.llm.last")}: </span>
@@ -885,19 +1010,27 @@ export default function AiPage() {
             <p className="text-[11px] text-zinc-500">{t(lang, "ai.knobs.sub")}</p>
           </CardHeader>
           <CardContent className="grid gap-3 pt-0 md:grid-cols-2">
-            {(data?.knobs ?? []).map((g) => (
+            {(data?.knobs ?? []).map((g) => {
+              // hide ports, URLs, tokens, keys from the public knobs grid
+              const items = g.items.filter(([k, v]) => {
+                const key = k.toUpperCase();
+                const val = String(v);
+                if (/URL|TOKEN|KEY|SECRET|PASSWORD|AUTH|BEARER/i.test(key)) return false;
+                if (/https?:\/\//i.test(val)) return false;
+                if (/:\d{2,5}/.test(val) && /127\.|localhost|0\.0\.0|192\.168/.test(val)) return false;
+                return true;
+              });
+              if (!items.length) return null;
+              return (
               <div key={g.name} className="min-w-0 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
                 <p className="text-xs font-bold text-zinc-200">{g.name}</p>
                 <p className="mt-0.5 text-[10px] text-zinc-500">{g.note}</p>
                 <div className="mt-1.5 space-y-0.5">
-                  {g.items.map(([k, v]) => {
+                  {items.map(([k, v]) => {
                     const s = typeof v === "object" && v !== null ? JSON.stringify(v) : String(v);
                     return (
                       <div key={k} className="flex min-w-0 items-center justify-between gap-3 text-[11px]">
                         <span className="min-w-0 truncate font-mono text-zinc-500">{k}</span>
-                        {/* truncate + min-w-0 hai bên — value JSON dài (vd params XGB
-                            620px) từng đẩy card 711px → tràn ngang màn hình mobile;
-                            đủ nội dung xem trong title */}
                         <span className="min-w-0 truncate text-right font-mono font-bold text-zinc-300" title={s}>
                           {s}
                         </span>
@@ -906,7 +1039,8 @@ export default function AiPage() {
                   })}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </CardContent>
         </Card>
       </div>

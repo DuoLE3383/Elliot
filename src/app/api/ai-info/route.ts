@@ -449,7 +449,7 @@ export async function GET() {
             cycle: engine.cycle,
           }
         : null,
-      llm: { url: llmUrl, urlSource, ping: llm, failClosed: LLM_FAIL_CLOSED },
+      llm: { url: llmUrl, urlSource, ping: llm, failClosed: engine?.cfg?.llmFailClosed === true },
       knobs: knobGroups,
     },
     { headers: { "Cache-Control": "no-store" } },
