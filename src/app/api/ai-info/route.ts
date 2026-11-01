@@ -328,8 +328,8 @@ export async function GET() {
   // 3) knobs — read-only, theo nhóm (nguồn: params.ts — MỘT file config)
   const knobGroups = [
     {
-      name: "Cổng chất lượng (gate)",
-      note: "Chỉnh giá trị THẬT trên Auto panel (cfg.minScore/minAuc/minAcc) — nhóm này là mặc định.",
+      name: "Quality gate",
+      note: "Live values come from the Auto panel (cfg.minScore/minAuc/minAcc) — these are defaults.",
       items: [
         ["BCAST_SCORE_MIN", BCAST_SCORE_MIN],
         ["BCAST_AUC_MIN", BCAST_AUC_MIN],
@@ -337,7 +337,7 @@ export async function GET() {
       ],
     },
     {
-      name: "Broadcast 5 phút",
+      name: "5-minute broadcast",
       note: "Tin Telegram TOP coin.",
       items: [
         ["BCAST_VOL_MIN", BCAST_VOL_MIN],
@@ -350,7 +350,7 @@ export async function GET() {
     },
     {
       name: "Train / Prob",
-      note: "Knob ảnh hưởng trực tiếp Prob + chất lượng model.",
+      note: "Knobs that directly affect Prob and model quality.",
       items: [
         ["MAX_DIFFICULTY", MAX_DIFFICULTY],
         ["NOISE_BAND", NOISE_BAND],
@@ -362,7 +362,7 @@ export async function GET() {
     },
     {
       name: "Champion–challenger + confluence",
-      note: "Grid ứng viên + trần prob sau ghép đa khung.",
+      note: "Candidate grid + probability cap after multi-TF confluence.",
       items: [
         ["XGB_BASE", XGB_BASE],
         ["XGB_GRID", XGB_GRID.map((g) => g.name).join(", ")],
@@ -373,8 +373,8 @@ export async function GET() {
       ],
     },
     {
-      name: "LLM Risk Officer (mặc định)",
-      note: "Qwen chạy llama-server — chỉ DUYỆT rủi ro, không train.",
+      name: "LLM Risk Officer (default)",
+      note: "Qwen via llama-server — risk review only, never used for training.",
       items: [
         ["LLM_URL_DEFAULT", LLM_URL_DEFAULT],
         ["LLM_MODEL_DEFAULT", LLM_MODEL_DEFAULT],
@@ -383,8 +383,8 @@ export async function GET() {
       ],
     },
     {
-      name: "Universe / phiên / nhịp quét",
-      note: "Scan + broadcast universe + tin phiên.",
+      name: "Universe / sessions / scan cadence",
+      note: "Universe scan + broadcast + session alerts.",
       items: [
         ["UNIVERSE_INTERVAL", UNIVERSE_INTERVAL],
         ["UNIVERSE_SCAN_MS", `${UNIVERSE_SCAN_MS / 3_600_000}h`],
@@ -400,7 +400,7 @@ export async function GET() {
     },
     {
       name: "Chart realtime (LIVE)",
-      note: "Luồng SSE /api/stream — bám websocket kline Binance.",
+      note: "SSE /api/stream — follows Binance kline websocket.",
       items: [
         ["LIVE_FLUSH_MS", `${LIVE_FLUSH_MS / 1000}s`],
         ["LIVE_POLL_MS", `${LIVE_POLL_MS / 1000}s`],

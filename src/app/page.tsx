@@ -6,7 +6,6 @@ import { StrategyPies } from "@/components/strategy-pies";
 import { AutoPanel } from "@/components/auto-panel";
 import { Journal } from "@/components/journal";
 import { KpiCards } from "@/components/kpi";
-import { OpenPositionStrip } from "@/components/open-position-strip";
 import { SessionsPanel } from "@/components/sessions";
 import { SignalDock } from "@/components/panels";
 import { PriceChart } from "@/components/price-chart";
@@ -27,6 +26,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtCompact } from "@/lib/market";
 import { applyBestSuggestion, fetchChampionRun, fetchRuns, markApplied, markVariantApplied, type RunRow, type VariantRow } from "@/lib/history";
 import { fmtPct, fmtPrice, fmtTime, symbolLabel, t, type Lang } from "@/lib/i18n";
+import type { AutoTradeRow } from "@/lib/autotrade";
 import { LIVE_REPAIR_MS } from "@/lib/params";
 import { mergeTail, type LiveSrc } from "@/lib/live-stream";
 import { fetchView, type ViewPayload } from "@/lib/view";
@@ -169,6 +169,8 @@ export default function Home() {
   const [histRefresh, setHistRefresh] = useState(0);
   // ── market context (ticker strip) + view tính Ở SERVER ──────────────────
   const [tickers, setTickers] = useState<Record<string, Ticker>>({});
+  /** open auto dry-run position — polled lightly for the KPI right panel */
+  const [autoOpen, setAutoOpen] = useState<AutoTradeRow | null>(null);
   /** MỌI thứ panel cần — signals/papers/wyckoff/kpi/analysis/pies/sessions/
    *  watchlist đều từ /api/view (poll 2s). Client chỉ vẽ: chart + JSON (0.2.35) */
   const [view, setView] = useState<ViewPayload | null>(null);
@@ -935,6 +937,29 @@ export default function Home() {
     };
   }, [pairListKey]);
 
+  // ── open auto position (lightweight, 5s) for KPI right panel ──────────────
+  useEffect(() => {
+    let alive = true;
+    let timer = 0;
+    const load = async () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      try {
+        const res = await fetch("/api/autotrade?part=open", { cache: "no-store" });
+        if (!res.ok) return;
+        const j = (await res.json()) as { open: AutoTradeRow | null };
+        if (alive) setAutoOpen(j.open ?? null);
+      } catch {
+        // keep previous on blip
+      }
+    };
+    void load();
+    timer = window.setInterval(() => void load(), 5_000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
   // ── /api/view — engine + panels tính Ở SERVER, poll 2s (ngưng khi tab ẩn) ──
   // sKey/wKey là chuỗi JSON ỔN ĐỊNH để effect chỉ chạy lại khi setting ĐỔI THẬT
   // (object settings/wySettings mới mỗi render nhưng chuỗi không đổi).
@@ -1109,15 +1134,6 @@ export default function Home() {
       {/* ── Live ticker strip ──────────────────────────────────────── */}
       <TickerStrip lang={lang} pairs={allPairs} tickers={tickers} current={symbol} onSelect={setSymbol} />
 
-      {/* ── Open auto position — hidden when empty; click = select that pair + TF ── */}
-      <OpenPositionStrip
-        lang={lang}
-        tickers={tickers}
-        onPickPair={(sym, itv) => {
-          setSymbol(sym);
-          if ((INTERVALS as readonly string[]).includes(itv)) setIntervalTf(itv as Interval);
-        }}
-      />
 
       {/* ── KPI row ────────────────────────────────────────────────── */}
       <div className="shrink-0 px-3 pt-3">
@@ -1130,6 +1146,12 @@ export default function Home() {
             openPnl={openPnl}
             signals={view.signals}
             totalSignals={sigTotals[`${symbol}|${interval}`] ?? null}
+            autoOpen={autoOpen}
+            tickers={tickers}
+            onPickAuto={(sym, itv) => {
+              setSymbol(sym);
+              if ((INTERVALS as readonly string[]).includes(itv)) setIntervalTf(itv as Interval);
+            }}
           />
         ) : (
           <Skeleton className="h-[72px] rounded-lg border border-zinc-800 bg-zinc-900" />

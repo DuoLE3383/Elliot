@@ -339,17 +339,17 @@ export default function StatsPage() {
                   {t(lang, "stats.section.journal")} ·{" "}
                   {pickSym === PICK_ALL ? t(lang, "stats.pick.all") : pickSym.replace("USDT", "")} {pickTf}
                 </CardTitle>
-                {journal && accBadge(journal.closed > 0 ? journal.winRate : 0, `${journal.closed} lệnh đã đóng`)}
+                {journal && accBadge(journal.closed > 0 ? journal.winRate : 0, `${journal.closed} closed`)}
               </CardHeader>
               <CardContent className="space-y-2.5 pt-0">
                 {journal ? (
                   <div className="grid gap-1.5 sm:grid-cols-2">
-                    <Metric k="Lệnh (khung 500 nến)" v={String(journal.total)} sub={`${journal.closed} đóng · ${journal.open} mở`} />
-                    <Metric k="Win rate" v={`${journal.winRate.toFixed(0)}%`} sub={`${journal.wins} thắng / ${journal.losses} thua`} />
+                    <Metric k={t(lang, "stats.j.trades")} v={String(journal.total)} sub={`${journal.closed} closed · ${journal.open} open`} />
+                    <Metric k="Win rate" v={`${journal.winRate.toFixed(0)}%`} sub={`${journal.wins} wins / ${journal.losses} losses`} />
                     <Metric k="TP / SL" v={`${journal.tpCount} / ${journal.slCount}`} />
-                    <Metric k="Lật chiều" v={String(journal.flipCount)} sub={`net ${fmtPct(journal.flipNetPnl)}`} />
-                    <Metric k="Net ROE cộng" v={fmtPct(journal.netPnl)} />
-                    <Metric k="Tín hiệu UT-Bot" v={journal.basis} />
+                    <Metric k={t(lang, "stats.j.flips")} v={String(journal.flipCount)} sub={`net ${fmtPct(journal.flipNetPnl)}`} />
+                    <Metric k={t(lang, "stats.j.net")} v={fmtPct(journal.netPnl)} />
+                    <Metric k="UT-Bot signals" v={journal.basis} />
                   </div>
                 ) : (
                   <p className="text-xs text-zinc-500">— {clientBusy ? "…" : "không tải được nến"}</p>
@@ -412,7 +412,7 @@ export default function StatsPage() {
                   {t(lang, "stats.section.analysis")} ·{" "}
                   {pickSym === PICK_ALL ? t(lang, "stats.pick.all") : pickSym.replace("USDT", "")} {pickTf}
                 </CardTitle>
-                {analysis && accBadge(100, "chỉ số mô tả từ nến đã đóng — đúng 100% theo công thức")}
+                {analysis && accBadge(100, "descriptive metrics from closed candles — 100% formula-true")}
               </CardHeader>
               <CardContent className="space-y-2.5 pt-0">
                 {pickSym === PICK_ALL ? (
@@ -422,9 +422,9 @@ export default function StatsPage() {
                     <Metric k="Trend (EMA50/200)" v={analysis.trend} sub={analysis.ema50 != null ? `EMA50 ${fmtPrice(analysis.ema50)}` : undefined} />
                     <Metric k="RSI(14)" v={analysis.rsi14 != null ? analysis.rsi14.toFixed(1) : "—"} />
                     <Metric k="Volume vs TB20" v={analysis.volRatio != null ? `${analysis.volRatio.toFixed(2)}×` : "—"} />
-                    <Metric k="ATR% (đối chiếu TB50)" v={analysis.atrPct != null ? `${analysis.atrPct.toFixed(2)}%` : "—"} sub={analysis.atrRel != null ? `${analysis.atrRel.toFixed(2)}× trung bình` : undefined} />
-                    <Metric k="Cấu trúc" v={analysis.structure ?? "—"} sub={analysis.rangePos != null ? `vị trí trong vùng ${analysis.rangePos.toFixed(0)}%` : undefined} />
-                    <Metric k="Vùng swing" v={analysis.rangeLow != null && analysis.rangeHigh != null ? `${fmtPrice(analysis.rangeLow)} – ${fmtPrice(analysis.rangeHigh)}` : "—"} />
+                    <Metric k="ATR% (vs TB50)" v={analysis.atrPct != null ? `${analysis.atrPct.toFixed(2)}%` : "—"} sub={analysis.atrRel != null ? `${analysis.atrRel.toFixed(2)}× average` : undefined} />
+                    <Metric k="Structure" v={analysis.structure ?? "—"} sub={analysis.rangePos != null ? `range position ${analysis.rangePos.toFixed(0)}%` : undefined} />
+                    <Metric k="Swing range" v={analysis.rangeLow != null && analysis.rangeHigh != null ? `${fmtPrice(analysis.rangeLow)} – ${fmtPrice(analysis.rangeHigh)}` : "—"} />
                   </div>
                 ) : (
                   <p className="text-xs text-zinc-500">— {clientBusy ? "…" : "không tải được nến"}</p>

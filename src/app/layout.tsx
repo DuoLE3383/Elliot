@@ -33,7 +33,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Elliott — Paper Trading Terminal",
   description:
-    "Elliott — mô phỏng paper trading theo tín hiệu UT Bot với cổng SMA. Tín hiệu đảo chiều đóng lệnh hiện tại và mở lệnh mới theo hướng ngược lại.",
+    "Elliott — UT Bot paper trading with SMA gate. A reversal signal closes the current position and opens a new one in the opposite direction.",
   keywords: ["Elliott", "UT Bot", "paper trading", "Binance", "reversal", "SMA gate"],
   icons: {
     icon: "/elliott.svg",
@@ -41,8 +41,7 @@ export const metadata: Metadata = {
   other: { "elliott-build": BUILD_ID },
 };
 
-// Mobile browser chrome (address bar) tô cùng màu nền terminal — hết sọc trắng
-// trên đỉnh/dưới màn hình điện thoại.
+// Mobile browser chrome matches the terminal background colour.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,

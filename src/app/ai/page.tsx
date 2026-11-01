@@ -1,12 +1,12 @@
 "use client";
 
-// ─── /ai — Trung tâm AI & Cài đặt ────────────────────────────────────────────
-// Trang riêng trả lời 3 câu hỏi của user:
-//   1. Prob là gì, AI suy luận được bao nhiêu % ở lệnh này (đọc theo phía PHE)
-//   2. AI đã học bao nhiêu dữ liệu (runs từ DB + bài học dry-run)
-//   3. Cài đặt hệ thống (toàn bộ tham số params.ts, read-only) + trạng thái
-//      llama-server (Risk Officer) — và nó KHÔNG được dùng để finetune.
-// Dữ liệu: GET /api/ai-info — read-only, refresh tay + tự động mỗi 60s.
+// ─── /ai — AI & Settings hub ─────────────────────────────────────────────────
+// Answers three questions:
+//   1. What is Prob, and how confident is the model on this trade (side-aware)
+//   2. How much data has the AI learned (DB runs + dry-run lessons)
+//   3. System settings (all params.ts knobs, read-only) + llama-server status
+//      (Risk Officer — never used for finetune)
+// Data: GET /api/ai-info — read-only, manual refresh + auto every 60s.
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
