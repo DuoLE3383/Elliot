@@ -308,7 +308,7 @@ export default function StatsPage() {
                     <Metric k="Win rate" v={`${journal.winRate.toFixed(0)}%`} sub={`${journal.wins} thắng / ${journal.losses} thua`} />
                     <Metric k="TP / SL" v={`${journal.tpCount} / ${journal.slCount}`} />
                     <Metric k="Lật chiều" v={String(journal.flipCount)} sub={`net ${fmtPct(journal.flipNetPnl)}`} />
-                    <Metric k="Net ROE cộng" v={fmtPct(journal.netPnlPct)} />
+                    <Metric k="Net ROE cộng" v={fmtPct(journal.netPnl)} />
                     <Metric k="Tín hiệu UT-Bot" v={journal.basis} />
                   </div>
                 ) : (

@@ -339,10 +339,17 @@ export async function autopsyClosedTrade(row: {
       exitTime: row.exitTime.getTime(),
       exitPrice: row.exitPrice ?? 0,
     };
-    // endpoint: opts (engine cfg) → env → default — cùng thứ tự ưu tiên review
+    // endpoint: ENV TRƯỚC (chuẩn chung cả app — llmEnvEndpoint đọc LLM_URL/
+    // LLAMA_SERVER_URL) → opts (cfg engine lưu trong DB) → default.
+    // 0.2.33 sửa lỗi thật 01/11: thứ tự cũ "opts → env" để cfg.llmUrl CŨ trong
+    // DB (vd http://127.0.0.8:8888 — settting còn từ setup đầu) thắng env, LLM
+    // không trả lời → "bỏ lượt mổ này" — autopsy là write-once nên MỌI lệnh
+    // đóng từ đó không bao giờ có bài học, /ai hiện "chưa có bài giải phẫu"
+    // dù DB đầy lệnh. Env-first cũng là thứ tự tài liệu ở /api/ai-info
+    // ("env thắng → cfg engine → default").
     const env = llmEnvEndpoint();
-    const url = opts?.url?.trim() || env.url || LLM_URL_DEFAULT;
-    const model = opts?.model?.trim() || env.model || LLM_MODEL_DEFAULT;
+    const url = env.url || opts?.url?.trim() || LLM_URL_DEFAULT;
+    const model = env.model || opts?.model?.trim() || LLM_MODEL_DEFAULT;
     // nến cửa sổ giữ lệnh — thiếu thì vẫn mổ nhưng path_check báo data thiếu
     let ks: Kline[] = [];
     let covered = false;
@@ -386,6 +393,43 @@ export async function autopsyClosedTrade(row: {
   } finally {
     inflight.delete(row.id);
   }
+}
+
+// ─── backfill — hồi đồng bộ autopsy cho lệnh đóng lúc LLM chết ───────────
+
+/**
+ * Mổ BỔ SUNG tối đa `max` lệnh ĐÓNG mà cột autopsy còn TRỐNG (mới nhất trước).
+ * Trước 0.2.33 autopsy là write-once: lệnh đóng đúng lúc LLM chết/tunnel đứt
+ * bị bỏ lượt VĨNH VIỄN (không retry) → /ai hiện "chưa có bài giải phẫu" dù
+ * DB đầy lệnh đóng — user hỏi "trong database đã có dữ liệu nhưng chưa đồng
+ * bộ?" đúng bản chất. Backfill là vòng eventually-consistent: idempotent
+ * (autopsyClosedTrade tự bỏ lệnh đã mổ + đang mổ), bound (tối đa `max` mỗi
+ * lượt × LLM_TIMEOUT_MS), chạy định kỳ từ engine scheduler — không đụng lệnh
+ * hay vốn, LLM chết chỉ là lượt này bỏ qua, lượt sau mổ tiếp.
+ */
+export async function autopsyBackfill(max = 3): Promise<number> {
+  if (!AUTOPSY_ON) return 0;
+  const rows = await db.autoTrade.findMany({
+    // exitTime not null: row "closed" dị dạng thiếu exitTime sẽ không bao giờ
+    // mổ được (autopsyClosedTrade bỏ) — không loại thì nó chiếm chỗ take:max
+    // và chặn các lệnh thật mới hơn tới vô hạn
+    where: { status: "closed", autopsy: null, exitTime: { not: null } },
+    orderBy: { exitTime: "desc" },
+    take: max,
+  });
+  if (rows.length === 0) return 0;
+  let done = 0;
+  for (const r of rows) {
+    const json = await autopsyClosedTrade(r).catch(() => null);
+    if (json) done += 1;
+  }
+  const left = await db.autoTrade
+    .count({ where: { status: "closed", autopsy: null, exitTime: { not: null } } })
+    .catch(() => -1);
+  console.log(
+    `[autopsy] backfill — ${done}/${rows.length} lệnh được mổ bổ sung${left >= 0 ? ` · còn ${left} lệnh chờ` : ""}`,
+  );
+  return done;
 }
 
 // ─── lessons — nạp bài học vào prompt duyệt lệnh mới ──────────────────────────

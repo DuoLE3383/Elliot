@@ -468,7 +468,7 @@ export default function AiPage() {
                     <span className={`shrink-0 font-mono ${r.acc >= 55 ? "text-emerald-400" : "text-zinc-300"}`}>{r.acc.toFixed(1)}%</span>
                     <span className="shrink-0 font-mono text-zinc-500">AUC {r.auc.toFixed(2)}</span>
                     <span className="hidden shrink-0 font-mono text-zinc-600 sm:inline">L {r.logloss.toFixed(3)}</span>
-                    <span className="ml-auto shrink-0 font-mono text-[10px] text-zinc-500">{hyper(r.params)}</span>
+                    <span className="ml-auto max-w-full shrink-0 truncate font-mono text-[10px] text-zinc-500" title={hyper(r.params)}>{hyper(r.params)}</span>
                     <span className="shrink-0 font-mono text-[10px] text-zinc-600">
                       {new Date(r.createdAt).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
                     </span>
@@ -555,13 +555,15 @@ export default function AiPage() {
                 {/* mặc định top 10 — bấm nút dưới để mở hết (danh sách có thể
                     dài hơn khung nhìn khi đã train nhiều combo) */}
                 {data.champions.slice(0, champAll ? undefined : 10).map((c) => (
-                  <div key={`${c.symbol}-${c.interval}`} className="flex items-center gap-2 rounded-md border border-amber-800/40 bg-amber-950/10 px-2 py-1.5 text-[11px]">
+                  <div key={`${c.symbol}-${c.interval}`} className="flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-amber-800/40 bg-amber-950/10 px-2 py-1.5 text-[11px]">
                     <Crown className="h-3 w-3 shrink-0 text-amber-400" />
                     <span className="shrink-0 font-mono font-bold text-zinc-200">#{c.symbol}</span>
                     <span className="shrink-0 font-mono text-zinc-500">{c.interval}</span>
                     <span className={`shrink-0 font-mono ${c.acc >= 55 ? "text-emerald-400" : "text-zinc-300"}`}>{c.acc.toFixed(1)}%</span>
                     <span className="shrink-0 font-mono text-zinc-500">AUC {c.auc.toFixed(2)}</span>
-                    <span className="ml-auto shrink-0 font-mono text-[10px] text-zinc-500">{hyper(c.params)}</span>
+                    {/* max-w-full + truncate — hyper(params) ~300px từng đẩy row
+                        champion tràn ngang mobile (390px); đủ xem trong title */}
+                    <span className="ml-auto max-w-full shrink-0 truncate font-mono text-[10px] text-zinc-500" title={hyper(c.params)}>{hyper(c.params)}</span>
                   </div>
                 ))}
               </div>
@@ -819,16 +821,24 @@ export default function AiPage() {
           </CardHeader>
           <CardContent className="grid gap-3 pt-0 md:grid-cols-2">
             {(data?.knobs ?? []).map((g) => (
-              <div key={g.name} className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+              <div key={g.name} className="min-w-0 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
                 <p className="text-xs font-bold text-zinc-200">{g.name}</p>
                 <p className="mt-0.5 text-[10px] text-zinc-500">{g.note}</p>
                 <div className="mt-1.5 space-y-0.5">
-                  {g.items.map(([k, v]) => (
-                    <div key={k} className="flex items-center justify-between gap-3 text-[11px]">
-                      <span className="truncate font-mono text-zinc-500">{k}</span>
-                      <span className="shrink-0 font-mono font-bold text-zinc-300">{typeof v === "object" && v !== null ? JSON.stringify(v) : String(v)}</span>
-                    </div>
-                  ))}
+                  {g.items.map(([k, v]) => {
+                    const s = typeof v === "object" && v !== null ? JSON.stringify(v) : String(v);
+                    return (
+                      <div key={k} className="flex min-w-0 items-center justify-between gap-3 text-[11px]">
+                        <span className="min-w-0 truncate font-mono text-zinc-500">{k}</span>
+                        {/* truncate + min-w-0 hai bên — value JSON dài (vd params XGB
+                            620px) từng đẩy card 711px → tràn ngang màn hình mobile;
+                            đủ nội dung xem trong title */}
+                        <span className="min-w-0 truncate text-right font-mono font-bold text-zinc-300" title={s}>
+                          {s}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ))}

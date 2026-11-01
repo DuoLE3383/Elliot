@@ -245,6 +245,10 @@ export const LLM_TIMEOUT_MS = (() => {
  *  lưu bài học vào DB, nạp lại vào prompt duyệt các lệnh sau. Tắt = engine chỉ
  *  duyệt/rủi ro như 0.2.27, không sinh bài học mới (bài học cũ vẫn được nạp). */
 export const AUTOPSY_ON = true;
+/** Backfill autopsy — mỗi 6h mổ bổ sung tối đa vài lệnh đóng còn thiếu autopsy
+ *  (lệnh đóng đúng lúc LLM chết từng bị bỏ lượt VĨNH VIỄN — 0.2.33 thêm vòng
+ *  eventually-consistent; lượt đầu chạy ngay tick đầu tiên sau boot). */
+export const AUTOPSY_BACKFILL_MS = 6 * 3_600_000;
 /** LLM chết thì xử lý thế nào?
  *  • false (mặc định, fail-OPEN) — llama-server không trả lời (chết/timeout/JSON
  *    hỏng) → lệnh vẫn vào theo đường XGBoost-only. Nhẹ tay cho paper-trading:

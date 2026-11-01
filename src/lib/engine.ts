@@ -51,7 +51,7 @@ import {
   type ScanRow,
 } from "./autotrade";
 import { readAutoState, serialize } from "./autostate";
-import { autopsyClosedTrade, recentAutopsyLessons } from "./autopsy";
+import { autopsyBackfill, autopsyClosedTrade, recentAutopsyLessons } from "./autopsy";
 import { aliasFuturesSymbol, type EngineSettings, type Ticker } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 import { atrLevelsAtEntry } from "./indicators";
@@ -76,6 +76,7 @@ import { msgClose, msgDca, msgLlmVeto, msgNear, msgOpen } from "./tg-msgs";
 import { enqueueJob, jobViews } from "./engine-jobs";
 import { directionalPnl, outcomeOf } from "./history";
 import {
+  AUTOPSY_BACKFILL_MS,
   AUTOPSY_ON,
   LLM_FAIL_CLOSED,
   LLM_TIMEOUT_MS,
@@ -1505,9 +1506,20 @@ export function startEngineScheduler(): void {
   const lastBcast = { bucket: 0 };
   const lastUni = { bucket: 0 };
   const lastResolve = { at: 0 };
+  // at=0 → lượt mổ bổ sung đầu tiên chạy ngay tick đầu tiên (~15s sau boot);
+  // sau đó mỗi lượt cách nhau 6h (AUTOPSY_BACKFILL_MS)
+  const lastAutopsyBf = { at: 0 };
 
   const tick = async (): Promise<void> => {
     const { p } = eng();
+    // autopsy backfill — nằm TRƯỚC cổng syncedAt: mổ bổ sung chỉ cần DB +
+    // klines + LLM, không phụ thuộc cfg engine sync từ trình duyệt (0.2.33)
+    if (Date.now() - lastAutopsyBf.at >= AUTOPSY_BACKFILL_MS) {
+      lastAutopsyBf.at = Date.now();
+      void autopsyBackfill(3).catch((e) =>
+        console.error(`[autopsy] backfill: ${e instanceof Error ? e.message : e}`),
+      );
+    }
     if (!p.syncedAt) return; // idle until the first browser sync
     try {
       // hourly / daily digests (marker-guarded inside the lib)

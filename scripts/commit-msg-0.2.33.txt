@@ -1,0 +1,75 @@
+0.2.33 — SỬA 3 LỖI THẬT SAU DEPLOY 0.2.32 + ĐỒNG BỘ AUTOPSY 🐞🩺
+
+User báo: /stats sập "Application error: a client-side exception" (stack:
+undefined.toFixed tại fmtPct), hỏi "trong database đã có dữ liệu nhưng chưa
+đồng bộ?" (card autopsy /ai báo trống dù DB có lệnh đóng), và "kiểm tra lại
+giao diện mobile".
+
+═══ 1. /stats CRASH — fmtPct(undefined) ═══
+
+stats/page.tsx gọi journal.netPnlPct nhưng KpiStats (kpiFrom, papers.ts) chỉ
+có netPnl — field không tồn tại → fmtPct(undefined) → undefined.toFixed(2) →
+cả trang sập NGAY khi journal tải xong (mọi trình duyệt, VPS lẫn local).
+Lọt qua build vì next.config có ignoreBuildErrors: true.
+• Sửa: fmtPct(journal.netPnl) — đúng nghĩa "Net ROE cộng" (tổng pnlPct đã đóng).
+• tsc --noEmit toàn project: 0 lỗi (quét lại toàn bộ, không còn mìn cùng loại).
+• Kiểm chứng end-to-end: production build + browser thật + mock /api/klines →
+  journal render đầy đủ số (Win rate 60% · Net ROE +3.55% — khớp Node repro),
+  không còn "Application error".
+
+═══ 2. AUTOPSY "CHƯA ĐỒNG BỘ" — 2 gốc rễ ═══
+
+a) THỨ TỰ URL LLM SAI: autopsy dùng "cfg.llmUrl (DB) → env → default" trong
+khi chuẩn chung app là "env (LLM_URL) → cfg → default" (ai-info route tài
+liệu rõ). VPS có cfg.llmUrl cũ "http://127.0.0.8:8888" trong DB → autopsy
+bắn nhầm địa chỉ, LLM không trả lời, "bỏ lượt mổ này" — trong khi /ai chat,
+review, stats-dive vẫn chạy tốt bằng env. Sửa: env TRƯỚC (llmEnvEndpoint),
+opts.url chỉ là fallback (test script với mock vẫn đúng vì env trống).
+
+b) WRITE-ONCE KHÔNG RETRY: lệnh đóng đúng lúc LLM chết/tunnel đứt bị bỏ lượt
+VĨNH VIỄN → /ai "chưa có bài giải phẫu" mãi mãi dù DB đầy lệnh đóng. Thêm
+autopsyBackfill(max=3): mổ bổ sung lệnh closed còn thiếu autopsy (mới nhất
+trước, loại row dị dạng exitTime null để không chiếm chỗ take:max),
+idempotent + bound, chạy từ engine scheduler: ngay tick đầu sau boot rồi mỗi
+6h (AUTOPSY_BACKFILL_MS), nằm TRƯỚC cổng syncedAt (không cần cfg sync).
+
+Test mới scripts/test-autopsy-sync.mts — 14 PASS: backfill chọn đúng/bỏ
+open-đã mổ-dị dạng, idempotent, bound max, env thắng opts.url (URL chết vẫn
+thành công qua env), env trống thì opts.url vẫn dùng được.
+
+═══ 3. MOBILE — /ai TRÀN NGANG 390px ═══
+
+Probe browser 390×844: /ai scrollWidth 711px. Thủ phạm: knob card render
+JSON.stringify(params XGB) 620px trong span shrink-0 (không min-w-0 ở bất kỳ
+mức nào) → card bị đẩy 711px; row champion tương tự (flex không wrap,
+hyper(params) ~300px). Sửa: min-w-0 + truncate hai bên (nội dung đủ xem trong
+title), champion thêm flex-wrap. Re-probe: /ai 0 phần tử tràn, root + /stats
+sạch, mọi dải TF/tabs đã overflow-x-auto sẵn.
+
+═══ 4. KIỂM TRA TEST CŨ — PHÁT HIỆN test-db-bootstrap PASS RỖNG ═══
+
+Pha prep-old CRASH thật ("table AutoTrade already exists") vì findFirst chạy
+TRƯỚC nhánh prep-old → bootstrap tự tạo đủ 7 bảng → DB "cũ" không bao giờ
+tồn tại → pha "old" sau đó pass rỗng (đường ALTER chưa từng được kiểm!). Sửa
+luồng: prep-old dựng DB cũ TRƯỚC KHI import db.ts; pha "old" kiểm HẰNG:
+ALTER đủ 3 cột + tạo đủ 7 bảng + giữ nguyên cột cũ. 5 pha giờ PASS THẬT.
+
+═══ 5. KHÁC ═══
+
+• favicon.ico (2 kích thước, từ elliott.svg) — hết 404 trong console.
+• Version 0.2.33; package.json.
+
+═══ KIỂM CHỨNG ═══
+
+autoflip 31/31 · autopsy 42/42 · autopsy-sync 14/14 (MỚI) · calibration 46/46
+· stats 31/31 · train-lessons 25/25 · tune-grid 25/25 · wyck-universe 38/38
+· bootstrap 5 pha PASS (thật) · live-stream 11 pass/2 skip · db-migrate PASS
+· champ-distinct PASS · tg-msgs PASS · llm-* 6/6 PASS · tsc 0 lỗi · build OK
+· chunk integrity 3 trang 45/45 refs · browser thật: /, /stats, /ai sạch.
+
+═══ SAU DEPLOY ═══
+
+• /stats không còn sập; journal + deep analysis hiện số thật.
+• /ai: autopsy badge đếm từ trước tới nay; lệnh đóng lúc LLM chết sẽ được
+  mổ bù tự động (log "[autopsy] backfill — N/M lệnh...").
+• Hard refresh trình duyệt (Ctrl+Shift+R) để nhận chunk mới.
