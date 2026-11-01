@@ -16,7 +16,9 @@ import {
   sessionOf,
 } from "@/lib/market";
 import type { SessionStat, WhaleDelta } from "@/lib/market";
-import { CalendarDays, Clock, Radar, Waves } from "lucide-react";
+import type { MarketPulse } from "@/lib/market-pulse";
+import { cyclePhase } from "@/lib/market-pulse";
+import { Activity, CalendarDays, Clock, Gauge, Radar, Waves } from "lucide-react";
 
 const SESSION_LABEL: Record<string, string> = {
   sydney: "sess.sydney",
@@ -64,6 +66,28 @@ export function SessionsPanel({
 
   // next session open — shared by the session-lean and calendar-cycle blocks
   const nx = useMemo(() => nextSessionOpen(now), [now]);
+
+  // market pulse (F&G, BTC.D, derivatives) — independent of pair/TF view
+  const [pulse, setPulse] = useState<MarketPulse | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/market-pulse", { cache: "no-store" });
+        if (!res.ok) return;
+        const j = (await res.json()) as MarketPulse;
+        if (alive) setPulse(j);
+      } catch {
+        // keep previous
+      }
+    };
+    void load();
+    const id = window.setInterval(() => void load(), 5 * 60_000);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, []);
 
   const utcClock = new Date(now).toLocaleTimeString("en-GB", {
     hour: "2-digit",
@@ -252,6 +276,193 @@ export function SessionsPanel({
               </div>
             );
           })()}
+
+
+        {/* ── Market pulse: F&G + cycle + derivatives ─────────────────── */}
+        {pulse && (pulse.fearGreed || pulse.global || pulse.derivatives) && (() => {
+          const fg = pulse.fearGreed;
+          const g = pulse.global;
+          const d = pulse.derivatives;
+          const phase = cyclePhase(fg, g);
+          const fgDelta = fg?.prev ? fg.now.value - fg.prev.value : null;
+          const fgColor =
+            (fg?.now.value ?? 50) <= 25
+              ? "text-rose-400"
+              : (fg?.now.value ?? 50) <= 45
+                ? "text-amber-400"
+                : (fg?.now.value ?? 50) <= 55
+                  ? "text-zinc-200"
+                  : (fg?.now.value ?? 50) <= 75
+                    ? "text-emerald-400"
+                    : "text-lime-400";
+          const phaseKey = `pulse.phase.${phase.key}` as const;
+          const fmtUsd = (n: number) =>
+            n >= 1e12
+              ? `$${(n / 1e12).toFixed(2)}T`
+              : n >= 1e9
+                ? `$${(n / 1e9).toFixed(1)}B`
+                : n >= 1e6
+                  ? `$${(n / 1e6).toFixed(0)}M`
+                  : `$${n.toFixed(0)}`;
+          const week = fg?.week ?? [];
+          const minV = week.length ? Math.min(...week.map((x) => x.value)) : 0;
+          const maxV = week.length ? Math.max(...week.map((x) => x.value)) : 100;
+          const span = Math.max(1, maxV - minV);
+          return (
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5">
+              <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                <Gauge className="h-3.5 w-3.5" />
+                {t(lang, "pulse.title")}
+              </p>
+
+              {/* Fear & Greed */}
+              {fg && (
+                <div className="mt-2">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-[11px] text-zinc-500">{t(lang, "pulse.fg")}</span>
+                    <span className={`font-mono text-sm font-bold ${fgColor}`}>
+                      {fg.now.value}
+                      <span className="ml-1 text-[11px] font-semibold text-zinc-400">{fg.now.label}</span>
+                      {fgDelta != null && (
+                        <span className={`ml-1.5 text-[10px] font-medium ${fgDelta >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+                          {fgDelta >= 0 ? "+" : ""}
+                          {fgDelta}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  {/* 7-day mini bars */}
+                  {week.length >= 3 && (
+                    <div className="mt-1.5 flex h-8 items-end gap-0.5">
+                      {week.map((pt, i) => {
+                        const h = 20 + ((pt.value - minV) / span) * 80;
+                        const c =
+                          pt.value <= 25
+                            ? "bg-rose-500/80"
+                            : pt.value <= 45
+                              ? "bg-amber-500/70"
+                              : pt.value <= 55
+                                ? "bg-zinc-500/70"
+                                : pt.value <= 75
+                                  ? "bg-emerald-500/70"
+                                  : "bg-lime-400/80";
+                        return (
+                          <div
+                            key={i}
+                            className={`min-w-0 flex-1 rounded-t-sm ${c}`}
+                            style={{ height: `${h}%` }}
+                            title={`${pt.value} · ${pt.label}`}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+                  <p className="mt-1 text-[10px] text-zinc-600">{t(lang, "pulse.fg.note")}</p>
+                </div>
+              )}
+
+              {/* Cycle phase + global */}
+              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                <span className="text-zinc-500">{t(lang, "pulse.phase")}</span>
+                <span className="text-right font-semibold text-zinc-200">
+                  {t(lang, phaseKey)}
+                  <span className="ml-1 font-mono text-[10px] text-zinc-500">({phase.score})</span>
+                </span>
+                {g && (
+                  <>
+                    <span className="text-zinc-500">{t(lang, "pulse.btcDom")}</span>
+                    <span className="text-right font-mono font-semibold text-zinc-200">
+                      {g.btcDominance.toFixed(1)}%
+                    </span>
+                    <span className="text-zinc-500">{t(lang, "pulse.mcap")}</span>
+                    <span className="text-right font-mono text-zinc-200">
+                      {fmtUsd(g.marketCapUsd)}
+                      <span className={`ml-1 text-[10px] ${g.marketCapChange24h >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                        {g.marketCapChange24h >= 0 ? "+" : ""}
+                        {g.marketCapChange24h.toFixed(1)}%
+                      </span>
+                    </span>
+                    <span className="text-zinc-500">{t(lang, "pulse.vol")}</span>
+                    <span className="text-right font-mono text-zinc-200">
+                      {fmtUsd(g.volume24hUsd)}
+                      <span className={`ml-1 text-[10px] ${g.volumeChange24h >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                        {g.volumeChange24h >= 0 ? "+" : ""}
+                        {g.volumeChange24h.toFixed(1)}%
+                      </span>
+                    </span>
+                    {g.mcapFromAthPct != null && (
+                      <>
+                        <span className="text-zinc-500">{t(lang, "pulse.fromAth")}</span>
+                        <span className="text-right font-mono text-zinc-300">
+                          {g.mcapFromAthPct.toFixed(1)}%
+                        </span>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Derivatives / liquidation proxy */}
+              {d && (
+                <div className="mt-2 border-t border-zinc-800/80 pt-2">
+                  <p className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                    <Activity className="h-3 w-3" />
+                    {t(lang, "pulse.deriv")} · {d.symbol.replace("USDT", "")}
+                  </p>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                    {d.longAccountPct != null && (
+                      <>
+                        <span className="text-zinc-500">{t(lang, "pulse.longShort")}</span>
+                        <span className="text-right font-mono text-zinc-200">
+                          <span className="text-emerald-400">{d.longAccountPct.toFixed(0)}%L</span>
+                          {" / "}
+                          <span className="text-rose-400">{(100 - d.longAccountPct).toFixed(0)}%S</span>
+                        </span>
+                      </>
+                    )}
+                    {d.topLongPct != null && (
+                      <>
+                        <span className="text-zinc-500">{t(lang, "pulse.topLong")}</span>
+                        <span className="text-right font-mono text-zinc-200">
+                          {d.topLongPct.toFixed(0)}%L
+                        </span>
+                      </>
+                    )}
+                    {d.openInterest != null && (
+                      <>
+                        <span className="text-zinc-500">{t(lang, "pulse.oi")}</span>
+                        <span className="text-right font-mono text-zinc-200">
+                          {fmtCompact(d.openInterest)}
+                        </span>
+                      </>
+                    )}
+                    {d.fundingRatePct != null && (
+                      <>
+                        <span className="text-zinc-500">{t(lang, "pulse.funding")}</span>
+                        <span
+                          className={`text-right font-mono font-semibold ${
+                            d.fundingRatePct >= 0 ? "text-emerald-400" : "text-rose-400"
+                          }`}
+                        >
+                          {d.fundingRatePct >= 0 ? "+" : ""}
+                          {d.fundingRatePct.toFixed(4)}%
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <p className="mt-1 text-[10px] leading-relaxed text-zinc-600">{t(lang, "pulse.deriv.note")}</p>
+                </div>
+              )}
+
+              <p className="mt-1.5 text-[10px] leading-relaxed text-zinc-600">
+                {t(lang, "pulse.note")}
+                {pulse.sources.length > 0 && (
+                  <span className="text-zinc-700"> · {pulse.sources.join(", ")}</span>
+                )}
+              </p>
+            </div>
+          );
+        })()}
 
         {/* ── Whale / taker delta ─────────────────────────────────────── */}
         <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5">
