@@ -405,6 +405,15 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const capitalNow = auto?.capital ?? cfg.capital;
   const open = auto?.open ?? null;
   const best = rows.length > 0 ? rows[0] : null;
+  // model đã LẬT CHIỀU trên cùng combo đang mở? (best pick ngược phía lệnh)
+  // — engine không tự đóng lệnh theo flip (chỉ PHE/papers có flip), DCA cũng
+  // tự tắt khi model flipped; badge này để user NHÌN LÀ HIỂU ngay thay vì thấy
+  // "Tốt nhất: LINKUSDT 15m LONG" cạnh lệnh SHORT đang mở mà tưởng bug.
+  const flipped = !!(open && best && best.bias !== "NEUTRAL" && best.symbol === open.symbol && best.interval === open.interval && best.bias !== open.side);
+  // prob hiển thị THEO PHÍA (SHORT → 1−p) — một chuẩn duy nhất với tin Telegram
+  // (probTxt) và bảng reliability /ai; in thô P(up) cạnh chữ SHORT khiến người
+  // đọc tưởng "model chỉ tin 42%" trong khi thực tế tin 58% giá giảm.
+  const probShown = (r: ScanRow): number => (r.bias === "SHORT" ? 1 - r.prob : r.prob);
   const closedHist = (auto?.trades ?? []).filter((x) => x.status === "closed").slice(0, 4);
   const sideClass = (side: string) => (side === "LONG" ? "text-emerald-400" : "text-rose-400");
 
@@ -794,13 +803,23 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
               <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-teal-400">
                 {t(lang, "auto.best")}
               </span>
-              <button
-                type="button"
-                className="font-mono text-xs font-bold text-zinc-100 hover:text-teal-300"
-                onClick={() => onPickPair(best.symbol, best.interval)}
-              >
-                {best.symbol} {best.interval} <span className={sideClass(best.bias)}>{best.bias}</span> · {best.score.toFixed(1)}
-              </button>
+              <span className="flex items-center gap-2">
+                {flipped && (
+                  <span
+                    title={t(lang, "auto.best.flip.tip")}
+                    className="rounded border border-amber-700/60 bg-amber-950/40 px-1.5 py-0.5 text-[9px] font-bold text-amber-400"
+                  >
+                    ⚠ {t(lang, "auto.best.flip")}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="font-mono text-xs font-bold text-zinc-100 hover:text-teal-300"
+                  onClick={() => onPickPair(best.symbol, best.interval)}
+                >
+                  {best.symbol} {best.interval} <span className={sideClass(best.bias)}>{best.bias}</span> · {best.score.toFixed(1)}
+                </button>
+              </span>
             </div>
             <div className="overflow-hidden rounded-lg border border-zinc-800">
               <div className="grid grid-cols-[1fr_26px_44px_44px_38px_38px_40px] gap-x-1 border-b border-zinc-800 bg-zinc-950/60 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
@@ -813,7 +832,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
                 <span className="text-right">{t(lang, "auto.col.score")}</span>
               </div>
               {rows.slice(0, TOP_N).map((r, i) => {
-                const tradeable = r.bias !== "NEUTRAL" && r.auc >= cfg.minAuc && r.acc >= cfg.minAcc;
+                const tradeable = r.bias !== "NEUTRAL" && r.auc >= cfg.minAuc && r.acc >= cfg.minAcc && (cfg.minScore <= 0 || r.score >= cfg.minScore);
                 return (
                   <button
                     key={`${r.symbol}-${r.interval}`}
@@ -842,7 +861,9 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
                     </span>
                     <span className="text-zinc-500">{r.interval}</span>
                     <span className={sideClass(r.bias)}>{r.bias === "NEUTRAL" ? "—" : r.bias}</span>
-                    <span className="text-right text-zinc-300">{(r.prob * 100).toFixed(1)}%</span>
+                    <span className="text-right text-zinc-300" title={r.bias === "SHORT" ? t(lang, "auto.col.prob.tip") : undefined}>
+                      {(probShown(r) * 100).toFixed(1)}%
+                    </span>
                     <span className={`text-right ${r.auc >= cfg.minAuc ? "text-emerald-400" : "text-zinc-500"}`}>{r.auc.toFixed(2)}</span>
                     <span className={`text-right ${r.acc >= cfg.minAcc ? "text-emerald-400" : "text-zinc-500"}`}>{r.acc.toFixed(0)}%</span>
                     <span className={`text-right font-bold ${tradeable && !r.regressed ? "text-teal-300" : "text-zinc-600"}`}>{r.score.toFixed(1)}</span>
