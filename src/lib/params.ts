@@ -68,8 +68,8 @@ export const UNIVERSE_MIN_CANDLES = 55;
 /** Cặp + khung dùng tính thống kê Bull%/drift cho tin phiên. */
 export const SESS_SYMBOL = "BTCUSDT";
 export const SESS_INTERVAL = "1h";
-/** Số nến nạp cho thống kê — 500 × 1h ≈ 20 ngày, cùng cửa sổ panel đang load. */
-export const SESS_KLINE_COUNT = 500;
+/** Số nến nạp cho thống kê — 5000 × 1h, cùng cửa sổ panel đang load. */
+export const SESS_KLINE_COUNT = 5000;
 /** Báo TRƯỚC mở phiên bao nhiêu phút. */
 export const SESS_EARLY_MIN = 5;
 /** Tick muộn trong bao nhiêu phút sau giờ mở vẫn gửi bù "VỪA MỞ". */
