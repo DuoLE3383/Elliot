@@ -51,7 +51,7 @@ import {
 } from "@/lib/types";
 import { type XgbResult } from "@/lib/xgb";
 import { ElliottLogo } from "@/components/logo";
-import { AlertTriangle, ArrowLeftRight, BrainCircuit, ChevronRight, Eye, EyeOff, Landmark, RefreshCw, Settings2 } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, BrainCircuit, ChevronRight, Eye, EyeOff, Landmark, RefreshCw, ScrollText, Settings2 } from "lucide-react";
 import Link from "next/link";
 
 interface Toast {
@@ -162,6 +162,9 @@ export default function Home() {
   const [applyingBest, setApplyingBest] = useState(false);
   /** progress of a "train ALL pairs × all timeframes" pass (null = idle) */
   const [allTrain, setAllTrain] = useState<AllTrainState | null>(null);
+  /** tổng tín hiệu tích luỹ per combo `SYM|TF` (bảng SignalTotal — 0.2.32);
+   *  đọc từ snapshot /api/engine mà poller 2s đã fetch sẵn */
+  const [sigTotals, setSigTotals] = useState<Record<string, number>>({});
   /** bumped after any DB mutation → history lists reload */
   const [histRefresh, setHistRefresh] = useState(0);
   // ── market context (ticker strip + watchlist sparklines) ────────────────────
@@ -620,8 +623,9 @@ export default function Home() {
       try {
         const res = await fetch("/api/engine", { cache: "no-store" });
         if (!res.ok) return;
-        const snap = (await res.json()) as { jobs: EngineJobView[] };
+        const snap = (await res.json()) as { jobs: EngineJobView[]; signalTotals?: Record<string, number> };
         if (!alive) return;
+        if (snap.signalTotals) setSigTotals(snap.signalTotals);
         const job = snap.jobs.find((j) => j.kind === "train");
         if (!job) {
           setAllTrain((prev) => (prev?.busy ? { ...prev, busy: false } : prev));
@@ -1052,6 +1056,18 @@ export default function Home() {
               size="sm"
               variant="outline"
               className="h-8 gap-1.5 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800"
+              title={t(lang, "stats.title")}
+              asChild
+            >
+              <Link href="/stats">
+                <ScrollText className="h-3.5 w-3.5 text-teal-400" />
+                <span className="hidden lg:inline">{t(lang, "stats.title")}</span>
+              </Link>
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800"
               title={t(lang, "ai.title")}
               asChild
             >
@@ -1106,6 +1122,7 @@ export default function Home() {
             leverage={settings.leverage}
             openPnl={openPnl}
             signals={engine.signals}
+            totalSignals={sigTotals[`${symbol}|${interval}`] ?? null}
           />
         ) : (
           <Skeleton className="h-[72px] rounded-lg border border-zinc-800 bg-zinc-900" />

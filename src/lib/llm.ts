@@ -425,3 +425,82 @@ export async function llmReview(
 ): Promise<LlmVerdict | null> {
   return (await llmReviewDebug(url, model, s, timeoutMs)).verdict;
 }
+
+// ─── Stats dive — LLM "vạch lá tìm sâu" trên snapshot thống kê ────────────────
+// Khác llmReview: đầu vào là TOÀN BỘ snapshot thống kê (/api/stats — đã kèm
+// nhãn cơ sở logic + kết quả các kiểm chéo nhất quan + độ tin cậy Wilson) và
+// đầu ra là VĂN BẢN phân tích (không phải JSON verdict). Vẫn giữ nguyên các
+// chân ái vận hành của project này: temperature thấp, cấm bịa số, trả tiếng Việt.
+
+export interface LlmTextResult {
+  ok: boolean;
+  text: string;
+  /** "ok" | "timeout" | "error" | "http-<status>" | "empty" */
+  detail: string;
+  prompt: string;
+  url: string;
+  model: string;
+  ms: number;
+  /** body của response lỗi (≤240 ký tự) — nhận diện server lạ đang đứng sau URL */
+  bodySnippet?: string;
+}
+
+const STATS_DIVE_SYSTEM = [
+  "You are the quantitative auditor of the Elliott paper-trading bot.",
+  "The user prompt contains ONE JSON snapshot of live statistics. Every section already carries: metrics (real numbers from the database), a note field (result of automated cross-checks), accPct (Wilson 95% lower bound for rates — statistical confidence of the number, NOT accuracy of the computation), and accNote.",
+  "Your job — 'vạch lá tìm sâu' (root-cause analysis), in Vietnamese, max ~400 words, bullet style:",
+  "1) Đối chiếu cơ sở logic từng section với cách engine vận hành (gate minAuc/minAcc/minScore, champion-regression, flip 5m, LLM Risk Officer, dry-run thuần giấy) — chỉ ra chỗ nhất quán và chỗ KHÔNG.",
+  "2) Phát hiện điểm yếu theo mức độ nghiêm trọng: state=warn, accPct thấp (mẫu quá nhỏ để tin), win-rate không đủ bù rủi ro, scan/universe stale, lệnh treo >24h, số liệu mâu thuẫn nhau.",
+  "3) Kết luận: hệ thống số liệu đang đủ tin để ra quyết định tới đâu.",
+  "4) 3–5 hành động cụ thể, xếp theo ưu tiên, mỗi hành động gắn với section key và con số cụ thể.",
+  "HARD RULES: chỉ được dùng con số có trong JSON — bịa số là sai hoàn toàn; không được đề xuất trade thật (bot là paper-only); không lặp lại nguyên văn JSON.",
+].join(" ");
+
+/**
+ * One deep-dive call over the stats snapshot — plain text out, full logging in.
+ * Dùng bởi /ai card "Vạch lá tìm sâu"; timeout mặc định 300s vì 7B CPU cần
+ * thời gian sinh văn bản dài hơn verdict go/skip.
+ */
+export async function llmStatsDive(
+  url: string,
+  model: string,
+  snapshotJson: string,
+  timeoutMs = LLM_TIMEOUT_MS,
+): Promise<LlmTextResult> {
+  const started = Date.now();
+  const base = { prompt: snapshotJson.slice(0, 4000), url, model };
+  try {
+    const res = await fetch(`${baseOf(url)}/v1/chat/completions`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      signal: AbortSignal.timeout(timeoutMs),
+      body: JSON.stringify({
+        model: model.trim() || LLM_MODEL_DEFAULT,
+        messages: [
+          { role: "system", content: STATS_DIVE_SYSTEM },
+          { role: "user", content: `STATS SNAPSHOT (chỉ được dùng các số trong này):\n${snapshotJson}` },
+        ],
+        temperature: 0.2,
+        max_tokens: 900,
+      }),
+    });
+    const ms = Date.now() - started;
+    if (!res.ok) {
+      const bodySnippet = (await res.text().catch(() => "")).slice(0, 240);
+      return { ok: false, text: "", detail: `http-${res.status}`, ...base, ms, ...(bodySnippet ? { bodySnippet } : {}) };
+    }
+    const j = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+    const text = (j.choices?.[0]?.message?.content ?? "").trim();
+    if (!text) return { ok: false, text: "", detail: "empty", ...base, ms };
+    return { ok: true, text, detail: "ok", ...base, ms };
+  } catch (e) {
+    const timedOut = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
+    return {
+      ok: false,
+      text: "",
+      detail: timedOut ? "timeout" : "error",
+      ...base,
+      ms: Date.now() - started,
+    };
+  }
+}

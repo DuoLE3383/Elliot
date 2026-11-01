@@ -33,6 +33,7 @@ import {
   SlidersHorizontal,
   Target,
   UploadCloud,
+  ScrollText,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -179,6 +180,10 @@ export default function AiPage() {
   const [champAll, setChampAll] = useState(false);
   const [llmTest, setLlmTest] = useState<LlmTestInfo | null>(null);
   const [llmTestBusy, setLlmTestBusy] = useState(false);
+  // 0.2.32 — "vạch lá tìm sâu": LLM đọc snapshot thống kê (/api/stats) và chỉ
+  // ra điểm yếu/mâu thuẫn — cùng nguồn số liệu nên không thể lệch bảng /stats
+  const [statsDive, setStatsDive] = useState<{ ok: boolean; text: string; detail: string; ms: number } | null>(null);
+  const [statsDiveBusy, setStatsDiveBusy] = useState(false);
 
   useEffect(() => {
     const lg = localStorage.getItem("utp.lang");
@@ -263,6 +268,21 @@ export default function AiPage() {
       setLlmTest({ ok: false, verdict: null, raw: "", detail: "network", prompt: "", url: "", model: "", ms: 0 });
     } finally {
       setLlmTestBusy(false);
+    }
+  }, []);
+
+  // ── vạch lá tìm sâu: LLM kiểm toán toàn bộ snapshot thống kê ──────────
+  // llama-server 7B cần 30-120s sinh văn bản dài — busy state phải rõ ràng.
+  const runStatsDive = useCallback(async () => {
+    setStatsDiveBusy(true);
+    try {
+      const r = await fetch("/api/llm/stats-dive", { method: "POST" });
+      const j = (await r.json().catch(() => null)) as { ok?: boolean; text?: string; detail?: string; ms?: number } | null;
+      setStatsDive({ ok: !!j?.ok, text: j?.text ?? "", detail: j?.detail ?? `http-${r.status}`, ms: j?.ms ?? 0 });
+    } catch {
+      setStatsDive({ ok: false, text: "", detail: "network", ms: 0 });
+    } finally {
+      setStatsDiveBusy(false);
     }
   }, []);
 
@@ -666,6 +686,50 @@ export default function AiPage() {
                   <p className="text-zinc-600">{t(lang, "ai.llm.test.raw")}</p>
                   <pre className="mt-0.5 max-h-28 overflow-y-auto whitespace-pre-wrap text-zinc-300">{llmTest.raw || "—"}</pre>
                 </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* 5b — Vạch lá tìm sâu: LLM kiểm toán snapshot thống kê (/stats) */}
+        <Card className="border-zinc-800 bg-zinc-900/60">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
+              <ScrollText className="h-4 w-4 text-teal-400" />
+              {t(lang, "ai.dive.title")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 pt-0">
+            <p className="text-[11px] leading-relaxed text-zinc-400">{t(lang, "ai.dive.hint")}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1.5 border-zinc-700 px-2.5 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                disabled={statsDiveBusy}
+                onClick={() => void runStatsDive()}
+              >
+                {statsDiveBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ScrollText className="h-3.5 w-3.5 text-teal-400" />}
+                {t(lang, "ai.dive.run")}
+              </Button>
+              <Link href="/stats" className="text-[10px] text-zinc-500 underline decoration-dotted hover:text-zinc-300">
+                {t(lang, "ai.dive.statsLink")}
+              </Link>
+              <span className="text-[10px] text-zinc-600">{statsDiveBusy ? t(lang, "ai.dive.busy") : t(lang, "ai.dive.hint2")}</span>
+            </div>
+            {statsDive && (
+              <div className="rail-scroll space-y-1.5 rounded-lg border border-zinc-800 bg-zinc-950/60 p-2.5 text-[11px]">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className={statsDive.ok ? "border-emerald-700 bg-emerald-950/40 text-emerald-300" : "border-amber-700 bg-amber-950/40 text-amber-300"}
+                  >
+                    {statsDive.ok ? t(lang, "ai.dive.ok") : t(lang, "ai.dive.fail")}
+                  </Badge>
+                  <span className="ml-auto font-mono text-zinc-500">{statsDive.ms}ms</span>
+                  {!statsDive.ok && <span className="text-amber-400">{statsDive.detail}</span>}
+                </div>
+                <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap text-zinc-300">{statsDive.ok ? statsDive.text : "—"}</pre>
               </div>
             )}
           </CardContent>

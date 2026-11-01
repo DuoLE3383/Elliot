@@ -151,3 +151,18 @@ model BcastVerdict {
   @@unique([symbol, interval])
   @@index([verdict])
 }
+
+// ─── Signal total — đếm TÍCH LUỸ tín hiệu server đã quét thấy ────────────────
+// Mỗi lượt quét engine (scanCore), mọi combo model bật hướng LONG/SHORT (≠
+// NEUTRAL) cộng 1. Đây là "tổng tín hiệu" trên KPI "Signals this window" —
+// số trong khung nến tính phía trình duyệt (signalsFrom), số này đếm suốt
+// đời server, sống qua pm2 restart nhờ DB.
+
+model SignalTotal {
+  symbol    String
+  interval  String
+  total     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@id([symbol, interval])
+}

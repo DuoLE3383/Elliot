@@ -323,6 +323,41 @@ async function closeTradeDirect(
   return serialize(updated);
 }
 
+// ─── Signal totals — đếm TÍCH LUỸ tín hiệu server đã quét thấy ──────────────
+// Mỗi lượt quét (scanCore), combo nào model bật hướng LONG/SHORT (≠ NEUTRAL)
+// được cộng 1. KPI "Signals this window" trên trang chính tính số trong KHUNG
+// nến trình duyệt (signalsFrom) — số này là TỔNG suốt đời server, sống qua
+// pm2 restart nhờ bảng SignalTotal. Cache module-scope vì engineSnapshot là
+// hàm đồng bộ; refresh lúc boot + sau mỗi lần bump.
+let signalTotals: Record<string, number> = {};
+
+async function refreshSignalTotals(): Promise<void> {
+  try {
+    const rows = await db.signalTotal.findMany();
+    signalTotals = Object.fromEntries(rows.map((r) => [`${r.symbol}|${r.interval}`, r.total]));
+  } catch {
+    // DB chớp/không sẵn sàng — giữ cache cũ, lần quét kế sẽ ăn lại
+  }
+}
+void refreshSignalTotals(); // boot — fire-and-forget, không chặn import
+
+async function bumpSignalTotals(rows: ScanRow[]): Promise<void> {
+  const dirs = rows.filter((r) => r.bias !== "NEUTRAL");
+  if (dirs.length === 0) return;
+  try {
+    for (const r of dirs) {
+      await db.signalTotal.upsert({
+        where: { symbol_interval: { symbol: r.symbol, interval: r.interval } },
+        create: { symbol: r.symbol, interval: r.interval, total: 1 },
+        update: { total: { increment: 1 } },
+      });
+    }
+    await refreshSignalTotals();
+  } catch {
+    // đếm là best-effort — không được ảnh hưởng luồng quét
+  }
+}
+
 // ─── scan / train / universe cores (run inside job lanes) ────────────────────
 
 async function scanCore(
@@ -389,6 +424,8 @@ async function scanCore(
   }
   v.scan = { rows: ranked, at: Date.now() };
   saveScanState({ scan: v.scan });
+  // đếm tích luỹ — nền, không chặn/không hỏng quét nếu DB chớp
+  void bumpSignalTotals(ranked);
   return { rows: ranked.length, workers: pool.parallelism };
 }
 
@@ -1422,6 +1459,8 @@ export function engineSnapshot(): {
   jobs: ReturnType<typeof jobViews>;
   workers: { pool: number; bundled: boolean };
   telegram: boolean;
+  /** tổng tín hiệu tích luỹ per combo `SYM|TF` (bảng SignalTotal — 0.2.32) */
+  signalTotals: Record<string, number>;
 } {
   const { p, v } = eng();
   return {
@@ -1439,6 +1478,7 @@ export function engineSnapshot(): {
     jobs: jobViews(),
     workers: { pool: xgbPoolSize(), bundled: xgbPoolAvailable() },
     telegram: tgReady(),
+    signalTotals: { ...signalTotals },
   };
 }
 

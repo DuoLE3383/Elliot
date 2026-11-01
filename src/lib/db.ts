@@ -34,6 +34,8 @@ const SCHEMA_SQL: string[] = [
   `CREATE TABLE IF NOT EXISTS "BcastVerdict" ("id" TEXT NOT NULL PRIMARY KEY, "symbol" TEXT NOT NULL, "interval" TEXT NOT NULL, "side" TEXT NOT NULL, "score" REAL NOT NULL, "auc" REAL NOT NULL, "acc" REAL NOT NULL, "verdict" TEXT NOT NULL, "reason" TEXT NOT NULL, "at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "BcastVerdict_symbol_interval_key" ON "BcastVerdict"("symbol", "interval")`,
   `CREATE INDEX IF NOT EXISTS "BcastVerdict_verdict_idx" ON "BcastVerdict"("verdict")`,
+  // 0.2.32 — đếm tích luỹ tín hiệu server đã quét thấy per combo (KPI "tổng")
+  `CREATE TABLE IF NOT EXISTS "SignalTotal" ("symbol" TEXT NOT NULL, "interval" TEXT NOT NULL, "total" INTEGER NOT NULL DEFAULT 0, "updatedAt" DATETIME NOT NULL, PRIMARY KEY ("symbol", "interval"))`,
 ];
 
 // ─── Thêm cột cho DB ĐÃ TỒN TẠI (0.2.28 autopsy) ────────────────────────────
@@ -50,7 +52,7 @@ const SCHEMA_COLUMNS: { table: string; column: string; ddl: string }[] = [
   { table: "AutoTrade", column: "llmReason", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "llmReason" TEXT` },
   { table: "AutoTrade", column: "autopsy", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "autopsy" TEXT` },
 ];
-const MODEL_TABLES = ["User", "Post", "Suggestion", "FinetuneRun", "AutoTrade", "BcastVerdict"];
+const MODEL_TABLES = ["User", "Post", "Suggestion", "FinetuneRun", "AutoTrade", "BcastVerdict", "SignalTotal"];
 /** exported for the /api health diagnostic */
 export { MODEL_TABLES };
 

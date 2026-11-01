@@ -16,6 +16,9 @@ interface Props {
   openPnl?: number;
   /** signals of the loaded window (for the "Tín hiệu khung này" card) */
   signals?: Signal[];
+  /** tổng tín hiệu TÍCH LUỸ server đã quét thấy cho combo này (bảng
+   *  SignalTotal — sống qua restart); null = chưa có dữ liệu đếm */
+  totalSignals?: number | null;
 }
 
 /**
@@ -23,7 +26,7 @@ interface Props {
  * cells (~half the height of the old stacked cards). Full detail lives in the
  * title tooltip so nothing is lost by the compaction.
  */
-export function KpiCards({ lang, stats, openPaper, leverage, openPnl, signals = [] }: Props) {
+export function KpiCards({ lang, stats, openPaper, leverage, openPnl, signals = [], totalSignals = null }: Props) {
   // signal split over the window — blocked signals count as "chờ"
   const long = signals.filter((s) => s.dir === "BUY" && s.smaOk).length;
   const short = signals.filter((s) => s.dir === "SELL" && s.smaOk).length;
@@ -51,10 +54,15 @@ export function KpiCards({ lang, stats, openPaper, leverage, openPnl, signals = 
       label: t(lang, "kpi.signals"),
       value: String(signals.length),
       valueClass: "text-zinc-100",
-      tip: t(lang, "kpi.signalsSub", { lo: long, sh: short, bl: blocked }),
+      tip:
+        t(lang, "kpi.signalsSub", { lo: long, sh: short, bl: blocked }) +
+        (totalSignals != null ? ` · ${t(lang, "kpi.total", { n: totalSignals })}` : ""),
       sub: (
         <span className="text-zinc-500">
           {t(lang, blocked > 0 ? "kpi.signalsSub" : "kpi.signalsOff", { lo: long, sh: short, bl: blocked })}
+          {totalSignals != null && (
+            <span className="ml-1 font-mono text-amber-400/90">· {t(lang, "kpi.total", { n: totalSignals })}</span>
+          )}
         </span>
       ),
       bar: signals.length > 0 ? longShare : null,
@@ -124,17 +132,19 @@ export function KpiCards({ lang, stats, openPaper, leverage, openPnl, signals = 
 
   return (
     /* one slim stat strip — label above, value + inline sub on the same row,
-       optional micro long/short bar; cells split by hairline dividers on xl */
+       optional micro long/short bar; cells split by hairline dividers on xl.
+       0.2.32: py-1.5→1, gap-y giảm — dải mỏng đi (user: "quá trống và to"),
+       phần cao được trả lại cho chart */
     <Card className="border-zinc-800 bg-zinc-900/60">
-      <CardContent className="grid grid-cols-2 gap-x-3 gap-y-1.5 px-2.5 py-1.5 sm:grid-cols-3 xl:grid-cols-5 xl:gap-0 xl:divide-x xl:divide-zinc-800/70">
+      <CardContent className="grid grid-cols-2 gap-x-3 gap-y-1 px-2.5 py-1 sm:grid-cols-3 xl:grid-cols-5 xl:gap-0 xl:divide-x xl:divide-zinc-800/70">
         {cards.map((c, k) => (
-          <div key={k} className="min-w-0 px-2 py-0.5 xl:first:pl-2.5 xl:px-3 xl:last:pr-1" title={c.tip}>
+          <div key={k} className="min-w-0 px-2 py-0 xl:first:pl-2.5 xl:px-3 xl:last:pr-1" title={c.tip}>
             <div className="flex items-center justify-between gap-1">
               <p className="truncate text-[9px] font-medium uppercase tracking-wide text-zinc-500">{c.label}</p>
               {c.icon}
             </div>
             <p className="mt-px flex items-baseline gap-1.5">
-              <span className={`shrink-0 font-mono text-sm font-bold leading-tight ${c.valueClass}`}>{c.value}</span>
+              <span className={`shrink-0 font-mono text-[13px] font-bold leading-tight ${c.valueClass}`}>{c.value}</span>
               <span className="min-w-0 flex-1 truncate text-[10px] leading-tight">{c.sub}</span>
             </p>
             {c.sub2 && <p className="mt-px truncate text-[9px] leading-tight">{c.sub2}</p>}
