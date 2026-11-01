@@ -1,14 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Ticker } from "@/lib/types";
 import { aliasFuturesSymbol } from "@/lib/types";
-
-/** Binance USDT-M Futures — market data comes from the perp board, not spot */
-const HOSTS = [
-  "https://fapi.binance.com",
-  "https://fapi1.binance.com",
-  "https://fapi2.binance.com",
-  "https://fapi3.binance.com",
-];
+import { binanceHosts, binanceJson } from "@/lib/klines-direct";
 
 /**
  * Binance USDT-M Futures 24hr ticker for a symbol list — powers the live price
@@ -40,7 +33,7 @@ export async function GET(req: NextRequest) {
   }
 
   let lastErr: string | null = null;
-  for (const host of HOSTS) {
+  for (const host of binanceHosts()) {
     try {
       const res = await fetch(`${host}/fapi/v1/ticker/24hr`, {
         next: { revalidate: 15 },
@@ -50,14 +43,16 @@ export async function GET(req: NextRequest) {
         lastErr = `HTTP ${res.status}`;
         continue;
       }
-      const rawArr = (await res.json()) as Array<{
-        symbol: string;
-        lastPrice: string;
-        priceChangePercent: string;
-        highPrice: string;
-        lowPrice: string;
-        quoteVolume: string;
-      }>;
+      const rawArr = await binanceJson<
+        Array<{
+          symbol: string;
+          lastPrice: string;
+          priceChangePercent: string;
+          highPrice: string;
+          lowPrice: string;
+          quoteVolume: string;
+        }>
+      >(res, host);
       const byS = new Map(rawArr.map((r) => [r.symbol, r]));
       // board fetched fine but none of the requested pairs trade on futures →
       // same 400 "invalid symbol" semantics the custom-pair form relies on

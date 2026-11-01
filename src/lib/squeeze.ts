@@ -21,8 +21,8 @@
 
 import type { Kline } from "./types";
 import { aliasFuturesSymbol } from "./types";
+import { binanceHosts, binanceJson } from "./klines-direct";
 
-const HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com"];
 const TTL_MS = 180_000; // 3 phút — dữ liệu 5m, không cần dày hơn
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -130,14 +130,14 @@ export function scoreSqueeze(i: SqueezeInputs): SqueezeRisk {
 
 async function getJson<T>(path: string): Promise<T> {
   let lastErr: unknown = null;
-  for (const host of HOSTS) {
+  for (const host of binanceHosts()) {
     try {
       const res = await fetch(`${host}${path}`, { signal: AbortSignal.timeout(9000) });
       if (!res.ok) {
         lastErr = new Error(`HTTP ${res.status}`);
         continue;
       }
-      return (await res.json()) as T;
+      return await binanceJson<T>(res, host);
     } catch (e) {
       lastErr = e;
     }

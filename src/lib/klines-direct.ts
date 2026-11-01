@@ -20,6 +20,45 @@ const HOSTS = [
   "https://fapi3.binance.com",
 ];
 
+/**
+ * Host list for Binance Futures — KLINES_HOSTS env override when the VPS route
+ * to *.binance.com is blocked/cut persistently (pm2 logspam "Unexpected end of
+ * JSON input" = connection cut mid-body): set it to a comma-separated list of
+ * https origins, e.g. a Cloudflare Worker passthrough:
+ *   KLINES_HOSTS=https://fapi-proxy.example.workers.dev
+ * Empty/invalid → the built-in host failover list. Re-read on every call so a
+ * restart-free .env edit (pm2 restart --update-env) is enough.
+ */
+export function binanceHosts(): string[] {
+  const raw = (process.env.KLINES_HOSTS ?? "").trim();
+  if (raw) {
+    const list = raw
+      .split(",")
+      .map((s) => s.trim().replace(/\/+$/, ""))
+      .filter((s) => /^https?:\/\/[^/]+/.test(s));
+    if (list.length > 0) return list;
+  }
+  return HOSTS;
+}
+
+/**
+ * Parse a Binance response body defensively. When the route to Binance is
+ * flaky (ISP/datacenter resets), fetch answers 200 with an EMPTY or truncated
+ * body — raw res.json() then dies with the cryptic "Unexpected end of JSON
+ * input" (seen in pm2 logs 01/11). Fail instead with a message that names the
+ * HOST and the real symptom so logs are greppable and actionable.
+ */
+export async function binanceJson<T>(res: Response, host: string): Promise<T> {
+  const text = await res.text();
+  if (!text.trim()) throw new Error(`${host}: empty body (connection cut mid-response)`);
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const head = text.slice(0, 48).replace(/\s+/g, " ");
+    throw new Error(`${host}: truncated/non-JSON body (${text.length}B: "${head}")`);
+  }
+}
+
 export const VALID_INTERVALS = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"] as const;
 
 const mapRow = (r: unknown): Kline => {
@@ -49,6 +88,7 @@ export async function fetchKlinesDirect(
   limit: number = KLINE_LIMIT,
   opts?: { revalidate?: number },
 ): Promise<Kline[]> {
+  const hosts = binanceHosts();
   const sym = symbol.toUpperCase();
   if (!/^[A-Z0-9]{5,20}$/.test(sym)) throw new Error("invalid symbol");
   const lim = Math.min(Math.max(1, Math.floor(limit) || KLINE_LIMIT), 1000);
@@ -69,7 +109,7 @@ export async function fetchKlinesDirect(
       invalidSymbol = true; // previous candidate 400-ed — remember but try alias
       lastErr = null;
     }
-    for (const host of HOSTS) {
+    for (const host of hosts) {
       try {
         const url = `${host}/fapi/v1/klines?symbol=${cand}&interval=${interval}&limit=${lim}`;
         const res = await fetch(url, {
@@ -86,7 +126,7 @@ export async function fetchKlinesDirect(
           }
           continue;
         }
-        const raw = (await res.json()) as unknown[];
+        const raw = await binanceJson<unknown[]>(res, host);
         return raw.map(mapRow);
       } catch (e) {
         lastErr = e instanceof Error ? e.message : "fetch failed";
@@ -129,23 +169,24 @@ export async function fetchKlinesDirectResolved(
  * watchlist names map through aliasFuturesSymbol themselves.
  */
 export async function fetchBoard24h(): Promise<Map<string, TickerRow>> {
-  const HOSTS2 = HOSTS;
   let lastErr: string | null = null;
-  for (const host of HOSTS2) {
+  for (const host of binanceHosts()) {
     try {
       const res = await fetch(`${host}/fapi/v1/ticker/24hr`, { signal: AbortSignal.timeout(9000) });
       if (!res.ok) {
         lastErr = `HTTP ${res.status}`;
         continue;
       }
-      const rawArr = (await res.json()) as Array<{
-        symbol: string;
-        lastPrice: string;
-        priceChangePercent: string;
-        highPrice: string;
-        lowPrice: string;
-        quoteVolume: string;
-      }>;
+      const rawArr = await binanceJson<
+        Array<{
+          symbol: string;
+          lastPrice: string;
+          priceChangePercent: string;
+          highPrice: string;
+          lowPrice: string;
+          quoteVolume: string;
+        }>
+      >(res, host);
       return new Map(
         rawArr.map((r) => [
           r.symbol,
@@ -171,20 +212,20 @@ export async function fetchBoard24h(): Promise<Map<string, TickerRow>> {
 export async function fetchTicker24Direct(symbol: string): Promise<TickerRow | null> {
   const sym = symbol.toUpperCase();
   if (!/^[A-Z0-9]{5,20}$/.test(sym)) return null;
-  for (const host of HOSTS) {
+  for (const host of binanceHosts()) {
     try {
       const res = await fetch(`${host}/fapi/v1/ticker/24hr?symbol=${sym}`, {
         signal: AbortSignal.timeout(9000),
       });
       if (!res.ok) continue;
-      const r = (await res.json()) as {
+      const r = await binanceJson<{
         symbol: string;
         lastPrice: string;
         priceChangePercent: string;
         highPrice: string;
         lowPrice: string;
         quoteVolume: string;
-      };
+      }>(res, host);
       return {
         symbol: r.symbol,
         price: Number(r.lastPrice) || 0,

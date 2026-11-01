@@ -147,6 +147,7 @@ prisma generate            # tạo .prisma/client — BẮT BUỘC trên máy CI
 - **Start command:** `bun run start` (hoặc `NODE_ENV=production bun .next/standalone/server.js`)
 - **Env bắt buộc:** `DATABASE_URL="file:/app/data/custom.db"` (đường dẫn tuyệt đối trên disk bền vững; kèm `DATA_DIR=/app/data` để telegram.json/autostat.json cùng chỗ)
 - **Env Telegram (nhét cứng):** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_API_BASE` (tùy chọn — proxy chống 503, xem §6b). Env là fallback: giá trị dán trong panel Auto (runtime) vẫn thắng nếu có cả hai.
+- **Env Binance (tùy chọn):** `KLINES_HOSTS` — ghi đè danh sách host futures (mặc định `fapi/fapi1/fapi2/fapi3.binance.com`, phân cách bằng phẩy). Dùng khi đường VPS → Binance bị chặn/cắt vĩnh viễn: trỏ sang proxy passthrough (ví dụ Cloudflare Worker) `KLINES_HOSTS=https://<proxy>.workers.dev`. Không set = dùng mặc định.
 - **Dữ liệu:** mount persistent volume cho thư mục data; platform rebuild không mất lịch sử trades
 
 ## 4. Docker (chạy độc lập bất kỳ đâu)
@@ -229,6 +230,25 @@ curl -sS -m 8 https://api.telegram.org/          # vào được = mạng OK
 ```
 
 Lưu ý cấu hình sẵn trong app (không cần làm gì): tự đọc `.env` kể cả khi chạy standalone tay, tự ưu tiên **IPv4-first** (né VPS có IPv6 hỏng), tự retry 3 lần với backoff.
+
+### Hai dòng log hay gặp trong elliott-error.log — nghĩa là gì?
+
+```
+[telegram] sendMessage via https://api.telegram.org failed after 3 attempt(s): fetch failed (ETIMEDOUT)
+[session-bcast] kline fetch failed: Unexpected end of JSON input
+```
+
+Cả hai là **lỗi ĐƯỜNG MẠNG từ VPS ra ngoài**, không phải crash app — engine vẫn chạy, tin phiên sẽ tự gửi lại ở tick kế (60s) trong cửa sổ ±(5 trước/10 sau) giờ mở:
+
+- Dòng `[telegram] … ETIMEDOUT` — VPS không mở nổi kết nối tới Bot API (bị chặn/throttle). Làm đúng mục **Chẩn đoán** phía trên; chặn hẳn thì dùng **Worker proxy** (bước 1-4 §6b). Bản 0.2.34+ log kèm **một dòng gợi ý** chỉ thẳng cách dựng proxy thay vì im lặng lặp lỗi.
+- Dòng `kline fetch failed: Unexpected end of JSON input` — fetch tới `fapi*.binance.com` **trả 200 nhưng body rỗng/cắt giữa đường** (reset mạng/ISP), JSON.parse chết với thông báo cryptic. Bản **0.2.34+** đã sửa: log sẽ ghi rõ **host nào bị gì** (`fapi.binance.com: empty body (connection cut mid-response)` / `truncated/non-JSON body`), tự thử lại **vòng 2** sau 1.2s, và host-fallback sang fapi1/fapi2/fapi3. Nếu VPS bị chặn Binance **vĩnh viễn** (mọi host đều cắt) → set env `KLINES_HOSTS=https://<proxy>.workers.dev` (xem §3) để trỏ qua proxy passthrough.
+
+Chẩn đoán nhanh ngay trên VPS (2 lệnh, không cần token):
+
+```bash
+curl -sS -m 8 https://api.telegram.org/                      # Telegram: JSON = mạng OK
+curl -sS -m 8 "https://fapi.binance.com/fapi/v1/ping"        # Binance: {} = mạng OK
+```
 
 ## 6c. Thông báo đầu phiên (tự động, không cần bật gì)
 

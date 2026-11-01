@@ -93,6 +93,18 @@ export function effectiveApiBase(): { base: string; source: "env" | "default" } 
   return { base: TG_API_BASE_DEFAULT, source: "default" };
 }
 
+// Hint MỘT LẦN mỗi boot khi đường mạng tới api.telegram.org chết hẳn (ETIMEDOUT/
+// ENETUNREACH — pm2 log 01/11): chỉ ra ngay giải pháp đã có sẵn trong repo thay
+// vì để user đoán. Không lặp để không spam log mỗi tick phiên.
+let tgProxyHinted = false;
+function hintTgProxyOnce(base: string, detail: string): void {
+  if (tgProxyHinted || base !== TG_API_BASE_DEFAULT) return; // env proxy tự lo
+  tgProxyHinted = true;
+  console.error(
+    `[telegram] VPS không với tới api.telegram.org (${detail}). Chẩn đoán: curl -m 8 https://api.telegram.org/ từ VPS. Nếu hụt → dựng Worker proxy (deploy/tg-proxy-worker.js) rồi ghi TELEGRAM_API_BASE=https://<worker>.workers.dev vào .env — xem DEPLOY.md §6b.`,
+  );
+}
+
 // ─── Server-side Telegram API core (shared, with retry) ───────────────────────
 // Used by the /api/telegram relay AND the /api/autotrade/push digest sender so
 // both go through the same token / chat-id resolution / error mapping.
@@ -179,6 +191,7 @@ export async function tgApi(
       }
       const detail = `fetch failed (${describeFetchError(e)})`;
       console.error(`[telegram] ${method} via ${base} failed after ${i} attempt(s): ${detail}`);
+      hintTgProxyOnce(base, detail);
       return { json: null, status: 0, detail };
     }
   }

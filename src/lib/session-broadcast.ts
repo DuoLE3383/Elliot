@@ -28,6 +28,7 @@ import {
 } from "./market";
 import type { Kline } from "./types";
 import { getSqueezeReport, squeezeLine, type SqueezeReport } from "./squeeze";
+import { binanceHosts, binanceJson } from "./klines-direct";
 import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store";
 import {
   SESS_BULL_LONG_MIN,
@@ -40,8 +41,9 @@ import {
   SESS_TICK_MS,
 } from "./params";
 
-/** Binance USDT-M Futures — same board the chart reads, prices can differ from spot */
-const HOSTS = ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com"];
+/** Binance USDT-M Futures host cũ — đã thay bằng binanceHosts() (KLINES_HOSTS
+ *  override + failover) dùng chung với klines-direct.ts. Không khai lại HOSTS
+ *  cứng ở đây nữa. */
 
 // symbol tham chiếu cho radar đòn bẩy (squeeze report) trong tin session —
 // bị mất khai báo khi refactor params.ts (a4a8e64) → ReferenceError lúc chạy
@@ -54,30 +56,39 @@ const pad2 = (n: number): string => String(n).padStart(2, "0");
 // ─── Binance klines (server-side, host-fallback) ──────────────────────────────
 
 async function fetchKlinesDirect(symbol: string, interval: string, limit: number): Promise<Kline[]> {
+  // 2 vòng host-fallback: đường tới Binance trên VPS có lúc bị NGẮT GIỮA response
+  // (fetch 200 nhưng body rỗng/cắt cụt — pm2 log "Unexpected end of JSON input"
+  // 01/11) và thường sống lại sau vài giây. Vòng 2 sau 1.2s tăng cơ hội tin
+  // phiên −5p kịp gửi đúng giờ; binanceJson() biến body cắt cụt thành lỗi rõ
+  // host + triệu chứng thay vì JSON.parse cryptic.
+  const hosts = binanceHosts(); // KLINES_HOSTS env override (proxy) → mặc định fapi*.binance.com
   let lastErr: unknown = null;
-  for (const host of HOSTS) {
-    try {
-      const url = `${host}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(9000) });
-      if (!res.ok) {
-        lastErr = new Error(`HTTP ${res.status}`);
-        continue;
+  for (let pass = 0; pass < 2; pass++) {
+    if (pass > 0) await new Promise((r) => setTimeout(r, 1200));
+    for (const host of hosts) {
+      try {
+        const url = `${host}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(9000) });
+        if (!res.ok) {
+          lastErr = new Error(`HTTP ${res.status}`);
+          continue;
+        }
+        const raw = await binanceJson<unknown[]>(res, host);
+        return raw.map((r) => {
+          const row = r as [number, string, string, string, string, string, number, string, number, string];
+          return {
+            t: row[0],
+            o: Number(row[1]),
+            h: Number(row[2]),
+            l: Number(row[3]),
+            c: Number(row[4]),
+            v: Number(row[5]),
+            tb: Number(row[9]) || 0,
+          };
+        });
+      } catch (e) {
+        lastErr = e;
       }
-      const raw = (await res.json()) as unknown[];
-      return raw.map((r) => {
-        const row = r as [number, string, string, string, string, string, number, string, number, string];
-        return {
-          t: row[0],
-          o: Number(row[1]),
-          h: Number(row[2]),
-          l: Number(row[3]),
-          c: Number(row[4]),
-          v: Number(row[5]),
-          tb: Number(row[9]) || 0,
-        };
-      });
-    } catch (e) {
-      lastErr = e;
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error("kline fetch failed");
