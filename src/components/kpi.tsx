@@ -6,7 +6,7 @@ import { fmtPct, fmtPrice, fmtTime, t, type Lang } from "@/lib/i18n";
 import type { AutoTradeRow } from "@/lib/autotrade";
 import type { KpiStats } from "@/lib/papers";
 import type { Paper, Signal, Ticker } from "@/lib/types";
-import { Activity, ArrowLeftRight, Percent, Target, Zap } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeftRight, Percent, Target, Zap } from "lucide-react";
 import type { ReactNode } from "react";
 
 interface Props {
@@ -14,17 +14,11 @@ interface Props {
   stats: KpiStats;
   openPaper?: Paper;
   leverage: number;
-  /** unrealized ROE % of the paper open position (price move × leverage) */
   openPnl?: number;
-  /** signals of the loaded window */
   signals?: Signal[];
-  /** cumulative signal count from server (SignalTotal table); null = unknown */
   totalSignals?: number | null;
-  /** live auto-trade dry-run open position (shown on the right of the KPI strip) */
   autoOpen?: AutoTradeRow | null;
-  /** live tickers for ROE of autoOpen */
   tickers?: Record<string, Ticker>;
-  /** click auto-open cell → jump chart to that pair + TF */
   onPickAuto?: (sym: string, itv: string) => void;
 }
 
@@ -39,9 +33,9 @@ const tpPriceOf = (side: string, entry: number, pct: number) =>
   side === "SHORT" ? entry * (1 - pct / 100) : entry * (1 + pct / 100);
 
 /**
- * Ultra-slim KPI strip. When an auto dry-run position is open it occupies the
- * right side of the row (the former CLOSED PNL + REVERSAL area) so the open
- * trade is always visible without a separate strip above.
+ * KPI strip. When an auto dry-run is open the right half is a large position
+ * card (Paper vs Auto are labelled so opposite sides on the same pair are
+ * not mistaken for a data bug).
  */
 export function KpiCards({
   lang,
@@ -61,13 +55,49 @@ export function KpiCards({
   const dirTotal = long + short;
   const longShare = dirTotal > 0 ? (long / dirTotal) * 100 : 50;
 
-  const openMain = openPaper ? (
+  // Same pair, opposite side → the red-box contradiction (paper SHORT vs auto LONG)
+  const conflict =
+    !!autoOpen &&
+    !!openPaper &&
+    autoOpen.symbol === openPaper.symbol &&
+    autoOpen.side !== openPaper.side;
+
+  const cell = (
+    label: string,
+    value: ReactNode,
+    sub: ReactNode,
+    opts?: { tip?: string; bar?: number | null; icon?: ReactNode; valueClass?: string; sub2?: ReactNode },
+  ) => (
+    <div className="min-w-0 px-2.5 py-1" title={opts?.tip}>
+      <div className="flex items-center justify-between gap-1">
+        <p className="truncate text-[9px] font-medium uppercase tracking-wide text-zinc-500">{label}</p>
+        {opts?.icon}
+      </div>
+      <p className="mt-0.5 flex items-baseline gap-1.5">
+        <span className={`shrink-0 font-mono text-[13px] font-bold leading-tight ${opts?.valueClass ?? "text-zinc-100"}`}>
+          {value}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[10px] leading-tight text-zinc-500">{sub}</span>
+      </p>
+      {opts?.sub2 && <p className="mt-px truncate text-[9px] leading-tight">{opts.sub2}</p>}
+      {opts?.bar != null && (
+        <div className="mt-0.5 flex h-[3px] max-w-28 overflow-hidden rounded-full bg-zinc-800">
+          <div className="bg-emerald-500" style={{ width: `${opts.bar}%` }} />
+          <div className="flex-1 bg-rose-500" />
+        </div>
+      )}
+    </div>
+  );
+
+  const paperSub = openPaper ? (
     <span className={`font-mono font-semibold ${SIDE_COLOR(openPaper.side)}`}>
       {openPaper.side} @ {fmtPrice(openPaper.entry)}
       {leverage > 1 && <span className="text-amber-400"> ×{leverage}</span>}
     </span>
-  ) : null;
-  const openSub =
+  ) : (
+    <span className="text-zinc-600">—</span>
+  );
+  const paperSub2 =
     openPaper && openPnl != null ? (
       <span className={`font-mono ${(openPnl ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
         {t(lang, "kpi.openPnl", { pnl: fmtPct(openPnl) })}
@@ -76,100 +106,8 @@ export function KpiCards({
       <span className="text-zinc-600">{t(lang, "kpi.openNewest", { time: fmtTime(openPaper.entryTime, lang) })}</span>
     ) : null;
 
-  // When auto-open is present, drop netPnl + flips from the grid (shown on the
-  // right panel instead) so the strip stays compact on one row.
-  const baseCards = [
-    {
-      label: t(lang, "kpi.signals"),
-      value: String(signals.length),
-      valueClass: "text-zinc-100",
-      tip:
-        t(lang, "kpi.signalsSub", { lo: long, sh: short, bl: blocked }) +
-        (totalSignals != null ? ` · ${t(lang, "kpi.total", { n: totalSignals })}` : ""),
-      sub: (
-        <span className="text-zinc-500">
-          {t(lang, blocked > 0 ? "kpi.signalsSub" : "kpi.signalsOff", { lo: long, sh: short, bl: blocked })}
-          {totalSignals != null && (
-            <span className="ml-1 font-mono text-amber-400/90">· {t(lang, "kpi.total", { n: totalSignals })}</span>
-          )}
-        </span>
-      ),
-      sub2: null as ReactNode,
-      bar: signals.length > 0 ? longShare : null,
-      icon: <Zap className="h-3.5 w-3.5 text-zinc-600" />,
-    },
-    {
-      label: t(lang, "kpi.open"),
-      value: String(stats.open),
-      valueClass: "text-zinc-100",
-      tip: openPaper ? `${openPaper.side} @ ${fmtPrice(openPaper.entry)} · ×${leverage}` : undefined,
-      sub: openMain ?? <span className="text-zinc-600">—</span>,
-      sub2: openSub,
-      bar: null,
-      icon: <Activity className="h-3.5 w-3.5 text-zinc-600" />,
-    },
-    {
-      label: t(lang, "kpi.winRate"),
-      value: `${stats.winRate.toFixed(0)}%`,
-      valueClass: stats.winRate >= 50 ? "text-emerald-400" : "text-zinc-100",
-      tip: `${t(lang, "kpi.breakdown", { tp: stats.tpCount, sl: stats.slCount, fw: stats.flipWins, fl: stats.flipLosses })} · ${t(
-        lang,
-        "kpi.closedBase",
-        { n: stats.closed },
-      )}`,
-      sub: (
-        <span className="text-zinc-500">
-          {t(lang, "kpi.breakdown", { tp: stats.tpCount, sl: stats.slCount, fw: stats.flipWins, fl: stats.flipLosses })}
-        </span>
-      ),
-      sub2: null,
-      bar: null,
-      icon: <Percent className="h-3.5 w-3.5 text-zinc-600" />,
-    },
-  ];
-
-  const extraCards = autoOpen
-    ? []
-    : [
-        {
-          label: t(lang, "kpi.netPnl"),
-          value: fmtPct(stats.netPnl),
-          valueClass: stats.netPnl >= 0 ? "text-emerald-400" : "text-rose-400",
-          tip: `${t(lang, "kpi.netNote", { n: stats.closed })}${leverage > 1 ? ` · ${t(lang, "kpi.levNote", { lev: leverage })}` : ""}`,
-          sub: (
-            <span className="text-zinc-500">
-              {t(lang, "kpi.netNote", { n: stats.closed })}
-              {leverage > 1 && <span> · {t(lang, "kpi.levNote", { lev: leverage })}</span>}
-            </span>
-          ),
-          sub2: null as ReactNode,
-          bar: null as number | null,
-          icon: <Target className="h-3.5 w-3.5 text-zinc-600" />,
-        },
-        {
-          label: t(lang, "kpi.flips"),
-          value: String(stats.flipCount),
-          valueClass: "text-zinc-100",
-          tip: `${t(lang, "kpi.flipsSub", { w: stats.flipWins, l: stats.flipLosses, pnl: fmtPct(stats.flipNetPnl) })} · ${t(
-            lang,
-            "kpi.flipsNote",
-          )}`,
-          sub: (
-            <span className="text-zinc-500">
-              {t(lang, "kpi.flipsSub", { w: stats.flipWins, l: stats.flipLosses, pnl: fmtPct(stats.flipNetPnl) })}
-            </span>
-          ),
-          sub2: null,
-          bar: null,
-          icon: <ArrowLeftRight className="h-3.5 w-3.5 text-zinc-600" />,
-        },
-      ];
-
-  const cards = [...baseCards, ...extraCards];
-  const cols = autoOpen ? "xl:grid-cols-[1fr_1fr_1fr_1.6fr]" : "xl:grid-cols-5";
-
-  // auto-open live numbers
-  let autoPanel: ReactNode = null;
+  // ── Auto position card (large) ───────────────────────────────────────────
+  let autoCard: ReactNode = null;
   if (autoOpen) {
     const live = tickers[autoOpen.symbol]?.price ?? autoOpen.entryPrice;
     const roe = roeOf(autoOpen.side, autoOpen.entryPrice, live, autoOpen.leverage);
@@ -181,80 +119,210 @@ export function KpiCards({
     const hi = Math.max(sl, tp);
     const posPct = hi === lo ? 50 : Math.max(0, Math.min(100, ((live - lo) / (hi - lo)) * 100));
 
-    autoPanel = (
+    autoCard = (
       <button
         type="button"
         onClick={() => onPickAuto?.(autoOpen.symbol, autoOpen.interval)}
         title={t(lang, "open.strip.tip")}
-        className="min-w-0 rounded-md border border-emerald-900/50 bg-emerald-950/25 px-2.5 py-1 text-left transition hover:border-emerald-700 hover:bg-emerald-950/40 xl:ml-1"
+        className="flex h-full min-h-[72px] w-full flex-col justify-center gap-1 rounded-lg border border-emerald-800/70 bg-emerald-950/30 px-3 py-2 text-left transition hover:border-emerald-600 hover:bg-emerald-950/50"
       >
-        <div className="flex items-center gap-1.5">
-          <span className="relative flex h-1.5 w-1.5">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          <span className="relative flex h-2 w-2">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
           </span>
-          <p className="truncate text-[9px] font-semibold uppercase tracking-wide text-emerald-300/90">
-            {t(lang, "auto.pos.open")}
-          </p>
-          <span className={`font-mono text-[11px] font-bold ${sideCls}`}>{autoOpen.side}</span>
-          <span className="font-mono text-[11px] font-semibold text-zinc-100">
-            {autoOpen.symbol.replace("USDT", "")} · {autoOpen.interval}
+          <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-300">
+            {t(lang, "kpi.autoLabel")}
           </span>
-          <span className={`ml-auto font-mono text-[11px] font-bold ${roe >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+          <span className={`font-mono text-sm font-bold ${sideCls}`}>{autoOpen.side}</span>
+          <span className="font-mono text-sm font-semibold text-zinc-100">
+            {autoOpen.symbol.replace("USDT", "")}
+            <span className="text-zinc-500"> · {autoOpen.interval}</span>
+          </span>
+          <span className={`ml-auto font-mono text-base font-bold ${roe >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
             {roe >= 0 ? "+" : ""}
             {roe.toFixed(2)}%
           </span>
         </div>
-        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[9px] text-zinc-500">
+
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-zinc-400">
           <span>
-            {t(lang, "auto.pos.entry")} <span className="text-zinc-300">{fmtPrice(autoOpen.entryPrice)}</span>
+            {t(lang, "auto.pos.entry")} <span className="text-zinc-200">{fmtPrice(autoOpen.entryPrice)}</span>
           </span>
-          <span className="hidden sm:inline">
-            SL {fmtPrice(sl)} → TP {fmtPrice(tp)}
+          <span>
+            SL <span className="text-rose-400/90">{fmtPrice(sl)}</span>
+            {" → "}
+            TP <span className="text-emerald-400/90">{fmtPrice(tp)}</span>
           </span>
           <span>
             {t(lang, "auto.pos.stake")}{" "}
-            {stake > 0 ? `${stake.toFixed(0)} · ${autoOpen.stakePct ?? 100}%` : `${autoOpen.stakePct ?? 100}%`} · ×
-            {autoOpen.leverage}
+            <span className="text-zinc-200">
+              {stake > 0 ? `${stake.toFixed(0)}` : `${autoOpen.stakePct ?? 100}%`} · ×{autoOpen.leverage}
+            </span>
+          </span>
+          <span className="text-zinc-500">
+            {t(lang, "auto.pos.uroe")} @ {fmtPrice(live)}
           </span>
         </div>
-        <div className="mt-1 hidden h-1 overflow-hidden rounded-full bg-zinc-800 sm:block">
-          <div className="relative h-full w-full">
-            <span
-              className="absolute top-[-1px] h-[6px] w-[2px] rounded-full bg-zinc-100"
-              style={{ left: `calc(${posPct.toFixed(1)}% - 1px)` }}
-            />
-          </div>
+
+        {/* SL → TP progress */}
+        <div className="relative mt-0.5 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
+          <div
+            className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-rose-900/40 via-zinc-700 to-emerald-900/40"
+            style={{ width: "100%" }}
+          />
+          <span
+            className="absolute top-1/2 h-2.5 w-0.5 -translate-y-1/2 rounded-full bg-zinc-100 shadow"
+            style={{ left: `calc(${posPct.toFixed(1)}% - 1px)` }}
+          />
         </div>
+
+        {conflict && (
+          <p className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-400">
+            <AlertTriangle className="h-3 w-3 shrink-0" />
+            {t(lang, "kpi.conflict", {
+              paper: openPaper!.side,
+              auto: autoOpen.side,
+            })}
+          </p>
+        )}
       </button>
     );
   }
 
-  return (
-    <Card className="border-zinc-800 bg-zinc-900/60">
-      <CardContent
-        className={`grid grid-cols-2 gap-x-3 gap-y-1 px-2.5 py-1 sm:grid-cols-3 ${cols} xl:gap-0 xl:divide-x xl:divide-zinc-800/70`}
-      >
-        {cards.map((c, k) => (
-          <div key={k} className="min-w-0 px-2 py-0 xl:first:pl-2.5 xl:px-3 xl:last:pr-1" title={c.tip}>
-            <div className="flex items-center justify-between gap-1">
-              <p className="truncate text-[9px] font-medium uppercase tracking-wide text-zinc-500">{c.label}</p>
-              {c.icon}
-            </div>
-            <p className="mt-px flex items-baseline gap-1.5">
-              <span className={`shrink-0 font-mono text-[13px] font-bold leading-tight ${c.valueClass}`}>{c.value}</span>
-              <span className="min-w-0 flex-1 truncate text-[10px] leading-tight">{c.sub}</span>
-            </p>
-            {c.sub2 && <p className="mt-px truncate text-[9px] leading-tight">{c.sub2}</p>}
-            {c.bar != null && (
-              <div className="mt-0.5 flex h-[3px] max-w-24 overflow-hidden rounded-full bg-zinc-800">
-                <div className="bg-emerald-500" style={{ width: `${c.bar}%` }} />
-                <div className="flex-1 bg-rose-500" />
-              </div>
+  // ── Layout ───────────────────────────────────────────────────────────────
+  // With auto: left = 3 compact metric cells + net/flips chips; right = large auto card
+  // Without auto: classic 5 equal cells
+  if (autoOpen) {
+    return (
+      <Card className="border-zinc-800 bg-zinc-900/60">
+        <CardContent className="grid gap-2 px-2.5 py-1.5 sm:grid-cols-[minmax(0,1fr)_minmax(280px,1.15fr)] lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,1.2fr)]">
+          {/* Left cluster — paper KPIs, no wasted empty columns */}
+          <div className="grid grid-cols-3 gap-0 divide-x divide-zinc-800/70">
+            {cell(
+              t(lang, "kpi.signals"),
+              String(signals.length),
+              <span>
+                {t(lang, blocked > 0 ? "kpi.signalsSub" : "kpi.signalsOff", { lo: long, sh: short, bl: blocked })}
+                {totalSignals != null && (
+                  <span className="ml-1 font-mono text-amber-400/90">· {t(lang, "kpi.total", { n: totalSignals })}</span>
+                )}
+              </span>,
+              {
+                bar: signals.length > 0 ? longShare : null,
+                icon: <Zap className="h-3.5 w-3.5 text-zinc-600" />,
+                tip:
+                  t(lang, "kpi.signalsSub", { lo: long, sh: short, bl: blocked }) +
+                  (totalSignals != null ? ` · ${t(lang, "kpi.total", { n: totalSignals })}` : ""),
+              },
+            )}
+            {cell(
+              t(lang, "kpi.paperLabel"),
+              String(stats.open),
+              paperSub,
+              {
+                sub2: paperSub2,
+                icon: <Activity className="h-3.5 w-3.5 text-zinc-600" />,
+                tip: openPaper
+                  ? `${t(lang, "kpi.paperTip")} · ${openPaper.side} @ ${fmtPrice(openPaper.entry)} ×${leverage}`
+                  : t(lang, "kpi.paperTip"),
+              },
+            )}
+            {cell(
+              t(lang, "kpi.winRate"),
+              `${stats.winRate.toFixed(0)}%`,
+              <span>
+                {t(lang, "kpi.breakdown", {
+                  tp: stats.tpCount,
+                  sl: stats.slCount,
+                  fw: stats.flipWins,
+                  fl: stats.flipLosses,
+                })}
+              </span>,
+              {
+                valueClass: stats.winRate >= 50 ? "text-emerald-400" : "text-zinc-100",
+                icon: <Percent className="h-3.5 w-3.5 text-zinc-600" />,
+                sub2: (
+                  <span className="font-mono text-zinc-500">
+                    {t(lang, "kpi.netPnl")}:{" "}
+                    <span className={stats.netPnl >= 0 ? "text-emerald-400" : "text-rose-400"}>
+                      {fmtPct(stats.netPnl)}
+                    </span>
+                    {" · "}
+                    {t(lang, "kpi.flips")} {stats.flipCount}
+                  </span>
+                ),
+              },
             )}
           </div>
-        ))}
-        {autoPanel && <div className="col-span-2 min-w-0 sm:col-span-1 xl:col-span-1 xl:pl-2">{autoPanel}</div>}
+
+          {/* Right — large auto position */}
+          <div className="min-w-0">{autoCard}</div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // No auto open — full 5-cell strip
+  return (
+    <Card className="border-zinc-800 bg-zinc-900/60">
+      <CardContent className="grid grid-cols-2 gap-0 px-2 py-1 sm:grid-cols-3 xl:grid-cols-5 xl:divide-x xl:divide-zinc-800/70">
+        {cell(
+          t(lang, "kpi.signals"),
+          String(signals.length),
+          <span>
+            {t(lang, blocked > 0 ? "kpi.signalsSub" : "kpi.signalsOff", { lo: long, sh: short, bl: blocked })}
+            {totalSignals != null && (
+              <span className="ml-1 font-mono text-amber-400/90">· {t(lang, "kpi.total", { n: totalSignals })}</span>
+            )}
+          </span>,
+          { bar: signals.length > 0 ? longShare : null, icon: <Zap className="h-3.5 w-3.5 text-zinc-600" /> },
+        )}
+        {cell(t(lang, "kpi.paperLabel"), String(stats.open), paperSub, {
+          sub2: paperSub2,
+          icon: <Activity className="h-3.5 w-3.5 text-zinc-600" />,
+          tip: t(lang, "kpi.paperTip"),
+        })}
+        {cell(
+          t(lang, "kpi.winRate"),
+          `${stats.winRate.toFixed(0)}%`,
+          <span>
+            {t(lang, "kpi.breakdown", {
+              tp: stats.tpCount,
+              sl: stats.slCount,
+              fw: stats.flipWins,
+              fl: stats.flipLosses,
+            })}
+          </span>,
+          {
+            valueClass: stats.winRate >= 50 ? "text-emerald-400" : "text-zinc-100",
+            icon: <Percent className="h-3.5 w-3.5 text-zinc-600" />,
+          },
+        )}
+        {cell(
+          t(lang, "kpi.netPnl"),
+          fmtPct(stats.netPnl),
+          <span>
+            {t(lang, "kpi.netNote", { n: stats.closed })}
+            {leverage > 1 && <span> · {t(lang, "kpi.levNote", { lev: leverage })}</span>}
+          </span>,
+          {
+            valueClass: stats.netPnl >= 0 ? "text-emerald-400" : "text-rose-400",
+            icon: <Target className="h-3.5 w-3.5 text-zinc-600" />,
+          },
+        )}
+        {cell(
+          t(lang, "kpi.flips"),
+          String(stats.flipCount),
+          <span>
+            {t(lang, "kpi.flipsSub", {
+              w: stats.flipWins,
+              l: stats.flipLosses,
+              pnl: fmtPct(stats.flipNetPnl),
+            })}
+          </span>,
+          { icon: <ArrowLeftRight className="h-3.5 w-3.5 text-zinc-600" /> },
+        )}
       </CardContent>
     </Card>
   );
