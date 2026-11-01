@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { t, type Lang } from "@/lib/i18n";
 import { loadAutoConfig } from "@/lib/autotrade";
+import { fetchDiveReports, type DiveReportRow } from "@/lib/history";
 import { DEFAULT_SETTINGS, migratePairsTo, type EngineSettings } from "@/lib/types";
 import {
   Activity,
@@ -26,6 +27,7 @@ import {
   Crown,
   Database,
   FlaskConical,
+  History,
   Loader2,
   RefreshCw,
   ShieldCheck,
@@ -184,6 +186,23 @@ export default function AiPage() {
   // ra điểm yếu/mâu thuẫn — cùng nguồn số liệu nên không thể lệch bảng /stats
   const [statsDive, setStatsDive] = useState<{ ok: boolean; text: string; detail: string; ms: number } | null>(null);
   const [statsDiveBusy, setStatsDiveBusy] = useState(false);
+  // 0.2.36 — lịch sử các lần dive ĐÃ LƯU trong DB (DiveReport) — soi dọc theo
+  // thời gian: LLM nói gì hôm nay, có đổi ý so với đợt trước không.
+  const [diveHistory, setDiveHistory] = useState<DiveReportRow[] | null>(null);
+  const [diveHistoryOpen, setDiveHistoryOpen] = useState(false);
+
+  const loadDiveHistory = useCallback(async () => {
+    try {
+      const rows = await fetchDiveReports(8);
+      setDiveHistory(rows);
+    } catch {
+      setDiveHistory((prev) => prev ?? []);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadDiveHistory();
+  }, [loadDiveHistory]);
 
   useEffect(() => {
     const lg = localStorage.getItem("utp.lang");
@@ -283,8 +302,10 @@ export default function AiPage() {
       setStatsDive({ ok: false, text: "", detail: "network", ms: 0 });
     } finally {
       setStatsDiveBusy(false);
+      // POST vừa rồi đã lưu 1 DiveReport (nền) — nạp lại lịch sử
+      void loadDiveHistory();
     }
-  }, []);
+  }, [loadDiveHistory]);
 
   const switchLang = () => {
     const next: Lang = lang === "vi" ? "en" : "vi";
@@ -734,6 +755,50 @@ export default function AiPage() {
                 <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap text-zinc-300">{statsDive.ok ? statsDive.text : "—"}</pre>
               </div>
             )}
+
+            {/* 0.2.36 — lịch sử các lần dive đã lưu trong DB */}
+            <div className="border-t border-zinc-800 pt-2">
+              {diveHistory != null && diveHistory.length > 0 ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 gap-1.5 px-1.5 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                    onClick={() => setDiveHistoryOpen((o) => !o)}
+                  >
+                    <History className="h-3 w-3" />
+                    {diveHistoryOpen ? t(lang, "ai.dive.history.hide") : t(lang, "ai.dive.history.show", { n: diveHistory.length })}
+                    {diveHistoryOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                  </Button>
+                  {diveHistoryOpen && (
+                    <div className="rail-scroll mt-1.5 max-h-96 space-y-2 overflow-y-auto">
+                      {diveHistory.map((rep) => (
+                        <details key={rep.id} className="group rounded-lg border border-zinc-800 bg-zinc-950/60 p-2">
+                          <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 text-[11px]">
+                            <Badge
+                              variant="outline"
+                              className={rep.ok ? "border-emerald-800 text-emerald-400" : "border-amber-800 text-amber-400"}
+                            >
+                              {rep.ok ? t(lang, "ai.dive.ok") : t(lang, "ai.dive.history.fail")}
+                            </Badge>
+                            <span className="font-mono text-zinc-500">{rep.ms}ms</span>
+                            <span className="text-zinc-600">{rep.model}</span>
+                            <span className="ml-auto text-zinc-500">
+                              {new Date(rep.createdAt).toLocaleString(lang === "vi" ? "vi-VN" : "en-US")}
+                            </span>
+                          </summary>
+                          <pre className="mt-2 max-h-72 overflow-y-auto whitespace-pre-wrap border-t border-zinc-800 pt-2 text-[11px] text-zinc-300">
+                            {rep.ok ? rep.text : rep.detail || "—"}
+                          </pre>
+                        </details>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-[10px] leading-relaxed text-zinc-600">{t(lang, "ai.dive.history.empty")}</p>
+              )}
+            </div>
           </CardContent>
         </Card>
 

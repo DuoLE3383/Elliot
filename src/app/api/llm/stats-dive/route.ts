@@ -1,12 +1,16 @@
 // ─── /api/llm/stats-dive — LLM "vạch lá tìm sâu" trên thống kê thật ──────────
 // POST (no body) → LlmTextResult { ok, text, detail, ms, url, model, prompt }.
 // Gom StatsSnapshot (cùng nguồn với /api/stats — MỘT nguồn không thể lệch),
-// nhét vào prompt, llama-server trả văn bản phân tích tiếng Việt. KHÔNG ghi
-// DB, không đụng engine state; timeout 300s (LLM_TIMEOUT_MS) vì văn bản dài
-// hơn verdict go/skip nhiều.
+// nhét vào prompt, llama-server trả văn bản phân tích tiếng Việt. KHÔNG đụng
+// engine state; timeout 300s (LLM_TIMEOUT_MS) vì văn bản dài hơn verdict
+// go/skip nhiều.
+// 0.2.36: kết quả dive — kể cả fail — được LƯU vào bảng DiveReport (trước giờ
+// chạy xong chỉ hiện trên UI rồi mất, không so sánh dọc được). POST trả ngay,
+// việc lưu chạy nền; GET ?limit → lịch sử các lần dive đã lưu.
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { engineSnapshot } from "@/lib/engine";
+import { db } from "@/lib/db";
 import { buildStatsSnapshot } from "@/lib/stats";
 import { llmEnvEndpoint, llmStatsDive, LLM_MODEL_DEFAULT, LLM_TIMEOUT_MS, LLM_URL_DEFAULT } from "@/lib/llm";
 
@@ -35,5 +39,49 @@ export async function POST() {
   const { url, model } = resolveEndpoint();
   const snap = await buildStatsSnapshot();
   const r = await llmStatsDive(url, model, JSON.stringify(snap), LLM_TIMEOUT_MS);
+  // lưu bài phân tích vào DB — fire-and-forget, kể cả !ok (lỗi LLM cũng là dữ
+  // kiện đáng nhớ: "hôm đó nó chết, không audit được"); lỗi lưu chỉ log.
+  const modelName = (r.model ?? model ?? "").slice(0, 80);
+  void db.diveReport
+    .create({
+      data: {
+        source: "stats-dive",
+        model: modelName || "unknown",
+        ok: r.ok === true,
+        ms: Math.max(0, Math.round(r.ms ?? 0)),
+        text: (r.text ?? "").slice(0, 20_000),
+        detail: r.detail ? r.detail.slice(0, 500) : null,
+      },
+    })
+    .catch((e: unknown) => console.log("[stats-dive] lưu DiveReport thất bại:", e instanceof Error ? e.message : e));
   return NextResponse.json(r);
+}
+
+// GET ?limit=10 → lịch sử các lần dive đã lưu (mới trước) — UI /ai hiển thị
+// "đợt trước LLM nói gì" để soi đổi ý theo thời gian.
+export async function GET(req: NextRequest) {
+  const sp = req.nextUrl.searchParams;
+  const n = Number(sp.get("limit"));
+  const limit = Number.isFinite(n) ? Math.min(Math.max(Math.floor(n), 1), 50) : 10;
+  try {
+    const rows = await db.diveReport.findMany({
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    });
+    return NextResponse.json({
+      reports: rows.map((r) => ({
+        id: r.id,
+        source: r.source,
+        model: r.model,
+        ok: r.ok,
+        ms: r.ms,
+        text: r.text,
+        detail: r.detail,
+        createdAt: r.createdAt.toISOString(),
+      })),
+    });
+  } catch {
+    // bảng chưa có (DB cũ chưa bootstrap xong) → lịch sử rỗng, UI vẫn chạy
+    return NextResponse.json({ reports: [] });
+  }
 }

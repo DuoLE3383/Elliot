@@ -58,6 +58,7 @@ import { atrLevelsAtEntry } from "./indicators";
 import { llmReview, type LlmVerdict } from "./llm";
 import { fetchKlinesDirect, fetchBoard24h } from "./klines-direct";
 import { XgbPoolNode, xgbPoolAvailable, xgbPoolSize } from "./xgb-pool-node";
+import { labCfgOf, maybeAutoLab } from "./strategy-lab";
 import {
   UNIVERSE,
   UNIVERSE_INTERVAL,
@@ -532,6 +533,18 @@ async function trainCore(
     if (!best || sc > best.score) best = { symbol: r.sym, interval: r.itv, acc: r.res.acc, auc: r.res.auc, score: sc };
   }
   if (saved > 0) invalidateTrainSnapshot(); // panel train-history refreshes on the next poll
+  // 0.2.36 — Strategy Lab TỰ chạy sau mỗi lượt train có lưu: sinh + backtest
+  // lại ứng viên chiến lược (baseline cfg hiện tại + grid + biến thể theo
+  // feature gain của champion). maybeAutoLab tự throttle 12h/combo nên pass
+  // định kỳ không spam; chạy NỀN tuần tự, không chặn trả kết quả train.
+  if (saved > 0) {
+    void (async () => {
+      for (const r of ranked) {
+        await maybeAutoLab(r.sym, r.itv, labCfgOf(p.settings));
+      }
+      console.log(`[engine] strategy lab nền xong cho ${ranked.length} combo đã lưu`);
+    })();
+  }
   // channel summary for a full pass — same message the client trainer used to send
   if (opts.mode === "all" && saved > 0 && tgReady()) {
     try {

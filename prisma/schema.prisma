@@ -152,6 +152,49 @@ model BcastVerdict {
   @@index([verdict])
 }
 
+// ─── Dive report — LƯU LẠI bài phân tích LLM ("Vạch lá tìm sâu") ─────────────
+// Trước 0.2.36 mỗi lần dive chạy xong chỉ hiện trên UI rồi mất (route ghi rõ
+// "KHÔNG ghi DB"). Từ bản này mỗi lần chạy — kể cả fail — được lưu một dòng để
+// soi dọc theo thời gian: win-rate hôm nay LLM nói gì, tuần sau nó đổi ý chưa.
+model DiveReport {
+  id        String   @id @default(cuid())
+  source    String // "stats-dive" | … (tương lai: autopsy-digest, lab-audit…)
+  model     String // tên model LLM đã trả
+  ok        Boolean // LLM trả lời thành công?
+  ms        Int // thời gian chạy
+  text      String // markdown đầu ra của LLM
+  detail    String? // chi tiết lỗi khi !ok
+  createdAt DateTime @default(now())
+
+  @@index([source, createdAt])
+}
+
+// ─── Strategy variant — MỘT ỨNG VIÊN CHIẾN LƯỢC trong Strategy Lab ───────────
+// Mỗi lần "sinh chiến lược" (thủ công hoặc tự động sau train, throttle 12h),
+// server dựng baseline = cfg hiện tại + grid SL/TP·UT·SMA + các biến thể ĐỊNH
+// HƯỚNG theo feature gain của champion run (importance đã lưu trong
+// FinetuneRun), rồi backtest TẤT CẢ trên klines thật bằng đúng thuật toán
+// engine (signalsFrom → papersFrom → kpiFrom). Cả thắng lẫn thua đều sống lại
+// trong bảng này → A/B thật, không phải greedy top-1 như suggestFrom cũ.
+model StrategyVariant {
+  id            String    @id @default(cuid())
+  symbol        String
+  interval      String
+  name          String // tên ngắn, vd "ATR nới 2.5×"
+  hypothesis    String // giả thuyết tiếng Việt — dựa yếu tố nào, chờ điều gì
+  sourceFeature String    @default("") // feature gain chính, "" = grid/quét
+  config        String // JSON LabConfig {slPct,tpPct,atrKey,atrPeriod,smaFilter,smaPeriod,leverage}
+  baseline      Boolean   @default(false) // mốc so sánh = cfg đang chạy
+  scored        Boolean   @default(false) // đã backtest chưa
+  metrics       String? // JSON LabMetrics {trades,winRate,netPnl,expectancy,maxDd,…}
+  applied       Boolean   @default(false)
+  appliedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  scoredAt      DateTime?
+
+  @@index([symbol, interval, createdAt])
+}
+
 // ─── Signal total — đếm TÍCH LUỸ tín hiệu server đã quét thấy ────────────────
 // Mỗi lượt quét engine (scanCore), mọi combo model bật hướng LONG/SHORT (≠
 // NEUTRAL) cộng 1. Đây là "tổng tín hiệu" trên KPI "Signals this window" —

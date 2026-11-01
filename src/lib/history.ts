@@ -270,3 +270,97 @@ export function downloadCsv(filename: string, csv: string): void {
   a.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+// ─── Strategy Lab — ứng viên chiến lược A/B (0.2.36) ──────────────────────────
+
+export interface LabConfigRow {
+  slPct: number;
+  tpPct: number;
+  atrKey: number;
+  atrPeriod: number;
+  smaFilter: boolean;
+  smaPeriod: number;
+  leverage: number;
+}
+
+export interface LabMetricsRow {
+  trades: number;
+  wins: number;
+  winRate: number;
+  netPnl: number;
+  expectancy: number;
+  avgWin: number;
+  avgLoss: number;
+  tpCount: number;
+  slCount: number;
+  flipCount: number;
+  maxDd: number;
+}
+
+export interface VariantRow {
+  id: string;
+  symbol: string;
+  interval: string;
+  name: string;
+  hypothesis: string;
+  sourceFeature: string;
+  baseline: boolean;
+  applied: boolean;
+  config: LabConfigRow;
+  metrics: LabMetricsRow | null;
+  scoredAt: string | null;
+  createdAt: string;
+}
+
+export async function fetchVariants(symbol: string, interval: string): Promise<VariantRow[]> {
+  const q = new URLSearchParams({ symbol, interval });
+  const res = await fetch(`/api/strategies?${q.toString()}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = (await res.json()) as { variants: VariantRow[] };
+  return json.variants;
+}
+
+/** Server sinh ứng viên mới (grid + feature-driven) + backtest hết → số lưu. */
+export async function generateVariants(symbol: string, interval: string): Promise<number> {
+  const res = await fetch("/api/strategies", {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify({ action: "generate", symbol, interval }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = (await res.json()) as { count: number };
+  return json.count;
+}
+
+/** Đánh dấu biến thể đã áp dụng trong DB (config nạp settings ở caller). */
+export async function markVariantApplied(id: string): Promise<boolean> {
+  try {
+    const res = await fetch("/api/strategies", {
+      method: "PATCH",
+      headers: jsonHeaders,
+      body: JSON.stringify({ id, action: "apply" }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Lịch sử các lần LLM dive đã lưu (GET /api/llm/stats-dive). */
+export interface DiveReportRow {
+  id: string;
+  source: string;
+  model: string;
+  ok: boolean;
+  ms: number;
+  text: string;
+  detail: string | null;
+  createdAt: string;
+}
+
+export async function fetchDiveReports(limit = 8): Promise<DiveReportRow[]> {
+  const res = await fetch(`/api/llm/stats-dive?limit=${limit}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = (await res.json()) as { reports: DiveReportRow[] };
+  return json.reports;
+}

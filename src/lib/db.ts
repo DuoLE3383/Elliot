@@ -36,6 +36,12 @@ const SCHEMA_SQL: string[] = [
   `CREATE INDEX IF NOT EXISTS "BcastVerdict_verdict_idx" ON "BcastVerdict"("verdict")`,
   // 0.2.32 — đếm tích luỹ tín hiệu server đã quét thấy per combo (KPI "tổng")
   `CREATE TABLE IF NOT EXISTS "SignalTotal" ("symbol" TEXT NOT NULL, "interval" TEXT NOT NULL, "total" INTEGER NOT NULL DEFAULT 0, "updatedAt" DATETIME NOT NULL, PRIMARY KEY ("symbol", "interval"))`,
+  // 0.2.36 — lưu bài phân tích LLM (trước giờ dive chạy xong là mất)
+  `CREATE TABLE IF NOT EXISTS "DiveReport" ("id" TEXT NOT NULL PRIMARY KEY, "source" TEXT NOT NULL, "model" TEXT NOT NULL, "ok" BOOLEAN NOT NULL, "ms" INTEGER NOT NULL, "text" TEXT NOT NULL, "detail" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+  `CREATE INDEX IF NOT EXISTS "DiveReport_source_createdAt_idx" ON "DiveReport"("source", "createdAt")`,
+  // 0.2.36 — Strategy Lab: ứng viên chiến lược A/B (grid + feature-driven)
+  `CREATE TABLE IF NOT EXISTS "StrategyVariant" ("id" TEXT NOT NULL PRIMARY KEY, "symbol" TEXT NOT NULL, "interval" TEXT NOT NULL, "name" TEXT NOT NULL, "hypothesis" TEXT NOT NULL, "sourceFeature" TEXT NOT NULL DEFAULT '', "config" TEXT NOT NULL, "baseline" BOOLEAN NOT NULL DEFAULT false, "scored" BOOLEAN NOT NULL DEFAULT false, "metrics" TEXT, "applied" BOOLEAN NOT NULL DEFAULT false, "appliedAt" DATETIME, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "scoredAt" DATETIME)`,
+  `CREATE INDEX IF NOT EXISTS "StrategyVariant_symbol_interval_createdAt_idx" ON "StrategyVariant"("symbol", "interval", "createdAt")`,
 ];
 
 // ─── Thêm cột cho DB ĐÃ TỒN TẠI (0.2.28 autopsy) ────────────────────────────
@@ -52,7 +58,7 @@ const SCHEMA_COLUMNS: { table: string; column: string; ddl: string }[] = [
   { table: "AutoTrade", column: "llmReason", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "llmReason" TEXT` },
   { table: "AutoTrade", column: "autopsy", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "autopsy" TEXT` },
 ];
-const MODEL_TABLES = ["User", "Post", "Suggestion", "FinetuneRun", "AutoTrade", "BcastVerdict", "SignalTotal"];
+const MODEL_TABLES = ["User", "Post", "Suggestion", "FinetuneRun", "AutoTrade", "BcastVerdict", "SignalTotal", "DiveReport", "StrategyVariant"];
 /** exported for the /api health diagnostic */
 export { MODEL_TABLES };
 
