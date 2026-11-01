@@ -38,6 +38,8 @@ interface Props {
   onApply: (s: EngineSettings) => void;
   wyckoff: WyckoffSettings;
   onWyckoffApply: (w: WyckoffSettings) => void;
+  /** Change UI language — persisted by the parent via localStorage */
+  onLangChange?: (lang: Lang) => void;
 }
 
 type PresetKey = "wide" | "pine" | "custom";
@@ -51,7 +53,7 @@ const sameSettings = (a: EngineSettings, b: EngineSettings) =>
   a.leverage === b.leverage &&
   a.smaFilter === b.smaFilter;
 
-export function SettingsDialog({ lang, open, onOpenChange, settings, onApply, wyckoff, onWyckoffApply }: Props) {
+export function SettingsDialog({ lang, open, onOpenChange, settings, onApply, wyckoff, onWyckoffApply, onLangChange }: Props) {
   // parent remounts this component (key={open}) each time the dialog opens,
   // so lazy initializers below always start from the current settings
   const [draft, setDraft] = useState<EngineSettings>(settings);
@@ -120,6 +122,32 @@ export function SettingsDialog({ lang, open, onOpenChange, settings, onApply, wy
         </DialogHeader>
 
         <div className="space-y-3">
+          {/* Language */}
+          <div>
+            <Label className="text-xs text-zinc-400">{t(lang, "settings.language")}</Label>
+            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+              {(
+                [
+                  { key: "en" as const, label: t(lang, "settings.lang.en") },
+                  { key: "vi" as const, label: t(lang, "settings.lang.vi") },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => onLangChange?.(opt.key)}
+                  className={`rounded-md border px-3 py-2 text-left text-xs transition ${
+                    lang === opt.key
+                      ? "border-teal-600 bg-teal-950/40 text-teal-200"
+                      : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div>
             <Label className="text-xs text-zinc-400">{t(lang, "settings.preset")}</Label>
             <div className="mt-1.5 grid gap-1.5">

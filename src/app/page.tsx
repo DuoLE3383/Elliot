@@ -1557,6 +1557,7 @@ export default function Home() {
         settings={settings}
         wyckoff={wySettings}
         onWyckoffApply={(w) => setWySettings(w)}
+        onLangChange={setLang}
         onApply={(s) => {
           setSettings(s);
           try {
