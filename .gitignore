@@ -71,3 +71,4 @@ download/
 
 # generated per-build marker (write-build-id.mjs) — never commit
 /public/build-id.txt
+package-lock.json

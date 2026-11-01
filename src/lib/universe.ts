@@ -159,5 +159,5 @@ export function universeBroadcastText(top: UniverseRow[]): string {
     .join("\n");
   const rest = top.length - show.length;
   const more = rest > 0 ? `\n<i>…và ${rest} coin khác trong top-${top.length} — mở panel để xem đủ.</i>` : "";
-  return `🔄 <b>Vũ trụ quét (lặp mỗi 8h)</b> — TOP ${show.length}/${top.length} — ATR + trending · dữ liệu 10 ngày qua:\n<code>${lines}</code>${more}`;
+  return `🔄 TOP ${show.length}/${top.length} — ATR + trending\n<code>${lines}</code>${more}`;
 }
