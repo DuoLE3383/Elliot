@@ -228,7 +228,23 @@ export const CONF_W = 15;
 
 export const LLM_URL_DEFAULT = "http://127.0.0.8:8888";
 export const LLM_MODEL_DEFAULT = "local";
-export const LLM_TIMEOUT_MS = 90_000; // llama CPU (7B Q4 ≈ 5-6 tok/s) cần 30-60s cho 1 verdict
+/** Ngân sách chờ MỘT lần gọi LLM (verdict duyệt lệnh lẫn giải phẫu lệnh).
+ *  Mặc định 300s — LLM chạy NỀN (llama-server khác máy/quy trình, engine chỉ
+ *  chờ khi không có lệnh mở) nên tốc độ không quan trọng, chỉ cần trả lời ĐÚNG.
+ *  llama 7B Q4 trên CPU mất 6-15s/verdict khi rảnh nhưng có thể chậm hơn hẳn
+ *  khi máy đang bận train/scan — 90s cũ đủ dễ cắt cụt lưng câu trả lời.
+ *  Override được bằng env LLM_TIMEOUT_MS (ms, tối thiểu 10s, tối đa 10 phút)
+ *  — đổi env xong phải `pm2 restart elliott --update-env` vì standalone chỉ
+ *  đọc env lúc boot. */
+export const LLM_TIMEOUT_MS = (() => {
+  const n = Number(process.env.LLM_TIMEOUT_MS);
+  if (Number.isFinite(n) && n >= 10_000) return Math.min(Math.floor(n), 600_000);
+  return 300_000;
+})();
+/** Giải phẫu lệnh (autopsy) — LLM mổ xẻ lệnh ĐÃ ĐÓNG (cả thắng lẫn thua) rồi
+ *  lưu bài học vào DB, nạp lại vào prompt duyệt các lệnh sau. Tắt = engine chỉ
+ *  duyệt/rủi ro như 0.2.27, không sinh bài học mới (bài học cũ vẫn được nạp). */
+export const AUTOPSY_ON = true;
 /** LLM chết thì xử lý thế nào?
  *  • false (mặc định, fail-OPEN) — llama-server không trả lời (chết/timeout/JSON
  *    hỏng) → lệnh vẫn vào theo đường XGBoost-only. Nhẹ tay cho paper-trading:

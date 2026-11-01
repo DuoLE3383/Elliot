@@ -178,7 +178,21 @@ export async function GET() {
   let runsError = false;
   let tradesError = false;
   let pheError = false;
-  const [runsRaw, tradesRaw, pheRaw, llm, champRows] = await Promise.all([
+  let autopsyError = false;
+  // một dòng autopsy hiển thị trên /ai — đủ hình dạng từ JSON trong cột autopsy
+  type AutopsyRow = {
+    symbol: string;
+    interval: string;
+    side: string;
+    exitKind: string | null;
+    pnlPct: number | null;
+    exitTime: string | null;
+    tag: string;
+    why: string[];
+    lesson: string;
+    ev: { mfePct?: number; maePct?: number; rMultiple?: number; durMin?: number } | null;
+  };
+  const [runsRaw, tradesRaw, pheRaw, llm, champRows, autopsyCount, autopsyRows] = await Promise.all([
     db.finetuneRun
       .findMany({ orderBy: { createdAt: "desc" }, take: 400 })
       .then((rows) =>
@@ -244,6 +258,42 @@ export async function GET() {
         return [] as { p: number; won: boolean }[];
       }),
     pingLlm(llmUrl),
+    // tổng số lệnh đã được giải phẫu (badge tổng trên /ai)
+    db.autoTrade
+      .count({ where: { status: "closed", autopsy: { not: null } } })
+      .catch(() => 0),
+    // 8 bài giải phẫu gần nhất (CẢ win lẫn loss) — nguyên cột autopsy là JSON
+    db.autoTrade
+      .findMany({
+        where: { status: "closed", autopsy: { not: null } },
+        orderBy: { exitTime: "desc" },
+        take: 8,
+      })
+      .then((rows) =>
+        rows
+          .map((r): AutopsyRow | null => {
+            if (!r.autopsy) return null;
+            const a = safeJson(r.autopsy) as { tag?: unknown; why?: unknown; lesson?: unknown; ev?: unknown } | null;
+            if (!a?.lesson) return null;
+            return {
+              symbol: r.symbol,
+              interval: r.interval,
+              side: r.side,
+              exitKind: r.exitKind,
+              pnlPct: r.pnlPct,
+              exitTime: r.exitTime?.toISOString() ?? null,
+              tag: typeof a.tag === "string" ? a.tag : "",
+              why: Array.isArray(a.why) ? a.why.filter((x): x is string => typeof x === "string").slice(0, 3) : [],
+              lesson: String(a.lesson),
+              ev: (a.ev ?? null) as AutopsyRow["ev"],
+            };
+          })
+          .filter((x): x is AutopsyRow => x != null),
+      )
+      .catch(() => {
+        autopsyError = true;
+        return [] as AutopsyRow[];
+      }),
     // champion mỗi combo — best-ever trên TOÀN BỘ lịch sử: distinct theo
     // symbol×interval trên bảng xếp AUC giảm dần (hoà → ACC → mới nhất).
     // Trước đây champion được tính CHỈ trên 400 run mới nhất nên sau vài lượt
@@ -378,6 +428,8 @@ export async function GET() {
         phe: bucketize(pheRaw),
         errors: { trades: tradesError, phe: pheError },
       },
+      // giải phẫu lệnh (autopsy 0.2.28) — tổng + 8 bài gần nhất, win lẫn loss
+      autopsies: { n: autopsyCount, recent: autopsyRows, error: autopsyError },
       db: { runsError },
       build: readBuildId(),
       engine: engine

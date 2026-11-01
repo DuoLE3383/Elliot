@@ -113,6 +113,17 @@ model AutoTrade {
   score         Float?
   capitalBefore Float?
   capitalAfter  Float?
+  /** verdict của LLM Risk Officer LÚC VÀO LỆNH — go | skip | unreachable;
+   *  null = lệnh mở trước 0.2.28 hoặc không qua LLM. Đi kèm autopsy để nhìn
+   *  lại "risk officer duyệt go mà lệnh vẫn thua" một cách khách quan. */
+  llmVerdict    String?
+  /** lý do đầu tiên của verdict lúc vào lệnh (≤180 ký tự) */
+  llmReason     String?
+  /** JSON giải phẫu lệnh (autopsy) sau khi ĐÓNG — {outcome, tag, why[], lesson,
+   *  ev:{mfePct,maePct,rMultiple,durMin,noisePct,candles,covered}, ms, model, at}.
+   *  Cả lệnh thắng lẫn thua đều được mổ; lesson được nạp lại vào prompt duyệt
+   *  các lệnh sau của cùng cặp (vòng học khép kín). */
+  autopsy       String?
   createdAt     DateTime  @default(now())
 
   @@index([status, createdAt])

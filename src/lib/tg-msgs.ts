@@ -126,3 +126,23 @@ export const msgLlmVeto = (r: ScanRow, v: LlmVerdict): string =>
     `🧠 ${probTxt(r.bias, r.prob)} · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(1)}% · Score ${r.score.toFixed(1)}`,
     `💬 ${escHtml(v.reasons.slice(0, 3).join(" · ")) || "—"}`,
   ].join("\n");
+
+/**
+ * Autopsy notice — lệnh ĐÃ ĐÓNG được LLM mổ xẻ (cả thắng lẫn thua): tag chế độ
+ * thắng/thua + bài học + các why trích số. Tham số khai báo structural (không
+ * import autopsy.ts) để tránh vòng import — đủ hình dạng là ghép được.
+ */
+export const msgAutopsy = (
+  t: { symbol: string; interval: string; side: string; exitKind?: string | null; pnlPct?: number | null },
+  a: { outcome: string; tag: string; why: string[]; lesson: string; ev?: { rMultiple?: number; durMin?: number; mfePct?: number; maePct?: number }; ms?: number; model?: string },
+): string =>
+  [
+    `🔬 <b>GIẢI PHẪU LỆNH · ${a.outcome === "win" ? "THẮNG ✅" : "THUA 🔻"}</b>`,
+    `📌 <b>#${t.symbol}</b> · ${t.interval} · ${sideTxt(t.side)} · ${kindTag(t.exitKind ?? null)}`,
+    HR,
+    `💵 Kết quả: <b>${(t.pnlPct ?? 0) >= 0 ? "+" : ""}${(t.pnlPct ?? 0).toFixed(2)}% ROE</b>${a.ev?.rMultiple != null ? ` · R ${a.ev.rMultiple >= 0 ? "+" : ""}${a.ev.rMultiple.toFixed(2)}x` : ""}${a.ev?.durMin != null ? ` · giữ ${a.ev.durMin.toFixed(0)}p` : ""}`,
+    `🏷️ tag: <b>${escHtml(a.tag)}</b>`,
+    ...(a.why.length > 0 ? [`📝 ${a.why.map((w) => escHtml(w)).join("<br/>• ")}`] : []),
+    `💡 <b>Bài học:</b> ${escHtml(a.lesson)}`,
+    `🧠 ${escHtml(a.model ?? "llm")}${a.ms ? ` · ${(a.ms / 1000).toFixed(1)}s` : ""} — bài học sẽ được nạp vào lần duyệt lệnh sau của cặp này`,
+  ].join("\n");

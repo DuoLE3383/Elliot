@@ -477,6 +477,12 @@ export interface AutoTradeRow {
   score: number | null;
   capitalBefore: number | null;
   capitalAfter: number | null;
+  /** verdict LLM lúc vào lệnh — go | skip | unreachable (null = trước 0.2.28) */
+  llmVerdict: string | null;
+  /** lý do đầu tiên của verdict lúc vào lệnh */
+  llmReason: string | null;
+  /** JSON giải phẫu lệnh (autopsy) sau khi đóng — xem src/lib/autopsy.ts */
+  autopsy: string | null;
   createdAt: string;
 }
 

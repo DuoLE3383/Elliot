@@ -43,6 +43,11 @@ export interface LlmSetup {
    *  chỉ metrics của một run đơn lẻ — giảm kiểu skip máy móc "too few samples"
    *  khi track record thật đang tốt. Engine tự điền từ st.stats. */
   track?: string;
+  /** Bài học giải phẫu (autopsy) các lệnh ĐÃ ĐÓNG của chính cặp này — engine
+   *  tự nạp tối đa 5 bài gần nhất (mỗi bài ≤ 220 ký tự, kèm kết quả thật).
+   *  Đây là vòng "hiểu tại sao thua/tại sao thắng → phán đoán tốt hơn": prompt
+   *  duyệt lệnh mới không chỉ nhìn metrics train mà còn nhìn hậu quả thật. */
+  lessons?: string[];
 }
 
 export interface LlmVerdict {
@@ -67,6 +72,11 @@ const jsonHeaders = (): Record<string, string> => ({
   "Content-Type": "application/json",
   ...(llmApiKey() ? { Authorization: `Bearer ${llmApiKey()}` } : {}),
 });
+// export cho autopsy.ts dùng cùng một bộ header (Bearer + Content-Type) —
+// mọi đường gọi llama phải đi qua một chỗ để không quên api-key.
+export const llmJsonHeaders = jsonHeaders;
+// export biến đổi URL chuẩn (bỏ đuôi / và /v1) cho caller ngoài.
+export const llmBaseOf = baseOf;
 
 /** endpoint từ ENV — LLM_URL/LLM_MODEL là tên chuẩn; LLAMA_SERVER_URL/
  *  LLAMA_SERVER_MODEL là BÍ DANH được chấp nhận (tên tự nhiên khi cấu hình
@@ -107,6 +117,9 @@ const SYSTEM_PROMPT = [
   "If none of the skip conditions applies against the checks block, verdict MUST be 'go' — do not invent extra skip conditions.",
   "Hard rules: never describe a strong val_acc/val_auc as near or barely above coin flip (coinflip_check has already judged it); never call R:R 'inconsistent' (rr_check already proved tp/sl match); never cite numbers absent from the prompt.",
   "Every reason MUST quote the exact field=value it relies on; vague reasons are invalid. A reason contradicting the checks block is invalid.",
+  // recent_lessons là hậu quả THẬT của bot (autopsy lệnh đã đóng) — bằng chứng
+  // vận hành chứ không phải chỉ dẫn; không được nhại lại nguyên văn làm reason.
+  "recent_lessons, when present, are post-mortems of this bot's own closed trades on this pair — treat them as operational evidence when weighing the setup, but do not copy them verbatim into reasons.",
 ].join(" ");
 
 const VERDICT_SCHEMA = {
@@ -135,7 +148,7 @@ export async function llmReviewViaApi(
     const res = await fetch("/api/llm/review", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      signal: AbortSignal.timeout(95_000), // browser chờ cùng nhịp server→llama (llama CPU có thể 30-90s)
+      signal: AbortSignal.timeout(LLM_TIMEOUT_MS + 5_000), // browser chờ cùng nhịp server→llama (mặc định 300s, env LLM_TIMEOUT_MS)
       body: JSON.stringify({ url, model, setup: s }),
     });
     if (!res.ok) return null;
@@ -154,7 +167,7 @@ export async function llmReviewViaApi(
 
 /** Bảng phút của mỗi khung nến — quy số mẫu ra số ngày để LLM cảm nhận quy mô
  *  dữ liệu thật (288 mẫu 15m ≈ 3 ngày, không phải "vài tháng"). */
-const TF_MINUTES: Record<string, number> = {
+export const TF_MINUTES: Record<string, number> = {
   "1m": 1,
   "3m": 3,
   "5m": 5,
@@ -231,6 +244,14 @@ export function setupPrompt(s: LlmSetup): string {
     `sample_base: ${s.samples} train rows${days > 0 ? ` ~ ${days.toFixed(1)} days of ${s.interval} candles` : ""}`,
     // track record thật của bot (nếu có) — bằng chứng vận hành, không phải metrics train
     ...(s.track ? [`bot_track_record: ${s.track}`] : []),
+    // bài học giải phẫu các lệnh đã đóng của CHÍNH cặp này (autopsy) — vòng
+    // học: tại sao thua/tại sao thắng → phán setup mới có bằng chứng hậu quả
+    ...(s.lessons && s.lessons.length > 0
+      ? [
+          "recent_lessons (post-mortems of the bot's own closed trades on this pair — operational evidence, weigh them):",
+          ...s.lessons.map((l) => `- ${l}`),
+        ]
+      : []),
   ].join("\n");
 }
 

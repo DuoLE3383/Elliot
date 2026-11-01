@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { readAutoState, serialize } from "@/lib/autostate";
+import { autopsyClosedTrade } from "@/lib/autopsy";
 
 export const dynamic = "force-dynamic";
 
@@ -113,6 +114,8 @@ export async function PATCH(req: NextRequest) {
     where: { id },
     data: { status: "closed", exitPrice, exitTime: new Date(), pnlPct, exitKind, capitalAfter },
   });
+  // giải phẫu lệnh đóng thủ công cũng như lệnh engine đóng — fire-and-forget
+  void autopsyClosedTrade(updated);
   return NextResponse.json({ trade: serialize(updated) });
 }
 

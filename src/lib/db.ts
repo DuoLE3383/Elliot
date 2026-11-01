@@ -28,12 +28,24 @@ const SCHEMA_SQL: string[] = [
   `CREATE INDEX IF NOT EXISTS "Suggestion_outcome_idx" ON "Suggestion"("outcome")`,
   `CREATE TABLE IF NOT EXISTS "FinetuneRun" ("id" TEXT NOT NULL PRIMARY KEY, "symbol" TEXT NOT NULL, "interval" TEXT NOT NULL, "kind" TEXT NOT NULL DEFAULT 'train', "samples" INTEGER NOT NULL, "valSamples" INTEGER NOT NULL, "acc" REAL NOT NULL, "auc" REAL NOT NULL, "logloss" REAL NOT NULL, "trees" INTEGER NOT NULL, "horizon" INTEGER NOT NULL, "importance" TEXT NOT NULL, "params" TEXT NOT NULL, "applied" BOOLEAN NOT NULL DEFAULT false, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE INDEX IF NOT EXISTS "FinetuneRun_symbol_interval_createdAt_idx" ON "FinetuneRun"("symbol", "interval", "createdAt")`,
-  `CREATE TABLE IF NOT EXISTS "AutoTrade" ("id" TEXT NOT NULL PRIMARY KEY, "symbol" TEXT NOT NULL, "interval" TEXT NOT NULL, "side" TEXT NOT NULL, "entryPrice" REAL NOT NULL, "entryTime" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "slPct" REAL NOT NULL, "tpPct" REAL NOT NULL, "leverage" REAL NOT NULL DEFAULT 1, "stakePct" REAL NOT NULL DEFAULT 100, "status" TEXT NOT NULL DEFAULT 'open', "exitPrice" REAL, "exitTime" DATETIME, "pnlPct" REAL, "exitKind" TEXT, "prob" REAL, "acc" REAL, "auc" REAL, "score" REAL, "capitalBefore" REAL, "capitalAfter" REAL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+  `CREATE TABLE IF NOT EXISTS "AutoTrade" ("id" TEXT NOT NULL PRIMARY KEY, "symbol" TEXT NOT NULL, "interval" TEXT NOT NULL, "side" TEXT NOT NULL, "entryPrice" REAL NOT NULL, "entryTime" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "slPct" REAL NOT NULL, "tpPct" REAL NOT NULL, "leverage" REAL NOT NULL DEFAULT 1, "stakePct" REAL NOT NULL DEFAULT 100, "status" TEXT NOT NULL DEFAULT 'open', "exitPrice" REAL, "exitTime" DATETIME, "pnlPct" REAL, "exitKind" TEXT, "prob" REAL, "acc" REAL, "auc" REAL, "score" REAL, "capitalBefore" REAL, "capitalAfter" REAL, "llmVerdict" TEXT, "llmReason" TEXT, "autopsy" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE INDEX IF NOT EXISTS "AutoTrade_status_createdAt_idx" ON "AutoTrade"("status", "createdAt")`,
   `CREATE INDEX IF NOT EXISTS "AutoTrade_symbol_interval_idx" ON "AutoTrade"("symbol", "interval")`,
   `CREATE TABLE IF NOT EXISTS "BcastVerdict" ("id" TEXT NOT NULL PRIMARY KEY, "symbol" TEXT NOT NULL, "interval" TEXT NOT NULL, "side" TEXT NOT NULL, "score" REAL NOT NULL, "auc" REAL NOT NULL, "acc" REAL NOT NULL, "verdict" TEXT NOT NULL, "reason" TEXT NOT NULL, "at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "BcastVerdict_symbol_interval_key" ON "BcastVerdict"("symbol", "interval")`,
   `CREATE INDEX IF NOT EXISTS "BcastVerdict_verdict_idx" ON "BcastVerdict"("verdict")`,
+];
+
+// ─── Thêm cột cho DB ĐÃ TỒN TẠI (0.2.28 autopsy) ────────────────────────────
+// CREATE IF NOT EXISTS không đụng bảng cũ → cột mới phải ALTER TABLE ADD
+// COLUMN. Deploy trên VPS chỉ là git pull + build + pm2 restart (không ai chạy
+// `prisma db push`), nên bootstrap tự chạy các ALTER dưới đây lúc boot.
+// SQLite ADD COLUMN là tức thời với cột nullable — không khoá bảng. Lỗi
+// "duplicate column name" bị nuốt: cột đã có là ĐÚNG như mong đợi.
+const SCHEMA_COLUMNS_SQL: string[] = [
+  `ALTER TABLE "AutoTrade" ADD COLUMN "llmVerdict" TEXT`,
+  `ALTER TABLE "AutoTrade" ADD COLUMN "llmReason" TEXT`,
+  `ALTER TABLE "AutoTrade" ADD COLUMN "autopsy" TEXT`,
 ];
 const MODEL_TABLES = ["User", "Post", "Suggestion", "FinetuneRun", "AutoTrade", "BcastVerdict"];
 /** exported for the /api health diagnostic */
@@ -70,6 +82,19 @@ async function runBootstrap(base: PrismaClient): Promise<void> {
     ))?.map((r) => r.name) ?? [],
   );
   for (const stmt of SCHEMA_SQL) await base.$executeRawUnsafe(stmt);
+  // ALTER cho DB cũ — từng câu một, lỗi duplicate column bị nuốt (cột đã có)
+  let altered = 0;
+  for (const stmt of SCHEMA_COLUMNS_SQL) {
+    try {
+      await base.$executeRawUnsafe(stmt);
+      altered += 1;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!/duplicate column/i.test(msg)) console.warn(`[db] schema bootstrap — ALTER failed: ${msg}`);
+    }
+  }
+  if (altered > 0)
+    console.warn(`[db] schema bootstrap — added ${altered} missing column(s) to existing tables`);
   const missing = MODEL_TABLES.filter((t) => !before.has(t));
   const dbPath = (process.env.DATABASE_URL ?? "(no DATABASE_URL)").replace(/^file:/, "");
   if (missing.length > 0) {

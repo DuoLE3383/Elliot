@@ -50,10 +50,11 @@ import {
   type ScanRow,
 } from "./autotrade";
 import { readAutoState, serialize } from "./autostate";
+import { autopsyClosedTrade, recentAutopsyLessons } from "./autopsy";
 import { aliasFuturesSymbol, type EngineSettings, type Ticker } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 import { atrLevelsAtEntry } from "./indicators";
-import { llmReview } from "./llm";
+import { llmReview, type LlmVerdict } from "./llm";
 import { fetchKlinesDirect, fetchBoard24h } from "./klines-direct";
 import { XgbPoolNode, xgbPoolAvailable, xgbPoolSize } from "./xgb-pool-node";
 import {
@@ -74,6 +75,7 @@ import { msgClose, msgDca, msgLlmVeto, msgNear, msgOpen } from "./tg-msgs";
 import { enqueueJob, jobViews } from "./engine-jobs";
 import { directionalPnl, outcomeOf } from "./history";
 import {
+  AUTOPSY_ON,
   LLM_FAIL_CLOSED,
   LLM_TIMEOUT_MS,
   NOISE_BAND,
@@ -288,7 +290,10 @@ async function persistTrainResult(
   return { suggestionId: sug.id, runId: run.id };
 }
 
-/** Close the open paper position — same math as PATCH /api/autotrade close. */
+/** Close the open paper position — same math as PATCH /api/autotrade close.
+ *  Sau khi chốt lời/cắt lỗ, lệnh được GIẢI PHẪU (autopsy — cả thắng lẫn thua)
+ *  fire-and-forget: không chặn cycle/watcher, lỗi chỉ log. Bài học nằm lại DB,
+ *  nạp lại vào lần duyệt lệnh sau của cùng cặp. */
 async function closeTradeDirect(id: string, exitPrice: number, exitKind: "tp" | "sl" | "manual"): Promise<AutoTradeRow | null> {
   const row = await db.autoTrade.findUnique({ where: { id } });
   if (!row || row.status !== "open") return null;
@@ -305,6 +310,10 @@ async function closeTradeDirect(id: string, exitPrice: number, exitKind: "tp" | 
     where: { id },
     data: { status: "closed", exitPrice, exitTime: new Date(), pnlPct, exitKind, capitalAfter },
   });
+  if (AUTOPSY_ON) {
+    const { p } = eng();
+    void autopsyClosedTrade(updated, { url: p.cfg.llmUrl, model: p.cfg.llmModel });
+  }
   return serialize(updated);
 }
 
@@ -956,7 +965,14 @@ async function cycleTick(): Promise<void> {
         ? `${st.stats.wins}W/${closedN - st.stats.wins}L · win rate ${st.stats.winRate.toFixed(0)}% · net ${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(1)}% ROE (${closedN} paper trades)`
         : undefined;
     let vetoed = false;
+    // verdict của lượt duyệt NÀY — hoist ra ngoài try để khối create bên dưới
+    // ghi vào cột llmVerdict/llmReason của lệnh (autopsy đối chiếu sau này)
+    let lastVerdict: LlmVerdict | null = null;
     try {
+      // vòng học: bài giải phẫu các lệnh đã đóng của CHÍNH cặp này (mới nhất
+      // trước, ≤5 bài) đi kèm setup — Risk Officer phán trên hậu quả thật.
+      const lessons = AUTOPSY_ON ? await recentAutopsyLessons(best.symbol).catch(() => []) : [];
+      if (lessons.length > 0) console.log(`[engine] LLM review ${best.symbol} ${best.interval} — nạp ${lessons.length} bài học autopsy`);
       const verdict = await llmReview(c.llmUrl, c.llmModel, {
         symbol: best.symbol,
         interval: best.interval,
@@ -974,7 +990,9 @@ async function cycleTick(): Promise<void> {
         score: best.score,
         gatePassed: true, // cands đã qua gate isTradeable + noise band phía trên
         track,
+        lessons: lessons.length > 0 ? lessons : undefined,
       });
+      lastVerdict = verdict;
       if (verdict) {
         p.llmLast = {
           symbol: best.symbol,
@@ -1039,6 +1057,11 @@ async function cycleTick(): Promise<void> {
         auc: best.auc,
         score: best.score,
         capitalBefore: capitalNow,
+        // verdict LLM LÚC VÀO LỆNH — đi kèm lệnh để autopsy đối chiếu "risk
+        // officer duyệt go mà lệnh vẫn thua" một cách khách quan (0.2.28).
+        // null (lỗi bất ngờ trước khi gọi) cũng ghi rõ, không đoán mò.
+        llmVerdict: lastVerdict ? lastVerdict.verdict : "unreachable",
+        llmReason: lastVerdict?.reasons[0] ? lastVerdict.reasons[0].slice(0, 180) : null,
       },
     });
     const trade = serialize(created);

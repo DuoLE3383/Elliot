@@ -28,6 +28,9 @@ export type TradeRow = {
   score: number | null;
   capitalBefore: number | null;
   capitalAfter: number | null;
+  llmVerdict: string | null;
+  llmReason: string | null;
+  autopsy: string | null;
   createdAt: string;
 };
 
@@ -53,6 +56,9 @@ export const serialize = (r: {
   score: number | null;
   capitalBefore: number | null;
   capitalAfter: number | null;
+  llmVerdict: string | null;
+  llmReason: string | null;
+  autopsy: string | null;
   createdAt: Date;
 }): TradeRow => ({
   id: r.id,
@@ -76,6 +82,9 @@ export const serialize = (r: {
   score: r.score,
   capitalBefore: r.capitalBefore,
   capitalAfter: r.capitalAfter,
+  llmVerdict: r.llmVerdict,
+  llmReason: r.llmReason,
+  autopsy: r.autopsy,
   createdAt: r.createdAt.toISOString(),
 });
 

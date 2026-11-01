@@ -91,10 +91,25 @@ interface RelBucket {
   wr: number;
 }
 
+interface AutopsyRow {
+  symbol: string;
+  interval: string;
+  side: string;
+  exitKind: string | null;
+  pnlPct: number | null;
+  exitTime: string | null;
+  tag: string;
+  why: string[];
+  lesson: string;
+  ev: { mfePct?: number; maePct?: number; rMultiple?: number; durMin?: number } | null;
+}
+
 interface AiInfo {
   runs: RunRow[];
   champions: ChampionRow[];
   autoStats: { opened: number; closed: number; wins: number; lessonSamples: number; lessonWeight: number };
+  /** giải phẫu lệnh (0.2.28) — tổng + 8 bài gần nhất, win lẫn loss */
+  autopsies?: { n: number; recent: AutopsyRow[]; error: boolean };
   reliability: {
     trades: { n: number; buckets: RelBucket[] };
     phe: { n: number; buckets: RelBucket[] };
@@ -440,6 +455,68 @@ export default function AiPage() {
                   </div>
                 ))}
               </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* 3b — giải phẫu lệnh (autopsy): tại sao thắng, tại sao thua */}
+        <Card className="border-zinc-800 bg-zinc-900/60">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
+              <FlaskConical className="h-4 w-4 text-teal-400" />
+              {t(lang, "ai.autopsy.title")}
+            </CardTitle>
+            <p className="text-[11px] text-zinc-500">{t(lang, "ai.autopsy.sub")}</p>
+          </CardHeader>
+          <CardContent className="space-y-2 pt-0">
+            {data?.autopsies && data.autopsies.n > 0 ? (
+              <>
+                <p className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5 font-mono text-[11px] text-teal-300">
+                  {t(lang, "ai.autopsy.count", {
+                    n: String(data.autopsies.n),
+                    win: String(data.autopsies.recent.filter((a) => (a.pnlPct ?? 0) > 0).length),
+                    loss: String(data.autopsies.recent.filter((a) => (a.pnlPct ?? 0) <= 0).length),
+                  })}
+                </p>
+                <div className="rail-scroll max-h-96 space-y-1.5 overflow-y-auto pr-0.5">
+                  {data.autopsies.recent.map((a, i) => (
+                    <div key={`${a.symbol}-${a.exitTime ?? i}-${i}`} className="rounded-md border border-zinc-800/80 bg-zinc-950/40 px-2.5 py-2 text-[11px]">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        <Badge variant="outline" className={`shrink-0 px-1.5 text-[9px] uppercase ${(a.pnlPct ?? 0) > 0 ? "border-emerald-800 bg-emerald-950/40 text-emerald-300" : "border-rose-800 bg-rose-950/40 text-rose-300"}`}>
+                          {(a.pnlPct ?? 0) > 0 ? "win" : "loss"}
+                        </Badge>
+                        <span className="shrink-0 font-mono font-bold text-zinc-200">#{a.symbol}</span>
+                        <span className="shrink-0 font-mono text-zinc-500">{a.interval}</span>
+                        <span className={`shrink-0 font-mono ${a.side === "LONG" ? "text-emerald-400" : "text-rose-400"}`}>{a.side}</span>
+                        <span className={`shrink-0 font-mono font-bold ${(a.pnlPct ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                          {(a.pnlPct ?? 0) >= 0 ? "+" : ""}{(a.pnlPct ?? 0).toFixed(2)}%
+                        </span>
+                        {a.ev?.rMultiple != null && (
+                          <span className="shrink-0 font-mono text-zinc-500">R {a.ev.rMultiple >= 0 ? "+" : ""}{a.ev.rMultiple.toFixed(2)}x</span>
+                        )}
+                        <span className="shrink-0 rounded border border-teal-800/60 bg-teal-950/30 px-1.5 py-0.5 font-mono text-[9px] text-teal-300">{a.tag || "—"}</span>
+                        <span className="ml-auto shrink-0 font-mono text-[10px] text-zinc-600">
+                          {a.exitTime ? new Date(a.exitTime).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}
+                        </span>
+                      </div>
+                      {a.why.length > 0 && (
+                        <ul className="mt-1 space-y-0.5 text-zinc-400">
+                          {a.why.map((w, j) => (
+                            <li key={j} className="leading-relaxed">• {w}</li>
+                          ))}
+                        </ul>
+                      )}
+                      <p className="mt-1 leading-relaxed text-amber-200/90">
+                        💡 {t(lang, "ai.autopsy.lesson")}: {a.lesson}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="text-[11px] text-zinc-600">
+                {data?.autopsies?.error ? t(lang, "ai.db.error") : t(lang, "ai.autopsy.empty")}
+              </p>
             )}
           </CardContent>
         </Card>
