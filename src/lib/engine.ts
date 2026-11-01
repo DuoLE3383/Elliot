@@ -971,6 +971,8 @@ async function cycleTick(): Promise<void> {
         stakePct: c.riskPct,
         horizon: best.horizon,
         samples: best.samples,
+        score: best.score,
+        gatePassed: true, // cands đã qua gate isTradeable + noise band phía trên
         track,
       });
       if (verdict) {

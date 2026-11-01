@@ -33,6 +33,11 @@ export interface LlmSetup {
   horizon: number;
   /** training rows used by the run */
   samples: number;
+  /** score của combo trong scan — cho LLM thấy combo nằm ở đâu với sàn engine */
+  score?: number;
+  /** setup đã qua gate engine (minAuc/minAcc/minScore) chưa — false = engine
+   *  sẽ KHÔNG tự trade combo này (chỉ nút "Duyệt thử" gửi để user so sánh) */
+  gatePassed?: boolean;
   /** track record của bot (optional, EN, 1 dòng) — "31W/19L · win rate 62% · net
    *  +12.4% ROE (50 paper trades)". Cho LLM thấy bot đang vận hành RA SAO, không
    *  chỉ metrics của một run đơn lẻ — giảm kiểu skip máy móc "too few samples"
@@ -95,8 +100,12 @@ const SYSTEM_PROMPT = [
   "You are the risk-control officer of a crypto futures paper-trading bot.",
   "A gradient-boosted tree model picked a setup. Review it against the rubric and reply with ONLY one JSON object:",
   '{"verdict":"go"|"skip","confidence":0..1,"reasons":["..."]}',
-  "Skip when: validation AUC/accuracy is barely above coin flip; leverage puts liquidation dangerously close to the SL; stake is oversized; R:R is inconsistent with the evidence; or the model trained on too few samples.",
+  "Skip when: validation AUC/accuracy is barely above coin flip; leverage puts liquidation dangerously close to the SL; stake is oversized; or the model trained on too few samples.",
   "Approve otherwise. Max 3 reasons, each under 90 characters, English, no markdown.",
+  // ── chống nói bừa: khối checks trong user prompt là chuẩn, model không được mâu thuẫn ──
+  "The user prompt ends with a checks block computed by code (rr_check / gate_check / sample_base) — treat it as ground truth: never contradict it, never recompute it.",
+  "Hard rules: never say val_acc is close to 50% when val_acc >= 60%; never call R:R 'inconsistent' (rr_check already proved tp/sl match — if R:R is thin, say so numerically, e.g. 'rr 1:1.42 is thin'); never cite numbers absent from the prompt.",
+  "Every reason MUST quote the exact field=value it relies on (e.g. 'train_samples=288 is small'). A reason contradicting the checks block is invalid.",
 ].join(" ");
 
 const VERDICT_SCHEMA = {
@@ -142,16 +151,92 @@ export async function llmReviewViaApi(
   }
 }
 
-function setupPrompt(s: LlmSetup): string {
+/** Bảng phút của mỗi khung nến — quy số mẫu ra số ngày để LLM cảm nhận quy mô
+ *  dữ liệu thật (288 mẫu 15m ≈ 3 ngày, không phải "vài tháng"). */
+const TF_MINUTES: Record<string, number> = {
+  "1m": 1,
+  "3m": 3,
+  "5m": 5,
+  "15m": 15,
+  "30m": 30,
+  "1h": 60,
+  "2h": 120,
+  "4h": 240,
+  "6h": 360,
+  "8h": 480,
+  "12h": 720,
+  "1d": 1440,
+};
+
+/**
+ * Prompt user gửi cho llama — export cho test (test-llm-factcheck.mts đọc trực
+ * tiếp các dòng checks mà không cần mock server).
+ * Khối "checks" là số liệu ĐÃ TÍNH SẴN bằng code, chèn CUỐI prompt:
+ *   • rr_check — tp/sl khớp rr. rr ĐƯỢC ĐỊNH NGHĨA là tp/sl nên không bao giờ
+ *     lệch, nhưng model 7B vẫn hay bịa "RR inconsistent" (đã gặp thật).
+ *   • gate_check — combo có qua sàn engine không (khi caller gửi score).
+ *   • sample_base — quy mô dữ liệu quy ra ngày để model đừng tưởng 288 mẫu
+ *     là "vài tháng", và đừng bảo "too few" một cách mơ hồ.
+ * System prompt cấm model mâu thuẫn khối này; factCheckReasons() gắn cờ lý
+ * do nào vẫn trái số liệu.
+ */
+export function setupPrompt(s: LlmSetup): string {
   const rr = s.slPct > 0 ? s.tpPct / s.slPct : 0;
   const liqPct = s.leverage > 1 ? 100 / s.leverage : 100;
+  const tfMin = TF_MINUTES[s.interval] ?? 0;
+  const days = tfMin > 0 ? (s.samples * tfMin) / 1440 : 0;
   return [
     `pair=${s.symbol} tf=${s.interval} side=${s.side}`,
     `model_quality: prob=${s.prob.toFixed(3)} confidence=${s.confidence.toFixed(2)} val_auc=${s.auc.toFixed(3)} val_acc=${s.acc.toFixed(1)}% train_samples=${s.samples} horizon=${s.horizon}bars`,
     `risk: leverage=x${s.leverage} (liquidation at ${liqPct.toFixed(1)}% adverse) stake=${s.stakePct}%equity sl=${s.slPct.toFixed(1)}%price tp=${s.tpPct.toFixed(1)}%price rr=1:${rr.toFixed(2)}`,
+    // ── khối checks: tính sẵn bằng code — system prompt cấm model mâu thuẫn ──
+    "checks (pre-computed by code — treat as ground truth, do NOT recompute or contradict):",
+    ...(rr > 0
+      ? [`rr_check: tp/sl = ${rr.toFixed(2)} -> matches rr=1:${rr.toFixed(2)} above -> CONSISTENT`]
+      : []),
+    ...(typeof s.score === "number"
+      ? [
+          s.gatePassed
+            ? `gate_check: engine gate PASSED (score ${s.score.toFixed(1)})`
+            : `gate_check: engine gate NOT passed (score ${s.score.toFixed(1)}) — engine would NOT auto-trade this combo`,
+        ]
+      : []),
+    `sample_base: ${s.samples} train rows${days > 0 ? ` ~ ${days.toFixed(1)} days of ${s.interval} candles` : ""}`,
     // track record thật của bot (nếu có) — bằng chứng vận hành, không phải metrics train
     ...(s.track ? [`bot_track_record: ${s.track}`] : []),
   ].join("\n");
+}
+
+/**
+ * Kiểm chéo lý do của model với số liệu trong setup — gắn cờ vào CUỐI lý do
+ * nói bừa thay vì im lặng cho qua. KHÔNG lật verdict: skip hợp lệ vẫn skip,
+ * chỉ biến lý do giả thành vô hình trước user (cờ hiện thẳng trên /ai).
+ * Hai mẫu nói bừa đã gặp thật với model 7B:
+ *   • "val_acc close to 50%" khi val_acc=70.8% — bảo acc gần coin-flip.
+ *   • "RR inconsistent" khi rr CHÍNH LÀ tp/sl chia nhau (không bao giờ lệch).
+ * Lý do ĐÚNG giữ nguyên: "too few train samples" với 288 mẫu là đúng (scan chỉ
+ * nạp KLINE_LIMIT=500 nến) — không cờ, để model vẫn skip được vì lý do thật.
+ */
+export function factCheckReasons(reasons: string[], s: LlmSetup): string[] {
+  const rr = s.slPct > 0 ? s.tpPct / s.slPct : 0;
+  return reasons.map((reason) => {
+    const low = reason.toLowerCase();
+    // bảo "val_acc ~50%" trong khi acc ≥ 60 → sai số liệu
+    if (
+      s.acc >= 60 &&
+      low.includes("50") &&
+      /(val_acc|accuracy|acc)/.test(low) &&
+      /(close|near|around|about|almost|barely|approx|~|≈)/.test(low)
+    )
+      return `${reason} ⚠ sai số liệu: val_acc=${s.acc.toFixed(1)}%`;
+    // bảo RR lệch trong khi rr = tp/sl (cùng công thức với số trên prompt)
+    if (
+      /(rr|r:r|reward).*(inconsist|mismatch|not match|do not match|doesn.t match|wrong)/.test(low) ||
+      /(inconsist|mismatch|wrong).*(rr|r:r|reward)/.test(low)
+    )
+      return `${reason} ⚠ sai số liệu: tp/sl=${rr.toFixed(2)} = rr 1:${rr.toFixed(2)}`;
+    return reason;
+  });
 }
 
 /** Full result of one review attempt — for the /ai "duyệt thử" test button. */
@@ -228,12 +313,15 @@ export async function llmReviewDebug(
     const parsed = JSON.parse(m[0]) as { verdict?: unknown; confidence?: unknown; reasons?: unknown };
     const verdict = parsed.verdict === "skip" ? "skip" : parsed.verdict === "go" ? "go" : null;
     if (!verdict) return { ok: false, verdict: null, raw: text, detail: "bad-verdict", ...base, ms };
-    const reasons = Array.isArray(parsed.reasons)
+    const rawReasons = Array.isArray(parsed.reasons)
       ? parsed.reasons
           .filter((x): x is string => typeof x === "string")
           .slice(0, 3)
           .map((x) => x.slice(0, 120))
       : [];
+    // kiểm chéo lý do với số liệu trong setup — lý do nói bừa bị gắn cờ thay
+    // vì im lặng cho qua (verdict giữ nguyên: không tự ý lật skip→go)
+    const reasons = factCheckReasons(rawReasons, s);
     const confidence = typeof parsed.confidence === "number" ? Math.min(1, Math.max(0, parsed.confidence)) : 0.5;
     return {
       ok: true,

@@ -1,0 +1,46 @@
+0.2.26 — LLM không được nói bừa: khối checks tính sẵn trong prompt + fact-check lý do verdict
+
+Triệu chứng: nút "Duyệt thử" sau 0.2.24 đã gửi setup THẬT (LINKUSDT 15m,
+score 60.7, đạt gate — kết nối tunnel ĐÃ thông, remote 5.6s) nhưng verdict
+vẫn "skip" với 2/3 lý do SAI SỐ LIỆU:
+  • "val_acc close to 50%" — trong khi prompt ghi val_acc=70.8%
+  • "RR inconsistent"      — trong khi tp 1.7% / sl 1.2% = 1.42, khớp đẹp
+                             rr=1:1.42 (rr ĐƯỢC ĐỊNH NGHĨA là tp/sl chia
+                             nhau, không bao giờ lệch — model 7B vẫn bịa)
+Lý do thứ ba "too few train samples" (288 mẫu) là ĐÚNG, không phải bug:
+scan chỉ nạp KLINE_LIMIT=500 nến → 15m còn ~360 dòng label → train split
+288. Quy mô dữ liệu nhỏ là thiết kế hiện tại của app.
+
+Cách sửa — 2 lớp, không tự ý lật verdict (skip hợp lệ vẫn skip):
+
+- llm.ts setupPrompt: khối "checks (pre-computed by code)" chèn CUỐI prompt
+  — rr_check (tp/sl = rr → CONSISTENT), gate_check (PASSED/NOT passed kèm
+  score; NOT passed kèm cảnh báo "engine would NOT auto-trade this combo"
+  để model biết combo chưa qua sàn), sample_base (quy mẫu ra NGÀY: 288 ×
+  15m ≈ 3.0 days — model đừng tưởng 288 mẫu là "vài tháng"). setupPrompt
+  giờ export để test đọc trực tiếp.
+- llm.ts SYSTEM_PROMPT: 3 dòng cứng — khối checks là ground truth, cấm mâu
+  thuẫn/cấm tính lại; cấm nói "val_acc close to 50%" khi val_acc ≥ 60; cấm
+  gọi R:R là "inconsistent" (RR mỏng thì phải nêu số, vd "rr 1:1.42 is
+  thin"); mọi reason PHẢI trích field=value cụ thể từ prompt.
+- llm.ts factCheckReasons(): kiểm chéo reasons sau khi parse — lý do khớp
+  mẫu nói bừa bị GẮN CỜ "⚠ sai số liệu: <số thật>" vào cuối, hiện thẳng
+  trên /ai thay vì im lặng cho qua. KHÔNG lật skip→go (nguy hiểm — quyết
+  định vẫn thuộc model + gate engine). Áp trong llmReviewDebug nên CẢ 3
+  đường cùng được kiểm: engine auto-cycle (llmReview), route
+  /api/llm/review, nút "Duyệt thử".
+- engine.ts: setup gửi llmReview kèm score + gatePassed=true (cands đã qua
+  gate isTradeable + noise band) → LLM biết combo nằm ở đâu với sàn.
+- autotrade.ts llmTestSetup: kèm score + gatePassed đúng trạng thái gate.
+
+Ranh giới fact-check (tránh cờ oan): "val_acc ~50%" chỉ cờ khi acc ≥ 60 —
+acc thật 55% thì model nói ĐÚNG, giữ nguyên. "too few train samples" với
+288 mẫu là nhận định ĐÚNG — không cờ, model vẫn được skip vì lý do thật.
+
+Test: scripts/test-llm-factcheck.mts (mới) — prompt chứa đủ 3 dòng checks
+đúng số (1.42 / PASSED 60.7 / ~3.0 days), gate_check biến mất khi không có
+score, NOT passed khi gate=false; 2 lý do bừa bị cờ với số liệu ĐÚNG, 2 lý
+do chính đáng giữ nguyên; acc 55% không bị cờ oan; đường production
+(llmReviewDebug + mock server trả ĐÚNG 2 lý do bừa user gặp) reasons đi ra
+đã cờ. Rerun test-llm-real-setup / test-llm-env-alias / test-llm-apikey —
+PASS hết. Build sạch.

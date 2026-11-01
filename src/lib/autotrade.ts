@@ -141,6 +141,8 @@ export function llmTestSetup(
     stakePct: cfg.riskPct,
     horizon: pick.horizon,
     samples: pick.samples,
+    score: pick.score,
+    gatePassed: gated,
   };
   const id = `${pick.symbol} ${pick.interval}`;
   return {
