@@ -529,7 +529,7 @@ const vi: Dict = {
   "auto.scan.busy": "Đang quét {done}/{total} · {current}",
   "auto.scan.done": "Quét xong {total} combo",
   "auto.scan.empty": "Chưa có dữ liệu quét — bấm “Quét tất cả” (backend sẽ giữ kết quả qua restart)",
-  "auto.universe": "Vũ trụ quét — dữ liệu 10 ngày qua · lặp mỗi 8h (ATR + trending)",
+  "auto.universe": "Dữ liệu 10 ngày qua · lặp mỗi 8h (ATR + trending)",
   "auto.universe.empty": "Chưa có xếp hạng — lần quét đầu đang chạy (dữ liệu 10 ngày qua, lặp lại mỗi 8h)…",
   "auto.trainhist.title": "Lịch sử train (backend)",
   "auto.trainhist.total": "đã lưu {n} lần",
