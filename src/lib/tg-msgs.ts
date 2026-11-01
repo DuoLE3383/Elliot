@@ -56,7 +56,7 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string): stri
 };
 
 const kindTag = (k: string | null): string =>
-  k === "tp" ? "TAKE PROFIT ✅" : k === "sl" ? "STOP LOSS 🔻" : "ĐÓNG THỦ CÔNG ✋";
+  k === "tp" ? "TAKE PROFIT ✅" : k === "sl" ? "STOP LOSS 🔻" : k === "flip" ? "LẬT CHIỀU 🔄" : "ĐÓNG THỦ CÔNG ✋";
 
 export const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPnlPct: number): string =>
   [

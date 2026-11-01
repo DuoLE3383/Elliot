@@ -32,6 +32,7 @@ import { dataFile } from "./data-dir";
 import {
   AUTO_DEFAULTS,
   bestTradeableAvoid,
+  flipDecision,
   liquidationHit,
   nearHit,
   passesChaseGuard,
@@ -293,8 +294,13 @@ async function persistTrainResult(
 /** Close the open paper position — same math as PATCH /api/autotrade close.
  *  Sau khi chốt lời/cắt lỗ, lệnh được GIẢI PHẪU (autopsy — cả thắng lẫn thua)
  *  fire-and-forget: không chặn cycle/watcher, lỗi chỉ log. Bài học nằm lại DB,
- *  nạp lại vào lần duyệt lệnh sau của cùng cặp. */
-async function closeTradeDirect(id: string, exitPrice: number, exitKind: "tp" | "sl" | "manual"): Promise<AutoTradeRow | null> {
+ *  nạp lại vào lần duyệt lệnh sau của cùng cặp. exitKind "flip" = đóng vì
+ *  AUTO-FLIP (model đảo chiều đủ tin cậy — xem tryFlip). */
+async function closeTradeDirect(
+  id: string,
+  exitPrice: number,
+  exitKind: "tp" | "sl" | "manual" | "flip",
+): Promise<AutoTradeRow | null> {
   const row = await db.autoTrade.findUnique({ where: { id } });
   if (!row || row.status !== "open") return null;
   const movePct =
@@ -847,6 +853,99 @@ async function resolveTick(): Promise<void> {
 
 // ─── paper-trade cycle (port of the client runCycle) ──────────────────────────
 
+/**
+ * LLM Risk Officer duyệt MỘT setup — dùng chung cho cả luồng vào lệnh thường
+ * (cycleTick §2.5) và luồng LẬT CHIỀU (tryFlip): nạp bài học autopsy của cặp,
+ * gọi llama, ghi llmLast (kể cả unreachable — hết "chốt chặn im lặng"), gửi
+ * tin veto. LLM CHẾT thì tuỳ knob LLM_FAIL_CLOSED: fail-open (mặc định) cho
+ * qua đường XGBoost-only; fail-closed chặn (vetoed=true). Verdict trả về để
+ * caller ghi vào cột llmVerdict/llmReason của lệnh (autopsy đối chiếu sau).
+ * Setup kèm champ_check — champion–challenger: LLM thấy model đang đứng gần
+ * hay xa đỉnh best-ever của cặp này (dữ liệu champion ĐƯỢC ĐỌC vào prompt).
+ */
+async function llmGate(
+  row: ScanRow,
+  side: "LONG" | "SHORT",
+  slPct: number,
+  tpPct: number,
+  track?: string,
+): Promise<{ verdict: LlmVerdict | null; vetoed: boolean }> {
+  const { p, v } = eng();
+  const c = p.cfg;
+  let vetoed = false;
+  let lastVerdict: LlmVerdict | null = null;
+  try {
+    // vòng học: bài giải phẫu các lệnh đã đóng của CHÍNH cặp này (mới nhất
+    // trước, ≤5 bài) đi kèm setup — Risk Officer phán trên hậu quả thật.
+    const lessons = AUTOPSY_ON ? await recentAutopsyLessons(row.symbol).catch(() => []) : [];
+    if (lessons.length > 0) console.log(`[engine] LLM review ${row.symbol} ${row.interval} — nạp ${lessons.length} bài học autopsy`);
+    const verdict = await llmReview(c.llmUrl, c.llmModel, {
+      symbol: row.symbol,
+      interval: row.interval,
+      side,
+      prob: row.prob,
+      confidence: row.confidence,
+      auc: row.auc,
+      acc: row.acc,
+      slPct,
+      tpPct,
+      leverage: p.leverage,
+      stakePct: c.riskPct,
+      horizon: row.horizon,
+      samples: row.samples,
+      score: row.score,
+      gatePassed: true, // caller đã qua gate + noise band trước khi gọi
+      track,
+      // champion–challenger — LLM đọc được đỉnh best-ever của cặp (0.2.30)
+      ...(row.champAuc ? { champAuc: row.champAuc, champAcc: row.champAcc } : {}),
+      lessons: lessons.length > 0 ? lessons : undefined,
+    });
+    lastVerdict = verdict;
+    if (verdict) {
+      p.llmLast = {
+        symbol: row.symbol,
+        interval: row.interval,
+        side,
+        verdict: verdict.verdict,
+        reason: verdict.reasons[0] ?? "",
+        ms: verdict.ms ?? 0,
+        at: Date.now(),
+      };
+      persistEngine();
+    } else {
+      // không gọi được / JSON hỏng — ghi nhận thay vì im lặng
+      p.llmLast = {
+        symbol: row.symbol,
+        interval: row.interval,
+        side,
+        verdict: "unreachable",
+        reason: LLM_FAIL_CLOSED
+          ? "llama-server không trả lời — fail-CLOSED chặn lệnh này"
+          : "llama-server không trả lời — fail-OPEN cho lệnh qua (mặc định)",
+        ms: LLM_TIMEOUT_MS,
+        at: Date.now(),
+      };
+      persistEngine();
+      if (LLM_FAIL_CLOSED) {
+        vetoed = true;
+        v.lastCycleStatus = `LLM unreachable — fail-closed chặn ${row.symbol} ${row.interval}`;
+      }
+    }
+    if (verdict && verdict.verdict === "skip") {
+      vetoed = true;
+      v.lastCycleStatus = `LLM veto ${row.symbol} ${row.interval}`;
+      if (tgReady()) void tgSendMessage(msgLlmVeto(row, verdict), "HTML");
+    }
+  } catch {
+    // LLM threw unexpectedly — same policy as a null verdict
+    if (LLM_FAIL_CLOSED) {
+      vetoed = true;
+      v.lastCycleStatus = `LLM error — fail-closed chặn ${row.symbol} ${row.interval}`;
+    }
+  }
+  return { verdict: lastVerdict, vetoed };
+}
+
 async function cycleTick(): Promise<void> {
   const { p, v } = eng();
   const c = p.cfg;
@@ -875,7 +974,28 @@ async function cycleTick(): Promise<void> {
           return; // one position at a time — the next cycle re-evaluates entry
         }
         const roe = roeOf(open.side, open.entryPrice, price, open.leverage);
-        v.lastCycleStatus = `${open.symbol} ${open.interval} ${open.side} · ROE ${roe >= 0 ? "+" : ""}${roe.toFixed(2)}%`;
+        const base = `${open.symbol} ${open.interval} ${open.side} · ROE ${roe >= 0 ? "+" : ""}${roe.toFixed(2)}%`;
+        // 1.5) AUTO-FLIP — thị trường luôn biến động, dự báo chỉ là dự báo:
+        // scan (5 phút/lần) thấy tín hiệu NGƯỢC phía lệnh đủ tin cậy trên
+        // CÙNG cặp/khung → đóng lệnh cũ + mở lệnh đảo chiều NGAY chu kỳ này
+        // (flipDecision quyết định "đủ tin cậy"; tryFlip thực hiện đóng/mở).
+        if (!c.autoFlip) {
+          v.lastCycleStatus = base;
+          return;
+        }
+        const scan = v.scan && Date.now() - v.scan.at <= SCAN_TTL ? v.scan : null;
+        const row = scan?.rows.find((r) => r.symbol === open.symbol && r.interval === open.interval);
+        const d = flipDecision(open, row, c);
+        if (d.ok && row) {
+          // tryFlip tự ghi status mọi nhánh (lật xong / LLM chặn / lỗi) —
+          // trả xong là chu kỳ này xong, lệnh mới sống độc lập từ chu kỳ sau
+          await tryFlip(open, row, price);
+          return;
+        }
+        // có tín hiệu ngược chiều nhưng chưa đạt sàn → hiện rõ LÝ DO chờ,
+        // không âm thầm; model đồng thuận/NEUTRAL → giữ status ROE như cũ
+        v.lastCycleStatus =
+          row && row.bias !== "NEUTRAL" && row.bias !== open.side ? `${base} · flip chờ: ${d.why}` : base;
       }
       return;
     }
@@ -964,77 +1084,13 @@ async function cycleTick(): Promise<void> {
       closedN > 0
         ? `${st.stats.wins}W/${closedN - st.stats.wins}L · win rate ${st.stats.winRate.toFixed(0)}% · net ${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(1)}% ROE (${closedN} paper trades)`
         : undefined;
-    let vetoed = false;
-    // verdict của lượt duyệt NÀY — hoist ra ngoài try để khối create bên dưới
-    // ghi vào cột llmVerdict/llmReason của lệnh (autopsy đối chiếu sau này)
-    let lastVerdict: LlmVerdict | null = null;
-    try {
-      // vòng học: bài giải phẫu các lệnh đã đóng của CHÍNH cặp này (mới nhất
-      // trước, ≤5 bài) đi kèm setup — Risk Officer phán trên hậu quả thật.
-      const lessons = AUTOPSY_ON ? await recentAutopsyLessons(best.symbol).catch(() => []) : [];
-      if (lessons.length > 0) console.log(`[engine] LLM review ${best.symbol} ${best.interval} — nạp ${lessons.length} bài học autopsy`);
-      const verdict = await llmReview(c.llmUrl, c.llmModel, {
-        symbol: best.symbol,
-        interval: best.interval,
-        side: best.bias as "LONG" | "SHORT",
-        prob: best.prob,
-        confidence: best.confidence,
-        auc: best.auc,
-        acc: best.acc,
-        slPct: entrySl,
-        tpPct: entryTp,
-        leverage: p.leverage,
-        stakePct: c.riskPct,
-        horizon: best.horizon,
-        samples: best.samples,
-        score: best.score,
-        gatePassed: true, // cands đã qua gate isTradeable + noise band phía trên
-        track,
-        lessons: lessons.length > 0 ? lessons : undefined,
-      });
-      lastVerdict = verdict;
-      if (verdict) {
-        p.llmLast = {
-          symbol: best.symbol,
-          interval: best.interval,
-          side: best.bias,
-          verdict: verdict.verdict,
-          reason: verdict.reasons[0] ?? "",
-          ms: verdict.ms ?? 0,
-          at: Date.now(),
-        };
-        persistEngine();
-      } else {
-        // không gọi được / JSON hỏng — ghi nhận thay vì im lặng
-        p.llmLast = {
-          symbol: best.symbol,
-          interval: best.interval,
-          side: best.bias,
-          verdict: "unreachable",
-          reason: LLM_FAIL_CLOSED
-            ? "llama-server không trả lời — fail-CLOSED chặn lệnh này"
-            : "llama-server không trả lời — fail-OPEN cho lệnh qua (mặc định)",
-          ms: LLM_TIMEOUT_MS,
-          at: Date.now(),
-        };
-        persistEngine();
-        if (LLM_FAIL_CLOSED) {
-          vetoed = true;
-          v.lastCycleStatus = `LLM unreachable — fail-closed chặn ${best.symbol} ${best.interval}`;
-        }
-      }
-      if (verdict && verdict.verdict === "skip") {
-        vetoed = true;
-        v.lastCycleStatus = `LLM veto ${best.symbol} ${best.interval}`;
-        if (tgReady()) void tgSendMessage(msgLlmVeto(best, verdict), "HTML");
-      }
-    } catch {
-      // LLM threw unexpectedly — same policy as a null verdict
-      if (LLM_FAIL_CLOSED) {
-        vetoed = true;
-        v.lastCycleStatus = `LLM error — fail-closed chặn ${best.symbol} ${best.interval}`;
-      }
-    }
+    const { verdict: lastVerdict, vetoed } = await llmGate(
+      best,
+      best.bias as "LONG" | "SHORT",
+      entrySl,
+      entryTp,
+      track,
+    );
     if (vetoed) return;
 
     // 3) open the position (DB race-safe — reject while another is open)
@@ -1083,6 +1139,107 @@ async function cycleTick(): Promise<void> {
     console.error(`[engine] cycle tick failed: ${e instanceof Error ? e.message : e}`);
     v.lastCycleStatus = `cycle error: ${e instanceof Error ? e.message : "unknown"}`;
   }
+}
+
+// ─── auto-flip — đóng lệnh cũ (exitKind "flip") + mở lệnh đảo chiều ngay ─────
+//
+// "Thị trường luôn biến động nên dự báo chỉ là dự báo; 5 phút scan một lần —
+// scan thấy tín hiệu thay đổi đủ tin cậy để lật là LẬP TỨC lật ngay." Luồng:
+//   1. Đóng lệnh cũ với exitKind "flip" (autopsy tự chạy fire-and-forget;
+//      không rơi vào SL-cooldown/chase guard — flip là luận điểm MỚI, không
+//      phải đu theo lỗ cũ).
+//   2. SL/TP của lệnh mới đo lại tại giá bây giờ (tpMode "atr") — y hệt luồng
+//      vào lệnh thường.
+//   3. Risk Officer duyệt lệnh đảo chiều qua llmGate (chung luồng vào lệnh):
+//      veto → đứng ngoài chờ chu kỳ sau; unreachable → fail-open/closed theo
+//      knob như entry thường.
+//   4. Mở lệnh ngược chiều trên CÙNG combo (race-safe như luồng thường) +
+//      Telegram. Trả true = lệnh cũ đã xử lý xong (kể cả khi không mở lệnh mới).
+
+async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise<boolean> {
+  const { p, v } = eng();
+  const c = p.cfg;
+  const from = open.side;
+  const to = row.bias === "SHORT" ? "SHORT" : "LONG";
+
+  // 1) đóng lệnh cũ
+  const closed = await closeTradeDirect(open.id, price, "flip");
+  if (!closed) return false; // lệnh đã đóng bởi watcher/luồng khác — bỏ qua
+  console.log(
+    `[engine] FLIP ${open.symbol} ${open.interval} ${from}→${to} @ ${price} — đóng lệnh cũ ROE ${(closed.pnlPct ?? 0) >= 0 ? "+" : ""}${(closed.pnlPct ?? 0).toFixed(2)}%`,
+  );
+  v.lastCycleStatus = `${open.symbol} ${open.interval} LẬT CHIỀU ${from}→${to}`;
+  if (tgReady()) {
+    const s2 = await readAutoState();
+    void tgSendMessage(msgClose(closed, s2.stats.closed, s2.stats.winRate, s2.stats.netPnlPct), "HTML");
+  }
+
+  // 2) SL/TP mới đo tại giá lật (tpMode "atr") — fail-open giữ mức scan row
+  const coef = row.atrCoef > 0 ? row.atrCoef : c.atrCoef;
+  let live: { slPct: number; tpPct: number; atrPct: number } | null = null;
+  if (c.tpMode === "atr") {
+    try {
+      live = atrLevelsAtEntry(await fetchKlinesDirect(row.symbol, row.interval), coef);
+    } catch {
+      // fail-open — keep the scan-row levels
+    }
+  }
+  const slPct = c.tpMode === "manual" ? c.slPct : c.tpMode === "atr" && live ? live.slPct : row.slPct;
+  const tpPct = c.tpMode === "manual" ? c.tpPct : c.tpMode === "atr" && live ? live.tpPct : row.tpPct;
+
+  // 3) Risk Officer duyệt lệnh đảo chiều — Y HỆT luồng vào lệnh (kể cả track record)
+  const st = await readAutoState();
+  const track =
+    st.stats.closed > 0
+      ? `${st.stats.wins}W/${st.stats.closed - st.stats.wins}L · win rate ${st.stats.winRate.toFixed(0)}% · net ${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(1)}% ROE (${st.stats.closed} paper trades)`
+      : undefined;
+  const { verdict: lastVerdict, vetoed } = await llmGate(row, to, slPct, tpPct, track);
+  if (vetoed) {
+    v.lastCycleStatus = `flip ${from}→${to} bị chặn — đứng ngoài, chu kỳ sau xét lại`;
+    return true; // lệnh cũ ĐÃ đóng — không ôm chiều cũ, cũng không mở mới
+  }
+
+  // 4) mở lệnh ngược chiều (DB race-safe như luồng thường)
+  const existing = await db.autoTrade.findFirst({ where: { status: "open" } });
+  if (existing) return true; // watcher/luồng khác vừa mở — đừng đụng vào
+  const stNow = await readAutoState();
+  const capitalNow = stNow.capital ?? c.capital;
+  const created = await db.autoTrade.create({
+    data: {
+      symbol: row.symbol,
+      interval: row.interval,
+      side: to,
+      entryPrice: price,
+      slPct,
+      tpPct,
+      leverage: p.leverage,
+      stakePct: c.riskPct,
+      prob: row.prob,
+      acc: row.acc,
+      auc: row.auc,
+      score: row.score,
+      capitalBefore: capitalNow,
+      // verdict LLM LÚC LẬT — đi kèm lệnh để autopsy đối chiếu sau này
+      llmVerdict: lastVerdict ? lastVerdict.verdict : "unreachable",
+      llmReason: lastVerdict?.reasons[0] ? lastVerdict.reasons[0].slice(0, 180) : null,
+    },
+  });
+  const trade = serialize(created);
+  v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice} (lật từ ${from})`;
+  p.warned = { id: trade.id, tp: false, sl: false };
+  p.dca = { id: trade.id, count: 0, stake0: trade.stakePct ?? c.riskPct, prices: [trade.entryPrice] };
+  persistEngine();
+  if (tgReady()) {
+    void tgSendMessage(
+      msgOpen(
+        trade,
+        capitalNow,
+        c.tpMode === "atr" && live ? `📏 SL/TP = ATR ${live.atrPct.toFixed(2)}% × ${coef} — đo lúc LẬT CHIỀU 🔄` : undefined,
+      ),
+      "HTML",
+    );
+  }
+  return true;
 }
 
 // ─── DCA rescue — average in + re-anchor SL/TP while the model still confirms ─

@@ -143,6 +143,9 @@ export function llmTestSetup(
     samples: pick.samples,
     score: pick.score,
     gatePassed: gated,
+    // champion–challenger — "Duyệt thử" nhìn thấy Y HỆT những gì engine gửi:
+    // kể cả khoảng cách tới đỉnh best-ever của cặp này (champ_check)
+    ...(pick.champAuc ? { champAuc: pick.champAuc, champAcc: pick.champAcc } : {}),
   };
   const id = `${pick.symbol} ${pick.interval}`;
   return {
@@ -317,6 +320,46 @@ export function bestTradeableAvoid(
   const regressedCount = rows.filter((r) => isTradeable(r, minAuc, minAcc, minScore) && r.regressed).length;
   const free = cands.find((r) => slCooldownLeft(trades, r.symbol, r.interval, cooldownMin) === 0) ?? null;
   return { best: free, allInCooldown: free == null && cands.length > 0, cands, regressedCount };
+}
+
+// ─── Auto-flip — thị trường luôn biến động, dự báo chỉ là dự báo ─────────────
+// Khi lệnh đang mở mà scan mới của CÙNG cặp/khung đảo chiều với tín hiệu ĐỦ
+// TIN CẬY (cùng sàn chất lượng với vào lệnh + noise band + không regressed +
+// sạch nến whale), engine lật lệnh NGAY thay vì ôm chiều cũ đến SL/TP. Hàm
+// này là bộ LOẠI thuần (không IO) — engine gọi rồi tự đóng/mở; test chạy thẳng.
+
+export interface FlipDecision {
+  /** true = đủ điều kiện lật chiều */
+  ok: boolean;
+  /** lý do KHÔNG lật (khi ok=false) — log + status line, không âm thầm */
+  why: string;
+}
+
+/**
+ * Đủ tin cậy để lật chiều lệnh `open` theo scan row `row` (CÙNG symbol+interval)?
+ *  • row phải có bias NGƯỢC phía lệnh (NEUTRAL = model bỏ cuộc → không lật theo nhiễu)
+ *  • cùng SÀN CHẤT LƯỢNG với vào lệnh: minAuc/minAcc/minScore (isTradeable)
+ *  • không regressed vs champion (mỗi lần lật phải tín hiệu thật, không phải model hỏng)
+ *  • ngoài noise band |P−0.5| ≥ NOISE_BAND — model dứt khoát, không coin-flip
+ *  • whale filter (nếu bật): nến khối lượng ≥4σ là bẫy wick, không lật vào đó
+ */
+export function flipDecision(
+  open: Pick<AutoTradeRow, "symbol" | "interval" | "side">,
+  row: ScanRow | undefined,
+  cfg: Pick<AutoConfig, "minAuc" | "minAcc" | "minScore" | "whaleFilter">,
+): FlipDecision {
+  if (!row) return { ok: false, why: "scan chưa có combo này" };
+  if (row.bias === "NEUTRAL") return { ok: false, why: "model NEUTRAL trên combo đang mở" };
+  if (row.bias === open.side) return { ok: false, why: "model vẫn xác nhận phía đang giữ" };
+  if (!isTradeable(row, cfg.minAuc, cfg.minAcc, cfg.minScore))
+    return {
+      ok: false,
+      why: `tín hiệu ngược chiều chưa đạt sàn (AUC ${row.auc.toFixed(2)} / ACC ${row.acc.toFixed(1)}% / điểm ${row.score.toFixed(1)})`,
+    };
+  if (row.regressed) return { ok: false, why: "model combo này đang thoái hoá vs champion" };
+  if (Math.abs(row.prob - 0.5) < NOISE_BAND) return { ok: false, why: "tín hiệu trong dải nhiễu coin-flip" };
+  if (cfg.whaleFilter && row.whale?.tag === "whale") return { ok: false, why: "nến cuối là whale bar — không lật vào bẫy wick" };
+  return { ok: true, why: "" };
 }
 
 // ─── Kline fetch + full scan ──────────────────────────────────────────────────
@@ -727,6 +770,12 @@ export interface AutoConfig {
   whaleFilter: boolean;
   /** broadcast the "TOP coin tiềm năng" scan digest to Telegram every 5 min */
   broadcast: boolean;
+  /** LẬT CHIỀU TỰ ĐỘNG — khi lệnh đang mở và scan mới của CÙNG cặp/khung đảo
+   *  chiều với tín hiệu đạt đủ sàn chất lượng (cùng gate vào lệnh + noise band
+   *  + không regressed), engine đóng lệnh cũ (exitKind "flip") và mở lệnh
+   *  ngược chiều NGAY trong chu kỳ đó. Thị trường luôn biến động — dự báo chỉ
+   *  là dự báo; flip là cách bot theo kịch. false = giữ lệnh tới TP/SL. */
+  autoFlip: boolean;
 }
 
 export const AUTO_DEFAULTS: AutoConfig = {
@@ -753,6 +802,7 @@ export const AUTO_DEFAULTS: AutoConfig = {
   llmModel: LLM_MODEL_DEFAULT,
   whaleFilter: true,
   broadcast: true,
+  autoFlip: true,
 };
 export const COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
 /** DCA adds allowed into a losing position (model still confirming) */
@@ -831,6 +881,7 @@ export function loadAutoConfig(): AutoConfig {
       llmModel: typeof p.llmModel === "string" && p.llmModel.length <= 60 ? p.llmModel : AUTO_DEFAULTS.llmModel,
       whaleFilter: p.whaleFilter !== false,
       broadcast: p.broadcast !== false,
+      autoFlip: p.autoFlip !== false,
     };
   } catch {
     return AUTO_DEFAULTS;

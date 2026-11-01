@@ -48,6 +48,13 @@ export interface LlmSetup {
    *  Đây là vòng "hiểu tại sao thua/tại sao thắng → phán đoán tốt hơn": prompt
    *  duyệt lệnh mới không chỉ nhìn metrics train mà còn nhìn hậu quả thật. */
   lessons?: string[];
+  /** champion–challenger: best-ever val AUC của cặp symbol×interval này qua
+   *  toàn bộ lịch sử train (DB). Cho LLM thấy model HIỆN TẠI đang đứng gần hay
+   *  xa đỉnh tốt nhất từng đạt — model thoái hoá dù chưa chạm ngưỡng regressed
+   *  vẫn đáng bị soi. 0/không gửi = chưa có lịch sử train cho cặp này. */
+  champAuc?: number;
+  /** best-ever val ACC % đi kèm champion trên */
+  champAcc?: number;
 }
 
 export interface LlmVerdict {
@@ -242,6 +249,21 @@ export function setupPrompt(s: LlmSetup): string {
         ]
       : []),
     `sample_base: ${s.samples} train rows${days > 0 ? ` ~ ${days.toFixed(1)} days of ${s.interval} candles` : ""}`,
+    // champ_check — champion–challenger: model hiện tại so với đỉnh tốt nhất
+    // từng train của cặp này. Engine chỉ trade combo KHÔNG regressed (champ −
+    // 0.02) nên dòng này chủ yếu để LLM thấy khoảng cách tới đỉnh: model tụt
+    // gần giới hạn thì đáng bị soi kỹ hơn dù gate vẫn cho qua. Không có lịch
+    // sử champion → bỏ dòng, prompt không thêm noise.
+    ...(s.champAuc && s.champAuc > 0
+      ? [
+          (() => {
+            const gap = s.auc - (s.champAuc ?? 0);
+            const verdict =
+              gap >= 0 ? "AT or ABOVE champion — regression gate passed" : gap >= -0.02 ? "within regression tolerance (<0.02 below)" : "REGRESSED vs champion — engine would skip this combo";
+            return `champ_check: best-ever of this pair+tf is val_auc=${(s.champAuc ?? 0).toFixed(3)}/val_acc=${(s.champAcc ?? 0).toFixed(1)}% — current run val_auc=${s.auc.toFixed(3)} (${gap >= 0 ? "+" : ""}${gap.toFixed(3)}) ${verdict}`;
+          })(),
+        ]
+      : []),
     // track record thật của bot (nếu có) — bằng chứng vận hành, không phải metrics train
     ...(s.track ? [`bot_track_record: ${s.track}`] : []),
     // bài học giải phẫu các lệnh đã đóng của CHÍNH cặp này (autopsy) — vòng

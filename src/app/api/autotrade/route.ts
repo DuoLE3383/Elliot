@@ -94,7 +94,7 @@ export async function PATCH(req: NextRequest) {
 
   const exitPrice = num(body.exitPrice, 0, Infinity, 0);
   if (exitPrice <= 0) return NextResponse.json({ error: "exitPrice required" }, { status: 400 });
-  const exitKind = body.exitKind === "tp" ? "tp" : body.exitKind === "sl" ? "sl" : "manual";
+  const exitKind = body.exitKind === "tp" ? "tp" : body.exitKind === "sl" ? "sl" : body.exitKind === "flip" ? "flip" : "manual";
 
   // signed % price move in the position's direction, then ROE = move × leverage
   const movePct =

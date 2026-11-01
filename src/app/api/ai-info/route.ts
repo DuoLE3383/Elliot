@@ -192,7 +192,11 @@ export async function GET() {
     lesson: string;
     ev: { mfePct?: number; maePct?: number; rMultiple?: number; durMin?: number } | null;
   };
-  const [runsRaw, tradesRaw, pheRaw, llm, champRows, autopsyCount, autopsyRows] = await Promise.all([
+  // ⚠️ THỨ TỰ DESTRUCTURE PHẢI KHỚP THỨ TỰ Promise.all bên dưới (0.2.28 từng
+  // chèn 2 promise autopsy TRƯỚC query champion nhưng quên đẩy champRows xuống
+  // cuối → champRows nhận nhánh count autopsy (số 0) → `champions: 0` → trang
+  // /ai MẤT CẢ card champion VÀ card autopsy đếm sai — lỗi thật 01/11).
+  const [runsRaw, tradesRaw, pheRaw, llm, autopsyCount, autopsyRows, champRows] = await Promise.all([
     db.finetuneRun
       .findMany({ orderBy: { createdAt: "desc" }, take: 400 })
       .then((rows) =>

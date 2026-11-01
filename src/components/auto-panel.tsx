@@ -406,9 +406,10 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
   const open = auto?.open ?? null;
   const best = rows.length > 0 ? rows[0] : null;
   // model đã LẬT CHIỀU trên cùng combo đang mở? (best pick ngược phía lệnh)
-  // — engine không tự đóng lệnh theo flip (chỉ PHE/papers có flip), DCA cũng
-  // tự tắt khi model flipped; badge này để user NHÌN LÀ HIỂU ngay thay vì thấy
-  // "Tốt nhất: LINKUSDT 15m LONG" cạnh lệnh SHORT đang mở mà tưởng bug.
+  // — từ 0.2.30 engine TỰ LẬT khi knob 🔄 Lật chiều bật (flipDecision +
+  // tryFlip trong chu kỳ kế tiếp); khi knob tắt, DCA cũng tự tắt khi model
+  // flipped. Badge để user NHÌN LÀ HIỂU ngay thay vì thấy "Tốt nhất: LINKUSDT
+  // 15m LONG" cạnh lệnh SHORT đang mở mà tưởng bug.
   const flipped = !!(open && best && best.bias !== "NEUTRAL" && best.symbol === open.symbol && best.interval === open.interval && best.bias !== open.side);
   // prob hiển thị THEO PHÍA (SHORT → 1−p) — một chuẩn duy nhất với tin Telegram
   // (probTxt) và bảng reliability /ai; in thô P(up) cạnh chữ SHORT khiến người
@@ -701,6 +702,19 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
             }`}
           >
             📡 {t(lang, "auto.bcast.title")}
+          </button>
+          <button
+            type="button"
+            onClick={() => updateCfg({ autoFlip: !cfg.autoFlip })}
+            aria-pressed={cfg.autoFlip}
+            title={t(lang, "auto.flip.tip", { s: cfg.minScore, a: cfg.minAuc, c: cfg.minAcc })}
+            className={`h-7 rounded-md border px-2 text-[11px] ${
+              cfg.autoFlip
+                ? "border-amber-700 bg-amber-950/40 text-amber-300"
+                : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+            }`}
+          >
+            🔄 {t(lang, "auto.flip.title")}
           </button>
           {llmLast && (
             <span
@@ -1130,7 +1144,7 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
                     {(r.pnlPct ?? 0) >= 0 ? "+" : ""}
                     {(r.pnlPct ?? 0).toFixed(2)}%
                   </span>
-                  <span className="shrink-0 font-mono text-zinc-600">{r.exitKind === "tp" ? "TP" : r.exitKind === "sl" ? "SL" : "…"}</span>
+                  <span className="shrink-0 font-mono text-zinc-600">{r.exitKind === "tp" ? "TP" : r.exitKind === "sl" ? "SL" : r.exitKind === "flip" ? "🔄" : "…"}</span>
                 </div>
               ))}
             </div>
