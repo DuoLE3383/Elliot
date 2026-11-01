@@ -16,7 +16,7 @@ import { NextResponse } from "next/server";
 import path from "path";
 import { db } from "@/lib/db";
 import { engineSnapshot } from "@/lib/engine";
-import { llmApiKey, llmEnvEndpoint } from "@/lib/llm";
+import { llmApiKey, llmEnvEndpoint, pingFailureDetail } from "@/lib/llm";
 import {
   BCAST_ACC_MIN,
   BCAST_AUC_MIN,
@@ -115,13 +115,15 @@ function bucketize(rows: { p: number; won: boolean }[]): { n: number; buckets: R
   return { n, buckets };
 }
 
-/** ping llama-server — Risk Officer sống hay chết, trả kèm độ trễ.
+/** ping llama-server — Risk Officer sống hay chết, trả kèm độ trễ + CHI TIẾT lỗi
+ *  (detail) để badge /ai nói được LÀ SAO thay vì chỉ "NOT reachable · 2ms".
  *  KHÔNG chỉ kiểm /health: app nào cũng có thể có /health (app Tarot từng nằm
  *  cùng VPS cổng 8888 với /health trả 200 → badge "Connected" giả). Kiểm thêm
  *  GET /v1/models — chỉ llama-server/máy tương thích OpenAI mới có, và KHÔNG
  *  tốn GPU. Khi llama chạy --api-key, /v1/models đòi Bearer (llmApiKey).
- *  URL được lấy từ llmEnvEndpoint() (env ăn trước, cùng chuẩn với 2 route). */
-async function pingLlm(url: string): Promise<{ ok: boolean; ms: number }> {
+ *  detail: "health http-<code>" / "models http-<code>" (models http-404 = cổng
+ *  đó KHÔNG phải llama) hoặc mã lỗi mạng (ENOTFOUND/ECONNREFUSED/timeout…). */
+async function pingLlm(url: string): Promise<{ ok: boolean; ms: number; detail?: string }> {
   const t0 = Date.now();
   const base = url.replace(/\/+$/, "").replace(/\/v1$/, "");
   const headers: Record<string, string> = llmApiKey() ? { Authorization: `Bearer ${llmApiKey()}` } : {};
@@ -131,16 +133,18 @@ async function pingLlm(url: string): Promise<{ ok: boolean; ms: number }> {
       cache: "no-store",
       headers,
     });
-    if (!health.ok) return { ok: false, ms: Date.now() - t0 };
+    if (!health.ok) return { ok: false, ms: Date.now() - t0, detail: `health http-${health.status}` };
     // bước 2 — đúng là một LLM server hay chỉ là app khác đang chiếm cổng?
     const models = await fetch(`${base}/v1/models`, {
       signal: AbortSignal.timeout(3500),
       cache: "no-store",
       headers,
     });
-    return { ok: models.ok, ms: Date.now() - t0 };
-  } catch {
-    return { ok: false, ms: Date.now() - t0 };
+    return models.ok
+      ? { ok: true, ms: Date.now() - t0 }
+      : { ok: false, ms: Date.now() - t0, detail: `models http-${models.status}` };
+  } catch (e) {
+    return { ok: false, ms: Date.now() - t0, detail: pingFailureDetail(e) };
   }
 }
 
@@ -163,8 +167,12 @@ export async function GET() {
     engine = null;
   }
   // env (LLM_URL hoặc bí danh LLAMA_SERVER_URL) thắng → cfg engine → default
-  // (trước đây chỉ nhìn cfg — env đổi rồi badge vẫn ping URL cũ)
-  const llmUrl = llmEnvEndpoint().url || engine?.cfg?.llmUrl || LLM_URL_DEFAULT;
+  // (trước đây chỉ nhìn cfg — env đổi rồi badge vẫn ping URL cũ).
+  // urlSource nói rõ URL đang ăn từ đâu: "env" (đúng thiết kế) / "engine"
+  // (cfg sync từ browser — env CHƯA set!) / "default" (không cấu hình gì).
+  const envUrl = llmEnvEndpoint().url;
+  const llmUrl = envUrl || engine?.cfg?.llmUrl || LLM_URL_DEFAULT;
+  const urlSource: "env" | "engine" | "default" = envUrl ? "env" : engine?.cfg?.llmUrl ? "engine" : "default";
 
   // 2) runs + auto stats + PHE suggestions + llm ping — song song, lỗi DB không chết route
   let runsError = false;
@@ -385,7 +393,7 @@ export async function GET() {
             cycle: engine.cycle,
           }
         : null,
-      llm: { url: llmUrl, ping: llm, failClosed: LLM_FAIL_CLOSED },
+      llm: { url: llmUrl, urlSource, ping: llm, failClosed: LLM_FAIL_CLOSED },
       knobs: knobGroups,
     },
     { headers: { "Cache-Control": "no-store" } },

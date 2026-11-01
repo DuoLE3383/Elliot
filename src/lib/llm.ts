@@ -76,6 +76,21 @@ export function llmEnvEndpoint(): { url: string; model: string } {
   };
 }
 
+/** Chi tiết lỗi ping LLM cho badge /ai thay vì chỉ "NOT reachable · 2ms" —
+ *  map lỗi fetch của Node sang mã ngắn để nhận diện nguyên nhân từ xa:
+ *  ENOTFOUND = DNS chưa trỏ (tunnel chưa `route dns`), ECONNREFUSED = không
+ *  gì nghe ở cổng đó, ECONNRESET/CERT_* = TLS/tunnel chết, timeout = server
+ *  không trả lời trong ngân sách. Lỗi HTTP (401/404) không qua hàm này —
+ *  pingLlm tự gắn "health http-<code>" / "models http-<code>". */
+export function pingFailureDetail(e: unknown): string {
+  if (e instanceof Error) {
+    if (e.name === "TimeoutError" || e.name === "AbortError") return "timeout";
+    const cause = (e as Error & { cause?: { code?: string } }).cause;
+    if (cause?.code) return cause.code;
+  }
+  return "error";
+}
+
 const SYSTEM_PROMPT = [
   "You are the risk-control officer of a crypto futures paper-trading bot.",
   "A gradient-boosted tree model picked a setup. Review it against the rubric and reply with ONLY one JSON object:",

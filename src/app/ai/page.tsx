@@ -127,7 +127,13 @@ interface AiInfo {
     llmLast: { symbol: string; interval: string; side: string; verdict: string; reason: string; ms: number; at: number } | null;
     cycle: { lastAt: number; status: string; nextAt: number };
   } | null;
-  llm: { url: string; ping: { ok: boolean; ms: number }; failClosed: boolean };
+  llm: {
+    url: string;
+    /** "env" | "engine" | "default" — URL đang ăn từ nguồn nào */
+    urlSource?: string;
+    ping: { ok: boolean; ms: number; detail?: string };
+    failClosed: boolean;
+  };
   knobs: KnobGroup[];
 }
 
@@ -490,6 +496,7 @@ export default function AiPage() {
               <Badge variant="outline" className={data?.llm.ping.ok ? "border-emerald-700 bg-emerald-950/40 text-emerald-300" : "border-rose-700 bg-rose-950/40 text-rose-300"}>
                 {data?.llm.ping.ok ? t(lang, "ai.llm.ok") : t(lang, "ai.llm.down")}
                 {data ? ` · ${data.llm.ping.ms}ms` : ""}
+                {!data?.llm.ping.ok && data?.llm.ping.detail ? ` · ${data.llm.ping.detail}` : ""}
               </Badge>
               {!data?.llm.ping.ok && data && (
                 <Badge variant="outline" className="border-amber-700 bg-amber-950/40 text-amber-300">
@@ -499,6 +506,11 @@ export default function AiPage() {
               <Badge variant="outline" className="border-zinc-700 bg-zinc-950/40 text-zinc-400">
                 {llmScope(data?.llm.url ?? "")}
               </Badge>
+              {data?.llm.urlSource && (
+                <Badge variant="outline" className="border-zinc-800 bg-zinc-950/40 text-zinc-500">
+                  {data.llm.urlSource}
+                </Badge>
+              )}
               {cfg?.llmModel && <span className="font-mono text-zinc-500">· {cfg.llmModel}</span>}
             </div>
             {data?.engine?.llmLast ? (

@@ -1,0 +1,33 @@
+0.2.25 — badge /ai nói được LÝ DO LLM "NOT reachable" (detail + urlSource)
+
+Triệu chứng từ user: sau deploy 0.2.24, panel LLM hiện "NOT reachable · 2ms"
+mà không nói vì sao — 2ms là fail TỨC THÌ (không phải timeout), chỉ còn vài
+khả năng: DNS chưa trỏ (ENOTFOUND), không gì nghe ở cổng đó (ECONNREFUSED),
+hoặc ping chạm nhầm app KHÁC đang nghe cùng cổng trên VPS (/health 200 nhưng
+/v1/models 404 — chính là false positive mà bước kiểm /v1/models ở 0.2.22
+sinh ra để bắt). Trước đó badge giấu mọi chi tiết → bắt user đoán mò.
+
+- llm.ts: pingFailureDetail(e) — map lỗi fetch Node sang mã ngắn:
+  e.cause.code (ENOTFOUND / ECONNREFUSED / ECONNRESET / CERT_*), TimeoutError/
+  AbortError → "timeout", còn lại "error". Lỗi HTTP không qua hàm này.
+- /api/ai-info pingLlm: trả thêm detail — "health http-<code>" (server có
+  nhưng từ chối /health), "models http-<code>" (CÓ /health nhưng KHÔNG phải
+  llama-server — App khác chiếm cổng), hoặc mã mạng ở trên.
+- /api/ai-info: llm.urlSource = "env" | "engine" | "default" — cho biết URL
+  đang ăn từ nguồn nào. "engine" = env CHƯA set, đang dùng cfg sync từ browser
+  (nguồn hay lậu URL cũ kiểu 0.0.0.0:8888); "default" = chưa cấu hình gì.
+- /ai page: badge đỏ gắn `· <detail>`; thêm badge nhỏ urlSource cạnh local/
+  remote. Vẫn KHÔNG in URL (theo yêu cầu ẩn đường dẫn LLM trên UI).
+
+Chẩn đoán tình huống user (badge "remote" + 2ms): URL không phải default
+(127.0.0.8 sẽ ra "local") và không phải bí danh 172.31.144.1 (cũng "local")
+→ khả năng cao đang ăn cfg engine từ browser (0.0.0.0:8888 — ping chạm app
+Tarot trên VPS cổng 8888: /health 200, /v1/models 404 → "NOT reachable ·
+2ms · models http-404") hoặc env trỏ tunnel-domain chưa có DNS ("ENOTFOUND").
+0.2.25 hiện đúng chữ này thay vì phán đoán.
+
+Test: scripts/test-llm-ping-detail.mts (ENOTFOUND/ECONNREFUSED/timeout/error)
+→ PASS; test-llm-real-setup.mts, test-llm-env-alias.mts, test-llm-apikey.mts
+→ PASS. Build sạch.
+
+Deploy: cd ~/Elliot && git pull && npm run build && pm2 restart elliott --update-env && pm2 flush
