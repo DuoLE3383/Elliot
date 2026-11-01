@@ -68,7 +68,7 @@ import {
   universeBroadcastText,
   type UniverseRow,
 } from "./universe";
-import { buildTopCoinsMessage, loadBcastState, saveBcastState } from "./scan-broadcast";
+import { buildTopCoinsMessage, buildScanTop10Message, loadBcastState, saveBcastState } from "./scan-broadcast";
 import { loadScanState, saveScanState } from "./scan-state";
 import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store";
 import { pushAutoDigests } from "./autodigest";
@@ -81,6 +81,8 @@ import {
   LLM_FAIL_CLOSED,
   LLM_TIMEOUT_MS,
   NOISE_BAND,
+  SCAN_DIGEST_EVERY_MS,
+  SCAN_DIGEST_OFFSET_MS,
   SCAN_FRESH_MS,
   SCAN_TTL,
   TICKERS_TTL,
@@ -743,11 +745,16 @@ export function submitUniverse(): { promise: Promise<Record<string, unknown>>; c
   return { promise: j.promise, coalesced: j.coalesced };
 }
 
-// ─── broadcast tick — the "TOP coin tiềm năng" 5-min digest ───────────────────
+// ─── broadcast tick — phán quyết "TOP coin" 5 phút (KHÔNG còn tự gửi Telegram) ─
+// 0.2.35: "tin nhắn scan top 10 coin chỉ thông báo 8 tiếng 1 lần" — nhịp gửi
+// Telegram của luồng scan chuyển hoàn toàn sang scanDigestTick (8h/lần, tin
+// QUÉT LỆNH · TOP 10). Tick 5 phút này giữ nguyên NỘI DUNG phán quyết: quét
+// tươi nếu già, chấm cổng mọi combo (kèm coherence) và ghi bảng BcastVerdict
+// — panel web đọc mỗi nhịp, chỉ riêng TIN Telegram là 8h/lần.
 
 async function broadcastTick(): Promise<void> {
   const { p, v } = eng();
-  if (!p.cfg.broadcast || !p.syncedAt || !tgReady()) return;
+  if (!p.cfg.broadcast || !p.syncedAt) return; // chỉ chấm — không cần Telegram-ready
   // fresh scan first — join the running scan lane instead of stacking a new one
   if (!v.scan || Date.now() - v.scan.at > SCAN_FRESH_MS) {
     try {
@@ -814,18 +821,87 @@ async function broadcastTick(): Promise<void> {
   } catch (e) {
     console.error(`[engine] verdict persist failed: ${e instanceof Error ? e.message : e}`);
   }
-  if (!built.text) return; // nothing passed the gates — silence beats spam
-  state.n += 1;
+  // 0.2.35 — KHÔNG gửi built.text nữa: tin scan trên Telegram chỉ 8h/lần qua
+  // scanDigestTick (dưới). state.n/seen/lastB cũng chuyển theo (⚡NEW + cooldown
+  // đếm theo lần GỬI, không phải lần chấm).
+}
+
+// ─── scan digest tick — tin "QUÉT LỆNH · TOP 10" ĐỀU ĐỊNH 8h/lần ─────────────
+// "thêm tin nhắn scan lệnh vào telegram … tin nhắn scan top 10 coin chỉ thông
+// báo 8 tiếng 1 lần". Gửi KỂ CẢ khi không combo nào đạt cổng (đó là cái giá
+// của tin tổng hợp): 10 combo tốt nhất theo điểm + phán quyết cổng + lý do.
+// Lệch pha +4h so với bucket universe để hai tin dài không dồn một lúc.
+async function scanDigestTick(): Promise<void> {
+  const { p, v } = eng();
+  if (!p.cfg.broadcast || !p.syncedAt || !tgReady()) return;
+  // scan tươi trước — join lane đang chạy thay vì chồng thêm job mới
+  if (!v.scan || Date.now() - v.scan.at > SCAN_FRESH_MS) {
+    try {
+      await submitScan().promise;
+    } catch {
+      return; // scan hỏng — bucket sau thử lại
+    }
+  }
+  const rows = v.scan?.rows ?? [];
+  if (rows.length === 0) return;
+  const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
+  const uniSet = new Set((v.universe?.rows ?? []).map((r) => r.symbol));
+  const state = loadBcastState();
+  let built: Awaited<ReturnType<typeof buildScanTop10Message>> | null = null;
+  try {
+    built = await buildScanTop10Message(rows, tickers, state, uniSet, {
+      score: p.cfg.minScore,
+      auc: p.cfg.minAuc,
+      acc: p.cfg.minAcc,
+    });
+  } catch (e) {
+    console.error(`[engine] scan digest build failed: ${e instanceof Error ? e.message : e}`);
+    return;
+  }
+  if (!built) return;
+  // phán quyết (kèm coherence) → bảng BcastVerdict — CÙNG một thuật toán
+  try {
+    for (const vd of built.verdicts) {
+      await db.bcastVerdict.upsert({
+        where: { symbol_interval: { symbol: vd.symbol, interval: vd.interval } },
+        create: {
+          symbol: vd.symbol,
+          interval: vd.interval,
+          side: vd.side,
+          score: vd.score,
+          auc: vd.auc,
+          acc: vd.acc,
+          verdict: vd.verdict,
+          reason: vd.reason,
+        },
+        update: {
+          side: vd.side,
+          score: vd.score,
+          auc: vd.auc,
+          acc: vd.acc,
+          verdict: vd.verdict,
+          reason: vd.reason,
+        },
+      });
+    }
+    invalidateBcastSnapshot();
+  } catch (e) {
+    console.error(`[engine] digest verdict persist failed: ${e instanceof Error ? e.message : e}`);
+  }
+  if (!built.text) return; // scan rỗng sau enrich — im thay vì gửi tin rỗng
   const now = Date.now();
+  state.n += 1;
+  state.scan10 = now;
   for (const r of built.picked) {
     state.seen[`${r.symbol}-${r.interval}`] = now;
-    state.lastB[r.symbol] = now; // symbol-level re-broadcast cooldown (3h)
+    state.lastB[r.symbol] = now;
   }
   saveBcastState(state);
   try {
     await tgSendMessage(built.text, "HTML");
+    console.log(`[engine] scan digest sent — top ${built.picked.length} of ${rows.length} rows`);
   } catch (e) {
-    console.error(`[engine] broadcast send failed: ${e instanceof Error ? e.message : e}`);
+    console.error(`[engine] scan digest send failed: ${e instanceof Error ? e.message : e}`);
   }
 }
 
@@ -847,8 +923,6 @@ const intervalMs = (itv: string): number => {
 };
 
 async function resolveTick(): Promise<void> {
-  const { p } = eng();
-  if (p.pairs.length === 0) return;
   try {
     const pending = await db.suggestion.findMany({
       where: { outcome: null, entryPrice: { gt: 0 } },
@@ -858,19 +932,18 @@ async function resolveTick(): Promise<void> {
     if (pending.length === 0) return;
     const board = await fetchBoard24h().catch(() => null);
     if (!board) return;
-    const prices: Record<string, number> = {};
-    for (const name of new Set([...p.pairs, ...UNIVERSE])) {
-      const perp = aliasFuturesSymbol(name) ?? name;
-      const row = board.get(perp);
-      if (row && row.price > 0) prices[name.toUpperCase()] = row.price;
-    }
     const now = Date.now();
     let resolved = 0;
     for (const s of pending) {
       const deadline = new Date(s.createdAt).getTime() + s.horizonBars * intervalMs(s.interval);
       if (deadline > now) continue;
-      const exit = prices[s.symbol.toUpperCase()];
-      if (exit == null || exit <= 0) continue;
+      // 0.2.35 — giá tra TRỰC TIẾP từ board 24h (toàn bộ futures board) cho
+      // ĐÚNG symbol của suggestion, kể cả cặp ngoài watchlist/universe (client
+      // từng nộp giá hộ mỗi 5 phút — luồng đó đã xoá, resolve phải tự đủ)
+      const perp = (aliasFuturesSymbol(s.symbol) ?? s.symbol).toUpperCase();
+      const row = board.get(perp);
+      const exit = row && row.price > 0 ? row.price : 0;
+      if (exit <= 0) continue;
       const bias = s.bias as "LONG" | "SHORT" | "NEUTRAL";
       await db.suggestion.update({
         where: { id: s.id },
@@ -1505,6 +1578,9 @@ export function startEngineScheduler(): void {
 
   const lastBcast = { bucket: 0 };
   const lastUni = { bucket: 0 };
+  // bucket 8h LỆCH PHA +4h cho tin "QUÉT LỆNH · TOP 10" — universe rơi 0/8/16h,
+  // digest rơi 4/12/20h (giờ máy chủ) để hai tin dài không dồn một lúc
+  const lastDigest = { bucket: 0 };
   const lastResolve = { at: 0 };
   // at=0 → lượt mổ bổ sung đầu tiên chạy ngay tick đầu tiên (~15s sau boot);
   // sau đó mỗi lượt cách nhau 6h (AUTOPSY_BACKFILL_MS)
@@ -1522,11 +1598,13 @@ export function startEngineScheduler(): void {
     }
     if (!p.syncedAt) return; // idle until the first browser sync
     try {
-      // hourly / daily digests (marker-guarded inside the lib)
-      if (p.cfg.on && (p.cfg.statHourly || p.cfg.statDaily)) {
+      // hourly / daily stat digests (marker-guarded inside the lib) — 0.2.35:
+      // KHÔNG còn đòi cfg.on: thống kê là báo cáo, không phải phần của auto
+      // trading — bật knob Giờ/Ngày là chảy, auto tắt vẫn chảy
+      if (p.cfg.statHourly || p.cfg.statDaily) {
         await pushAutoDigests({ hourly: p.cfg.statHourly, daily: p.cfg.statDaily }).catch(() => undefined);
       }
-      // 5-min bucket — TOP-coin broadcast (scan refresh included)
+      // 5-min bucket — verdicts "TOP coin" (scan refresh included; KHÔNG gửi TG)
       const b5 = Math.floor(Date.now() / (5 * 60_000));
       if ((p.cfg.broadcast || p.cfg.on) && b5 !== lastBcast.bucket) {
         lastBcast.bucket = b5;
@@ -1537,6 +1615,12 @@ export function startEngineScheduler(): void {
       if (b8 !== lastUni.bucket) {
         lastUni.bucket = b8;
         if (tgReady() || p.cfg.on) await submitUniverse().promise.catch(() => undefined);
+      }
+      // 8h bucket lệch +4h — tin Telegram "QUÉT LỆNH · TOP 10" (0.2.35)
+      const d8 = Math.floor((Date.now() - SCAN_DIGEST_OFFSET_MS) / SCAN_DIGEST_EVERY_MS);
+      if (d8 !== lastDigest.bucket) {
+        lastDigest.bucket = d8;
+        await scanDigestTick().catch((e) => console.error(`[engine] scan digest: ${e instanceof Error ? e.message : e}`));
       }
       // suggestions resolve — every 5 min
       if (Date.now() - lastResolve.at > 5 * 60_000) {

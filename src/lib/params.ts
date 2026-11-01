@@ -29,6 +29,21 @@ export const BCAST_REPEAT_MS = 3 * 60 * 60_000;
 export const PRESSURE_FLOOR_LONG = 42; // BUY bị chặn khi áp lực mua ≤ 42%
 export const PRESSURE_CAP_SHORT = 58; // SELL bị chặn khi áp lực mua ≥ 58%
 
+// ── 1b · SCAN DIGEST — tin "QUÉT LỆNH · TOP 10" 8 giờ/lần ────────────────────
+// "thêm tin nhắn scan lệnh vào telegram, tin nhắn scan top 10 coin chỉ thông
+// báo 8 tiếng 1 lần" — tổng hợp 10 combo tốt nhất theo điểm model (KỂ CẢ combo
+// chưa đạt cổng, kèm lý do) gửi ĐỀU ĐỊNH 8h/lần; tin "TOP coin đạt cổng" 5
+// phút cũ KHÔNG còn tự gửi nữa (phán quyết vẫn cập nhật panel mỗi 5 phút).
+/** Nhịp gửi tin tổng hợp quét — 8 giờ. */
+export const SCAN_DIGEST_EVERY_MS = 8 * 3_600_000;
+/** Lệch pha so với bucket universe (0/8/16h) — digest rơi vào 4/12/20h để hai
+ *  tin dài không dồn một lúc. */
+export const SCAN_DIGEST_OFFSET_MS = 4 * 3_600_000;
+/** Số coin tối đa trong tin quét. */
+export const SCAN_DIGEST_TOP_N = 10;
+/** Số combo tốt nhất được làm giàu kỹ thuật (kline fetch) trước khi chọn 10. */
+export const SCAN_DIGEST_POOL = 14;
+
 // ── 2 · SÀN CHẤT LƯỢNG CHUNG — MẶC ĐỊNH của setpoint duy nhất ────────────────
 // Bộ ba dưới đây là fallback khi engine chưa có cfg (runtime lấy từ
 // cfg.minScore/minAuc/minAcc — chỉnh trên Auto panel, xem AUTO_DEFAULTS trong

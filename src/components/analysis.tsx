@@ -1,16 +1,15 @@
 "use client";
 
-import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { analyze } from "@/lib/analysis";
+import type { Analysis } from "@/lib/analysis";
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
-import type { Kline } from "@/lib/types";
 import { BarChart3, CircleDot, Gauge, ScanLine, TrendingUp, Waves } from "lucide-react";
 import type { ReactNode } from "react";
 
 interface Props {
   lang: Lang;
-  klines: Kline[];
+  /** analyze(klines) đã tính Ở SERVER (/api/view) — client chỉ render */
+  a: Analysis;
   smaFilter: boolean;
   smaPeriod: number;
   gateLong: boolean;
@@ -47,15 +46,13 @@ function Tile({
 
 export function DeepAnalysis({
   lang,
-  klines,
+  a,
   smaFilter,
   smaPeriod,
   gateLong,
   gateShort,
   smaValue,
 }: Props) {
-  const a = useMemo(() => analyze(klines), [klines]);
-
   const trendClass =
     a.trend === "up" ? "text-emerald-400" : a.trend === "down" ? "text-rose-400" : "text-zinc-300";
   const trendSub =

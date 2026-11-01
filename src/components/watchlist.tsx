@@ -6,65 +6,26 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { fmtPrice, symbolLabel, t, type Lang } from "@/lib/i18n";
-import { signalsFrom } from "@/lib/signals";
-import type { Kline, Ticker } from "@/lib/types";
+import type { Sparkline, WatchRow } from "@/lib/view";
+import type { Ticker } from "@/lib/types";
 import { Plus, X } from "lucide-react";
 
-/** Mini sparkline of closes — green when the window ends higher. */
-function Spark({ klines }: { klines: Kline[] }) {
-  const d = useMemo(() => {
-    const closes = klines.map((k) => k.c);
-    if (closes.length < 2) return null;
-    const min = Math.min(...closes);
-    const max = Math.max(...closes);
-    const span = max - min || max * 0.001 || 1;
-    const w = 52;
-    const h = 20;
-    return {
-      up: closes[closes.length - 1] >= closes[0],
-      path: closes
-        .map((c, i) => `${i === 0 ? "M" : "L"}${((i / (closes.length - 1)) * w).toFixed(1)},${(h - 2 - ((c - min) / span) * (h - 4)).toFixed(1)}`)
-        .join(" "),
-    };
-  }, [klines]);
-
-  if (!d) {
+/** Mini sparkline — server gửi sẵn dãy 0..1 chuẩn hoá; client chỉ vẽ path. */
+function Spark({ spark }: { spark: Sparkline | null }) {
+  if (!spark || spark.pts.length < 2) {
     return <div className="h-5 w-[52px] shrink-0 animate-pulse rounded bg-zinc-800/60" />;
   }
+  const n = spark.pts.length;
+  const w = 52;
+  const h = 20;
+  const path = spark.pts
+    .map((p, i) => `${i === 0 ? "M" : "L"}${((i / (n - 1)) * w).toFixed(1)},${(h - 2 - p * (h - 4)).toFixed(1)}`)
+    .join(" ");
   return (
-    <svg width={52} height={20} className="shrink-0" aria-hidden>
-      <path d={d.path} fill="none" stroke={d.up ? "#10b981" : "#f43f5e"} strokeWidth={1.3} />
+    <svg width={w} height={h} className="shrink-0" aria-hidden>
+      <path d={path} fill="none" stroke={spark.up ? "#10b981" : "#f43f5e"} strokeWidth={1.3} />
     </svg>
   );
-}
-
-export type WatchStatus =
-  | { kind: "loading" }
-  | { kind: "wait" }
-  | { kind: "signal"; side: "LONG" | "SHORT"; fresh: boolean };
-
-/**
- * Fresh UT signal within the last 3 CLOSED candles → show its side; a signal
- * blocked by the gate (or none) → ĐỢI. Cheap: runs on the 48-candle mini window.
- */
-export function watchStatus(
-  mini: Kline[] | undefined,
-  atrKey: number,
-  atrPeriod: number,
-  smaPeriod: number,
-): WatchStatus {
-  if (!mini || mini.length < 10) return { kind: "loading" };
-  const lastClosed = mini.length - 2;
-  const { signals } = signalsFrom(mini, atrKey, atrPeriod, smaPeriod);
-  const last = signals.at(-1);
-  if (!last || last.i < mini.length - 1) {
-    // provisional signal on the forming candle → waiting, nothing confirmed
-    return { kind: "wait" };
-  }
-  if (last.i >= lastClosed - 2) {
-    return { kind: "signal", side: last.dir === "BUY" ? "LONG" : "SHORT", fresh: last.smaOk };
-  }
-  return { kind: "wait" };
 }
 
 interface Props {
@@ -74,10 +35,8 @@ interface Props {
   cap: number;
   current: string;
   tickers: Record<string, Ticker>;
-  minis: Record<string, Kline[]>;
-  atrKey: number;
-  atrPeriod: number;
-  smaPeriod: number;
+  /** status + sparkline đã tính Ở SERVER cho từng cặp (theo đúng thứ tự `pairs`) */
+  watch: WatchRow[];
   pairInput: string;
   checkingPair: boolean;
   onPairInput: (v: string) => void;
@@ -94,10 +53,7 @@ export function Watchlist({
   cap,
   current,
   tickers,
-  minis,
-  atrKey,
-  atrPeriod,
-  smaPeriod,
+  watch,
   pairInput,
   checkingPair,
   onPairInput,
@@ -106,15 +62,16 @@ export function Watchlist({
   onSelect,
   defaultPairs,
 }: Props) {
+  const watchBySym = useMemo(() => new Map(watch.map((r) => [r.sym, r])), [watch]);
   const rows = useMemo(
     () =>
       pairs.map((sym) => ({
         sym,
         ticker: tickers[sym],
-        status: watchStatus(minis[sym], atrKey, atrPeriod, smaPeriod),
+        row: watchBySym.get(sym),
         isCustom: !defaultPairs.includes(sym),
       })),
-    [pairs, tickers, minis, atrKey, atrPeriod, smaPeriod, defaultPairs],
+    [pairs, tickers, watchBySym, defaultPairs],
   );
 
   return (
@@ -162,7 +119,8 @@ export function Watchlist({
           </p>
         ) : (
           <div className="max-h-72 space-y-1 overflow-x-hidden overflow-y-auto pr-0.5">
-            {rows.map(({ sym, ticker, status, isCustom }) => {
+            {rows.map(({ sym, ticker, row, isCustom }) => {
+              const status = row?.status ?? { kind: "loading" as const };
               const up = (ticker?.changePct ?? 0) >= 0;
               const active = sym === current;
               return (
@@ -191,7 +149,7 @@ export function Watchlist({
                         {ticker ? fmtPrice(ticker.price) : t(lang, "watch.loading")}
                       </span>
                     </span>
-                    <Spark klines={minis[sym] ?? []} />
+                    <Spark spark={row?.spark ?? null} />
                     <span
                       className={`w-11 shrink-0 text-right font-mono text-[11px] font-semibold ${
                         ticker ? (up ? "text-emerald-400" : "text-rose-400") : "text-zinc-600"

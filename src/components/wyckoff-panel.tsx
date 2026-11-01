@@ -5,11 +5,12 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fmtPrice, fmtTime, t, type Lang } from "@/lib/i18n";
 import type { WyckoffResult } from "@/lib/wyckoff";
+import type { WyckoffView } from "@/lib/view";
 import { BarChart3, Landmark, LineChart, Waves } from "lucide-react";
 
 interface Props {
   lang: Lang;
-  wy: WyckoffResult | null;
+  wy: WyckoffResult | WyckoffView | null;
   on: boolean;
   sens: number;
 }
@@ -42,7 +43,7 @@ function Tile({
 }
 
 /** Recent-events chips: newest first, deduped by kind+time, capped. */
-function eventChips(wy: WyckoffResult, max: number) {
+function eventChips(wy: WyckoffResult | WyckoffView, max: number) {
   const live = wy.events.filter((e) => !e.deleted);
   return live.slice(-max).reverse();
 }

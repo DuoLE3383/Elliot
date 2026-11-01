@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { t, type Lang } from "@/lib/i18n";
-import { cycleForecast, cycleStats, dowExtremes } from "@/lib/cycles";
+import { cycleForecast, dowExtremes } from "@/lib/cycles";
+import type { CycleStats } from "@/lib/cycles";
 import {
   SESSIONS,
   fmtCompact,
@@ -13,10 +14,8 @@ import {
   sessionHours,
   sessionHoursLocal,
   sessionOf,
-  sessionStats,
-  whaleDelta,
 } from "@/lib/market";
-import type { Kline } from "@/lib/types";
+import type { SessionStat, WhaleDelta } from "@/lib/market";
 import { CalendarDays, Clock, Radar, Waves } from "lucide-react";
 
 const SESSION_LABEL: Record<string, string> = {
@@ -35,44 +34,36 @@ const SESSION_TINT: Record<string, string> = {
 
 /**
  * "Phiên giao dịch" — 24h UTC strip per global session with open/closed state,
- * Bull% / drift computed from the loaded closed candles, plus the whale
- * (taker delta) read-out. Pure addition below the chart — nothing moves.
+ * Bull% / drift + whale read-out. 0.2.35: sessionStats/whaleDelta/cycleStats
+ * tính Ở SERVER (/api/view) — component nhận kết quả, chỉ render + giữ đồng hồ
+ * phiên (sessionOf/nextSessionOpen là phép lịch nhỏ, không phải engine).
  */
-export function SessionsPanel({ lang, klines }: { lang: Lang; klines: Kline[] }) {
-  // SSR-safe clock: render with the kline fallback first, then go live
+export function SessionsPanel({
+  lang,
+  stats,
+  whale,
+  cycles,
+}: {
+  lang: Lang;
+  stats: SessionStat[];
+  whale: WhaleDelta | null;
+  cycles: CycleStats | null;
+}) {
+  // SSR-safe clock: a stable per-mount fallback first, then live every 30s
+  const [fallback] = useState(() => Date.now());
   const [live, setLive] = useState<number | null>(null);
   useEffect(() => {
     setLive(Date.now());
     const id = window.setInterval(() => setLive(Date.now()), 30_000);
     return () => window.clearInterval(id);
   }, []);
-  const now = live ?? (klines.length ? klines[klines.length - 1].t + 60_000 : Date.now());
+  const now = live ?? fallback;
   const openSet = useMemo(() => new Set(sessionOf(now)), [now]);
-  const stats = useMemo(() => sessionStats(klines), [klines]);
   const byKey = useMemo(() => new Map(stats.map((s) => [s.key, s])), [stats]);
   const nowFrac = new Date(now).getUTCHours() / 24 + new Date(now).getUTCMinutes() / 1440;
 
-  const whale = useMemo(() => whaleDelta(klines), [klines]);
-
   // next session open — shared by the session-lean and calendar-cycle blocks
   const nx = useMemo(() => nextSessionOpen(now), [now]);
-
-  // calendar cycles read BTCUSDT DAILY candles (~2.7 years → ~140 samples per
-  // weekday) — fetched once per mount; a failed fetch just hides the block
-  const [daily, setDaily] = useState<Kline[] | null>(null);
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/klines?symbol=BTCUSDT&interval=1d&limit=1000")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => {
-        if (alive && j?.klines) setDaily(j.klines as Kline[]);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
-  const cycles = useMemo(() => (daily ? cycleStats(daily) : null), [daily]);
 
   const utcClock = new Date(now).toLocaleTimeString("en-GB", {
     hour: "2-digit",

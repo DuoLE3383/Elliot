@@ -48,6 +48,7 @@ import {
   passesCoherence,
   type QualSp,
 } from "./bcast-gate";
+import { SCAN_DIGEST_POOL, SCAN_DIGEST_TOP_N } from "./params";
 
 // MỘT thuật toán gate sống ở ./bcast-gate — re-export để chỗ cũ (test, panel)
 // vẫn import từ đây được mà không tạo bản sao thuật toán.
@@ -72,6 +73,9 @@ const CANDIDATE_POOL = 8; // ranked rows inspected before giving up on filters
 const HR_LINE = "─────────────────";
 const HEAVY_LINE = "═══════════════";
 
+/** HTML escape cho text nhúng vào tin parse_mode HTML (lý do gate, …). */
+const escHtml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
 export interface BcastState {
   /** message counter — "Lần #N" */
   n: number;
@@ -79,6 +83,8 @@ export interface BcastState {
   seen: Record<string, number>;
   /** symbol → epoch-ms of its last broadcast, ANY interval — re-broadcast cooldown */
   lastB: Record<string, number>;
+  /** epoch-ms của lần gửi tin "QUÉT LỆNH · TOP 10" gần nhất (0.2.35) */
+  scan10?: number;
 }
 
 export const BCAST_LS_KEY = "utp.bcast";
@@ -95,6 +101,7 @@ export function loadBcastState(): BcastState {
       n: typeof p.n === "number" && p.n >= 0 ? Math.floor(p.n) : 0,
       seen: p.seen && typeof p.seen === "object" ? p.seen : {},
       lastB: p.lastB && typeof p.lastB === "object" ? p.lastB : {},
+      scan10: typeof p.scan10 === "number" && p.scan10 >= 0 ? p.scan10 : 0,
     };
   } catch {
     return { n: 0, seen: {}, lastB: {} };
@@ -109,7 +116,12 @@ export function saveBcastState(st: BcastState): void {
     mkdirSync(path.dirname(STATE_FILE), { recursive: true });
     writeFileSync(
       STATE_FILE,
-      JSON.stringify({ n: st.n, seen: Object.fromEntries(seen), lastB: Object.fromEntries(lastB) }),
+      JSON.stringify({
+        n: st.n,
+        seen: Object.fromEntries(seen),
+        lastB: Object.fromEntries(lastB),
+        scan10: st.scan10 ?? 0,
+      }),
       "utf8",
     );
   } catch {
@@ -440,4 +452,122 @@ export async function buildTopCoinsMessage(
   for (const c of picked) out.push(...coinBlock(c), "");
   out.push(HEAVY_LINE, `📊 Tổng: ${picked.length} coins đạt tiêu chí`, `⏱ Quét lại sau 5 phút`);
   return { text: out.join("\n"), picked: picked.map((c) => c.row), verdicts: [] };
+}
+
+// ─── Scan digest — tin "QUÉT LỆNH · TOP 10" 8 giờ/lần (0.2.35) ────────────────
+// "thêm tin nhắn scan lệnh vào telegram, tin nhắn scan top 10 coin chỉ thông
+// báo 8 tiếng 1 lần". Khác tin "🏆 TOP coin tiềm năng" (chỉ liệt kê combo ĐẠT
+// CỔNG và từng gửi mỗi 5 phút — nay đã ngừng tự gửi): tin này là BỨC TRANH
+// TOÀN CẢNH định kỳ — 10 combo tốt nhất theo điểm model, KỂ CẢ chưa đạt cổng
+// (kèm lý do bị chặn) để người đọc thấy engine đang nhìn thấy gì giữa 2 lần
+// tổng hợp. Combo đạt cổng được tô 🚀 kèm SL/TP; mọi phán quyết (kèm coherence)
+// vẫn ghi đủ vào bảng BcastVerdict cho panel.
+export async function buildScanTop10Message(
+  rows: ScanRow[],
+  tickers: Record<string, Ticker>,
+  state: BcastState,
+  uniSyms?: Set<string>,
+  sp?: QualSp,
+): Promise<{ text: string | null; picked: ScanRow[]; verdicts: BcastVerdictRow[] }> {
+  const spEff = sp ?? { score: BCAST_SCORE_MIN, auc: BCAST_AUC_MIN, acc: BCAST_ACC_MIN };
+  const nowMs = Date.now();
+  // MỘT lần chấm duy nhất bằng gateRow cho TẤT CẢ combo — cùng thuật toán
+  const verdicts: BcastVerdictRow[] = rows.map((r) => {
+    const g = gateRow(r, {
+      now: nowMs,
+      lastB: state.lastB,
+      uniSyms,
+      tickerVol: tickers[r.symbol]?.quoteVolume,
+      sp,
+    });
+    return {
+      symbol: r.symbol,
+      interval: r.interval,
+      side: r.bias,
+      score: r.score,
+      auc: r.auc,
+      acc: r.acc,
+      verdict: g.pass ? "pass" : "reject",
+      reason: g.reason,
+    };
+  });
+
+  // pool: các combo TỐT NHẤT theo điểm (rows từ scanCore đã sort nhưng tự sort
+  // lại cho chắc — digest luôn liệt kê theo điểm giảm dần), mỗi symbol một combo
+  const seenSym = new Set<string>();
+  const candidates: ScanRow[] = [];
+  for (const r of [...rows].sort((a, b) => b.score - a.score)) {
+    if (seenSym.has(r.symbol)) continue;
+    seenSym.add(r.symbol);
+    candidates.push(r);
+    if (candidates.length >= SCAN_DIGEST_POOL) break;
+  }
+
+  const enriched: CoinTech[] = [];
+  for (const cand of candidates) {
+    const c = await enrich(cand, tickers, state.seen);
+    if (!c) continue;
+    const vd = verdicts.find((x) => x.symbol === cand.symbol && x.interval === cand.interval);
+    const contra = passesCoherence({
+      long: cand.bias !== "SHORT",
+      emaKind: c.ema.kind,
+      emaStrong: c.ema.strong,
+      macdDir: c.macd.dir,
+      buyPressure: c.buyPressure,
+    });
+    if (contra && vd) {
+      vd.verdict = "reject";
+      vd.reason = contra;
+    }
+    enriched.push(c);
+    if (enriched.length >= SCAN_DIGEST_TOP_N) break;
+  }
+  if (enriched.length === 0) return { text: null, picked: [], verdicts };
+
+  // clock in the CHANNEL's timezone — the server runs UTC, the reader is VN
+  const now = new Date();
+  const vn = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const vnDate = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+  const [hm, dmy] = [vn.format(now), vnDate.format(now)];
+  const [dd, mo, yyyy] = dmy.split("/");
+  const nPass = verdicts.filter((v) => v.verdict === "pass").length;
+
+  const out: string[] = [
+    `🔍 <b>QUÉT LỆNH · TOP ${enriched.length} COIN</b> (theo điểm model)`,
+    `⏰ ${hm} ${dd}/${mo}/${yyyy} │ Lần #${state.n + 1} │ <b>${nPass}/${rows.length}</b> combo đạt cổng`,
+    `📋 Sàn: Điểm ≥ ${spEff.score} │ AUC ≥ ${spEff.auc} │ ACC ≥ ${spEff.acc}% — 🚀 = đạt cổng, ✗ = lý do chặn`,
+  ];
+  enriched.forEach((c, i) => {
+    const { row } = c;
+    const vd = verdicts.find((x) => x.symbol === row.symbol && x.interval === row.interval);
+    const pass = vd?.verdict === "pass";
+    const long = row.bias !== "SHORT";
+    const pTxt = long ? `${(row.prob * 100).toFixed(1)}% lên` : `${((1 - row.prob) * 100).toFixed(1)}% xuống`;
+    const slPx = long ? c.price * (1 - row.slPct / 100) : c.price * (1 + row.slPct / 100);
+    const tpPx = long ? c.price * (1 + row.tpPct / 100) : c.price * (1 - row.tpPct / 100);
+    out.push(
+      `${HR_LINE}`,
+      `${i + 1}. ${sideTag(row.bias)} <b>${row.symbol}</b> ${row.interval} │ Điểm <b>${row.score.toFixed(1)}</b> · AUC ${row.auc.toFixed(2)} · ACC ${row.acc.toFixed(1)}% · Prob ${pTxt}`,
+      `   💰 $${fmtPrice(c.price)} · 24h ${c.vol24h >= 1e6 ? `$${(c.vol24h / 1e6).toFixed(0)}M` : fmtPrice(c.vol24h)} · RSI ${c.rsiVal.toFixed(0)} · ATR ${c.atrPct.toFixed(2)}%${c.isNew ? " · ⚡NEW" : ""}`,
+      pass
+        ? `   🚀 <b>ĐẠT CỔNG</b> — SL $${fmtPrice(slPx)} (${row.slPct.toFixed(1)}%) · TP1 $${fmtPrice(tpPx)} (+${row.tpPct.toFixed(1)}%)`
+        : `   ✗ ${escHtml((vd?.reason ?? "chưa đạt cổng").slice(0, 90))}`,
+    );
+  });
+  out.push(
+    HEAVY_LINE,
+    `⏱ Tin tổng hợp 8 giờ/lần · engine vẫn quét + chấm cổng mỗi 5 phút (panel web)`,
+    `<i>Đây không phải lời khuyên đầu tư. Hãy tự chịu trách nhiệm với quyết định của mình.</i>`,
+  );
+  return { text: out.join("\n"), picked: enriched.map((c) => c.row), verdicts };
 }

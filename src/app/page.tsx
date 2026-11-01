@@ -23,13 +23,11 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtCompact } from "@/lib/market";
-import { applyBestSuggestion, fetchChampionRun, fetchRuns, markApplied, resolveBatch, type RunRow } from "@/lib/history";
+import { applyBestSuggestion, fetchChampionRun, fetchRuns, markApplied, type RunRow } from "@/lib/history";
 import { fmtPct, fmtPrice, fmtTime, symbolLabel, t, type Lang } from "@/lib/i18n";
 import { LIVE_REPAIR_MS } from "@/lib/params";
 import { mergeTail, type LiveSrc } from "@/lib/live-stream";
-import { kpiFrom, papersFrom } from "@/lib/papers";
-import { signalsFrom } from "@/lib/signals";
-import { wyckoffFrom } from "@/lib/wyckoff";
+import { fetchView, type ViewPayload } from "@/lib/view";
 import {
   DEFAULT_SETTINGS,
   DEFAULT_WYCKOFF,
@@ -167,9 +165,11 @@ export default function Home() {
   const [sigTotals, setSigTotals] = useState<Record<string, number>>({});
   /** bumped after any DB mutation → history lists reload */
   const [histRefresh, setHistRefresh] = useState(0);
-  // ── market context (ticker strip + watchlist sparklines) ────────────────────
+  // ── market context (ticker strip) + view tính Ở SERVER ──────────────────
   const [tickers, setTickers] = useState<Record<string, Ticker>>({});
-  const [minis, setMinis] = useState<Record<string, Kline[]>>({});
+  /** MỌI thứ panel cần — signals/papers/wyckoff/kpi/analysis/pies/sessions/
+   *  watchlist đều từ /api/view (poll 2s). Client chỉ vẽ: chart + JSON (0.2.35) */
+  const [view, setView] = useState<ViewPayload | null>(null);
   // ── live chart (SSE /api/stream — giá realtime kiểu sàn) ────────────────────
   /** hướng tick gần nhất → giá lớn trong header chấm màu xanh/đỏ như sàn */
   const [live, setLive] = useState<{ price: number; up: boolean } | null>(null);
@@ -311,6 +311,7 @@ export default function Home() {
     prevKeyRef.current = `${symbol}-${interval}`;
     prevPapersRef.current = null; // key switch → no toast burst
     setPinnedTime(null);
+    setView(null); // đổi cặp/khung → panel đợi view MỚI của combo đó (kéo snapshot cũ)
   }, [symbol, interval, loadData]);
 
   // Nhịp "vá lịch sử" — luồng SSE chỉ vá ĐUÔI dãy nến (nến đang chạy + nến mới);
@@ -392,46 +393,18 @@ export default function Home() {
   }, [symbol, interval]);
 
   const key = `${symbol}-${interval}`;
-  const engine = useMemo(() => {
-    if (klines.length === 0) return null;
-    const raw = signalsFrom(klines, settings.atrKey, settings.atrPeriod, settings.smaPeriod);
-    // UT off → no new signals at all (open positions still exit via SL/TP);
-    // gate off → nothing is "blocked" anywhere in the UI
-    const signals = !settings.utOn
-      ? []
-      : settings.smaFilter
-        ? raw.signals
-        : raw.signals.map((s) => ({ ...s, smaOk: true }));
-    const res = papersFrom(
-      klines,
-      signals,
-      raw.sma,
-      symbol,
-      interval,
-      settings.slPct,
-      settings.tpPct,
-      settings.leverage,
-      settings.smaFilter,
-    );
-    const confirmed = signals.filter((s) => s.i < klines.length - 1);
-    return {
-      signals,
-      sma: raw.sma,
-      stop: raw.stop,
-      trend: raw.trend,
-      ...res,
-      confirmed,
-    };
-  }, [klines, settings, symbol, interval]);
+  // 0.2.35 — ENGINE CHẠY Ở SERVER: signals/papers/sma/stop/trend + kpi + wyckoff
+  // + analysis + pies + sessions + watchlist đều từ /api/view (poll 2s bên dưới).
+  // Trình duyệt chỉ vẽ: chart (/api/klines + SSE) và các panel từ JSON có sẵn.
 
   // Toast diffing — announce new papers (entries) and flips
   useEffect(() => {
-    if (!engine) return;
+    if (!view) return;
     // skip computes sourced from klines of a previous symbol/interval — those
     // fabricate fresh ids mid-switch and would spam toasts
     if (dataKeyRef.current !== key) return;
     const prev = prevPapersRef.current;
-    const map = new Map(engine.papers.map((p) => [p.id, p]));
+    const map = new Map(view.papers.map((p) => [p.id, p]));
     prevPapersRef.current = map;
     if (!prev || prevKeyRef.current !== key) return;
 
@@ -461,19 +434,10 @@ export default function Home() {
         });
       }
     }
-  }, [engine, key, symbol, lang, pushToast]);
+  }, [view, key, symbol, lang, pushToast]);
 
-  const stats = useMemo(() => kpiFrom(engine?.papers ?? []), [engine]);
-
-  // ── Wyckoff Schematic Auto Detect ─────────────────────────────────────
-  const wyckoff = useMemo(() => {
-    if (!wySettings.enabled || klines.length < 60) return null;
-    try {
-      return wyckoffFrom(klines, interval, wySettings);
-    } catch {
-      return null;
-    }
-  }, [klines, interval, wySettings]);
+  // ── Wyckoff Schematic Auto Detect — máy trạng thái chạy Ở SERVER (/api/view) ──
+  const wyckoff = view?.wyckoff ?? null;
 
   // Wyckoff event toasts — same dataKey discipline as paper toasts; keys use
   // candle TIME (stable across the sliding 500-candle window), and a cfg
@@ -510,30 +474,20 @@ export default function Home() {
   }, [wyckoff, key, lang, symbol, interval, pushToast, wySettings]);
 
   const lastClose = klines.length ? klines[klines.length - 1].c : 0;
-  const latestSignal = engine?.signals.at(-1);
-  const confirmedSignal = engine?.confirmed.at(-1);
+  const latestSignal = view?.signals.at(-1);
+  const confirmedSignal = view?.confirmed.at(-1);
   // DIRECTIONAL gate state — a close below the SMA blocks BUYs but NEVER SELLs
-  const gateInfo = useMemo(() => {
-    if (!engine || klines.length === 0) {
-      return { long: true, short: true, sma: null as number | null };
-    }
-    const smaVal = engine.sma[klines.length - 1];
-    if (smaVal == null) return { long: true, short: true, sma: null as number | null };
-    return {
-      long: lastClose > smaVal,
-      short: lastClose < smaVal,
-      sma: smaVal as number | null,
-    };
-  }, [engine, klines, lastClose]);
+  // (tính Ở SERVER cùng engine, cùng logic)
+  const gateInfo = view?.gate ?? { long: true, short: true, sma: null as number | null };
 
   // unrealized ROE % of the open position (price move × leverage)
   const openPnl = useMemo(() => {
-    const p = engine?.open;
+    const p = view?.open;
     if (!p || !lastClose) return undefined;
     const pricePct =
       p.side === "LONG" ? ((lastClose - p.entry) / p.entry) * 100 : ((p.entry - lastClose) / p.entry) * 100;
     return pricePct * settings.leverage;
-  }, [engine, lastClose, settings.leverage]);
+  }, [view, lastClose, settings.leverage]);
 
   /** flip the SMA gate from the dock — persists and recomputes silently */
   const toggleGate = useCallback((v: boolean) => {
@@ -794,41 +748,28 @@ export default function Home() {
     void trainXgb(false);
   }, [xgbStale, xgbBusy, key, klines, trainXgb]);
 
-  // ── outcome scoring — feed fresh prices every 5 minutes; the server scores
-  // any pending suggestion whose horizon has elapsed (win/loss per direction) ──
-  const resolveStale = useCallback(async () => {
-    const prices: Record<string, number> = {};
-    if (klines.length) prices[symbol] = klines[klines.length - 1].c;
-    for (const [sym, ks] of Object.entries(minis)) {
-      if (ks.length && prices[sym] == null) prices[sym] = ks[ks.length - 1].c;
-    }
-    const n = await resolveBatch(prices);
-    if (n > 0) bumpHist();
-  }, [klines, symbol, minis, bumpHist]);
-
-  useEffect(() => {
-    void resolveStale();
-    const id = window.setInterval(() => void resolveStale(), 300_000);
-    return () => window.clearInterval(id);
-  }, [resolveStale]);
+  // ── outcome scoring — chấm outcome gợi ý giờ chạy HOÀN TOÀN Ở SERVER:
+  // engine.resolveTick mỗi 5 phút lấy giá từ board 24h Binance cho MỌI symbol
+  // có suggestion chờ (kể cả cặp ngoài watchlist) — client không còn phải nộp
+  // giá mỗi 5 phút nữa (0.2.35).
 
   const pinnedIndex = useMemo(() => {
-    if (pinnedTime == null || !engine) return null;
-    const idx = engine.signals.findIndex((s) => s.t === pinnedTime);
-    return idx >= 0 ? engine.signals[idx].i : null;
-  }, [pinnedTime, engine]);
-  const pinnedSig = pinnedTime != null ? engine?.signals.find((s) => s.t === pinnedTime) : undefined;
+    if (pinnedTime == null || !view) return null;
+    const idx = view.signals.findIndex((s) => s.t === pinnedTime);
+    return idx >= 0 ? view.signals[idx].i : null;
+  }, [pinnedTime, view]);
+  const pinnedSig = pinnedTime != null ? view?.signals.find((s) => s.t === pinnedTime) : undefined;
 
   const handlePin = useCallback(
     (index: number | null) => {
-      if (index == null || !engine) {
+      if (index == null || !view) {
         setPinnedTime(null);
         return;
       }
-      const sig = engine.signals.find((s) => s.i === index);
+      const sig = view.signals.find((s) => s.i === index);
       setPinnedTime(sig ? sig.t : null);
     },
-    [engine],
+    [view],
   );
 
   // ── custom pairs ────────────────────────────────────────────────────────────
@@ -955,36 +896,53 @@ export default function Home() {
     };
   }, [pairListKey]);
 
-  // ── mini klines (48 candles) for watchlist sparklines + status (60s) ──────
+  // ── /api/view — engine + panels tính Ở SERVER, poll 2s (ngưng khi tab ẩn) ──
+  // sKey/wKey là chuỗi JSON ỔN ĐỊNH để effect chỉ chạy lại khi setting ĐỔI THẬT
+  // (object settings/wySettings mới mỗi render nhưng chuỗi không đổi).
+  const sKey = JSON.stringify({
+    slPct: settings.slPct,
+    tpPct: settings.tpPct,
+    leverage: settings.leverage,
+    atrKey: settings.atrKey,
+    atrPeriod: settings.atrPeriod,
+    smaPeriod: settings.smaPeriod,
+    smaFilter: settings.smaFilter,
+    utOn: settings.utOn,
+  });
+  const wKey = JSON.stringify({
+    enabled: wySettings.enabled,
+    mode: wySettings.mode,
+    speed: wySettings.speed,
+    sens: wySettings.sens,
+    reqPhaseC: wySettings.reqPhaseC,
+  });
   useEffect(() => {
     let alive = true;
-    const syms = pairListKey.split(",").filter(Boolean);
     const load = async () => {
-      const results = await Promise.allSettled(
-        syms.map(async (sym) => {
-          const res = await fetch(
-            `/api/klines?symbol=${encodeURIComponent(sym)}&interval=${interval}&limit=48`,
-          );
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const json = (await res.json()) as { klines: Kline[] };
-          return [sym, json.klines] as const;
-        }),
-      );
-      if (!alive) return;
-      setMinis((prev) => {
-        const next: Record<string, Kline[]> = { ...prev };
-        for (const r of results) if (r.status === "fulfilled") next[r.value[0]] = r.value[1];
-        for (const k of Object.keys(next)) if (!syms.includes(k)) delete next[k];
-        return next;
+      const v = await fetchView({
+        symbol,
+        interval,
+        s: JSON.parse(sKey),
+        w: JSON.parse(wKey),
+        pairs: pairListKey.split(",").filter(Boolean),
       });
+      // snapshot của combo cũ giữa chừng đổi cặp → bỏ, đừng render nhầm panel
+      if (alive && v && v.symbol === symbol && v.interval === interval) setView(v);
     };
     void load();
-    const id = window.setInterval(() => void load(), 60000);
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, 2_000);
+    const onVis = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", onVis);
     return () => {
       alive = false;
       window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
     };
-  }, [pairListKey, interval]);
+  }, [symbol, interval, sKey, wKey, pairListKey]);
 
   // Ticker hiển thị cho cặp ĐANG MỞ: luồng live (60s/refresh, đi kèm mỗi flush)
   // đè lên board 30s — % đổi + H/L + vol của header chart luôn khớp giá đang chạy
@@ -1114,14 +1072,14 @@ export default function Home() {
 
       {/* ── KPI row ────────────────────────────────────────────────── */}
       <div className="shrink-0 px-3 pt-3">
-        {engine ? (
+        {view ? (
           <KpiCards
             lang={lang}
-            stats={stats}
-            openPaper={engine.open}
+            stats={view.kpi}
+            openPaper={view.open ?? undefined}
             leverage={settings.leverage}
             openPnl={openPnl}
-            signals={engine.signals}
+            signals={view.signals}
             totalSignals={sigTotals[`${symbol}|${interval}`] ?? null}
           />
         ) : (
@@ -1147,7 +1105,7 @@ export default function Home() {
               </CardContent>
             </Card>
           </div>
-        ) : !engine ? (
+        ) : !view ? (
           <div className="space-y-3 lg:col-span-3">
             <Skeleton className="h-[420px] rounded-lg border border-zinc-800 bg-zinc-900" />
           </div>
@@ -1163,10 +1121,7 @@ export default function Home() {
                 cap={SYMBOLS.length + MAX_CUSTOM_PAIRS}
                 current={symbol}
                 tickers={tickers}
-                minis={minis}
-                atrKey={settings.atrKey}
-                atrPeriod={settings.atrPeriod}
-                smaPeriod={settings.smaPeriod}
+                watch={view.watch}
                 pairInput={pairInput}
                 checkingPair={checkingPair}
                 onPairInput={setPairInput}
@@ -1175,7 +1130,7 @@ export default function Home() {
                 onSelect={setSymbol}
                 defaultPairs={SYMBOLS}
               />
-              <SessionsPanel lang={lang} klines={klines} />
+              <SessionsPanel lang={lang} stats={view.sessStats} whale={view.whale} cycles={view.cycles} />
             </div>
 
             {/* ── mobile toggle for the low-traffic areas (order-3 → sits right
@@ -1292,13 +1247,13 @@ export default function Home() {
                   <div className="h-[340px] shrink-0 sm:h-[400px] lg:h-auto lg:min-h-[300px] lg:flex-1 lg:shrink">
                     <PriceChart
                       klines={klines}
-                      sma={engine.sma}
-                      stop={settings.utOn ? engine.stop : undefined}
-                      trend={settings.utOn ? engine.trend : undefined}
-                      signals={engine.signals}
-                      papers={engine.papers}
-                      openPaper={engine.open}
-                      pending={engine.pending}
+                      sma={view.sma}
+                      stop={settings.utOn ? view.stop : undefined}
+                      trend={settings.utOn ? view.trend : undefined}
+                      signals={view.signals}
+                      papers={view.papers}
+                      openPaper={view.open ?? undefined}
+                      pending={view.pending ?? undefined}
                       pinnedIndex={pinnedIndex}
                       onPin={handlePin}
                       lang={lang}
@@ -1335,7 +1290,7 @@ export default function Home() {
                   </TabsTrigger>
                 </TabsList>
                 <TabsContent value="journal" className="mt-2 lg:h-[200px] lg:overflow-y-auto rail-scroll">
-                  <Journal lang={lang} papers={engine.papers} symbol={symbol} interval={interval} maxListClass="max-h-36" />
+                  <Journal lang={lang} papers={view.papers} symbol={symbol} interval={interval} maxListClass="max-h-36" />
                 </TabsContent>
                 <TabsContent value="suggest" className="mt-2 lg:h-[200px] lg:overflow-y-auto rail-scroll">
                   <SuggestionHistory lang={lang} symbol={symbol} interval={interval} refreshKey={histRefresh} />
@@ -1344,14 +1299,14 @@ export default function Home() {
                   <div className="space-y-2.5">
                     <DeepAnalysis
                       lang={lang}
-                      klines={klines}
+                      a={view.analysis}
                       smaFilter={settings.smaFilter}
                       smaPeriod={settings.smaPeriod}
                       gateLong={gateInfo.long}
                       gateShort={gateInfo.short}
                       smaValue={gateInfo.sma}
                     />
-                    <StrategyPies lang={lang} klines={klines} leverage={settings.leverage} />
+                    <StrategyPies lang={lang} pies={view.pies} n={view.n} leverage={settings.leverage} />
                   </div>
                 </TabsContent>
               </Tabs>
@@ -1378,9 +1333,9 @@ export default function Home() {
                 gateShort={gateInfo.short}
                 smaValue={gateInfo.sma}
                 onToggleGate={toggleGate}
-                openPaper={engine.open}
-                pending={engine.pending}
-                papers={engine.papers}
+                openPaper={view.open ?? undefined}
+                pending={view.pending ?? undefined}
+                papers={view.papers}
                 pinnedIndex={pinnedIndex}
                 lastClose={lastClose}
                 onUnpin={() => setPinnedTime(null)}
@@ -1452,7 +1407,14 @@ export default function Home() {
                   </TabsTrigger>
                 </TabsList>
                 <TabsContent value="context" className="mt-2">
-                  <RailContext lang={lang} klines={klines} openPaper={engine.open} confirmed={confirmedSignal} />
+                  <RailContext
+                    lang={lang}
+                    a={view.analysis}
+                    stats={view.sessStats}
+                    whale={view.whale}
+                    openPaper={view.open ?? undefined}
+                    confirmed={confirmedSignal}
+                  />
                 </TabsContent>
                 <TabsContent value="wyckoff" className="mt-2">
                   <WyckoffPanel lang={lang} wy={wyckoff} on={wySettings.enabled} sens={wySettings.sens} />

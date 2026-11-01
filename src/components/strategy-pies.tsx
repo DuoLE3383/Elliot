@@ -1,25 +1,20 @@
 "use client";
 
-import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { kpiFrom, papersFrom } from "@/lib/papers";
-import { signalsFrom } from "@/lib/signals";
-import { STRATEGY_PRESETS, type Kline } from "@/lib/types";
+import type { PieStat } from "@/lib/view";
 import { t, type Lang } from "@/lib/i18n";
 import { PieChart } from "lucide-react";
 
 interface Props {
   lang: Lang;
-  klines: Kline[];
+  /** 3 preset đã được server replay trên cùng nến (/api/view) — chỉ render */
+  pies: PieStat[];
+  /** số nến cửa sổ (server gửi kèm) */
+  n: number;
   leverage: number;
 }
 
-interface Slice {
-  key: "tp" | "sl" | "liq" | "flip";
-  n: number;
-}
-
-const SLICE_COLOR: Record<Slice["key"], string> = {
+const SLICE_COLOR: Record<PieStat["slices"][number]["key"], string> = {
   tp: "#10b981", // emerald — take profit
   sl: "#f43f5e", // rose — stop loss
   liq: "#be123c", // deep rose — liquidation
@@ -33,7 +28,7 @@ const C = 2 * Math.PI * R;
 
 /** One donut for a strategy preset — slices are the closed-trade outcomes. */
 function Donut({ slices, winRate, label, sub, subClass }: {
-  slices: Slice[];
+  slices: PieStat["slices"];
   winRate: number | null;
   label: string;
   sub: string;
@@ -86,32 +81,14 @@ function Donut({ slices, winRate, label, sub, subClass }: {
 }
 
 /**
- * Tiềm năng chiến lược — replays the paper engine on the CURRENT pair's klines
- * under each strategy preset (user leverage kept), then splits closed trades
- * into TP / SL / liquidation / reversal slices. Three donuts, one per preset,
- * let the user compare each strategy's win potential before committing.
+ * Tiềm năng chiến lược — server replayed the paper engine on the CURRENT pair's
+ * klines under each strategy preset (user leverage kept) and split closed
+ * trades into TP / SL / liquidation / reversal slices. Three donuts, one per
+ * preset, let the user compare each strategy's win potential (0.2.35: tính ở
+ * server qua /api/view — client chỉ vẽ).
  */
-export function StrategyPies({ lang, klines, leverage }: Props) {
-  const stats = useMemo(() => {
-    return STRATEGY_PRESETS.map((p) => {
-      const cfg = { ...p.settings, leverage };
-      const raw = signalsFrom(klines, cfg.atrKey, cfg.atrPeriod, cfg.smaPeriod);
-      const signals = cfg.smaFilter ? raw.signals : raw.signals.map((s) => ({ ...s, smaOk: true }));
-      const res = papersFrom(klines, signals, raw.sma, "pies", "pies", cfg.slPct, cfg.tpPct, cfg.leverage, cfg.smaFilter);
-      const k = kpiFrom(res.papers);
-      const closed = res.papers.filter((x) => x.status === "closed");
-      const allSlices: Slice[] = [
-        { key: "tp", n: closed.filter((x) => x.exitKind === "tp" && !x.liquidated).length },
-        { key: "sl", n: closed.filter((x) => x.exitKind === "sl" && !x.liquidated).length },
-        { key: "liq", n: closed.filter((x) => x.liquidated).length },
-        { key: "flip", n: closed.filter((x) => x.exitKind === "flip").length },
-      ];
-      const slices = allSlices.filter((s) => s.n > 0);
-      return { key: p.key, k, slices };
-    });
-  }, [klines, leverage]);
-
-  const n = klines.length;
+export function StrategyPies({ lang, pies, n, leverage }: Props) {
+  const stats = pies;
 
   return (
     <Card className="border-zinc-800 bg-zinc-900/60">

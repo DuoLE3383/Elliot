@@ -10,20 +10,20 @@
 //      (hai đường tính độc lập, chấm lại outcome từ giá, đối chiếu sổ vốn…).
 //   3. CHUẨN XÁC bao nhiêu % — Wilson 95% cận dưới cho tỉ lệ (độ tin cậy của
 //      con số), 100% cho số đếm/mô tả; note nói rõ vì sao.
-// Hai section cuối (journal + analysis) tính ngay trong trình duyệt bằng đúng
-// hàm papersFrom/analyze của app trên nến /api/klines cho combo người dùng
-// chọn — "sổ giấy" không persist server-side nên phải tính client-side.
-// Từ đó nút "Vạch lá tìm sâu" trên /ai bắn CÙNG snapshot server vào LLM.
+// Hai section cuối (journal + analysis) từ 0.2.35 cũng tính Ở SERVER qua
+// /api/view (papersFrom/analyze + thiết lập MẶC ĐỊNH) cho combo người dùng
+// chọn — trình duyệt chỉ render.
+// Nút "Vạch lá tìm sâu" trên /ai vẫn bắn CÙNG snapshot server vào LLM.
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fmtPct, fmtPrice, t, type Lang } from "@/lib/i18n";
-import { analyze, type Analysis } from "@/lib/analysis";
-import { signalsFrom } from "@/lib/signals";
-import { kpiFrom, papersFrom, type KpiStats } from "@/lib/papers";
-import { DEFAULT_SETTINGS, type Kline } from "@/lib/types";
+import type { Analysis } from "@/lib/analysis";
+import type { KpiStats } from "@/lib/papers";
+import { fetchView } from "@/lib/view";
+import { DEFAULT_SETTINGS, DEFAULT_WYCKOFF } from "@/lib/types";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -91,29 +91,27 @@ export default function StatsPage() {
     }
   }, []);
 
-  // 2 section client-side — nến thật + đúng hàm của app, setting MẶC ĐỊNH
+  // 2 section client-side — 0.2.35: tính Ở SERVER qua /api/view (setting MẶC ĐỊNH)
   useEffect(() => {
     let alive = true;
     setClientBusy(true);
     (async () => {
-      try {
-        const res = await fetch(`/api/klines?symbol=${encodeURIComponent(pickSym)}&interval=${pickTf}&limit=500`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const { klines } = (await res.json()) as { klines: Kline[] };
-        if (!alive) return;
-        const s = DEFAULT_SETTINGS;
-        const { signals, sma } = signalsFrom(klines, s.atrKey, s.atrPeriod, s.smaPeriod);
-        const papers = papersFrom(klines, signals, sma, pickSym, pickTf, s.slPct, s.tpPct, s.leverage, s.smaFilter);
-        setJournal({ ...kpiFrom(papers.papers), basis: `${signals.length}` });
-        setAnalysis(analyze(klines));
-      } catch {
-        if (alive) {
-          setJournal(null);
-          setAnalysis(null);
-        }
-      } finally {
-        if (alive) setClientBusy(false);
+      const v = await fetchView({
+        symbol: pickSym,
+        interval: pickTf,
+        s: DEFAULT_SETTINGS,
+        w: DEFAULT_WYCKOFF,
+        pairs: [],
+      });
+      if (!alive) return;
+      if (v) {
+        setJournal({ ...v.kpi, basis: `${v.signals.length}` });
+        setAnalysis(v.analysis);
+      } else {
+        setJournal(null);
+        setAnalysis(null);
       }
+      setClientBusy(false);
     })();
     return () => {
       alive = false;

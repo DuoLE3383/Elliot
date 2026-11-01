@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Kline, Paper, Signal } from "@/lib/types";
 import type { PendingEntry } from "@/lib/papers";
 import type { WyckoffEvent, WyckoffResult } from "@/lib/wyckoff";
+import type { WyckoffView } from "@/lib/view";
 import { volumeProfile, fmtCompact } from "@/lib/market";
 import { fmtPrice, fmtPct, t, type Lang } from "@/lib/i18n";
 import { equityFrom } from "@/lib/equity";
@@ -40,7 +41,7 @@ interface Props {
   onPin: (index: number | null) => void;
   lang: Lang;
   /** Wyckoff overlay (computed in page when enabled) */
-  wyckoff?: WyckoffResult | null;
+  wyckoff?: WyckoffResult | WyckoffView | null;
   wyckoffOn?: boolean;
   /** UT Bot trailing stop + trend state (from signalsFrom) — "UT stop" overlay */
   stop?: (number | null)[];

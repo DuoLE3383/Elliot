@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { fmtCompact, sessionOf, sessionStats, whaleDelta } from "@/lib/market";
-import { analyze } from "@/lib/analysis";
+import { fmtCompact, sessionOf } from "@/lib/market";
+import type { SessionStat, WhaleDelta } from "@/lib/market";
+import type { Analysis } from "@/lib/analysis";
 import { t, type Lang } from "@/lib/i18n";
-import type { Kline, Paper, Signal } from "@/lib/types";
+import type { Paper, Signal } from "@/lib/types";
 import { Compass, Waves } from "lucide-react";
 
 const SESSION_LABEL: Record<string, string> = {
@@ -17,7 +18,12 @@ const SESSION_LABEL: Record<string, string> = {
 
 interface Props {
   lang: Lang;
-  klines: Kline[];
+  /** analyze(klines) đã tính Ở SERVER (/api/view) */
+  a: Analysis;
+  /** sessionStats(klines) đã tính Ở SERVER */
+  stats: SessionStat[];
+  /** whaleDelta(klines) đã tính Ở SERVER */
+  whale: WhaleDelta | null;
   openPaper?: Paper;
   /** newest CONFIRMED signal (closed candle) */
   confirmed?: Signal;
@@ -27,21 +33,20 @@ interface Props {
  * Right-rail context card — Elliott-style compact read-out:
  * status (position/signal side + EMA trend), open sessions with Bull%/drift,
  * and the whale (taker delta) summary. Pure read-only — no controls here.
+ * 0.2.35: nhận kết quả tính sẵn từ /api/view, không còn chạy analyze trên nến.
  */
-export function RailContext({ lang, klines, openPaper, confirmed }: Props) {
+export function RailContext({ lang, a, stats, whale, openPaper, confirmed }: Props) {
   // SSR-safe clock
+  const [fallback] = useState(() => Date.now());
   const [live, setLive] = useState<number | null>(null);
   useEffect(() => {
     setLive(Date.now());
     const id = window.setInterval(() => setLive(Date.now()), 30_000);
     return () => window.clearInterval(id);
   }, []);
-  const now = live ?? (klines.length ? klines[klines.length - 1].t + 60_000 : Date.now());
+  const now = live ?? fallback;
 
-  const a = useMemo(() => analyze(klines), [klines]);
-  const stats = useMemo(() => sessionStats(klines), [klines]);
   const openSet = useMemo(() => new Set(sessionOf(now)), [now]);
-  const whale = useMemo(() => whaleDelta(klines), [klines]);
 
   const side = openPaper?.side ?? (confirmed ? (confirmed.dir === "BUY" ? "LONG" : "SHORT") : undefined);
   const sideClass = side === "LONG" ? "text-emerald-400" : side === "SHORT" ? "text-rose-400" : "text-zinc-500";
