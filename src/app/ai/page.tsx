@@ -185,7 +185,7 @@ export default function AiPage() {
   // editable LLM setup (synced to engine via /api/engine)
   const [llmDraftUrl, setLlmDraftUrl] = useState("");
   const [llmDraftModel, setLlmDraftModel] = useState("local");
-  const [llmDraftTimeout, setLlmDraftTimeout] = useState(300);
+  const [llmDraftTimeout, setLlmDraftTimeout] = useState(90);
   const [llmDraftFailClosed, setLlmDraftFailClosed] = useState(false);
   const [llmSaveState, setLlmSaveState] = useState<"idle" | "saving" | "ok" | "fail">("idle");
 
@@ -701,10 +701,14 @@ export default function AiPage() {
             <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-3 space-y-2.5">
               <p className="text-[11px] font-semibold text-zinc-300">{t(lang, "ai.llm.setup")}</p>
               <div className="grid gap-2 sm:grid-cols-2">
-                <label className="block space-y-1">
-                  <span className="text-[10px] uppercase tracking-wide text-zinc-500">{t(lang, "ai.llm.url")}</span>
+                <label className="block space-y-1 sm:col-span-2">
+                  <span className="flex items-center justify-between text-[10px] uppercase tracking-wide text-zinc-500">
+                    <span>{t(lang, "ai.llm.url")}</span>
+                    <span className="font-mono normal-case text-zinc-600">{llmScope(llmDraftUrl)}</span>
+                  </span>
                   <input
-                    type="url"
+                    type="password"
+                    autoComplete="off"
                     value={llmDraftUrl}
                     onChange={(e) => setLlmDraftUrl(e.target.value)}
                     placeholder="http://127.0.0.1:8080"
@@ -730,6 +734,7 @@ export default function AiPage() {
                     max={600}
                     value={llmDraftTimeout}
                     onChange={(e) => setLlmDraftTimeout(Number(e.target.value))}
+                    title="15–180 recommended"
                     className="h-8 w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 font-mono text-[11px] text-zinc-200"
                   />
                 </label>

@@ -16,7 +16,7 @@ import { NextResponse } from "next/server";
 import path from "path";
 import { db } from "@/lib/db";
 import { engineSnapshot } from "@/lib/engine";
-import { llmApiKey, llmEnvEndpoint, pingFailureDetail } from "@/lib/llm";
+import { llmApiKey, resolveLlmEndpoint, pingFailureDetail } from "@/lib/llm";
 import {
   BCAST_ACC_MIN,
   BCAST_AUC_MIN,
@@ -170,9 +170,12 @@ export async function GET() {
   // (trước đây chỉ nhìn cfg — env đổi rồi badge vẫn ping URL cũ).
   // urlSource nói rõ URL đang ăn từ đâu: "env" (đúng thiết kế) / "engine"
   // (cfg sync từ browser — env CHƯA set!) / "default" (không cấu hình gì).
-  const envUrl = llmEnvEndpoint().url;
-  const llmUrl = envUrl || engine?.cfg?.llmUrl || LLM_URL_DEFAULT;
-  const urlSource: "env" | "engine" | "default" = envUrl ? "env" : engine?.cfg?.llmUrl ? "engine" : "default";
+  const ep = resolveLlmEndpoint({
+    url: engine?.cfg?.llmUrl,
+    model: engine?.cfg?.llmModel,
+  });
+  const llmUrl = ep.url;
+  const urlSource = ep.source;
 
   // 2) runs + auto stats + PHE suggestions + llm ping — song song, lỗi DB không chết route
   let runsError = false;

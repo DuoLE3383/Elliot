@@ -804,7 +804,7 @@ export const AUTO_DEFAULTS: AutoConfig = {
   statDaily: true,
   llmUrl: LLM_URL_DEFAULT,
   llmModel: LLM_MODEL_DEFAULT,
-  llmTimeoutSec: 300,
+  llmTimeoutSec: 90,
   llmFailClosed: false,
   whaleFilter: true,
   broadcast: true,

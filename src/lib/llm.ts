@@ -91,12 +91,74 @@ export const llmBaseOf = baseOf;
  *  (route review/test, badge /ai) ĐỀU đi qua helper này để thứ tự ưu tiên
  *  env → cfg → default thống nhất một chỗ.
  *  Trả về "" khi không set — caller tự rơi về cfg engine / default. */
+
+// Serialize chat completions — a single llama-server queues badly when
+// review + autopsy + stats-dive fire together; stacked 90s timeouts look like
+// "unreachable" even when /health is fine.
+let llmChain: Promise<unknown> = Promise.resolve();
+function withLlmLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = llmChain.then(fn, fn);
+  llmChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 export function llmEnvEndpoint(): { url: string; model: string } {
   return {
     url: process.env.LLM_URL?.trim() || process.env.LLAMA_SERVER_URL?.trim() || "",
     model: process.env.LLM_MODEL?.trim() || process.env.LLAMA_SERVER_MODEL?.trim() || "",
   };
 }
+
+/** Unified endpoint for every LLM call (ping, review, autopsy, test).
+ *  Priority: ENV → explicit override → default. Keeps /ai badge and engine
+ *  on the same URL so "Connected" cannot lie about the review path. */
+export function resolveLlmEndpoint(override?: { url?: string; model?: string }): {
+  url: string;
+  model: string;
+  source: "env" | "cfg" | "default";
+} {
+  const env = llmEnvEndpoint();
+  if (env.url) {
+    return {
+      url: env.url,
+      model: env.model || override?.model || LLM_MODEL_DEFAULT,
+      source: "env",
+    };
+  }
+  if (override?.url && /^https?:\/\/\S{3,120}$/.test(override.url)) {
+    return {
+      url: override.url,
+      model: override.model || LLM_MODEL_DEFAULT,
+      source: "cfg",
+    };
+  }
+  return { url: LLM_URL_DEFAULT, model: override?.model || LLM_MODEL_DEFAULT, source: "default" };
+}
+
+/** Pick a real model id from /v1/models when the user left "local". */
+export async function resolveLlmModel(url: string, preferred: string): Promise<string> {
+  const want = (preferred || "").trim();
+  if (want && want.toLowerCase() !== "local") return want.slice(0, 80);
+  try {
+    const base = baseOf(url);
+    const res = await fetch(`${base}/v1/models`, {
+      signal: AbortSignal.timeout(4000),
+      cache: "no-store",
+      headers: llmApiKey() ? { Authorization: `Bearer ${llmApiKey()}` } : {},
+    });
+    if (!res.ok) return want || LLM_MODEL_DEFAULT;
+    const j = (await res.json()) as { data?: { id?: string }[] };
+    const id = j.data?.[0]?.id;
+    return (typeof id === "string" && id ? id : want || LLM_MODEL_DEFAULT).slice(0, 80);
+  } catch {
+    return want || LLM_MODEL_DEFAULT;
+  }
+}
+
+
 
 /** Chi tiết lỗi ping LLM cho badge /ai thay vì chỉ "NOT reachable · 2ms" —
  *  map lỗi fetch của Node sang mã ngắn để nhận diện nguyên nhân từ xa:
@@ -342,30 +404,48 @@ export async function llmReviewDebug(
   s: LlmSetup,
   timeoutMs = LLM_TIMEOUT_MS,
 ): Promise<LlmDebugResult> {
+  return withLlmLock(() => llmReviewDebugUnlocked(url, model, s, timeoutMs));
+}
+
+async function llmReviewDebugUnlocked(
+  url: string,
+  model: string,
+  s: LlmSetup,
+  timeoutMs = LLM_TIMEOUT_MS,
+): Promise<LlmDebugResult> {
   const started = Date.now();
   const prompt = setupPrompt(s);
-  const base = { prompt, url, model };
+  const base = { prompt, url, model: model.trim() || LLM_MODEL_DEFAULT };
   try {
+    // Resolve "local" → real model id from /v1/models (avoids silent hangs)
+    const modelId = await resolveLlmModel(url, model);
     const payload = (withSchema: boolean) => ({
-      model: model.trim() || LLM_MODEL_DEFAULT,
+      model: modelId,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: prompt },
       ],
       temperature: 0,
-      max_tokens: 160,
+      max_tokens: 120,
+      // Prefer plain prompt first — some llama builds HANG on json_schema
+      // instead of returning 400 (was the main cause of 300s "unreachable")
       ...(withSchema
         ? { response_format: { type: "json_schema", json_schema: { name: "verdict", strict: true, schema: VERDICT_SCHEMA } } }
         : {}),
     });
+    // Plain JSON first (fast path). Schema only as optional second try if parse fails.
     let res = await fetch(`${baseOf(url)}/v1/chat/completions`, {
       method: "POST",
       headers: jsonHeaders(),
       signal: AbortSignal.timeout(timeoutMs),
-      body: JSON.stringify(payload(true)),
+      body: JSON.stringify(payload(false)),
     });
-    // older llama-server builds reject json_schema → retry once, prompt-only
-    if (res.status === 400) {
+    if (!res.ok && res.status !== 400) {
+      // keep res for error handling below
+    } else if (res.ok) {
+      // ok — handled below
+    } else {
+      // 400 on plain is rare; still try once more without extras
       res = await fetch(`${baseOf(url)}/v1/chat/completions`, {
         method: "POST",
         headers: jsonHeaders(),

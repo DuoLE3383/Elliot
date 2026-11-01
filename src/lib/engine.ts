@@ -55,7 +55,7 @@ import { autopsyBackfill, autopsyClosedTrade, recentAutopsyLessons } from "./aut
 import { aliasFuturesSymbol, type EngineSettings, type Ticker } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 import { atrLevelsAtEntry } from "./indicators";
-import { llmReview, type LlmVerdict } from "./llm";
+import { llmReview, resolveLlmEndpoint, type LlmVerdict } from "./llm";
 import { fetchKlinesDirect, fetchBoard24h } from "./klines-direct";
 import { XgbPoolNode, xgbPoolAvailable, xgbPoolSize } from "./xgb-pool-node";
 import { labCfgOf, maybeAutoLab } from "./strategy-lab";
@@ -322,7 +322,7 @@ async function closeTradeDirect(
   });
   if (AUTOPSY_ON) {
     const { p } = eng();
-    void autopsyClosedTrade(updated, { url: p.cfg.llmUrl, model: p.cfg.llmModel });
+    void (() => { const ep = resolveLlmEndpoint({ url: p.cfg.llmUrl, model: p.cfg.llmModel }); void autopsyClosedTrade(updated, { url: ep.url, model: ep.model }); })();
   }
   return serialize(updated);
 }
@@ -1005,10 +1005,14 @@ async function llmGate(
     const lessons = AUTOPSY_ON ? await recentAutopsyLessons(row.symbol).catch(() => []) : [];
     if (lessons.length > 0) console.log(`[engine] LLM review ${row.symbol} ${row.interval} — nạp ${lessons.length} bài học autopsy`);
     const failClosed = c.llmFailClosed === true;
-    const timeoutMs = Math.max(10_000, Math.min(600_000, (c.llmTimeoutSec || 300) * 1000));
+    // Cap at 90s by default — user reports reviews finish in ~1 min; 300s only
+    // masked hangs from json_schema / wrong model id.
+    const timeoutMs = Math.max(15_000, Math.min(180_000, (c.llmTimeoutSec || 90) * 1000));
+    // SAME URL resolution as /ai ping — env wins so "Connected" matches review
+    const ep = resolveLlmEndpoint({ url: c.llmUrl, model: c.llmModel });
     const verdict = await llmReview(
-      c.llmUrl,
-      c.llmModel,
+      ep.url,
+      ep.model,
       {
         symbol: row.symbol,
         interval: row.interval,
