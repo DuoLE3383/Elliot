@@ -40,12 +40,15 @@ const SCHEMA_SQL: string[] = [
 // CREATE IF NOT EXISTS không đụng bảng cũ → cột mới phải ALTER TABLE ADD
 // COLUMN. Deploy trên VPS chỉ là git pull + build + pm2 restart (không ai chạy
 // `prisma db push`), nên bootstrap tự chạy các ALTER dưới đây lúc boot.
-// SQLite ADD COLUMN là tức thời với cột nullable — không khoá bảng. Lỗi
-// "duplicate column name" bị nuốt: cột đã có là ĐÚNG như mong đợi.
-const SCHEMA_COLUMNS_SQL: string[] = [
-  `ALTER TABLE "AutoTrade" ADD COLUMN "llmVerdict" TEXT`,
-  `ALTER TABLE "AutoTrade" ADD COLUMN "llmReason" TEXT`,
-  `ALTER TABLE "AutoTrade" ADD COLUMN "autopsy" TEXT`,
+// SQLite ADD COLUMN là tức thời với cột nullable — không khoá bảng.
+// 0.2.31: hỏi `PRAGMA table_info` TRƯỚC để chỉ ALTER cột còn thiếu — cột đã
+// có là đúng như mong đợi, nhưng một ALTER thừa vẫn đủ để Prisma client in
+// `prisma:error … duplicate column name` đỏ chót trong log build/pm2 (logger
+// của client chạy TRƯỚC catch của ta). Không query thất bại ⇒ không log đỏ.
+const SCHEMA_COLUMNS: { table: string; column: string; ddl: string }[] = [
+  { table: "AutoTrade", column: "llmVerdict", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "llmVerdict" TEXT` },
+  { table: "AutoTrade", column: "llmReason", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "llmReason" TEXT` },
+  { table: "AutoTrade", column: "autopsy", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "autopsy" TEXT` },
 ];
 const MODEL_TABLES = ["User", "Post", "Suggestion", "FinetuneRun", "AutoTrade", "BcastVerdict"];
 /** exported for the /api health diagnostic */
@@ -82,11 +85,19 @@ async function runBootstrap(base: PrismaClient): Promise<void> {
     ))?.map((r) => r.name) ?? [],
   );
   for (const stmt of SCHEMA_SQL) await base.$executeRawUnsafe(stmt);
-  // ALTER cho DB cũ — từng câu một, lỗi duplicate column bị nuốt (cột đã có)
+  // ALTER cho DB cũ — chỉ cột THIẾU (đã hỏi PRAGMA trước); catch giữ lại làm
+  // lưới an toàn cho race hiếm (2 process bootstrap cùng lúc)
+  const existingCols = new Map<string, Set<string>>();
+  for (const { table } of SCHEMA_COLUMNS) {
+    if (existingCols.has(table)) continue;
+    const rows = await base.$queryRawUnsafe<{ name: string }[]>(`PRAGMA table_info("${table}")`);
+    existingCols.set(table, new Set((rows ?? []).map((r) => r.name)));
+  }
   let altered = 0;
-  for (const stmt of SCHEMA_COLUMNS_SQL) {
+  for (const { table, column, ddl } of SCHEMA_COLUMNS) {
+    if (existingCols.get(table)?.has(column)) continue;
     try {
-      await base.$executeRawUnsafe(stmt);
+      await base.$executeRawUnsafe(ddl);
       altered += 1;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

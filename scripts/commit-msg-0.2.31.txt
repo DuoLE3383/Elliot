@@ -1,0 +1,56 @@
+0.2.31 — BOOTSTRAP SẠCH LOG: KHÔNG CÒN "prisma:error duplicate column" ĐỎ CHÓT 🧹
+
+Bối cảnh: user deploy 0.2.30 trên VPS, build log hiện 3 dòng đỏ
+  prisma:error  Invalid `prisma.$executeRawUnsafe()` invocation:
+  Raw query failed. Code: `1`. Message: `duplicate column name: llmVerdict/llmReason/autopsy`
+trong pha "Collecting page data". Chức năng KHÔNG hỏng gì — "[db] schema
+bootstrap — ok" vẫn in ngay sau đó — nhưng đỏ chót trong log khiến cứ mỗi
+lần deploy lại phải nhìn lại xem có bug thật không.
+
+═══ 1. NGUYÊN NHÂN: logger của Prisma chạy TRƯỚC catch của ta ═══
+
+0.2.28 thêm 3 ALTER TABLE ADD COLUMN (llmVerdict, llmReason, autopsy) vào
+bootstrap. DB cũ trên VPS thiếu cột → ALTER chạy, thêm đủ → lần deploy SAU
+cột đã có → SQLite trả lỗi "duplicate column name". Code có catch nuốt đúng
+lỗi này (cột đã có là ĐÚNG như mong đợi), NHƯNG client Prisma được tạo với
+log: ['error','warn'] — logger của nó tự in prisma:error vào stdout/stderr
+TRƯỚC KHI promise reject về tới catch. Nuốt trong catch không Thu hồi được
+dòng đỏ đã in.
+
+═══ 2. SỬA TẬN GỐC: hỏi PRAGMA TRƯỚC, chỉ ALTER cột còn thiếu ═══
+
+db.ts — runBootstrap():
+  • SCHEMA_COLUMNS_SQL (mảng string) → SCHEMA_COLUMNS (mảng
+    {table, column, ddl}) để biết từng ALTER nhắm cột nào.
+  • Trước vòng ALTER: PRAGMA table_info("AutoTrade") một lần, gom set tên
+    cột hiện có.
+  • Vòng ALTER: cột đã có → SKIP hẳn, không hề gửi query thất bại xuống
+    SQLite ⇒ logger của Prisma KHÔNG có gì để in. Không query thất bại,
+    không log đỏ — sạch từ nguồn chứ không phải che lỗi.
+  • Catch "duplicate column" GIỮ NGUYÊN làm lưới an toàn cho race hiếm (2
+    process bootstrap cùng lúc, VFS cache lệch) — chỉ là giờ đường thường
+    không còn chạm vào nó.
+
+═══ 3. KIỂM CHỨNG ═══
+
+scripts/test-db-bootstrap.mts mới — chạy bootstrap qua đúng đường của app
+(model op → ensureSchemaQuiet), theo pha trên cùng một file DB:
+  • phase 1     — DB mới tinh: tạo đủ 6 bảng + 3 cột mở rộng (CREATE TABLE
+                  trong SCHEMA_SQL đã chứa sẵn cột nên vòng ALTER skip hết).
+  • prep-old    — dựng DB CŨ kiểu pre-0.2.28 bằng raw client (AutoTrade
+                  thiếu cả 3 cột) mà KHÔNG kích hoạt bootstrap.
+  • phase old   — boot trên DB đó: bootstrap tự ALTER bổ sung ĐỦ 3 cột
+                  (nhánh "thiếu" của nhánh quyết định mới phải còn đúng).
+  • phase 2     — boot LẦN 2 trên DB đã đủ: không còn ALTER thừa.
+  • phase 3     — soi toàn bộ output phase 2 (tee ra file): KHÔNG còn
+                  "prisma:error" lẫn "duplicate column". ✅ PASS.
+Bộ test cũ chạy lại toàn xanh: test-autoflip 31/31, test-calibration 46/46,
+test-db-migrate PASS (bootstrap tự thêm cột trên DB cũ, dữ liệu giữ nguyên),
+test-live-stream 11 pass / 2 skip, các test LLM (factcheck, env-alias,
+ping-detail, apikey, 404-body, real-setup, debug) đều PASS.
+
+═══ 4. SAU DEPLOY ═══
+
+Lần deploy tới sẽ KHÔNG còn 3 dòng đỏ "duplicate column" — thay vào đó chỉ
+khi DB thật thiếu cột mới thấy dòng vàng "added N missing column(s)". Log
+pm2 sạch ⇒ khi có đỏ là có thật, đỡ phải soi từng lần.
