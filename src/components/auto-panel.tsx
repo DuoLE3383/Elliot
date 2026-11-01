@@ -140,7 +140,7 @@ const fmtLeft = (s: number): string => {
 // ─── Telegram builders live in src/lib/tg-msgs (shared with the backend engine)
 
 const TEST_MSG =
-  "✅ <b>Elliott Terminal — kết nối Telegram OK</b>\nAuto trade (dry-run) sẽ báo mở/đóng lệnh, cảnh báo sát TP/SL, kết quả quét và báo cáo thống kê tại kênh này.";
+  "✅ <b>Elliott Terminal — Telegram connected</b>\nDry-run will post opens/closes, near TP/SL alerts, scan digests, and period reports here.";
 
 // hourly / daily digest builders (statLines · msgHourly · msgDaily) now live in
 // src/lib/autotrade.ts and run SERVER-SIDE via /api/autotrade/push — one sender

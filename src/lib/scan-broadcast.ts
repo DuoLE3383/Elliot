@@ -5,12 +5,12 @@
 //   ⏰ 20h34 29/10/2026 │ Lần #6689
 //   📋 Vol≥$7M │ PL1≥5%
 //
-//   ✅ PEPE/USDT 1h │ Điểm: 60.8 (61%) │ BUY ⚡NEW
+//   ✅ PEPE/USDT 1h │ Score: 60.8 (61%) │ BUY ⚡NEW
 //   ────────────────────────────
-//   💰 Giá hiện tại : …
-//   … (Hỗ trợ/KH, Volume 24h, R:R, ATR %, PL1 %, Áp lực mua)
-//   📡 Tín hiệu kỹ thuật: (EMA stack, RSI zone, MACD momentum, áp lực)
-//   💡 Gợi ý giao dịch: (Entry range, SL, TP1, TP2)
+//   💰 Last price : …
+//   … (Support/Res, Volume 24h, R:R, ATR %, PL1 %, Buy pressure)
+//   📡 Technical signals: (EMA stack, RSI zone, MACD momentum, áp lực)
+//   💡 Trade idea: (Entry range, SL, TP1, TP2)
 //
 //   ═════════════════════════════════
 //   📊 Tổng: 2 coins đạt tiêu chí
@@ -165,14 +165,14 @@ function emaStackRead(k: Kline[]): EmaRead {
   const a = e9[i];
   const b = e21[i];
   const c = e50[i];
-  if (a == null || b == null || c == null) return { txt: "EMA chưa đủ dữ liệu", kind: "flat", strong: false };
+  if (a == null || b == null || c == null) return { txt: "EMA insufficient data", kind: "flat", strong: false };
   // &lt;/&gt; entities — this text is embedded in HTML parse_mode messages
   // (raw "<21<50" made Telegram reject the whole message: "Unsupported start tag")
-  if (a > b && b > c) return { txt: "📈 EMA9&gt;21&gt;50 (Uptrend mạnh)", kind: "up", strong: true };
-  if (a < b && b < c) return { txt: "📉 EMA9&lt;21&lt;50 (Downtrend mạnh)", kind: "down", strong: true };
-  if (a > b) return { txt: "📈 EMA9&gt;21 (Uptrend yếu)", kind: "up", strong: false };
-  if (a < b) return { txt: "📉 EMA9&lt;21 (Downtrend yếu)", kind: "down", strong: false };
-  return { txt: "➡️ EMA đi ngang", kind: "flat", strong: false };
+  if (a > b && b > c) return { txt: "📈 EMA9&gt;21&gt;50 (strong uptrend)", kind: "up", strong: true };
+  if (a < b && b < c) return { txt: "📉 EMA9&lt;21&lt;50 (strong downtrend)", kind: "down", strong: true };
+  if (a > b) return { txt: "📈 EMA9&gt;21 (weak uptrend)", kind: "up", strong: false };
+  if (a < b) return { txt: "📉 EMA9&lt;21 (weak downtrend)", kind: "down", strong: false };
+  return { txt: "➡️ EMA flat", kind: "flat", strong: false };
 }
 
 export interface MacdRead {
@@ -188,21 +188,21 @@ function macdRead(k: Kline[]): MacdRead {
   const i = k.length - 2;
   const h = hist[i];
   const hp = hist[i - 1];
-  if (h == null) return { txt: "MACD chưa đủ dữ liệu", dir: "flat", rising: false };
+  if (h == null) return { txt: "MACD insufficient data", dir: "flat", rising: false };
   const rising = hp != null && Math.abs(h) > Math.abs(hp);
-  if (h > 0) return { txt: `MACD ↑ Momentum Buy ${rising ? "mạnh dần" : "yếu dần"}`, dir: "buy", rising };
-  if (h < 0) return { txt: `MACD ↓ Momentum Sell ${rising ? "mạnh dần" : "yếu dần"}`, dir: "sell", rising };
-  return { txt: "MACD trung tính", dir: "flat", rising: false };
+  if (h > 0) return { txt: `MACD ↑ Momentum Buy ${rising ? "rising" : "fading"}`, dir: "buy", rising };
+  if (h < 0) return { txt: `MACD ↓ Momentum Sell ${rising ? "rising" : "fading"}`, dir: "sell", rising };
+  return { txt: "MACD neutral", dir: "flat", rising: false };
 }
 
 // passesCoherence — moved to bcast-gate.ts (re-exported above)
 
 function rsiZoneTxt(v: number): string {
-  if (v <= 30) return `${v.toFixed(0)} (quá bán — rẻ)`;
-  if (v < 45) return `${v.toFixed(0)} (vùng lý tưởng Buy)`;
-  if (v <= 55) return `${v.toFixed(0)} (trung tính)`;
-  if (v < 70) return `${v.toFixed(0)} (vùng lý tưởng Sell)`;
-  return `${v.toFixed(0)} (quá mua — cẩn trọng)`;
+  if (v <= 30) return `${v.toFixed(0)} (oversold)`;
+  if (v < 45) return `${v.toFixed(0)} (buy zone)`;
+  if (v <= 55) return `${v.toFixed(0)} (neutral)`;
+  if (v < 70) return `${v.toFixed(0)} (sell zone)`;
+  return `${v.toFixed(0)} (overbought)`;
 }
 
 /** 24h quote volume, its ratio to the 10-day mean, and taker-buy pressure. */
@@ -243,10 +243,10 @@ function srLevels(k: Kline[]): { support: number; resistance: number } {
 }
 
 function pressureLine(p: number): string | null {
-  if (p >= 70) return `💪 Áp lực mua mạnh ${p.toFixed(1)}%`;
-  if (p >= 60) return `💪 Áp lực mua vừa ${p.toFixed(1)}%`;
-  if (p <= 30) return `💪 Áp lực bán mạnh ${(100 - p).toFixed(1)}%`;
-  if (p <= 40) return `💪 Áp lực bán vừa ${(100 - p).toFixed(1)}%`;
+  if (p >= 70) return `💪 Strong buy pressure ${p.toFixed(1)}%`;
+  if (p >= 60) return `💪 Moderate buy pressure ${p.toFixed(1)}%`;
+  if (p <= 30) return `💪 Strong sell pressure ${(100 - p).toFixed(1)}%`;
+  if (p <= 40) return `💪 Moderate sell pressure ${(100 - p).toFixed(1)}%`;
   return null; // neutral — the reference template omits it too
 }
 
@@ -305,16 +305,16 @@ function coinBlock(c: CoinTech): string[] {
   const rr = row.slPct > 0 ? row.tpPct / row.slPct : 0;
   const lines = [
      HR_LINE,
-    `${sideTag(row.bias)} <b>${row.symbol}</b> ${row.interval} │ Điểm: <b>${row.score.toFixed(2)}</b> (${Math.round(row.score)}%) │ ${c.isNew ? " ⚡ NEW" : ""}\n`,
-    `💰 Giá hiện tại : <b>$${fmtPrice(c.price)}</b>`,
-    `📈 Hỗ trợ/KH    : $${fmtPrice(c.support)} / $${fmtPrice(c.resistance)}`,
+    `${sideTag(row.bias)} <b>${row.symbol}</b> ${row.interval} │ Score: <b>${row.score.toFixed(2)}</b> (${Math.round(row.score)}%) │ ${c.isNew ? " ⚡ NEW" : ""}\n`,
+    `💰 Last price : <b>$${fmtPrice(c.price)}</b>`,
+    `📈 Support/Res    : $${fmtPrice(c.support)} / $${fmtPrice(c.resistance)}`,
     `📊 Volume 24h   : $${(c.vol24h / 1e6).toFixed(0)}M (${c.volRatio.toFixed(2)}x TB)`,
     `⚖️ Risk:Reward  : 1:${rr.toFixed(2)}`,
     `🌊 ATR %        : ${c.atrPct.toFixed(2)}%`,
     `🎯 PL1 %        : ${row.tpPct.toFixed(2)}%`,
-    `💪 Áp lực mua   : ${c.buyPressure.toFixed(2)}%`,
+    `💪 Buy pressure   : ${c.buyPressure.toFixed(2)}%`,
     "",
-    `📡 <b>Tín hiệu kỹ thuật:</b>`,
+    `📡 <b>Technical signals:</b>`,
     `  • ${c.ema.txt}`,
     `  • RSI=${c.rsiTxt}`,
     `  • ${c.macd.txt}`,
@@ -323,12 +323,12 @@ function coinBlock(c: CoinTech): string[] {
   if (pLine) lines.push(`  • ${pLine}`);
   lines.push(
     "",
-    `💡 <b>Gợi ý giao dịch:</b>`,
+    `💡 <b>Trade idea:</b>`,
     `  🎯 Entry (${sideWord(row.bias)}): $${fmtPrice(entryLo)} - $${fmtPrice(entryHi)}`,
     `  🛡️ SL: $${fmtPrice(slPrice)} (${long ? "-" : "+"}${row.slPct.toFixed(1)}%)`,
     `  🏆 TP1: $${fmtPrice(tp1Price)} (${long ? "+" : "-"}${row.tpPct.toFixed(1)}%)`,
     `  🏆 TP2: $${fmtPrice(tp2Price)} (${tp2Label})`,
-    `<i>Đây không phải lời khuyên đầu tư. Hãy tự chịu trách nhiệm với quyết định của mình.</i>`,
+    `<i>Not investment advice. You are solely responsible for your decisions.</i>`,
   );
   return lines;
 }
@@ -604,7 +604,7 @@ export async function buildScanTop10Message(
   if (pulse) out.push(pulse);
   out.push(
     `⏱ Tin tổng hợp 8 giờ/lần · chỉ gửi khi CÓ combo đạt cổng · engine quét + chấm cổng mỗi 5 phút (panel web)`,
-    `<i>Đây không phải lời khuyên đầu tư. Hãy tự chịu trách nhiệm với quyết định của mình.</i>`,
+    `<i>Not investment advice. You are solely responsible for your decisions.</i>`,
   );
   return { text: out.join("\n"), picked: enriched.map((c) => c.row), verdicts };
 }

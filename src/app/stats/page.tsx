@@ -15,7 +15,7 @@
 // chọn — trình duyệt chỉ render. 0.2.38: chọn “Tất cả cặp” → journal GỘP 11
 // cặp tiêu chuẩn tính qua /api/journal (kèm bảng con theo từng cặp); phân tích
 // sâu vẫn theo từng cặp nên khi ALL card đó hiện ghi chú hướng dẫn.
-// Nút "Phân tích nguyên nhân gốc" trên /ai vẫn gửi CÙNG snapshot server vào LLM.
+// Nút "Root-cause dive" trên /ai vẫn gửi CÙNG snapshot server vào LLM.
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -271,7 +271,7 @@ export default function StatsPage() {
           {t(lang, "stats.summary", counts)}
           {" · "}
           <Link href="/ai" className="underline decoration-dotted hover:text-zinc-400">
-            /ai → Phân tích nguyên nhân gốc (LLM)
+            /ai → Root-cause dive (LLM)
           </Link>
         </p>
 
@@ -352,7 +352,7 @@ export default function StatsPage() {
                     <Metric k="UT-Bot signals" v={journal.basis} />
                   </div>
                 ) : (
-                  <p className="text-xs text-zinc-500">— {clientBusy ? "…" : "không tải được nến"}</p>
+                  <p className="text-xs text-zinc-500">— {clientBusy ? "…" : "failed to load candles"}</p>
                 )}
 
                 {/* bảng con theo cặp — chỉ khi chọn “Tất cả cặp” */}
@@ -427,7 +427,7 @@ export default function StatsPage() {
                     <Metric k="Swing range" v={analysis.rangeLow != null && analysis.rangeHigh != null ? `${fmtPrice(analysis.rangeLow)} – ${fmtPrice(analysis.rangeHigh)}` : "—"} />
                   </div>
                 ) : (
-                  <p className="text-xs text-zinc-500">— {clientBusy ? "…" : "không tải được nến"}</p>
+                  <p className="text-xs text-zinc-500">— {clientBusy ? "…" : "failed to load candles"}</p>
                 )}
                 <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 p-2.5">
                   <p className="text-[11px] leading-relaxed text-zinc-400">
@@ -438,7 +438,7 @@ export default function StatsPage() {
                     <span className="font-semibold text-zinc-300">⚖️ {t(lang, "stats.consist")}: </span>
                     <FlaskConical className="mr-1 inline h-3 w-3" />
                     {lang === "vi"
-                      ? "Cùng một hàm analyze() đang vẽ panel Phân tích sâu trên trang chính — nhất quán theo cấu trúc (cùng nguồn nến, cùng công thức)."
+                      ? "Same analyze() used on the main Deep analysis panel — identical candle source and formulas."
                       : "The same analyze() powering the main page's Deep analysis panel — consistent by construction (same candles, same formulas)."}
                   </p>
                 </div>

@@ -174,8 +174,8 @@ export function SessionsPanel({
             nx == null
               ? ""
               : nx.inMin >= 60
-                ? `${Math.floor(nx.inMin / 60)}h${nx.inMin % 60 ? ` ${nx.inMin % 60}p` : ""}`
-                : `${nx.inMin}p`;
+                ? `${Math.floor(nx.inMin / 60)}h${nx.inMin % 60 ? ` ${nx.inMin % 60}m` : ""}`
+                : `${nx.inMin}m`;
           return (
             <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5">
               <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
@@ -251,8 +251,8 @@ export function SessionsPanel({
               nx == null
                 ? ""
                 : nx.inMin >= 60
-                  ? `mở sau ${Math.floor(nx.inMin / 60)}h${nx.inMin % 60 ? ` ${nx.inMin % 60}p` : ""}`
-                  : `mở sau ${nx.inMin}p`;
+                  ? t(lang, "sess.in", { t: `${Math.floor(nx.inMin / 60)}h${nx.inMin % 60 ? ` ${nx.inMin % 60}m` : ""}` })
+                  : t(lang, "sess.in", { t: `${nx.inMin}m` });
             const ext = dowExtremes(cycles);
             return (
               <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5">

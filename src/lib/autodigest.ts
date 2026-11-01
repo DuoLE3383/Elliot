@@ -66,7 +66,7 @@ export async function pushAutoDigests(body: { hourly?: boolean; daily?: boolean;
       const st = await readAutoState();
       const label = at({ hour: "2-digit", minute: "2-digit", hour12: false });
       const r = await tgSendMessage(
-        statLines(st, nowMs - 86_400_000, `📊 <b>AUTO THỐNG KÊ · ${label}</b>`, "24 giờ qua").join("\n"),
+        statLines(st, nowMs - 86_400_000, `📊 <b>AUTO STATS · ${label}</b>`, "last 24h").join("\n"),
         "HTML",
       );
       if (r.ok) out.push("force");
@@ -81,7 +81,7 @@ export async function pushAutoDigests(body: { hourly?: boolean; daily?: boolean;
       const hh = at({ hour: "2-digit", hour12: false });
       writeMarkers({ ...readMarkers(), lastHour: hourKey });
       const r = await tgSendMessage(
-        statLines(st, nowMs - 3_600_000, `⏰ <b>BÁO CÁO GIỜ · ${hh}:00</b>`, "1 giờ qua").join("\n"),
+        statLines(st, nowMs - 3_600_000, `⏰ <b>HOURLY REPORT · ${hh}:00</b>`, "last 1h").join("\n"),
         "HTML",
       );
       if (r.ok) out.push("hourly");
@@ -97,7 +97,7 @@ export async function pushAutoDigests(body: { hourly?: boolean; daily?: boolean;
       const dd = at({ day: "2-digit", month: "2-digit" });
       writeMarkers({ ...readMarkers(), lastDay: dayKey });
       const r = await tgSendMessage(
-        statLines(st, nowMs - 86_400_000, `📅 <b>BÁO CÁO NGÀY · ${dd}</b>`, "24 giờ qua").join("\n"),
+        statLines(st, nowMs - 86_400_000, `📅 <b>DAILY REPORT · ${dd}</b>`, "last 24h").join("\n"),
         "HTML",
       );
       if (r.ok) out.push("daily");

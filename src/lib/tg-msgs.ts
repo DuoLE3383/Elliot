@@ -19,9 +19,9 @@ const sideTxt = (side: string): string => (side === "LONG" ? "LONG 🟢" : side 
 const probTxt = (side: string, prob: number): string => {
   const p = side === "SHORT" ? 1 - prob : prob;
   return side === "LONG"
-    ? `Prob ${(p * 100).toFixed(1)}% theo phía LONG 🟢`
+    ? `Prob ${(p * 100).toFixed(1)}% toward LONG 🟢`
     : side === "SHORT"
-      ? `Prob ${(p * 100).toFixed(1)}% theo phía SHORT 🔴`
+      ? `Prob ${(p * 100).toFixed(1)}% toward SHORT 🔴`
       : `Prob ${(p * 100).toFixed(1)}%`;
 };
 
@@ -43,8 +43,8 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string): stri
     `📌 <b>#${r.symbol}</b> · ${r.interval}`,
     HR,
     `🎯 Entry: <b>${fmtPrice(r.entryPrice)}</b>`,
-    `🛑 SL: <b>${fmtPrice(slPrice(r.side, r.entryPrice, r.slPct))}</b> · −${r.slPct.toFixed(1)}% giá (ROE ${slRoe.toFixed(1)}% @ ${levTxt(r.leverage)})`,
-    `🏁 TP: <b>${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(1)}% giá (ROE +${tpRoe.toFixed(1)}% @ ${levTxt(r.leverage)})`,
+    `🛑 SL: <b>${fmtPrice(slPrice(r.side, r.entryPrice, r.slPct))}</b> · −${r.slPct.toFixed(1)}% price (ROE ${slRoe.toFixed(1)}% @ ${levTxt(r.leverage)})`,
+    `🏁 TP: <b>${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(1)}% price (ROE +${tpRoe.toFixed(1)}% @ ${levTxt(r.leverage)})`,
   ];
   if (atrNote) lines.push(atrNote);
   lines.push(
@@ -56,7 +56,7 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string): stri
 };
 
 const kindTag = (k: string | null): string =>
-  k === "tp" ? "TAKE PROFIT ✅" : k === "sl" ? "STOP LOSS 🔻" : k === "flip" ? "LẬT CHIỀU 🔄" : "ĐÓNG THỦ CÔNG ✋";
+  k === "tp" ? "TAKE PROFIT ✅" : k === "sl" ? "STOP LOSS 🔻" : k === "flip" ? "FLIP 🔄" : "MANUAL CLOSE ✋";
 
 export const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPnlPct: number): string =>
   [
@@ -66,7 +66,7 @@ export const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPn
     `🎯 Entry ${fmtPrice(r.entryPrice)} → 🚪 Exit <b>${fmtPrice(r.exitPrice ?? 0)}</b>`,
     `💵 PnL (ROE): <b>${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}%</b>`,
     `💰 Equity: ${(r.capitalBefore ?? 0).toFixed(2)} → <b>${(r.capitalAfter ?? 0).toFixed(2)}</b> USDT`,
-    `📈 Track record: ${closed} lệnh · Win rate ${winRate.toFixed(0)}% · Net ROE ${netPnlPct >= 0 ? "+" : ""}${netPnlPct.toFixed(1)}%`,
+    `📈 Track record: ${closed} trades · Win rate ${winRate.toFixed(0)}% · Net ROE ${netPnlPct >= 0 ? "+" : ""}${netPnlPct.toFixed(1)}%`,
   ].join("\n");
 
 export const msgNear = (r: AutoTradeRow, price: number, kind: "tp" | "sl"): string => {
@@ -74,11 +74,11 @@ export const msgNear = (r: AutoTradeRow, price: number, kind: "tp" | "sl"): stri
   const awayPct = price > 0 ? Math.abs((target - price) / price) * 100 : 0;
   const roe = roeOf(r.side, r.entryPrice, price, r.leverage);
   return [
-    kind === "tp" ? "⚠️ <b>GIÁ SÁT TAKE PROFIT — SẴN SÀNG CHỐT LỜI</b>" : "⚠️ <b>GIÁ SÁT STOP LOSS — THEO DÕI RỦI RO</b>",
+    kind === "tp" ? "⚠️ <b>NEAR TAKE PROFIT — READY TO LOCK GAINS</b>" : "⚠️ <b>NEAR STOP LOSS — RISK WATCH</b>",
     `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
     HR,
-    `${kind === "tp" ? "🏁" : "🛑"} ${kind === "tp" ? "Take Profit" : "Stop Loss"} ${fmtPrice(target)} · còn <b>${awayPct.toFixed(2)}%</b>`,
-    `📈 Giá ${fmtPrice(price)} · ROE <b>${roe >= 0 ? "+" : ""}${roe.toFixed(1)}%</b> · Lev ${levTxt(r.leverage)}`,
+    `${kind === "tp" ? "🏁" : "🛑"} ${kind === "tp" ? "Take Profit" : "Stop Loss"} ${fmtPrice(target)} · <b>${awayPct.toFixed(2)}%</b> away`,
+    `📈 Price ${fmtPrice(price)} · ROE <b>${roe >= 0 ? "+" : ""}${roe.toFixed(1)}%</b> · Lev ${levTxt(r.leverage)}`,
   ].join("\n");
 };
 
@@ -104,23 +104,23 @@ export const msgDca = (
   const roe = roeOf(r.side, r.entryPrice, dcaPrice, r.leverage);
   const movedPct = prevEntry > 0 ? Math.abs((dcaPrice - prevEntry) / prevEntry) * 100 : 0;
   return [
-    `🤖 <b>AUTO DCA (dry-run) · bù lệnh lần ${add}/${max}${trigger === "cross" ? " · ngay tại SL" : ""}</b>`,
+    `🤖 <b>AUTO DCA (dry-run) · add ${add}/${max}${trigger === "cross" ? " · at SL" : ""}</b>`,
     `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
     HR,
-    `🎯 Entry ${fmtPrice(prevEntry)} → thêm <b>${fmtPrice(dcaPrice)}</b> (${movedPct.toFixed(2)}% giá)`,
-    `📊 Entry bình quân mới: <b>${fmtPrice(r.entryPrice)}</b>`,
-    `🛑 SL mới: <b>${fmtPrice(slPrice(r.side, r.entryPrice, r.slPct))}</b> · −${r.slPct.toFixed(1)}% giá từ avg`,
-    `🏁 TP mới: <b>${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(1)}% giá từ avg`,
+    `🎯 Entry ${fmtPrice(prevEntry)} → add <b>${fmtPrice(dcaPrice)}</b> (${movedPct.toFixed(2)}% price)`,
+    `📊 New average entry: <b>${fmtPrice(r.entryPrice)}</b>`,
+    `🛑 New SL: <b>${fmtPrice(slPrice(r.side, r.entryPrice, r.slPct))}</b> · −${r.slPct.toFixed(1)}% from avg`,
+    `🏁 New TP: <b>${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(1)}% from avg`,
     `📦 Stake: <b>${stake.toFixed(2)}</b> USDT · ${r.stakePct ?? 100}% equity · Notional ${notional.toFixed(2)} USDT`,
-    `📈 ROE tại giá DCA: ${roe >= 0 ? "+" : ""}${roe.toFixed(1)}% @ ${levTxt(r.leverage)}`,
-    `🧠 Model vẫn xác nhận · ${probTxt(r.side, confirm.prob)} · AUC ${confirm.auc.toFixed(2)} · ACC ${confirm.acc.toFixed(1)}%`,
+    `📈 ROE at DCA price: ${roe >= 0 ? "+" : ""}${roe.toFixed(1)}% @ ${levTxt(r.leverage)}`,
+    `🧠 Model still confirms · ${probTxt(r.side, confirm.prob)} · AUC ${confirm.auc.toFixed(2)} · ACC ${confirm.acc.toFixed(1)}%`,
   ].join("\n");
 };
 
 /** LLM veto notice — the pending entry was reviewed and rejected by the local model */
 export const msgLlmVeto = (r: ScanRow, v: LlmVerdict): string =>
   [
-    `🛑 <b>LLM VETO — setup bị chặn trước khi vào lệnh</b>`,
+    `🛑 <b>LLM VETO — setup blocked before entry</b>`,
     `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.bias)}`,
     HR,
     `🧠 ${probTxt(r.bias, r.prob)} · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(1)}% · Score ${r.score.toFixed(1)}`,
@@ -137,12 +137,12 @@ export const msgAutopsy = (
   a: { outcome: string; tag: string; why: string[]; lesson: string; ev?: { rMultiple?: number; durMin?: number; mfePct?: number; maePct?: number }; ms?: number; model?: string },
 ): string =>
   [
-    `🔬 <b>GIẢI PHẪU LỆNH · ${a.outcome === "win" ? "THẮNG ✅" : "THUA 🔻"}</b>`,
+    `🔬 <b>TRADE AUTOPSY · ${a.outcome === "win" ? "THẮNG ✅" : "THUA 🔻"}</b>`,
     `📌 <b>#${t.symbol}</b> · ${t.interval} · ${sideTxt(t.side)} · ${kindTag(t.exitKind ?? null)}`,
     HR,
-    `💵 Kết quả: <b>${(t.pnlPct ?? 0) >= 0 ? "+" : ""}${(t.pnlPct ?? 0).toFixed(2)}% ROE</b>${a.ev?.rMultiple != null ? ` · R ${a.ev.rMultiple >= 0 ? "+" : ""}${a.ev.rMultiple.toFixed(2)}x` : ""}${a.ev?.durMin != null ? ` · giữ ${a.ev.durMin.toFixed(0)}p` : ""}`,
+    `💵 Result: <b>${(t.pnlPct ?? 0) >= 0 ? "+" : ""}${(t.pnlPct ?? 0).toFixed(2)}% ROE</b>${a.ev?.rMultiple != null ? ` · R ${a.ev.rMultiple >= 0 ? "+" : ""}${a.ev.rMultiple.toFixed(2)}x` : ""}${a.ev?.durMin != null ? ` · held ${a.ev.durMin.toFixed(0)}m` : ""}`,
     `🏷️ tag: <b>${escHtml(a.tag)}</b>`,
     ...(a.why.length > 0 ? [`📝 ${a.why.map((w) => escHtml(w)).join("<br/>• ")}`] : []),
-    `💡 <b>Bài học:</b> ${escHtml(a.lesson)}`,
-    `🧠 ${escHtml(a.model ?? "llm")}${a.ms ? ` · ${(a.ms / 1000).toFixed(1)}s` : ""} — bài học sẽ được nạp vào lần duyệt lệnh sau của cặp này`,
+    `💡 <b>Lesson:</b> ${escHtml(a.lesson)}`,
+    `🧠 ${escHtml(a.model ?? "llm")}${a.ms ? ` · ${(a.ms / 1000).toFixed(1)}s` : ""} — lesson feeds the next review for this pair`,
   ].join("\n");

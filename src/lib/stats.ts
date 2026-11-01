@@ -3,9 +3,9 @@
 //   • trang /stats  — mỗi section kèm 3 dòng kiểm toán:
 //       CƠ SỞ LOGIC (số liệu từ đâu, công thức nào) — do server gắn nhãn;
 //       NHẤT QUÁN (state ok/warn/na + note — các kiểm chéo CHẠY THẬT: đối chiếu
-//       hai đường tính độc lập, tìm mẫu lệch outcome, lệnh treo, scan stale);
+//       hai đường tính độc lập, tìm mẫu lệch outcome, trades treo, scan stale);
 //       CHUẨN XÁC ~% (Wilson 95% cận dưới cho mọi win-rate — thống kê trung thực
-//       với mẫu nhỏ thay vì "60% trên 5 lệnh" nghe oai hơn thực tế).
+//       với mẫu nhỏ thay vì "60% on 5 trades" nghe oai hơn thực tế).
 //   • /api/llm/stats-dive — chính snapshot JSON này được nhét vào prompt để
 //     LLM đối chiếu và chỉ ra điểm yếu. LLM KHÔNG được bịa: prompt cấm dùng
 //     số ngoài JSON.
@@ -21,9 +21,9 @@ import { SESSIONS, sessionOf, sessionOverlap, type SessionKey } from "@/lib/mark
 import { UNIVERSE } from "@/lib/universe";
 
 // ─── Wilson 95% lower bound — độ tin cậy cận dưới của một tỉ lệ ─────────────
-// win-rate 60% trên 5 lệnh có cận dưới ~14.5% — số "chuẩn xác tối thiểu" ta
-// có thể TIN; trên 100 lệnh cận dưới ~50.4%. Đây là cách trả lời trung thực
-// cho câu "đã chuẩn xác được bao nhiêu %": không phải độ chính xác của phép
+// win-rate 60% on 5 trades có cận dưới ~14.5% — số "minimum confidence floor" ta
+// có thể TIN; trên 100 trades cận dưới ~50.4%. Đây là cách trả lời trung thực
+// cho câu "how confident is this rate": not computational accuracy of the
 // tính (phép tính luôn đúng 100%), mà là ĐỘ TIN CẬY của con số khi làm căn cứ.
 export function wilsonLB(wins: number, n: number, z = 1.96): number {
   if (n <= 0) return 0;
@@ -57,7 +57,7 @@ export interface StatsSnapshot {
 
 const min = (ms: number): number => Math.round(ms / 60_000);
 const ago = (ts: number | null | undefined): string =>
-  ts ? `${min(Date.now() - ts)} phút trước` : "chưa có";
+  ts ? `${min(Date.now() - ts)}m ago` : "none";
 
 const SESSION_VI: Record<SessionKey, string> = {
   sydney: "Sydney",
@@ -74,9 +74,9 @@ async function safe(key: string, fn: () => Promise<Omit<StatSection, "key">>): P
     return {
       key,
       state: "na",
-      note: `Không tổng hợp được: ${e instanceof Error ? e.message : String(e)}`,
+      note: `Aggregation failed: ${e instanceof Error ? e.message : String(e)}`,
       accPct: 0,
-      accNote: "không có dữ liệu",
+      accNote: "no data",
       metrics: [],
     };
   }
@@ -104,14 +104,14 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     }
     return {
       state: "ok" as StatState,
-      note: "Phiên là HẰNG SỐ cấu hình (khung giờ UTC cố định) — đúng hệ quy chiếu mà model nhận qua one-hot phiên (sessionOneHot) khi train. Không có gì kiểm chéo động được vì nó là định nghĩa.",
+      note: "Sessions are fixed UTC hour ranges — same frame the model gets via sessionOneHot at train time. No dynamic cross-check (definition only).",
       accPct: 100,
-      accNote: "số mô tả cấu hình — đúng 100% theo định nghĩa market.ts",
+      accNote: "config metrics — 100% from market.ts definitions",
       metrics: [
-        { k: "Đang mở", v: active.length ? active.map((s) => SESSION_VI[s]).join(" + ") : "nghỉ giữa phiên", sub: `overlap ${Math.round(ov * 100)}%` },
-        { k: "Phiên kế tiếp", v: `${SESSION_VI[nextKey]} sau ${nextIn}h` },
-        { k: "Khung giờ (UTC)", v: SESSIONS.map((s) => `${SESSION_VI[s.key]} ${s.from}–${s.to}h`).join(" · ") },
-        { k: "Đặc tính", v: "London + New York chồng nhau 12–16h UTC = thanh khoản đỉnh" },
+        { k: "Open now", v: active.length ? active.map((s) => SESSION_VI[s]).join(" + ") : "between sessions", sub: `overlap ${Math.round(ov * 100)}%` },
+        { k: "Next session", v: `${SESSION_VI[nextKey]} sau ${nextIn}h` },
+        { k: "Hours (UTC)", v: SESSIONS.map((s) => `${SESSION_VI[s.key]} ${s.from}–${s.to}h`).join(" · ") },
+        { k: "Notes", v: "London + New York overlap 12–16h UTC = peak liquidity" },
       ],
     };
   });
@@ -132,17 +132,17 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     return {
       state: (match ? "ok" : "warn") as StatState,
       note: match
-        ? "Hai đường tính độc lập (query count thắng trực tiếp vs comboStats cộng theo combo) ra CÙNG một số — nhất quán với logic 'win = ROE > 0' của autotrade.comboStats."
-        : `Lệch số: count()=${winsByCount} nhưng cộng tay=${wins} — có bản ghi pnlPct null/âm dương bất thường, cần rà soát.`,
+        ? "Two independent paths (direct win count vs comboStats sum) match — consistent with win = ROE > 0 in autotrade.comboStats."
+        : `Count mismatch: count()=${winsByCount} vs sum=${wins} — check null/odd pnlPct rows.`,
       accPct: wilsonLB(wins, closed),
-      accNote: `Wilson 95% cận dưới trên ${closed} lệnh đóng — con số win-rate xấu nhất vẫn đáng tin`,
+      accNote: `Wilson 95% lower bound on ${closed} closed trades — worst-case WR still credible`,
       metrics: [
-        { k: "Lệnh đã đóng", v: String(closed), sub: `${wins} thắng` },
-        { k: "Combo có dữ liệu", v: String(comboStats(rows).length) },
+        { k: "Closed trades", v: String(closed), sub: `${wins} wins` },
+        { k: "Combos with data", v: String(comboStats(rows).length) },
         ...combos.map((c) => ({
           k: `${c.symbol.replace("USDT", "")} ${c.interval}`,
           v: `${c.winRate.toFixed(0)}%`,
-          sub: `${c.closed} lệnh · net ${c.netPnlPct >= 0 ? "+" : ""}${c.netPnlPct.toFixed(1)}%`,
+          sub: `${c.closed} trades · net ${c.netPnlPct >= 0 ? "+" : ""}${c.netPnlPct.toFixed(1)}%`,
         })),
       ],
     };
@@ -158,22 +158,22 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     return {
       state: (stale ? "warn" : "ok") as StatState,
       note: stale
-        ? "Lần re-rank gần nhất đã quá chu kỳ 8h (+1h dung sai) — scheduler universe có thể chưa chạy/đang chạy, panel đang hiển thị dữ liệu cũ (đúng thiết kế: stale hiển thị, không trade theo)."
-        : "Snapshot universe mới hơn chu kỳ re-rank 8h — nhất quán với scheduler (UNIVERSE_SCAN_MS). Công thức điểm: 60% trend (EMA20/50 spread + vị trí Donchian 20 nến) + 40% ATR% bão hoà ở 5%, chấm trên 240 nến 1h (~10 ngày) nến ĐÃ ĐÓNG.",
+        ? "Last re-rank older than 8h (+1h tolerance) — universe job may be idle; panel shows last snapshot by design (display only, not traded)."
+        : "Universe snapshot within 8h re-rank window — consistent with scheduler (UNIVERSE_SCAN_MS). Score = 60% trend (EMA20/50 spread + 20-bar Donchian position) + 40% ATR% (caps at 5%), over 240 closed 1h bars (~10 days).",
       accPct: 100,
-      accNote: "số mô tả trạng thái xếp hạng — đúng công thức universe.ts 100%",
+      accNote: "ranking metrics — 100% from universe.ts formula",
       metrics: [
-        { k: "Danh mục quét", v: `${UNIVERSE.length} cặp`, sub: "11 cặp trụ cột luôn dẫn đầu" },
-        { k: "Top công bố", v: `${rows.length} cặp`, sub: u ? `chấm ${ago(u.at)}` : "chưa có snapshot" },
+        { k: "Universe pool", v: `${UNIVERSE.length} pairs`, sub: "11 staple pairs always included" },
+        { k: "Published top", v: `${rows.length} pairs`, sub: u ? `scored ${ago(u.at)}` : "no snapshot yet" },
         ...(top
           ? [{
-              k: "Đầu bảng",
+              k: "Top ranked",
               v: top.symbol.replace("USDT", ""),
               sub: `score ${top.score.toFixed(2)} · ATR ${top.atrPct.toFixed(2)}% · trend ${(top.trend * 100).toFixed(0)}% · 10d ${(top.ret10d * 100).toFixed(1)}%`,
             }]
           : []),
-        { k: "Đang uptrend", v: `${rows.filter((r) => r.trend > 0).length}/${rows.length}` },
-        { k: "Cửa sổ chấm", v: `${UNIVERSE_LOOKBACK_CANDLES} nến 1h (~10 ngày)` },
+        { k: "Uptrend count", v: `${rows.filter((r) => r.trend > 0).length}/${rows.length}` },
+        { k: "Scoring window", v: `${UNIVERSE_LOOKBACK_CANDLES} 1h bars (~10 days)` },
       ],
     };
   });
@@ -182,8 +182,8 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
   const auto = await safe("auto", async () => {
     const st = await readAutoState();
     const newestClosed = st.trades.find((t) => t.status === "closed") ?? null;
-    // kiểm chéo sổ vốn: lệnh đang mở phải có capitalBefore == capitalAfter của
-    // lệnh đóng mới nhất (engine ghi 2 số này ở 2 thời điểm khác nhau — lệch
+    // kiểm chéo sổ vốn: trades đang mở phải có capitalBefore == capitalAfter của
+    // closed trades mới nhất (engine ghi 2 số này ở 2 thời điểm khác nhau — lệch
     // ⇒ có đóng/mở chen ngang hoặc dữ liệu tay đụng vào)
     const chainOk =
       !st.open ||
@@ -194,16 +194,16 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     return {
       state: (chainOk ? "ok" : "warn") as StatState,
       note: chainOk
-        ? "Sổ vốn khớp: capitalBefore của lệnh đang mở == capitalAfter của lệnh đóng mới nhất — đúng luồng closeTradeDirect (capitalAfter chốt trước khi mở lệnh kế). Dry-run là THUẦN GIẤY: không có lệnh thật, mọi lệnh đều AutoTrade DB."
-        : "Sổ vốn LỆCH: capitalBefore lệnh mở ≠ capitalAfter lệnh đóng mới nhất — kiểm tra xem có ai đóng lệnh tay/PATCH giữa chừng hay không.",
+        ? "Equity chain OK: open.capitalBefore == lastClosed.capitalAfter — matches closeTradeDirect. Paper dry-run only (AutoTrade DB)."
+        : "Equity chain MISMATCH: open.capitalBefore ≠ lastClosed.capitalAfter — check for a manual close or PATCH in between.",
       accPct: st.stats.closed > 0 ? wilsonLB(st.stats.wins, st.stats.closed) : 0,
-      accNote: st.stats.closed > 0 ? `Wilson 95% cận dưới trên ${st.stats.closed} lệnh` : "chưa có lệnh đóng nào",
+      accNote: st.stats.closed > 0 ? `Wilson 95% lower bound on ${st.stats.closed} trades` : "no closed trades yet",
       metrics: [
-        { k: "Chế độ", v: cfg.on ? "Auto ON" : "Auto OFF", sub: "luôn dry-run (giấy)" },
-        { k: "Vốn hiện tại", v: st.capital != null ? `$${st.capital.toFixed(2)}` : "—", sub: "khởi điểm $1000" },
-        { k: "Đã đóng / thắng", v: `${st.stats.closed} / ${st.stats.wins}`, sub: `win-rate ${st.stats.winRate.toFixed(0)}%` },
-        { k: "Net ROE cộng", v: `${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(2)}%` },
-        { k: "Kinh nghiệm nạp model", v: `${st.stats.closed * LESSON_WEIGHT} mẫu`, sub: `${st.stats.closed} lệnh × LESSON_WEIGHT ${LESSON_WEIGHT}` },
+        { k: "Mode", v: cfg.on ? "Auto ON" : "Auto OFF", sub: "paper dry-run only" },
+        { k: "Equity", v: st.capital != null ? `$${st.capital.toFixed(2)}` : "—", sub: "start $1000" },
+        { k: "Closed / wins", v: `${st.stats.closed} / ${st.stats.wins}`, sub: `win rate ${st.stats.winRate.toFixed(0)}%` },
+        { k: "Net ROE sum", v: `${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(2)}%` },
+        { k: "Lesson samples", v: `${st.stats.closed * LESSON_WEIGHT}`, sub: `${st.stats.closed} trades × LESSON_WEIGHT ${LESSON_WEIGHT}` },
       ],
     };
   });
@@ -215,7 +215,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     const age = scan ? min(now - scan.at) : null;
     const stale = !scan || age == null || age > SCAN_TTL / 60_000;
     // đúng bộ lọc ứng viên của auto-cycle: isTradeable + không regressed +
-    // ngoài dải nhiễu NOISE_BAND — đây là hàng sẽ được xét vào lệnh
+    // ngoài dải nhiễu NOISE_BAND — đây là hàng sẽ được xét vào trades
     const cands = rows.filter(
       (r) => isTradeable(r, cfg.minAuc, cfg.minAcc, cfg.minScore) && !r.regressed && Math.abs(r.prob - 0.5) >= NOISE_BAND,
     );
@@ -224,15 +224,15 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     return {
       state: (stale ? "warn" : "ok") as StatState,
       note: stale
-        ? `Scan mới nhất ${age == null ? "không rõ" : `${age} phút`} tuổi — quá SCAN_TTL ${SCAN_TTL / 60_000}m: panel hiển thị dữ liệu cũ đúng thiết kế, auto-cycle sẽ tự quét lại ở bucket 5 phút kế.`
-        : `Scan tươi (< ${SCAN_TTL / 60_000}m). Ứng viên được đếm ĐÚNG bộ lọc auto-cycle: gate minAuc ${cfg.minAuc}/minAcc ${cfg.minAcc}/minScore ${cfg.minScore} + không regressed vs champion + ngoài dải nhiễu ±${(NOISE_BAND * 100).toFixed(0)}%.`,
+        ? `Latest scan ${age == null ? "unknown" : `${age}m`} old — past SCAN_TTL ${SCAN_TTL / 60_000}m: panel keeps last scan by design; auto-cycle refreshes next 5m bucket.`
+        : `Fresh scan (< ${SCAN_TTL / 60_000}m). Candidates counted with the same auto-cycle filters: gate minAuc ${cfg.minAuc}/minAcc ${cfg.minAcc}/minScore ${cfg.minScore} + not regressed vs champion + outside noise band ±${(NOISE_BAND * 100).toFixed(0)}%.`,
       accPct: 100,
-      accNote: "số mô tả trạng thái quét hiện tại — đếm trực tiếp trên ScanRow",
+      accNote: "live scan metrics — counted on ScanRow",
       metrics: [
-        { k: "Scan gần nhất", v: scan ? ago(scan.at) : "chưa quét", sub: `${rows.length} combo` },
-        { k: "Ứng viên đạt cổng", v: `${cands.length}/${rows.length}`, sub: cands[0] ? `tốt nhất ${cands[0].symbol.replace("USDT", "")} ${cands[0].interval} score ${cands[0].score.toFixed(1)}` : "—"},
-        { k: "NEUTRAL (bỏ)", v: String(rows.filter((r) => r.bias === "NEUTRAL").length) },
-        { k: "Bcast gate 5m", v: `${pass}/${bcast.length} pass`, sub: "một thuật toán gate dùng chung panel + Telegram" },
+        { k: "Latest scan", v: scan ? ago(scan.at) : "not scanned", sub: `${rows.length} combo` },
+        { k: "Gate-pass candidates", v: `${cands.length}/${rows.length}`, sub: cands[0] ? `best ${cands[0].symbol.replace("USDT", "")} ${cands[0].interval} score ${cands[0].score.toFixed(1)}` : "—"},
+        { k: "NEUTRAL (skipped)", v: String(rows.filter((r) => r.bias === "NEUTRAL").length) },
+        { k: "Bcast gate 5m", v: `${pass}/${bcast.length} pass`, sub: "single gate algorithm for panel + Telegram" },
       ],
     };
   });
@@ -244,10 +244,10 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     if (!o) {
       return {
         state: "na" as StatState,
-        note: "Không có lệnh auto đang mở — engine đứng ngoài thị trường cho tới khi có ứng viên đạt cổng + LLM go.",
+        note: "No open auto trade — engine stays flat until a gated candidate + LLM go.",
         accPct: 100,
-        accNote: "trạng thái rỗng — đúng 100%",
-        metrics: [{ k: "Vị thế", v: "Không có lệnh mở" }],
+        accNote: "empty state — by design",
+        metrics: [{ k: "Position", v: "No open trade" }],
       };
     }
     const durMs = now - new Date(o.entryTime).getTime();
@@ -272,16 +272,16 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       state: (durH > 24 ? "warn" : "ok") as StatState,
       note:
         durH > 24
-          ? `Lệnh đã mở ${durH.toFixed(1)}h (>24h) — giữ quá lâu so với nhịp 5m/flip của engine: chỉ xảy ra khi chưa từng có tín hiệu đủ tin cậy để TP/SL/flip. Đáng được LLM soi.`
-          : "Một lệnh dry-run duy nhất tại mọi thời điểm (thiết kế engine). ROE tính theo giá live Binance futures × đòn bẩy — cùng công thức closeTradeDirect.",
+          ? `Position open ${durH.toFixed(1)}h (>24h) — long vs 5m/flip cadence; only if no TP/SL/flip signal was strong enough. Worth LLM review.`
+          : "Single dry-run position at a time. ROE = live Binance futures move × leverage — same formula as closeTradeDirect.",
       accPct: 100,
-      accNote: "giá live realtime tại thời điểm gọi (nếu Binance trả lời)",
+      accNote: "live price at request time (if Binance responds)",
       metrics: [
-        { k: "Vị thế", v: `${o.side} ${o.symbol.replace("USDT", "")} ${o.interval}`, sub: `×${o.leverage} · stake ${o.stakePct ?? 100}%` },
-        { k: "Entry", v: String(o.entryPrice), sub: `${durH.toFixed(1)}h trước` },
-        ...(roe != null ? [{ k: "ROE tạm", v: `${roe >= 0 ? "+" : ""}${roe.toFixed(2)}%` }] : []),
-        { k: "SL / TP", v: `${o.slPct}% / ${o.tpPct}%`, ...(slDist != null ? { sub: `cách SL ${slDist >= 0 ? "+" : ""}${slDist.toFixed(2)} điểm %` } : {}) },
-        { k: "LLM lúc vào", v: o.llmVerdict ?? "—", sub: o.llmReason ?? undefined },
+        { k: "Position", v: `${o.side} ${o.symbol.replace("USDT", "")} ${o.interval}`, sub: `×${o.leverage} · stake ${o.stakePct ?? 100}%` },
+        { k: "Entry", v: String(o.entryPrice), sub: `${durH.toFixed(1)}h ago` },
+        ...(roe != null ? [{ k: "Unrealized ROE", v: `${roe >= 0 ? "+" : ""}${roe.toFixed(2)}%` }] : []),
+        { k: "SL / TP", v: `${o.slPct}% / ${o.tpPct}%`, ...(slDist != null ? { sub: `to SL ${slDist >= 0 ? "+" : ""}${slDist.toFixed(2)} pts %` } : {}) },
+        { k: "LLM at entry", v: o.llmVerdict ?? "—", sub: o.llmReason ?? undefined },
       ],
     };
   });
@@ -309,16 +309,16 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       state: (unlabeled > 0 ? "warn" : "ok") as StatState,
       note:
         unlabeled > 0
-          ? `${unlabeled} lệnh đóng không nhãn exitKind (đóng trước bản 0.2.24 hoặc đóng tay từ bản cũ) — tổng theo nhãn không khớp tổng đóng, phần còn lại là lệnh cổ.`
-          : "Tổng theo nhãn ra đúng tổng lệnh đã đóng — mọi lệnh đều đi qua closeTradeDirect nên exitKind luôn được ghi (tp/sl/flip/manual).",
+          ? `${unlabeled} closed trades missing exitKind (pre-0.2.24 or legacy manual close) — label totals under-count; remainder is legacy.`
+          : "Label totals match closed count — every close goes through closeTradeDirect (tp/sl/flip/manual).",
       accPct: 100,
-      accNote: "số đếm chính xác trên DB — không phải ước lượng",
+      accNote: "exact DB counts — not estimates",
       metrics: [
-        { k: "Tổng lệnh", v: String(rows.length), sub: `${rows.length - closed.length} mở · ${closed.length} đóng` },
+        { k: "Total trades", v: String(rows.length), sub: `${rows.length - closed.length} open · ${closed.length} closed` },
         { k: "TP / SL", v: `${kinds.tp} / ${kinds.sl}`, sub: `flip ${kinds.flip} · tay ${kinds.manual}` },
-        ...(avg != null ? [{ k: "ROE trung bình", v: `${avg >= 0 ? "+" : ""}${avg.toFixed(2)}%` }] : []),
-        ...(best != null ? [{ k: "Tốt nhất / xấu nhất", v: `+${best.toFixed(1)}% / ${worst ?? 0}%` }] : []),
-        { k: "7 ngày qua", v: `${last7d} lệnh đóng` },
+        ...(avg != null ? [{ k: "Avg ROE", v: `${avg >= 0 ? "+" : ""}${avg.toFixed(2)}%` }] : []),
+        ...(best != null ? [{ k: "Best / worst", v: `+${best.toFixed(1)}% / ${worst ?? 0}%` }] : []),
+        { k: "Last 7 days", v: `${last7d} closed trades` },
       ],
     };
   });
@@ -351,15 +351,15 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       state: (mismatch === 0 ? "ok" : "warn") as StatState,
       note:
         mismatch === 0
-          ? "Chấm lại TẤT CẢ outcome đã lưu bằng outcomeOf(entry, exit) — khớp 100% với dữ liệu. Nghĩa là 'win = giá đi đúng phía bias' không bị lệch giữa lúc ghi và lúc đọc."
-          : `${mismatch} đề xuất có outcome KHÔNG khớp khi chấm lại từ giá — dữ liệu resolve bị ghi sai hoặc công thức đổi sau khi chấm. Cần dọn trước khi tin hit-rate.`,
+          ? "Re-scored all stored outcomes via outcomeOf(entry, exit) — 100% match. win = price moved with bias side at write and read."
+          : `${mismatch} suggestions re-score mismatch from price — bad resolve data or formula drift. Clean before trusting hit-rate.`,
       accPct: judged > 0 ? wilsonLB(win, judged) : 0,
-      accNote: judged > 0 ? `Wilson 95% cận dưới trên ${judged} đề xuất đã phân thắng/thua (flat loại)` : "chưa có đề xuất nào được chấm",
+      accNote: judged > 0 ? `Wilson 95% lower bound on ${judged} resolved suggestions (ex-flat)` : "no scored suggestions yet",
       metrics: [
-        { k: "Tổng đề xuất", v: String(rows.length), sub: `${rows.length - res.length} chờ horizon` },
-        { k: "Win / Loss", v: `${win} / ${loss}`, sub: `flat ${flat} (loại khỏi hit-rate)` },
-        { k: "Hit-rate theo phía", v: judged > 0 ? `${((win / judged) * 100).toFixed(0)}%` : "—", sub: "prob theo phía bias" },
-        ...(avgPnl != null ? [{ k: "PnL trung bình", v: `${avgPnl >= 0 ? "+" : ""}${avgPnl.toFixed(2)}%` }] : []),
+        { k: "Total suggestions", v: String(rows.length), sub: `${rows.length - res.length} awaiting horizon` },
+        { k: "Win / Loss", v: `${win} / ${loss}`, sub: `flat ${flat} (excluded from hit-rate)` },
+        { k: "Side-aware hit-rate", v: judged > 0 ? `${((win / judged) * 100).toFixed(0)}%` : "—", sub: "prob aligned to bias side" },
+        ...(avgPnl != null ? [{ k: "Avg PnL", v: `${avgPnl >= 0 ? "+" : ""}${avgPnl.toFixed(2)}%` }] : []),
         { k: "LONG / SHORT", v: `${rows.filter((r) => r.bias === "LONG").length} / ${rows.filter((r) => r.bias === "SHORT").length}` },
       ],
     };
