@@ -16,11 +16,16 @@
 // stalls every entry attempt by its connect/timeout window.
 
 import { NextRequest, NextResponse } from "next/server";
-import { llmReview, LLM_URL_DEFAULT, LLM_MODEL_DEFAULT, type LlmSetup } from "@/lib/llm";
+import { llmEnvEndpoint, llmReview, LLM_TIMEOUT_MS, LLM_URL_DEFAULT, LLM_MODEL_DEFAULT, type LlmSetup } from "@/lib/llm";
 
 export const dynamic = "force-dynamic";
 
-const ATTEMPT_TIMEOUT_MS = 10_000;
+// ⏱ BẰNG LLM_TIMEOUT_MS — llama 7B chạy CPU/GPU-một-phần cần 30-90s cho 1
+// verdict; timeout 10s cũ là "timeout chắc chắn" với phần cứng đó. Kẻ hặc
+// cũ "đỡ stall đường vào lệnh" KHÔNG còn đúng: engine gọi llmReview trực
+// tiếp (90s), route này chỉ phục vụ llmReviewViaApi (browser) — hai bên
+// phải cùng nhịp, nếu không browser chờ 95s trong khi server đã buông 10s.
+const ATTEMPT_TIMEOUT_MS = LLM_TIMEOUT_MS;
 const BREAKER_TRIP = 3;
 const BREAKER_COOLDOWN_MS = 10 * 60_000;
 
@@ -46,13 +51,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "bad_setup" }, { status: 400 });
   }
 
-  // endpoint resolution: env wins → client-passed (old panel config) → default
+  // endpoint resolution: env wins (LLM_URL hoặc bí danh LLAMA_SERVER_URL) →
+  // client-passed (old panel config) → default
+  const env = llmEnvEndpoint();
   const url =
-    asStr(process.env.LLM_URL, /^https?:\/\/\S{1,150}$/) ??
+    asStr(env.url, /^https?:\/\/\S{1,150}$/) ??
     asStr(body.url, /^https?:\/\/\S{1,150}$/) ??
     LLM_URL_DEFAULT;
   const model =
-    asStr(process.env.LLM_MODEL, /^.{1,60}$/) ?? asStr(body.model, /^.{1,60}$/) ?? LLM_MODEL_DEFAULT;
+    asStr(env.model, /^.{1,60}$/) ?? asStr(body.model, /^.{1,60}$/) ?? LLM_MODEL_DEFAULT;
 
   const v = await llmReview(url, model, setup, ATTEMPT_TIMEOUT_MS);
   if (v) {

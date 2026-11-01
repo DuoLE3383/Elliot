@@ -16,6 +16,7 @@ import { NextResponse } from "next/server";
 import path from "path";
 import { db } from "@/lib/db";
 import { engineSnapshot } from "@/lib/engine";
+import { llmApiKey, llmEnvEndpoint } from "@/lib/llm";
 import {
   BCAST_ACC_MIN,
   BCAST_AUC_MIN,
@@ -114,15 +115,30 @@ function bucketize(rows: { p: number; won: boolean }[]): { n: number; buckets: R
   return { n, buckets };
 }
 
-/** ping llama-server health — Risk Officer sống hay chết, trả kèm độ trễ */
+/** ping llama-server — Risk Officer sống hay chết, trả kèm độ trễ.
+ *  KHÔNG chỉ kiểm /health: app nào cũng có thể có /health (app Tarot từng nằm
+ *  cùng VPS cổng 8888 với /health trả 200 → badge "Connected" giả). Kiểm thêm
+ *  GET /v1/models — chỉ llama-server/máy tương thích OpenAI mới có, và KHÔNG
+ *  tốn GPU. Khi llama chạy --api-key, /v1/models đòi Bearer (llmApiKey).
+ *  URL được lấy từ llmEnvEndpoint() (env ăn trước, cùng chuẩn với 2 route). */
 async function pingLlm(url: string): Promise<{ ok: boolean; ms: number }> {
   const t0 = Date.now();
+  const base = url.replace(/\/+$/, "").replace(/\/v1$/, "");
+  const headers: Record<string, string> = llmApiKey() ? { Authorization: `Bearer ${llmApiKey()}` } : {};
   try {
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 1500);
-    const r = await fetch(`${url.replace(/\/+$/, "")}/health`, { signal: ctl.signal, cache: "no-store" });
-    clearTimeout(timer);
-    return { ok: r.ok, ms: Date.now() - t0 };
+    const health = await fetch(`${base}/health`, {
+      signal: AbortSignal.timeout(2500),
+      cache: "no-store",
+      headers,
+    });
+    if (!health.ok) return { ok: false, ms: Date.now() - t0 };
+    // bước 2 — đúng là một LLM server hay chỉ là app khác đang chiếm cổng?
+    const models = await fetch(`${base}/v1/models`, {
+      signal: AbortSignal.timeout(3500),
+      cache: "no-store",
+      headers,
+    });
+    return { ok: models.ok, ms: Date.now() - t0 };
   } catch {
     return { ok: false, ms: Date.now() - t0 };
   }
@@ -146,7 +162,9 @@ export async function GET() {
   } catch {
     engine = null;
   }
-  const llmUrl = engine?.cfg?.llmUrl || LLM_URL_DEFAULT;
+  // env (LLM_URL hoặc bí danh LLAMA_SERVER_URL) thắng → cfg engine → default
+  // (trước đây chỉ nhìn cfg — env đổi rồi badge vẫn ping URL cũ)
+  const llmUrl = llmEnvEndpoint().url || engine?.cfg?.llmUrl || LLM_URL_DEFAULT;
 
   // 2) runs + auto stats + PHE suggestions + llm ping — song song, lỗi DB không chết route
   let runsError = false;
