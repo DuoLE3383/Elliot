@@ -115,3 +115,17 @@ export async function readAutoState(): Promise<AutoState> {
     },
   };
 }
+
+/** Bản NHẸ của readAutoState cho dải "lệnh đang mở" đầu trang: chỉ đọc 1 hàng
+ * open + vốn đã ghi sổ gần nhất — không kéo 200 lệnh lịch sử lẫn bảng combo. */
+export async function readOpenPosition(): Promise<{ open: TradeRow | null; capital: number | null }> {
+  const row = await db.autoTrade.findFirst({ where: { status: "open" }, orderBy: { createdAt: "desc" } });
+  if (row) return { open: serialize(row), capital: row.capitalBefore };
+  // không có lệnh mở → vẫn trả vốn đã chốt gần nhất cho title/tooltip
+  const last = await db.autoTrade.findFirst({
+    where: { status: "closed" },
+    orderBy: { createdAt: "desc" },
+    select: { capitalAfter: true },
+  });
+  return { open: null, capital: last?.capitalAfter ?? null };
+}

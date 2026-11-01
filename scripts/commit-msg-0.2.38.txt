@@ -1,0 +1,27 @@
+0.2.38 — BỘ CHỌN "TẤT CẢ CẶP" CHO SỔ LỆNH + DẢI LỆNH ĐANG MỞ Ở ĐẦU TRANG CHỦ 🎛️
+
+/stats — cặp & khung (cho Sổ lệnh + Phân tích):
+• Bỏ danh sách 6 cặp cứng — dùng đúng 11 cặp tiêu chuẩn của engine (SYMBOLS:
+  BTC ETH BNB XRP SOL TRX ZEC DOGE XMR ADA BCH).
+• Thêm lựa chọn "Tất cả cặp": Sổ lệnh GỘP mọi cặp tiêu chuẩn trên cùng khung.
+  Mới /api/journal tính Ở SERVER bằng đúng papersFrom/kpiFrom của /api/view
+  (thiết lập MẶC ĐỊNH SL 6% / TP 3.2% / đòn 1 / gate tắt, khung 500 nến thật):
+  - symbol=BTCUSDT… → journal 1 cặp
+  - symbol=ALL → cộng từng trường KPI, tính lại winRate trên tổng lệnh đóng,
+    kèm BẢNG CON THEO TỪNG CẶP (Cặp · Đóng · WR · Net ROE, WR ≥ 50% xanh
+    lục) + dòng "bỏ qua (lỗi nến)" cho cặp tải nến hỏng.
+  - Mỗi cặp thử lại 1 lần sau 500ms trước khi bỏ (mạng VPS từng thấy
+    "Unexpected end of JSON input"); kết quả ALL cache 60s tại chỗ.
+• Phân tích sâu vẫn theo từng cặp → khi chọn ALL card hiện ghi chú hướng dẫn
+  chọn 1 cặp cụ thể (đỡ hiểu nhầm "phân tích của 11 cặp cộng lại").
+• Bảng con co giãn hết 4 cột ở 375px (bỏ min-width; còn overflow-x dự phòng).
+
+Trang chủ — dải "lệnh auto đang mở" ngay dưới bảng tin, trên hàng KPI:
+• Mới OpenPositionStrip: pha dry-run đang mở hiện luôn ở đầu trang — hướng
+  LONG/SHORT, cặp · khung, entry, ROE tạm thời (tính TẠI CHỖ từ giá 24h
+  ticker có sẵn — không thêm request giá), vạch tiến độ SL→TP + giá hai đầu
+  (ẩn trên màn hình hẹp), stake USDT · % vốn · đòn bẩy. Bấm vào dải = mở đúng
+  cặp + khung của lệnh trên đồ thị. Không có lệnh mở → tự ẩn, không chiếm chỗ.
+• Endpoint nhẹ GET /api/autotrade?part=open — chỉ đọc 1 hàng DB
+  (readOpenPosition mới trong autostate.ts) thay vì kéo 200 lệnh lịch sử + bảng
+  combo như /api/autotrade đầy đủ; strip poll 5s, tab ẩn thì ngừng poll đỡ pin.

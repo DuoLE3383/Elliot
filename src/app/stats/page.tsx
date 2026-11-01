@@ -12,7 +12,9 @@
 //      con số), 100% cho số đếm/mô tả; note nói rõ vì sao.
 // Hai section cuối (journal + analysis) từ 0.2.35 cũng tính Ở SERVER qua
 // /api/view (papersFrom/analyze + thiết lập MẶC ĐỊNH) cho combo người dùng
-// chọn — trình duyệt chỉ render.
+// chọn — trình duyệt chỉ render. 0.2.38: chọn “Tất cả cặp” → journal GỘP 11
+// cặp tiêu chuẩn tính qua /api/journal (kèm bảng con theo từng cặp); phân tích
+// sâu vẫn theo từng cặp nên khi ALL card đó hiện ghi chú hướng dẫn.
 // Nút "Phân tích nguyên nhân gốc" trên /ai vẫn gửi CÙNG snapshot server vào LLM.
 
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +25,7 @@ import { fmtPct, fmtPrice, t, type Lang } from "@/lib/i18n";
 import type { Analysis } from "@/lib/analysis";
 import type { KpiStats } from "@/lib/papers";
 import { fetchView } from "@/lib/view";
-import { DEFAULT_SETTINGS, DEFAULT_WYCKOFF } from "@/lib/types";
+import { DEFAULT_SETTINGS, DEFAULT_WYCKOFF, SYMBOLS } from "@/lib/types";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -54,7 +56,23 @@ interface StatsSnapshot {
 }
 
 const PICK_TFS = ["5m", "15m", "1h", "4h"];
-const PICK_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "LINKUSDT", "DOGEUSDT"];
+// 0.2.38: dùng đúng danh sách cặp tiêu chuẩn của engine (SYMBOLS — 11 staples)
+// + giá trị đặc biệt "ALL" = journal gộp mọi cặp qua /api/journal
+const PICK_ALL = "ALL";
+const PICK_SYMBOLS: readonly string[] = SYMBOLS;
+
+/** một dòng bảng con theo cặp của /api/journal?symbol=ALL */
+interface PerPair {
+  symbol: string;
+  kpi: KpiStats;
+  signals: number;
+}
+interface JournalAllResp {
+  kpi: KpiStats;
+  basis: number;
+  per: PerPair[] | null;
+  failed: string[];
+}
 
 export default function StatsPage() {
   const [lang, setLang] = useState<Lang>("vi");
@@ -64,9 +82,10 @@ export default function StatsPage() {
   const [err, setErr] = useState("");
 
   // combo picker cho 2 section client-side
-  const [pickSym, setPickSym] = useState("BTCUSDT");
+  const [pickSym, setPickSym] = useState<string>("BTCUSDT");
   const [pickTf, setPickTf] = useState("15m");
   const [journal, setJournal] = useState<(KpiStats & { basis: string }) | null>(null);
+  const [journalPer, setJournalPer] = useState<{ per: PerPair[]; failed: string[] } | null>(null);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [clientBusy, setClientBusy] = useState(false);
 
@@ -92,10 +111,31 @@ export default function StatsPage() {
   }, []);
 
   // 2 section client-side — 0.2.35: tính Ở SERVER qua /api/view (setting MẶC ĐỊNH)
+  // 0.2.38: pickSym = ALL → journal gộp 11 cặp qua /api/journal (phân tích sâu ẩn)
   useEffect(() => {
     let alive = true;
     setClientBusy(true);
     (async () => {
+      if (pickSym === PICK_ALL) {
+        try {
+          const res = await fetch(`/api/journal?interval=${encodeURIComponent(pickTf)}&symbol=ALL`, { cache: "no-store" });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const j = (await res.json()) as JournalAllResp;
+          if (!alive) return;
+          setJournal({ ...j.kpi, basis: String(j.basis) });
+          setJournalPer({ per: j.per ?? [], failed: j.failed ?? [] });
+          setAnalysis(null);
+        } catch {
+          if (alive) {
+            setJournal(null);
+            setJournalPer(null);
+            setAnalysis(null);
+          }
+        }
+        setClientBusy(false);
+        return;
+      }
+      setJournalPer(null);
       const v = await fetchView({
         symbol: pickSym,
         interval: pickTf,
@@ -268,6 +308,7 @@ export default function StatsPage() {
                   onChange={(e) => setPickSym(e.target.value)}
                   className="h-7 rounded-md border border-zinc-700 bg-zinc-950 px-2 font-mono text-xs text-zinc-200"
                 >
+                  <option value={PICK_ALL}>{t(lang, "stats.pick.all")}</option>
                   {PICK_SYMBOLS.map((s) => (
                     <option key={s} value={s}>
                       {s.replace("USDT", "")}
@@ -291,11 +332,12 @@ export default function StatsPage() {
               </CardContent>
             </Card>
 
-            {/* ── Trade journal — client-side papersFrom ─────────────────── */}
+            {/* ── Trade journal — tính Ở SERVER (/api/view | /api/journal) ── */}
             <Card className="border-zinc-800 bg-zinc-900/60">
               <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
                 <CardTitle className="text-sm font-semibold text-zinc-100">
-                  {t(lang, "stats.section.journal")} · {pickSym.replace("USDT", "")} {pickTf}
+                  {t(lang, "stats.section.journal")} ·{" "}
+                  {pickSym === PICK_ALL ? t(lang, "stats.pick.all") : pickSym.replace("USDT", "")} {pickTf}
                 </CardTitle>
                 {journal && accBadge(journal.closed > 0 ? journal.winRate : 0, `${journal.closed} lệnh đã đóng`)}
               </CardHeader>
@@ -312,6 +354,46 @@ export default function StatsPage() {
                 ) : (
                   <p className="text-xs text-zinc-500">— {clientBusy ? "…" : "không tải được nến"}</p>
                 )}
+
+                {/* bảng con theo cặp — chỉ khi chọn “Tất cả cặp” */}
+                {journalPer && journalPer.per.length > 0 && (
+                  <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 p-2.5">
+                    <p className="text-[11px] font-semibold text-zinc-300">{t(lang, "stats.journal.per")}</p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse text-left font-mono text-[11px]">
+                        <thead>
+                          <tr className="text-[10px] uppercase tracking-wide text-zinc-500">
+                            <th className="py-1 pr-2 font-medium">{t(lang, "stats.journal.perPair")}</th>
+                            <th className="py-1 pr-2 text-right font-medium">{t(lang, "stats.journal.perClosed")}</th>
+                            <th className="py-1 pr-2 text-right font-medium">{t(lang, "stats.journal.perWr")}</th>
+                            <th className="py-1 text-right font-medium">{t(lang, "stats.journal.perNet")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {journalPer.per.map((p) => (
+                            <tr key={p.symbol} className="border-t border-zinc-800/70">
+                              <td className="py-1 pr-2 text-zinc-200">{p.symbol.replace("USDT", "")}</td>
+                              <td className="py-1 pr-2 text-right text-zinc-400">{p.kpi.closed}</td>
+                              <td className={`py-1 pr-2 text-right ${p.kpi.closed > 0 && p.kpi.winRate >= 50 ? "text-emerald-400" : "text-zinc-400"}`}>
+                                {p.kpi.closed > 0 ? `${p.kpi.winRate.toFixed(0)}%` : "—"}
+                              </td>
+                              <td className={`py-1 text-right ${p.kpi.netPnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                                {fmtPct(p.kpi.netPnl)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="text-[10px] text-zinc-500">{t(lang, "stats.journal.perNote")}</p>
+                    {journalPer.failed.length > 0 && (
+                      <p className="text-[10px] text-amber-300/80">
+                        {t(lang, "stats.journal.failed", { pairs: journalPer.failed.join(", ") })}
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 p-2.5">
                   <p className="text-[11px] leading-relaxed text-zinc-400">
                     <span className="font-semibold text-zinc-300">📌 {t(lang, "stats.basis")}: </span>
@@ -322,17 +404,20 @@ export default function StatsPage() {
               </CardContent>
             </Card>
 
-            {/* ── Deep analysis — client-side analyze() ──────────────────── */}
+            {/* ── Deep analysis — tính Ở SERVER, theo từng cặp ───────────── */}
             <Card className="border-zinc-800 bg-zinc-900/60">
               <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
                 <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
                   <Search className="h-4 w-4 text-teal-400" />
-                  {t(lang, "stats.section.analysis")} · {pickSym.replace("USDT", "")} {pickTf}
+                  {t(lang, "stats.section.analysis")} ·{" "}
+                  {pickSym === PICK_ALL ? t(lang, "stats.pick.all") : pickSym.replace("USDT", "")} {pickTf}
                 </CardTitle>
                 {analysis && accBadge(100, "chỉ số mô tả từ nến đã đóng — đúng 100% theo công thức")}
               </CardHeader>
               <CardContent className="space-y-2.5 pt-0">
-                {analysis ? (
+                {pickSym === PICK_ALL ? (
+                  <p className="text-xs leading-relaxed text-zinc-500">— {t(lang, "stats.analysisAll")}</p>
+                ) : analysis ? (
                   <div className="grid gap-1.5 sm:grid-cols-2">
                     <Metric k="Trend (EMA50/200)" v={analysis.trend} sub={analysis.ema50 != null ? `EMA50 ${fmtPrice(analysis.ema50)}` : undefined} />
                     <Metric k="RSI(14)" v={analysis.rsi14 != null ? analysis.rsi14.toFixed(1) : "—"} />

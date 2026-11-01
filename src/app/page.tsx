@@ -6,6 +6,7 @@ import { StrategyPies } from "@/components/strategy-pies";
 import { AutoPanel } from "@/components/auto-panel";
 import { Journal } from "@/components/journal";
 import { KpiCards } from "@/components/kpi";
+import { OpenPositionStrip } from "@/components/open-position-strip";
 import { SessionsPanel } from "@/components/sessions";
 import { SignalDock } from "@/components/panels";
 import { PriceChart } from "@/components/price-chart";
@@ -1107,6 +1108,16 @@ export default function Home() {
 
       {/* ── Live ticker strip ──────────────────────────────────────── */}
       <TickerStrip lang={lang} pairs={allPairs} tickers={tickers} current={symbol} onSelect={setSymbol} />
+
+      {/* ── Lệnh auto đang mở — ẩn khi trống; bấm = chọn cặp + khung đó ── */}
+      <OpenPositionStrip
+        lang={lang}
+        tickers={tickers}
+        onPickPair={(sym, itv) => {
+          setSymbol(sym);
+          if ((INTERVALS as readonly string[]).includes(itv)) setIntervalTf(itv as Interval);
+        }}
+      />
 
       {/* ── KPI row ────────────────────────────────────────────────── */}
       <div className="shrink-0 px-3 pt-3">

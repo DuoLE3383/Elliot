@@ -2,6 +2,8 @@
 // GET   → { trades, open, capital, stats } — capital = last closed capitalAfter,
 //         falling back to the open position's entry capital (never null while a
 //         position exists — the digest used to render "? USDT")
+// GET ?part=open → { open, capital } NHẸ cho dải "lệnh đang mở" đầu trang
+//         (chỉ 1 hàng DB — không kéo 200 lệnh lịch sử lẫn bảng combo)
 // POST  { action: "open", symbol, interval, side, entryPrice, slPct, tpPct,
 //         leverage, stakePct, prob, acc, auc, score, capitalBefore }
 //         → opens ONE position; rejected while another is open
@@ -11,7 +13,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { readAutoState, serialize } from "@/lib/autostate";
+import { readAutoState, readOpenPosition, serialize } from "@/lib/autostate";
 import { autopsyClosedTrade } from "@/lib/autopsy";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +24,11 @@ const num = (v: unknown, lo: number, hi: number, fb: number): number => {
   return Math.min(hi, Math.max(lo, n));
 };
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  // ?part=open — dải vị thế đang mở poll mỗi 5s; chỉ 1 hàng, rẻ cho điện thoại
+  if (req.nextUrl.searchParams.get("part") === "open") {
+    return NextResponse.json(await readOpenPosition());
+  }
   return NextResponse.json(await readAutoState());
 }
 
