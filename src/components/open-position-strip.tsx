@@ -1,18 +1,18 @@
 "use client";
 
-// ─── OpenPositionStrip — lệnh auto dry-run đang mở, luôn hiện ở ĐẦU trang ────
-// "phần đầu của trang chủ thêm lệnh đang mở": poll NHẸ /api/autotrade?part=open
-// mỗi 5s (chỉ 1 hàng DB, không kéo 200 lệnh lịch sử như /api/autotrade đầy
-// đủ). ROE tạm tính tại chỗ từ giá 24h ticker mà trang đã có sẵn (prop
-// tickers) — không thêm request giá nào. Bấm vào dải = chọn đúng cặp + khung
-// của lệnh trên đồ thị. Không có lệnh mở → component tự ẩn (không chiếm chỗ).
+// ─── OpenPositionStrip — currently open auto dry-run position at the TOP of the home page ────
+// Polls the lightweight /api/autotrade?part=open every 5 s (only 1 DB row, not the full
+// 200-trade history that the full /api/autotrade returns). Live ROE is computed client-side
+// from the 24 h ticker prices already present on the page (prop `tickers`) — no extra
+// price requests. Clicking the strip selects the position's pair + timeframe on the chart.
+// When there is no open position the component renders nothing (no empty space).
 
 import { useEffect, useState } from "react";
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
 import type { AutoTradeRow } from "@/lib/autotrade";
 import type { Ticker } from "@/lib/types";
 
-/** ROE tạm thời % — cùng công thức roeOf của engine (lệch đòn bẩy đã nhân). */
+/** Temporary ROE % — same formula as the engine's roeOf (leverage already applied). */
 function roeOf(side: string, entry: number, price: number, leverage: number): number {
   if (!entry || !price) return 0;
   const move = side === "SHORT" ? ((entry - price) / entry) * 100 : ((price - entry) / entry) * 100;
@@ -34,7 +34,7 @@ export function OpenPositionStrip({
 }) {
   const [open, setOpen] = useState<AutoTradeRow | null>(null);
 
-  // poll 5s — request chỉ nặng đúng 1 hàng DB; tab ẩn thì ngừng để đỡ pin
+  // Poll every 5 s — request is only 1 DB row; stop when the tab is hidden to save battery
   useEffect(() => {
     let alive = true;
     let timer = 0;
@@ -46,7 +46,7 @@ export function OpenPositionStrip({
         const j = (await res.json()) as { open: AutoTradeRow | null };
         if (alive) setOpen(j.open ?? null);
       } catch {
-        // mạng chớp — giữ trạng thái cũ, lần poll sau chụp lại
+        // transient network blip — keep previous state, next poll will catch up
       }
     };
     void load();
@@ -63,12 +63,13 @@ export function OpenPositionStrip({
   const roe = roeOf(open.side, open.entryPrice, live, open.leverage);
   const sl = slPriceOf(open.side, open.entryPrice, open.slPct);
   const tp = tpPriceOf(open.side, open.entryPrice, open.tpPct);
-  // vị trí giá live giữa SL (0%) và TP (100%) — vạch tiến độ rủi ro
-  const span = Math.abs(tp - sl) || 1;
-  const raw = open.side === "SHORT" ? (sl - live) / span : (live - sl) / span;
-  const posPct = Math.min(100, Math.max(0, raw * 100));
-  const stake = ((open.capitalBefore ?? 0) * (open.stakePct ?? 100)) / 100;
   const sideCls = open.side === "LONG" ? "text-emerald-400" : "text-rose-400";
+  const stake = ((open.capitalBefore ?? 0) * (open.stakePct ?? 100)) / 100;
+
+  // Progress of current price between SL and TP (0–100)
+  const lo = Math.min(sl, tp);
+  const hi = Math.max(sl, tp);
+  const posPct = hi === lo ? 50 : Math.max(0, Math.min(100, ((live - lo) / (hi - lo)) * 100));
 
   return (
     <div className="shrink-0 px-3 pt-2">
@@ -78,7 +79,7 @@ export function OpenPositionStrip({
         title={t(lang, "open.strip.tip")}
         className="group flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-emerald-900/60 bg-emerald-950/20 px-3 py-1.5 text-left transition hover:border-emerald-700 hover:bg-emerald-950/40"
       >
-        {/* nhãn + chớp sống */}
+        {/* label + live pulse */}
         <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-300/90">
           <span className="relative flex h-1.5 w-1.5">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
@@ -96,7 +97,7 @@ export function OpenPositionStrip({
           {t(lang, "auto.pos.entry")} <span className="text-zinc-200">{fmtPrice(open.entryPrice)}</span>
         </span>
 
-        {/* ROE tạm thời — điểm chính của dải */}
+        {/* Live ROE — the main number of the strip */}
         <span className="font-mono text-xs font-bold">
           <span className="text-zinc-500">{t(lang, "auto.pos.uroe")} </span>
           <span className={roe >= 0 ? "text-emerald-400" : "text-rose-400"}>
@@ -105,7 +106,7 @@ export function OpenPositionStrip({
           </span>
         </span>
 
-        {/* vạch tiến độ SL → TP + giá hai đầu (ẩn trên màn hình hẹp) */}
+        {/* SL → TP progress bar + endpoint prices (hidden on narrow screens) */}
         <span className="ml-auto hidden min-w-[150px] flex-col gap-0.5 sm:flex">
           <span className="relative h-1 rounded-full bg-zinc-800">
             <span

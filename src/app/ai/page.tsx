@@ -174,7 +174,7 @@ const llmScope = (url: string): string => {
 };
 
 export default function AiPage() {
-  const [lang, setLang] = useState<Lang>("vi");
+  const [lang, setLang] = useState<Lang>("en");
   const [data, setData] = useState<AiInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [at, setAt] = useState(0);

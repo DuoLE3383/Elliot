@@ -7,7 +7,7 @@ import { Toaster } from "@/components/ui/toaster";
 import BuildReload from "@/components/build-reload";
 
 // Build marker — prebuild ghi public/build-id.txt cho MỖI lần build; id được
-// nướng vào HTML lúc build ở dòng dưới. BuildReload (client) so nó với
+// Baked into the HTML at build time on the line below. BuildReload (client) compares it with
 // /api/build-id (runtime) và tự reload tab cũ → template/code mới luôn tới
 // tay tab đang mở mà không cần F5 tay (chữa tận gốc lỗi "sửa template mà
 // Telegram vẫn báo bản cũ" — broadcast sống trong tab, không phải trong pm2).
@@ -55,7 +55,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="vi" className="dark" suppressHydrationWarning>
+    <html lang="en" className="dark" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >

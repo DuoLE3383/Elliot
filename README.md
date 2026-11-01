@@ -1,113 +1,95 @@
 # Elliott Paper Trading
 
-Ứng dụng paper trading tiền điện tử chạy trên nền Next.js — mô phỏng lệnh theo tín hiệu **UT Bot + cổng SMA**, tích hợp phân tích **Wyckoff**, bộ đề xuất **XGBoost (XGB) thuần TypeScript**, giao dịch tự động (auto-trade) kèm đẩy cảnh báo qua **Telegram**. Toàn bộ dữ liệu giá lấy trực tiếp từ REST API Binance, không cần API key.
+Cryptocurrency paper-trading application built with Next.js. It simulates trades from **UT Bot + SMA gate** signals, includes **Wyckoff** analysis, a pure-TypeScript **XGBoost** suggestion engine, automatic dry-run trading, and Telegram alerts. All price data comes directly from the Binance REST API — no API key required.
 
-> Ứng dụng hỗ trợ song ngữ **Tiếng Việt / English** (chuyển đổi ngay trên thanh header).
+> The UI is fully bilingual (**English / Vietnamese**). Language can be switched from the header at any time. **English is the default**.
 
-## Tính năng chính
+## Main features
 
-- **Biểu đồ giá tương tác** — nến SMA/EMA, đánh dấu tín hiệu BUY/SELL, các mức VÀO / ĐẢO / SL / TP, ghim tín hiệu để theo dõi.
-- **Watchlist đa cặp** — thêm/xóa pair (mặc định BTCUSDT…), ticker chạy realtime, tự làm mới theo chu kỳ.
-- **Tín hiệu UT Bot + cổng SMA** — mỗi tín hiệu đều hiển thị lý do bị chặn/cho phép (blocked bởi SMA filter) ngay trên biểu đồ.
-- **Phân tích sâu (Analysis panel)** — cấu trúc breakout/inside/breakdown, RSI(14), EMA50/200, tỷ lệ volume, ATR% so với trung bình 50 nến — chỉ tính trên nến đã đóng nên không bị nhấp nháy.
-- **Wyckoff panel** — phân đoạn pha (accumulation/distribution), phát hiện swing pivot, sự kiện và giai đoạn xu hướng.
-- **XGBoost đề xuất (Suggestions)** — huấn luyện mô hình XGB ngay trên trình duyệt/server bằng TypeScript thuần, mỗi lần train sinh ra một đề xuất (bias LONG/SHORT/NEUTRAL, xác suất, SL/TP, horizon) và được chấm điểm win/loss khi hết horizon.
-- **Finetune & lịch sử** — theo dõi accuracy/AUC qua các lần finetune, so sánh hiệu năng mô hình.
-- **Auto-trade** — máy trạng thái tự động vào/đóng vị theo tín hiệu, giới hạn khung giờ phiên, kiểm soát rủi ro, đẩy digest và lệnh qua Telegram bot.
-- **Nhật ký giao dịch (Journal) + Equity curve + KPI** — win rate, PnL, phân bổ chiến lược (strategy pies), giao dịch theo phiên (sessions).
-- **Cài đặt linh hoạt** — dialog cài đặt chung, ẩn/hiện panel theo rail, layout mobile responsive.
+- **Interactive price chart** — candles, SMA/EMA, BUY/SELL markers, ENTRY / FLIP / SL / TP levels, pin signals for inspection.
+- **Multi-pair watchlist** — add/remove pairs (defaults to major USDT-M symbols), live ticker strip, periodic refresh.
+- **UT Bot + SMA gate** — every signal shows why it was allowed or blocked by the directional SMA filter.
+- **Deep Analysis panel** — breakout / inside / breakdown structure, RSI(14), EMA50/200, volume ratio, ATR% vs 50-candle average (calculated on closed candles only).
+- **Wyckoff panel** — phase detection (accumulation / distribution), swing pivots, events and trend stages.
+- **XGBoost suggestions** — pure-TypeScript XGB model trained in the browser or on the server; each train produces a bias (LONG / SHORT / NEUTRAL), probability, SL/TP and horizon; results are scored win/loss after the horizon.
+- **Finetune & history** — track accuracy / AUC across finetune runs and compare model performance.
+- **Auto-trade (dry-run)** — state machine that opens/closes positions from signals, respects session time windows, risk controls, and pushes digests + trade alerts via Telegram.
+- **Trade journal + Equity curve + KPI** — win rate, PnL, strategy allocation pies, session breakdown.
+- **Flexible settings** — global settings dialog, show/hide panels via the rail, responsive mobile layout.
+- **Stats page** — consistency checks, per-pair / all-pairs journal aggregation, deep analysis, session and universe scan summaries.
+- **Open-position strip** — live dry-run position shown at the top of the home page with real-time ROE, SL→TP progress and one-click jump to the chart.
 
-## Công nghệ
+## Tech stack
 
-| Thành phần | Công nghệ |
-|---|---|
-| Framework | Next.js 16 (App Router) · React 19 · TypeScript |
-| UI | Tailwind CSS 4 · shadcn/ui (Radix) |
-| Biểu đồ | Lightweight Charts (nến, equity curve, pies) |
-| CSDL | Prisma ORM 6 · SQLite (file local) |
-| ML | XGBoost tự cài đặt bằng TypeScript (`src/lib/xgb.ts`) |
-| runtime | Bun (khuyến nghị) hoặc Node.js ≥ 20 |
+| Layer        | Technology                                      |
+|--------------|-------------------------------------------------|
+| Framework    | Next.js 16 (App Router) · React 19 · TypeScript |
+| UI           | Tailwind CSS 4 · shadcn/ui (Radix)              |
+| Charts       | Lightweight Charts (candles, equity, pies)      |
+| Database     | Prisma ORM 6 · SQLite (local file)              |
+| ML           | Pure-TypeScript XGBoost (`src/lib/xgb.ts`)      |
+| Runtime      | Bun (recommended) or Node.js ≥ 20               |
 
-## Cấu trúc thư mục
+## Directory layout
 
 ```
 src/
 ├── app/
-│   ├── api/              # klines, ticker, autotrade, telegram, finetune, suggestions…
-│   ├── layout.tsx        # shell + fonts + theme
-│   └── page.tsx          # trang chính (dashboard)
+│   ├── api/              # klines, ticker, autotrade, telegram, finetune, journal…
+│   ├── layout.tsx        # document shell + fonts + theme
+│   ├── page.tsx          # main dashboard
+│   ├── stats/            # statistics & consistency page
+│   └── ai/               # AI / strategy-lab views
 ├── components/
-│   ├── price-chart.tsx   # biểu đồ nến + tín hiệu
-│   ├── watchlist.tsx     # danh sách pair + ticker
-│   ├── xgb-panel.tsx     # huấn luyện/finetune XGB
-│   ├── wyckoff-panel.tsx # phân tích Wyckoff
-│   ├── auto-panel.tsx    # điều khiển auto-trade
-│   ├── journal.tsx       # nhật ký lệnh
-│   ├── equity-curve.tsx  # đường vốn
-│   ├── kpi.tsx           # dải KPI
-│   └── ui/               # bộ shadcn/ui
+│   ├── price-chart.tsx
+│   ├── open-position-strip.tsx
+│   ├── auto-panel.tsx
+│   ├── journal.tsx
+│   ├── xgb-panel.tsx
+│   ├── wyckoff-panel.tsx
+│   └── ui/               # shadcn/ui primitives
 ├── lib/
 │   ├── signals.ts        # UT Bot + SMA gate
-│   ├── wyckoff.ts        # Wyckoff engine
-│   ├── xgb.ts            # XGBoost TS
-│   ├── autotrade.ts      # máy trạng thái auto-trade
-│   ├── market.ts         # Binance REST wrapper
-│   ├── indicators.ts     # EMA/SMA/RSI/ATR
-│   ├── i18n.ts           # song ngữ vi/en
+│   ├── papers.ts         # paper-trade simulation & KPI
+│   ├── autotrade.ts      # auto-trade state machine
+│   ├── autostate.ts      # persistence helpers
+│   ├── xgb.ts            # XGBoost implementation
+│   ├── i18n.ts           # English / Vietnamese dictionaries
 │   └── db.ts             # Prisma client
-└── hooks/                # use-toast, use-mobile
+└── scripts/              # build helpers, deploy utilities
 ```
 
-## Cài đặt & chạy
+## Quick start
 
 ```bash
-# 1. Cài phụ thuộc
-bun install        # hoặc: npm install
+# 1. Install dependencies
+bun install          # or: npm install
 
-# 2. Tạo file môi trường
+# 2. Environment
 cp .env.example .env
-#    DATABASE_URL mặc định: file:./db/custom.db (thư mục db/ tự tạo khi chạy prisma)
+#    DATABASE_URL defaults to file:./db/custom.db
 
-# 3. Khởi tạo CSDL
-bunx prisma db push       # hoặc: npm run db:push
+# 3. Database
+bunx prisma db push  # or: npm run db:push
 
-# 4. Chạy môi trường dev
-bun run dev               # hoặc: npm run dev  →  http://localhost:3000
+# 4. Development server
+bun run dev          # or: npm run dev  →  http://localhost:3000
 
-# 5. Build production (tùy chọn)
+# 5. Production build
 bun run build && bun run start
 ```
 
-### Biến môi trường
+## Telegram (optional)
 
-| Biến | Bắt buộc | Mô tả |
-|---|---|---|
-| `DATABASE_URL` | ✅ | Chuỗi kết nối SQLite, ví dụ `file:./db/custom.db` |
+Fill the two variables in `.env`:
 
-API key sàn **không cần thiết** — dữ liệu giá dùng endpoint public của Binance. Telegram bot token / chat ID được cấu hình ngay trong ứng dụng (menu Cài đặt) và lưu trong CSDL local, không nằm trong repo.
+```
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_CHAT_ID=...   # channel id (-100…) or public @name / t.me link
+```
 
-## API nội bộ
+Restart the process after changing them. See `DEPLOY.md` for production setup, Cloudflare tunnel, and proxy notes.
 
-| Route | Chức năng |
-|---|---|
-| `GET /api/klines` | Proxy nến giá Binance **USDT-M Futures** (symbol, interval, limit) |
-| `GET /api/ticker` | Giá 24h futures cho watchlist/ticker strip |
-| `GET/POST /api/autotrade` | Trạng thái & điều khiển máy auto-trade |
-| `POST /api/autotrade/push` | Webhook đẩy tín hiệu/digest từ server |
-| `GET/POST /api/telegram` | Gửi tin nhắn qua Telegram bot (GET trả trạng thái wiring) |
-| `POST /api/telegram/discover` | Dò chat_id khả dụng (getMe + getUpdates) |
-| `GET/POST/DELETE /api/telegram/token` | Nhập/xóa bot token ngay trong app (validate qua getMe) |
-| `GET/POST /api/finetune` | Lưu/đọc lịch sử finetune XGB |
-| `GET/POST /api/suggestions` | Đề xuất XGB + chấm điểm kết quả |
+## License
 
-## Deploy & bản quyền
-
-- Xem **[DEPLOY.md](DEPLOY.md)**: build pipeline cho CI (prisma generate đã fix), Dockerfile chạy độc lập, Railway/Render/Fly/VPS, và giới hạn thực tế khi chạy trên Cloudflare edge.
-- Bản production **không có sourcemap**; obfuscate server bundle khi cần bằng `bun run build:secure` (`scripts/postbuild.mjs`, opt-in qua `OBFUSCATE=1`).
-- Phần mềm proprietary — xem [LICENSE](LICENSE).
-
-## Lưu ý
-
-- Đây là công cụ **paper trading / mô phỏng** phục vụ nghiên cứu chiến lược — không phải tư vấn đầu tư. Auto-trade chỉ thao tác trên sổ mô phỏng nội bộ, không nối sàn để đặt lệnh thật.
-- CSDL SQLite nằm ngoài git (`db/`), mỗi môi trường chạy tự khởi tạo riêng bằng `prisma db push`.
-- File `.env`, log, và dữ liệu runtime đều đã được `.gitignore` loại khỏi repo — đừng commit bí mật vào git.
+See [LICENSE](LICENSE).

@@ -75,7 +75,7 @@ interface JournalAllResp {
 }
 
 export default function StatsPage() {
-  const [lang, setLang] = useState<Lang>("vi");
+  const [lang, setLang] = useState<Lang>("en");
   const [snap, setSnap] = useState<StatsSnapshot | null>(null);
   const [at, setAt] = useState(0);
   const [loading, setLoading] = useState(true);

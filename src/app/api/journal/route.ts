@@ -1,13 +1,13 @@
-// ─── /api/journal — sổ lệnh mặc định cho /stats, tính Ở SERVER ───────────────
-// GET /api/journal?interval=15m&symbol=BTCUSDT → journal 1 cặp
-// GET /api/journal?interval=15m&symbol=ALL     → journal GỘP 11 cặp tiêu chuẩn
-//                                                + bảng con theo từng cặp
-// Dùng đúng papersFrom/kpiFrom của /api/view trên thiết lập MẶC ĐỊNH (SL 6% /
-// TP 3.2% / 1× / gate off) và khung 500 nến thật — trình duyệt chỉ render.
-// "Tất cả cặp" = danh sách SYMBOLS tiêu chuẩn (staples), KHÔNG gồm cặp tùy
-// chọn của watchlist để số liệu ổn định và đối chiếu được giữa các lần xem.
-// Kết quả ALL được cache 60s tại chỗ (11 lượt tính papersFrom mỗi lần gọi là
-// lãng phí); lệnh 1 cặp đi thẳng cache klines 10s của klines-direct.
+// ─── /api/journal — default journal for /stats, computed ON THE SERVER ───────────────
+// GET /api/journal?interval=15m&symbol=BTCUSDT → journal for one pair
+// GET /api/journal?interval=15m&symbol=ALL     → journal AGGREGATED across the 11 staple pairs
+//                                                  + per-pair breakdown table
+// Uses the exact same papersFrom/kpiFrom of /api/view on DEFAULT settings (SL 6% /
+// TP 3.2% / 1× / gate off) and a real 500-candle window — the browser only renders.
+// "All pairs" = the standard SYMBOLS list (staples). Custom watchlist pairs are
+// intentionally excluded so numbers stay stable and comparable across views.
+// ALL results are cached in-memory for 60 s (11× papersFrom on every call would be wasteful);
+// single-pair requests go through the normal 10 s klines cache.
 
 import { NextRequest, NextResponse } from "next/server";
 import {

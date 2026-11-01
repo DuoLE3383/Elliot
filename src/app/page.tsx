@@ -128,7 +128,7 @@ function Clocks({ lang }: { lang: Lang }) {
 export default function Home() {
   const [symbol, setSymbol] = useState<string>("BTCUSDT");
   const [interval, setIntervalTf] = useState<Interval>("5m");
-  const [lang, setLang] = useState<Lang>("vi");
+  const [lang, setLang] = useState<Lang>("en");
   /** candle body style — "neon" hollow up-bodies (default) vs "normal" filled green/red */
   const [candleStyle, setCandleStyle] = useState<"neon" | "normal">("neon");
   const [settings, setSettings] = useState<EngineSettings>(DEFAULT_SETTINGS);
@@ -1109,7 +1109,7 @@ export default function Home() {
       {/* ── Live ticker strip ──────────────────────────────────────── */}
       <TickerStrip lang={lang} pairs={allPairs} tickers={tickers} current={symbol} onSelect={setSymbol} />
 
-      {/* ── Lệnh auto đang mở — ẩn khi trống; bấm = chọn cặp + khung đó ── */}
+      {/* ── Open auto position — hidden when empty; click = select that pair + TF ── */}
       <OpenPositionStrip
         lang={lang}
         tickers={tickers}
