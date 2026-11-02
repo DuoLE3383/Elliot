@@ -422,7 +422,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
 
   return (
     <Card className="border-zinc-800 bg-zinc-900/60">
-      <CardHeader className="pb-2">
+      <CardHeader className="px-3 pb-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-1.5 text-base font-semibold text-zinc-100">
             <Bot className="h-4 w-4 text-teal-400" />
@@ -443,7 +443,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
         <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">{t(lang, "auto.sub")}</p>
       </CardHeader>
 
-      <CardContent className="space-y-3 pt-0">
+      <CardContent className="space-y-3 px-3 pt-0">
         {/* config — risk control first: equity share per trade + TP/SL source */}
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-1.5 text-[11px] text-zinc-500">
@@ -871,7 +871,9 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
               </span>
             </div>
             <div className="overflow-hidden rounded-lg border border-zinc-800">
-              <div className="grid grid-cols-[1fr_26px_44px_44px_38px_38px_40px] gap-x-1 border-b border-zinc-800 bg-zinc-950/60 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
+              {/* cột số co đúng nội dung (kể cả nhãn vi "HƯỚNG"), PAIR (1fr)
+                  nhận toàn bộ phần còn lại — hết cảnh truncate "XMR…" */}
+              <div className="grid grid-cols-[minmax(0,1fr)_39px_41px_42px_30px_28px_38px] gap-x-0.5 border-b border-zinc-800 bg-zinc-950/60 px-1.5 py-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
                 <span>{t(lang, "auto.col.pair")}</span>
                 <span>{t(lang, "auto.col.tf")}</span>
                 <span>{t(lang, "auto.col.side")}</span>
@@ -887,7 +889,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                     key={`${r.symbol}-${r.interval}`}
                     type="button"
                     onClick={() => onPickPair(r.symbol, r.interval)}
-                    className={`grid w-full grid-cols-[1fr_26px_44px_44px_38px_38px_40px] items-center gap-x-1 px-2 py-1 text-left font-mono text-[10px] hover:bg-zinc-800/60 ${
+                    className={`grid w-full grid-cols-[minmax(0,1fr)_39px_41px_42px_30px_28px_38px] items-center gap-x-0.5 px-1.5 py-1 text-left font-mono text-[10px] hover:bg-zinc-800/60 ${
                       i === 0 ? "bg-teal-950/20" : ""
                     }`}
                   >

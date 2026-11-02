@@ -1,0 +1,21 @@
+0.2.61 — sửa bảng rank panel AI: đủ tên cặp, hết khoảng trống thừa
+
+Vấn đề (user báo kèm ảnh):
+- Cột PAIR bị cắt còn "AA…", "PE…" dù các cột số đang dư chỗ: lưới cũ
+  [1fr_26px_44px_44px_38px_38px_40px] + gap 4px + px-2 dành 230px cho cột
+  cố định, trong khi nội dung thật của chúng chỉ cần ~150px (LONG 24px,
+  67.9% 30px, 0.65 24px...) → PAIR (1fr) chỉ còn ~28px.
+- Vùng trống giữa SIDE và PROB (user khoanh đỏ) chính là phần dư của
+  2 cột 44px này.
+
+Giải pháp (chỉ đụng src/components/auto-panel.tsx):
+1. Card của panel: px-6 → px-3 (cả CardHeader lẫn CardContent) — thu hồi
+   24px padding dư hai bên, nội dung panel rộng 300 → 324px (xl).
+2. Cân đối lại lưới bảng rank (header + hàng):
+   [minmax(0,1fr)_39px_41px_42px_30px_28px_38px], gap-x-0.5, px-1.5.
+   - TF 39px đủ cho nhãn vi "KHUNG" (38px), SIDE 41px đủ cho "HƯỚNG" (39px).
+   - PAIR nhận trọn phần còn lại: 80px ở màn rộng (13 ký tự — đủ cho
+     "1000PEPEUSDT"), 52px ở khung hẹp lg.
+3. Đã đo lại trong DOM thật cả tiếng Anh lẫn tiếng Việt, ở viewport
+   1600px và 1100px: không còn scrollWidth > clientWidth ở bất kỳ ô nào,
+   "TRXUSDT"/"DOGEUSDT" hiển thị đủ.
