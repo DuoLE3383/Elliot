@@ -56,7 +56,15 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string): stri
 };
 
 const kindTag = (k: string | null): string =>
-  k === "tp" ? "TAKE PROFIT ✅" : k === "sl" ? "STOP LOSS 🔻" : k === "flip" ? "FLIP 🔄" : "MANUAL CLOSE ✋";
+  k === "tp"
+    ? "TAKE PROFIT ✅"
+    : k === "sl"
+      ? "STOP LOSS 🔻"
+      : k === "trail"
+        ? "TRAILING STOP 🪢"
+        : k === "flip"
+          ? "FLIP 🔄"
+          : "MANUAL CLOSE ✋";
 
 export const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPnlPct: number): string =>
   [

@@ -451,7 +451,7 @@ export function liquidationHit(side: string, price: number, entry: number, lever
 /** Warn once the price has covered this share of the way to TP/SL (0..1) —
  *  giá trị sống ở ./params (re-export đầu file). */
 
-/** "tp" | "sl" | null — price is INSIDE the near-hit band but has NOT crossed yet. */
+/** "tp" | "sl" | null — giá đang NẰM TRONG dải sắp chạm TP/SL nhưng CHƯA vượt. */
 export function nearHit(side: string, price: number, entry: number, slPct: number, tpPct: number): "tp" | "sl" | null {
   if (!entry || !price) return null;
   const roe = roeOf(side, entry, price, 1); // price-move % (no leverage)
@@ -460,6 +460,34 @@ export function nearHit(side: string, price: number, entry: number, slPct: numbe
   if (roe >= tp * NEAR_FRAC && roe < tp) return "tp";
   if (roe <= -sl * NEAR_FRAC && roe > -sl) return "sl";
   return null;
+}
+
+// ─── Trailing stop — dừng lệnh di động bảo vệ lợi nhuận ───────────────────────
+
+/** Đỉnh/gáy mới cho trailing: LONG giữ giá cao nhất seen, SHORT giữ đáy thấp nhất.
+ *  prevPeak = 0 (mới mở) → lấy giá hiện tại; caller khởi tạo peak = entry. */
+export function trailNextPeak(side: string, prevPeak: number, price: number): number {
+  if (!price) return prevPeak;
+  if (!prevPeak) return price;
+  return side === "SHORT" ? Math.min(prevPeak, price) : Math.max(prevPeak, price);
+}
+
+/** Lời hiện có của đỉnh so với entry — % DI CHUYỂN GIÁ (chưa nhân đòn bẩy,
+ *  cùng đơn vị slPct/tpPct; ROE = số này × leverage). */
+export function trailMovePct(side: string, entry: number, peak: number): number {
+  if (!entry || !peak) return 0;
+  return side === "SHORT" ? ((entry - peak) / entry) * 100 : ((peak - entry) / entry) * 100;
+}
+
+/** Giá stop trailing hiện hành — null = CHƯA armed (đỉnh chưa đạt mức kích hoạt).
+ *  LONG: stop = đỉnh × (1 − dist%); SHORT: stop = đáy × (1 + dist%).
+ *  Khi vừa armed, stop ≈ hoà vốn hoặc tốt hơn nếu dist ≤ act — đúng tinh thần
+ *  "khoá lời"; trước đó SL tĩnh gốc vẫn là lưới an toàn duy nhất. */
+export function trailStopPrice(side: string, entry: number, peak: number, actPct: number, distPct: number): number | null {
+  if (!entry || !peak) return null;
+  if (trailMovePct(side, entry, peak) < Math.abs(actPct)) return null;
+  const d = Math.abs(distPct) / 100;
+  return side === "SHORT" ? peak * (1 + d) : peak * (1 - d);
 }
 
 // ─── Per-combo win-rate stats ────────────────────────────────────────────────
@@ -834,6 +862,15 @@ export interface AutoConfig {
    *  ngược chiều NGAY trong chu kỳ đó. Thị trường luôn biến động — dự báo chỉ
    *  là dự báo; flip là cách bot theo kịch. false = giữ lệnh tới TP/SL. */
   autoFlip: boolean;
+  /** TRAILING STOP — dừng lệnh di động bảo vệ lợi nhuận: khi lời (theo % di
+   *  chuyển giá, chưa nhân đòn bẩy) đạt trailActPct thì stop bám theo đỉnh
+   *  (LONG) / đáy (SHORT) cách trailDistPct%; giá lùi đủ khoảng cách là chốt
+   *  lời tại chỗ (exitKind "trail"). TP/SL tĩnh vẫn hiệu lực như lưới an toàn. */
+  trailOn: boolean;
+  /** % di chuyển giá (chưa nhân đòn bẩy) cần đạt trước khi stop bắt đầu bám */
+  trailActPct: number;
+  /** khoảng cách % từ đỉnh/đáy tốt nhất tới stop trailing */
+  trailDistPct: number;
 }
 
 export const AUTO_DEFAULTS: AutoConfig = {
@@ -863,6 +900,11 @@ export const AUTO_DEFAULTS: AutoConfig = {
   whaleFilter: true,
   broadcast: true,
   autoFlip: true,
+  // trailing stop — tắt mặc định; bật = bảo vệ lời tự động (act 1% giá ≈ +10%
+  // ROE ở đòn bẩy 10, cách đỉnh 0.8% — giữ đủ đường đi, chốt khi quay đầu)
+  trailOn: false,
+  trailActPct: 1,
+  trailDistPct: 0.8,
 };
 export const COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
 /** DCA adds allowed into a losing position (model still confirming) */
@@ -947,6 +989,11 @@ export function loadAutoConfig(): AutoConfig {
       whaleFilter: p.whaleFilter !== false,
       broadcast: p.broadcast !== false,
       autoFlip: p.autoFlip !== false,
+      trailOn: p.trailOn === true,
+      trailActPct:
+        typeof p.trailActPct === "number" && p.trailActPct > 0 ? Math.min(10, Math.max(0.2, p.trailActPct)) : AUTO_DEFAULTS.trailActPct,
+      trailDistPct:
+        typeof p.trailDistPct === "number" && p.trailDistPct > 0 ? Math.min(10, Math.max(0.1, p.trailDistPct)) : AUTO_DEFAULTS.trailDistPct,
     };
   } catch {
     return AUTO_DEFAULTS;

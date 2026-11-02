@@ -20,6 +20,8 @@ import {
   TP_MODES,
   telegramConfigured,
   telegramStatus,
+  trailMovePct,
+  trailStopPrice,
   AUTO_DEFAULTS,
   type AutoConfig,
   type AutoState,
@@ -100,6 +102,8 @@ interface EngineSnap {
   train: { at: number; total: number; latest: EngineSnapTrainRun[] } | null;
   bcast: { at: number; pass: number; total: number; cooldown: number; rows: EngineSnapBcastRow[] } | null;
   cycle: { lastAt: number; status: string; nextAt: number };
+  /** trailing-stop state của vị thế đang mở — panel tự tính stop từ entry/side */
+  trail: { id: string; peak: number } | null;
   llmLast: LlmLast | null;
   jobs: {
     id: string;
@@ -172,6 +176,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   const [status, setStatus] = useState<string>("");
   const [countdown, setCountdown] = useState<number | null>(null);
   const [llmLast, setLlmLast] = useState<LlmLast | null>(null);
+  const [engineTrail, setEngineTrail] = useState<EngineSnap["trail"]>(null);
   const [engineInfo, setEngineInfo] = useState<{ pool: number; bundled: boolean } | null>(null);
 
   const langRef = useRef(lang);
@@ -320,6 +325,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
           snap.cfg?.on && snap.cycle?.nextAt > 0 ? Math.max(0, Math.round((snap.cycle.nextAt - Date.now()) / 1000)) : null,
         );
         setLlmLast(snap.llmLast ?? null);
+        setEngineTrail(snap.trail ?? null);
         setEngineInfo(snap.workers ?? null);
       } catch {
         // server restarting — keep the last snapshot on screen
@@ -564,6 +570,47 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
             )}
             {cfg.tpMode === "atr" && (
               <span className="w-full text-[10px] leading-tight text-zinc-600">{t(lang, "auto.cfg.tpAtrDesc")}</span>
+            )}
+          </div>
+          {/* TRAILING STOP — khoá lời di động: act% giá thì arm, stop bám đỉnh/đáy cách dist% */}
+          <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t(lang, "auto.trail")}>
+            <button
+              type="button"
+              onClick={() => updateCfg({ trailOn: !cfg.trailOn })}
+              aria-pressed={cfg.trailOn}
+              title={t(lang, "auto.trail.tip")}
+              className={`h-7 rounded-md border px-2 text-[11px] ${
+                cfg.trailOn
+                  ? "border-violet-700 bg-violet-950/40 text-violet-300"
+                  : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+              }`}
+            >
+              🪢 {t(lang, "auto.trail")}
+            </button>
+            {cfg.trailOn && (
+              <label className="flex items-center gap-1 text-[11px] text-zinc-500" title={t(lang, "auto.trail.tip")}>
+                {t(lang, "auto.trail.act")}
+                <Input
+                  type="number"
+                  min={0.2}
+                  max={10}
+                  step={0.1}
+                  value={cfg.trailActPct}
+                  onChange={(e) => updateCfg({ trailActPct: Math.min(10, Math.max(0.2, Number(e.target.value) || 1)) })}
+                  className="h-7 w-14 border-violet-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-violet-300"
+                />
+                {t(lang, "auto.trail.dist")}
+                <Input
+                  type="number"
+                  min={0.1}
+                  max={10}
+                  step={0.1}
+                  value={cfg.trailDistPct}
+                  onChange={(e) => updateCfg({ trailDistPct: Math.min(10, Math.max(0.1, Number(e.target.value) || 0.8)) })}
+                  className="h-7 w-14 border-violet-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-violet-300"
+                />
+                <span className="text-zinc-600">{t(lang, "auto.trail.unit")}</span>
+              </label>
             )}
           </div>
         </div>
@@ -1080,6 +1127,36 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                 {fmtPrice(tpPrice(open.side, open.entryPrice, open.tpPct))} · +{open.tpPct.toFixed(1)}%
                 <span className="text-zinc-500"> (ROE +{(open.tpPct * open.leverage).toFixed(1)}%)</span>
               </span>
+              {cfg.trailOn && (
+                <>
+                  <span className="text-zinc-500" title={t(lang, "auto.trail.tip")}>
+                    🪢 Trail
+                  </span>
+                  {(() => {
+                    // peak từ engine snapshot (id phải khớp lệnh đang mở);
+                    // stop tính lại client-side bằng cùng công thức updateTrail
+                    const peak = engineTrail && engineTrail.id === open.id && engineTrail.peak > 0 ? engineTrail.peak : open.entryPrice;
+                    const stop = trailStopPrice(open.side, open.entryPrice, peak, cfg.trailActPct, cfg.trailDistPct);
+                    const move = trailMovePct(open.side, open.entryPrice, peak);
+                    return (
+                      <span className="text-right font-mono text-violet-300">
+                        {stop != null ? (
+                          <>
+                            {fmtPrice(stop)}
+                            <span className="text-zinc-500">
+                              {" "}
+                              · {t(lang, "auto.pos.trailPeak")} {fmtPrice(peak)} ({move >= 0 ? "+" : ""}
+                              {move.toFixed(2)}%)
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-zinc-500">{t(lang, "auto.pos.trailWait", { a: cfg.trailActPct, m: move })}</span>
+                        )}
+                      </span>
+                    );
+                  })()}
+                </>
+              )}
               <span className="text-zinc-500">{t(lang, "auto.pos.uroe")}</span>
               {(() => {
                 const live = tickers[open.symbol]?.price ?? open.entryPrice;
@@ -1181,7 +1258,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                     {(r.pnlPct ?? 0) >= 0 ? "+" : ""}
                     {(r.pnlPct ?? 0).toFixed(2)}%
                   </span>
-                  <span className="shrink-0 font-mono text-zinc-600">{r.exitKind === "tp" ? "TP" : r.exitKind === "sl" ? "SL" : r.exitKind === "flip" ? "🔄" : "…"}</span>
+                  <span className="shrink-0 font-mono text-zinc-600">{r.exitKind === "tp" ? "TP" : r.exitKind === "sl" ? "SL" : r.exitKind === "trail" ? "🪢" : r.exitKind === "flip" ? "🔄" : "…"}</span>
                 </div>
               ))}
             </div>

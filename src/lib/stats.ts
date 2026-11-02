@@ -296,7 +296,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       take: 2000,
     });
     const closed = rows.filter((r) => r.status === "closed");
-    const kinds = { tp: 0, sl: 0, flip: 0, manual: 0 };
+    const kinds = { tp: 0, sl: 0, trail: 0, flip: 0, manual: 0 };
     for (const r of closed) {
       const k = (r.exitKind ?? "") as keyof typeof kinds;
       if (k in kinds) kinds[k] += 1;
@@ -312,12 +312,12 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       note:
         unlabeled > 0
           ? `${unlabeled} closed trades missing exitKind (pre-0.2.24 or legacy manual close) — label totals under-count; remainder is legacy.`
-          : "Label totals match closed count — every close goes through closeTradeDirect (tp/sl/flip/manual).",
+          : "Label totals match closed count — every close goes through closeTradeDirect (tp/sl/trail/flip/manual).",
       accPct: 100,
       accNote: "exact DB counts — not estimates",
       metrics: [
         { k: "Total trades", v: String(rows.length), sub: `${rows.length - closed.length} open · ${closed.length} closed` },
-        { k: "TP / SL", v: `${kinds.tp} / ${kinds.sl}`, sub: `flip ${kinds.flip} · tay ${kinds.manual}` },
+        { k: "TP / SL", v: `${kinds.tp} / ${kinds.sl}`, sub: `trail ${kinds.trail} · flip ${kinds.flip} · tay ${kinds.manual}` },
         ...(avg != null ? [{ k: "Avg ROE", v: `${avg >= 0 ? "+" : ""}${avg.toFixed(2)}%` }] : []),
         ...(best != null ? [{ k: "Best / worst", v: `+${best.toFixed(1)}% / ${worst ?? 0}%` }] : []),
         { k: "Last 7 days", v: `${last7d} closed trades` },

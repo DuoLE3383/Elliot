@@ -1,0 +1,29 @@
+0.2.62 — thêm Trailing stop 🪢 khoá lời di động cho engine auto
+
+Cơ chế:
+- Khi lời của lệnh đang mở đạt mức KÍCH HOẠT (trailActPct % di chuyển giá,
+  chưa nhân đòn bẩy — cùng đơn vị SL/TP), stop bắt đầu BÁM theo đỉnh (LONG)
+  / đáy (SHORT) tốt nhất seen since entry, cách một khoảng trailDistPct%.
+  Giá lùi đủ khoảng cách → đóng lệnh tại chỗ với exitKind MỚI "trail" (🪢).
+- Trước khi kích hoạt: SL/TP tĩnh vẫn là lưới an toàn duy nhất.
+- Chạy ở CẢ chu kỳ (cycleTick) lẫn watcher 20s — đỉnh giá được ghi liên tục
+  vào engine state (p.trail, sống qua pm2 restart nhờ engine.json), lùi giá
+  KHÔNG tuột stop. Lệnh đóng/mới (flip, trail, manual…) tự reset đỉnh.
+- Ưu tiên TRƯỚC dcaRescue: trailing là bảo vệ LỜI, không bao giờ bù DCA vào
+  lệnh đang được khoá lời.
+
+Sửa:
+- autotrade.ts: AutoConfig + trailOn/trailActPct/trailDistPct (default off,
+  act 1%, dist 0.8%, kẹp 0.2–10); hàm thuần trailNextPeak/trailMovePct/
+  trailStopPrice (đã test: arm đúng ngưỡng, stop ≥ hoà vốn khi dist ≤ act,
+  SHORT đối xứng).
+- engine.ts: state trail + updateTrail() dùng chung 2 vòng; closeTradeDirect
+  nhận exitKind "trail" + dọn trail state sau khi đóng; snapshot /api/engine
+  trả trail {id, peak} cho panel; loadEngine tự bù field mới khi global sống
+  sót qua hot-reload (fix "Cannot read properties of undefined (reading 'id')").
+- /api/autotrade PATCH: whitelist exitKind "trail".
+- tg-msgs: nhãn close "TRAILING STOP 🪢"; stats: đếm nhãn trail + chú thích.
+- auto-panel: nút 🪢 Trailing stop + 2 ô Kích hoạt/cách đỉnh (đơn vị % giá,
+  i18n vi/en); thẻ vị thế đang mở thêm hàng 🪢 Trail hiện stop hiện hành +
+  đỉnh (+x.xx%) hoặc "chờ lời ≥ +a% giá (đang +m%)"; chip lịch sử 🪢.
+- i18n: auto.trail*, auto.pos.trail*; stats.basis.hist nhắc thêm trail.

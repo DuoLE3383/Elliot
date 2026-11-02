@@ -42,6 +42,8 @@ import {
   scoreOf,
   slCooldownLeft,
   slTpHit,
+  trailNextPeak,
+  trailStopPrice,
   withChampion,
   confluenceBlend,
   sanitizeRunTf,
@@ -112,6 +114,10 @@ interface EnginePersisted {
   /** DCA bookkeeping for the current position — tranche prices give the exact
    *  notional-weighted average entry; survives restarts via engine.json */
   dca: { id: string; count: number; stake0: number; prices: number[] };
+  /** TRAILING STOP — đỉnh/gáy giá tốt nhất seen since entry của vị thế đang mở
+   *  (LONG = đỉnh cao nhất, SHORT = đáy thấp nhất; khởi tạo = entryPrice).
+   *  Sống qua restart nhờ engine.json; đổi lệnh thì reset (xem updateTrail). */
+  trail: { id: string; peak: number };
   llmLast: { symbol: string; interval: string; side: string; verdict: string; reason: string; ms: number; at: number } | null;
 }
 
@@ -145,6 +151,7 @@ function defaults(): { p: EnginePersisted; v: EngineVolatile } {
       nextCycleAt: 0,
       warned: { id: "", tp: false, sl: false },
       dca: { id: "", count: 0, stake0: 0, prices: [] },
+      trail: { id: "", peak: 0 },
       llmLast: null,
     },
     v: {
@@ -159,7 +166,15 @@ function defaults(): { p: EnginePersisted; v: EngineVolatile } {
 }
 
 function loadEngine(): void {
-  if (g.__elliottEngine?.loaded) return;
+  if (g.__elliottEngine?.loaded) {
+    // global sống sót qua hot-reload (module cũ tạo trước khi có field mới) —
+    // bù nốt các phần thiếu để p.trail/p.dca/... không bao giờ là undefined
+    const p0 = g.__elliottEngine.p;
+    if (!p0.trail) p0.trail = { id: "", peak: 0 };
+    if (!p0.warned) p0.warned = { id: "", tp: false, sl: false };
+    if (!p0.dca) p0.dca = { id: "", count: 0, stake0: 0, prices: [] };
+    return;
+  }
   const d = defaults();
   g.__elliottEngine = { ...d, loaded: true };
   // last scan/universe snapshots from disk — a pm2 restart no longer blanks
@@ -191,6 +206,9 @@ function loadEngine(): void {
         };
       }
       if (raw.llmLast) p.llmLast = raw.llmLast;
+      if (raw.trail && typeof raw.trail === "object" && typeof raw.trail.id === "string") {
+        p.trail = { id: raw.trail.id, peak: typeof raw.trail.peak === "number" && raw.trail.peak > 0 ? raw.trail.peak : 0 };
+      }
     }
   } catch {
     // corrupt state — start from defaults, the next sync rewrites it
@@ -309,7 +327,7 @@ async function persistTrainResult(
 async function closeTradeDirect(
   id: string,
   exitPrice: number,
-  exitKind: "tp" | "sl" | "manual" | "flip",
+  exitKind: "tp" | "sl" | "manual" | "flip" | "trail",
 ): Promise<AutoTradeRow | null> {
   const row = await db.autoTrade.findUnique({ where: { id } });
   if (!row || row.status !== "open") return null;
@@ -326,6 +344,12 @@ async function closeTradeDirect(
     where: { id },
     data: { status: "closed", exitPrice, exitTime: new Date(), pnlPct, exitKind, capitalAfter },
   });
+  // trailing state của lệnh vừa đóng hết giá trị — dọn ngay để snapshot không
+  // hiển thị đỉnh cũ (lệnh mới có id khác thì updateTrail cũng tự reset)
+  if (eng().p.trail.id === id) {
+    eng().p.trail = { id: "", peak: 0 };
+    persistEngine();
+  }
   if (pval("AUTOPSY_ON", AUTOPSY_ON)) {
     const { p } = eng();
     void (() => { const ep = resolveLlmEndpoint({ url: p.cfg.llmUrl, model: p.cfg.llmModel }); void autopsyClosedTrade(updated, { url: ep.url, model: ep.model }); })();
@@ -1112,6 +1136,21 @@ async function cycleTick(): Promise<void> {
       const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
       const price = tickers[open.symbol]?.price ?? 0;
       if (price > 0) {
+        // 1.0) TRAILING STOP — khi lời đủ act% giá, stop bám đỉnh/đáy cách
+        // dist%; giá lùi đủ khoảng cách là chốt lời tại chỗ (exitKind "trail").
+        // Kiểm tra TRƯỚC SL/TP tĩnh vì khi armed stop trailing luôn chặt hơn.
+        const trail = updateTrail(open, price, c);
+        if (trail.hit) {
+          const closed = await closeTradeDirect(open.id, price, "trail");
+          if (closed) {
+            v.lastCycleStatus = `${closed.symbol} ${closed.interval} closed trail`;
+            if (tgReady()) {
+              const s2 = await readAutoState();
+              void tgSendMessage(msgClose(closed, s2.stats.closed, s2.stats.winRate, s2.stats.netPnlPct), "HTML");
+            }
+          }
+          return; // one position at a time — the next cycle re-evaluates entry
+        }
         const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
         const liq = liquidationHit(open.side, price, open.entryPrice, open.leverage);
         if (kind || liq) {
@@ -1469,6 +1508,28 @@ async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "c
   }
 }
 
+// ─── Trailing stop — đỉnh giá chạy theo, stop bám cách một khoảng ─────────
+
+/** Cập nhật đỉnh trailing cho vị thế đang mở + tính stop hiện hành. Trả
+ *  { stop: null, hit: false } khi trailing tắt trong cfg. Đổi lệnh (id khác)
+ *  thì tự reset peak = entryPrice. Chỉ persist khi đỉnh TIẾN (LONG giá mới
+ *  cao hơn / SHORT thấp hơn) — lùi giá không làm stop tuột xuống. */
+function updateTrail(open: AutoTradeRow, price: number, c: AutoConfig): { stop: number | null; hit: boolean } {
+  const { p } = eng();
+  if (!c.trailOn) return { stop: null, hit: false };
+  if (p.trail.id !== open.id) {
+    p.trail = { id: open.id, peak: open.entryPrice };
+  }
+  const peak = trailNextPeak(open.side, p.trail.peak, price);
+  if (peak !== p.trail.peak) {
+    p.trail = { id: open.id, peak };
+    persistEngine();
+  }
+  const stop = trailStopPrice(open.side, open.entryPrice, peak, c.trailActPct, c.trailDistPct);
+  const hit = stop != null && (open.side === "SHORT" ? price >= stop : price <= stop);
+  return { stop, hit };
+}
+
 // ─── watcher tick — intra-cycle SL/TP/liquidation + near-hit warnings ────────
 
 async function watcherTick(): Promise<void> {
@@ -1482,6 +1543,26 @@ async function watcherTick(): Promise<void> {
     const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
     const price = tickers[open.symbol]?.price ?? 0;
     if (price <= 0) return;
+    // TRAILING STOP — ưu tiên TRƯỚC dcaRescue: trail là bảo vệ LỜI, không bao
+    // giờ bù DCA vào một lệnh đang được khoá lời. SL/TP tĩnh vẫn chạy phía sau
+    // như lưới an toàn khi đỉnh chưa đủ ngưỡng kích hoạt.
+    const trail = updateTrail(open, price, c);
+    if (trail.hit) {
+      const closed = await closeTradeDirect(open.id, price, "trail");
+      if (closed) {
+        if (tgReady()) {
+          const s2 = await readAutoState();
+          void tgSendMessage(msgClose(closed, s2.stats.closed, s2.stats.winRate, s2.stats.netPnlPct), "HTML");
+        }
+        // book the fresh entry a few seconds later — same as the client flow
+        if (c.on) {
+          setTimeout(() => {
+            void cycleTick();
+          }, 3_000);
+        }
+      }
+      return;
+    }
     const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
     const liq = liquidationHit(open.side, price, open.entryPrice, open.leverage);
     // last-chance DCA at the stop itself — model still confirms → average in,
@@ -1572,6 +1653,8 @@ export function engineSnapshot(): {
   train: TrainSnapshot;
   bcast: BcastSnapshot;
   cycle: { lastAt: number; status: string; nextAt: number };
+  /** trailing-stop state của vị thế đang mở — panel tự tính stop từ entry/side */
+  trail: { id: string; peak: number } | null;
   llmLast: EnginePersisted["llmLast"];
   jobs: ReturnType<typeof jobViews>;
   workers: { pool: number; bundled: boolean };
@@ -1591,6 +1674,7 @@ export function engineSnapshot(): {
     train: trainCache ?? { at: 0, total: 0, latest: [] },
     bcast: bcastCache ?? { at: 0, pass: 0, total: 0, cooldown: 0, rows: [] },
     cycle: { lastAt: v.lastCycleAt, status: v.lastCycleStatus, nextAt: p.nextCycleAt },
+    trail: p.trail.id ? { id: p.trail.id, peak: p.trail.peak } : null,
     llmLast: p.llmLast,
     jobs: jobViews(),
     workers: { pool: xgbPoolSize(), bundled: xgbPoolAvailable() },
