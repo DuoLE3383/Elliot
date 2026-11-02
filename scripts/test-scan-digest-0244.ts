@@ -21,7 +21,7 @@ const mkRow = (symbol: string, interval: string, bias: string, score: number, au
     slPct: 6,
     tpPct: 5.2, // ≥ BCAST_PL1_MIN (5%) để qua cổng PL1
     atrCoef: 1,
-    samples: 500,
+    samples: 200,
     valSamples: 100,
   }) as unknown as ScanRow;
 

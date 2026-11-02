@@ -118,7 +118,7 @@ const mkRow = (over: Partial<ScanRow>): ScanRow => ({
   tpPct: 6,
   atrCoef: 1.5,
   score: 72.5,
-  samples: 500,
+  samples: 200,
   valSamples: 87,
   horizon: 1,
   trainedAt: 0,

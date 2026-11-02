@@ -31,7 +31,7 @@ globalThis.fetch = (async (url: string | URL | Request) => {
   const sym = new URL(u).searchParams.get("symbol") ?? "";
   const itv = new URL(u).searchParams.get("interval") ?? "1h";
   const base = sym === "PEPEUSDT" ? 0.00000496 : 0.2003;
-  const body = JSON.stringify({ klines: series(itv, 500, base) });
+  const body = JSON.stringify({ klines: series(itv, 200, base) });
   return new Response(body, { status: 200, headers: { "Content-Type": "application/json" } });
 }) as typeof fetch;
 
@@ -46,8 +46,8 @@ const row = (symbol: string, interval: string, score: number, slPct: number, tpP
   slPct,
   tpPct,
   score,
-  samples: 480,
-  valSamples: 120,
+  samples: 200,
+  valSamples: 50,
   horizon: 5,
   trainedAt: Date.now(),
   whale: { volZ: 1.2, risk: 0.1, tag: "calm" },

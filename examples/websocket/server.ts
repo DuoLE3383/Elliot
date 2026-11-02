@@ -9,8 +9,8 @@ const io = new Server(httpServer, {
     origin: "*",
     methods: ["GET", "POST"]
   },
-  pingTimeout: 60000,
-  pingInterval: 25000,
+  pingTimeout: 600000,
+  pingInterval: 250000,
 })
 
 interface User {
