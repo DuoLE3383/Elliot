@@ -61,6 +61,7 @@ import { runAgentTick } from "./self-improve";
 import { fetchKlinesDirect, fetchBoard24h } from "./klines-direct";
 import { XgbPoolNode, xgbPoolAvailable, xgbPoolSize } from "./xgb-pool-node";
 import { labCfgOf, maybeAutoLab } from "./strategy-lab";
+import { evolveInfo, evolveRound, evolveWatch, type EvolveBridge } from "./evolve";
 import {
   UNIVERSE,
   UNIVERSE_INTERVAL,
@@ -1600,6 +1601,64 @@ export function engineSnapshot(): {
 
 let started = false;
 
+// ─── Tự tiến hoá (0.2.54) — bridge + lịch chạy ────────────────────────────────
+// Vòng khép kín: Strategy Lab + LLM đề xuất → backtest nến thật → áp kẻ thắng
+// vào settings → theo dõi lệnh giấy thật → tự hoàn tác nếu tệ hơn mốc. Chi
+// tiết thuật toán ở evolve.ts; nơi này chỉ giữ state engine và đặt lịch.
+const evolveBridge: EvolveBridge = {
+  settings: () => eng().p.settings,
+  universe: () => ({ pairs: eng().p.pairs, runTf: eng().p.cfg.runTf }),
+  applyLab: (cfg) => {
+    const { p } = eng();
+    p.settings = {
+      ...p.settings,
+      slPct: cfg.slPct,
+      tpPct: cfg.tpPct,
+      atrKey: cfg.atrKey,
+      atrPeriod: Math.round(cfg.atrPeriod),
+      smaPeriod: Math.round(cfg.smaPeriod),
+      smaFilter: cfg.smaFilter === true,
+    };
+    persistEngine();
+  },
+  closedSince: async (at) => {
+    const rows = await db.autoTrade.findMany({
+      where: { status: "closed", exitTime: { gte: at } },
+      select: { pnlPct: true },
+    });
+    const n = rows.length;
+    return { n, expectancy: n ? rows.reduce((s, r) => s + (r.pnlPct ?? 0), 0) / n : 0 };
+  },
+  llmEndpoint: () => {
+    const { p } = eng();
+    const ep = resolveLlmEndpoint({ url: p.cfg.llmUrl, model: p.cfg.llmModel });
+    return { url: ep.url, model: ep.model, timeoutMs: Math.max(15_000, Math.min(180_000, (p.cfg.llmTimeoutSec || 90) * 1000)) };
+  },
+  tg: (html) => {
+    if (tgReady()) void tgSendMessage(html, "HTML");
+  },
+  log: (msg) => console.log(`[evolve] ${msg}`),
+};
+
+/** Chạy MỘT vòng tiến hoá ngay (nút trên /ai + lần đầu sau boot). */
+export async function runEvolveRoundNow(): Promise<{ decision: string; combo: string; note: string }> {
+  const out = await evolveRound(evolveBridge);
+  console.log(`[evolve] round → ${out.decision}: ${out.note}`);
+  return out;
+}
+
+/** Quét theo dõi sau khi áp (tự hoàn tác nếu tệ hơn mốc). */
+export async function runEvolveWatchNow(): Promise<{ decision: string; combo: string; note: string }> {
+  const out = await evolveWatch(evolveBridge);
+  console.log(`[evolve] watch → ${out.decision}: ${out.note}`);
+  return out;
+}
+
+/** Thông tin tiến hoá cho /api/evolve — kèm tiến độ theo dõi. */
+export async function getEvolveInfo() {
+  return evolveInfo(evolveBridge);
+}
+
 /** Idempotent — global flag survives dev-mode module reloads. */
 export function startEngineScheduler(): void {
   const gg = globalThis as { __elliottEngineSched?: boolean };
@@ -1713,4 +1772,13 @@ export function startEngineScheduler(): void {
   iv.unref?.();
   const ivw = setInterval(watcher, 20_000);
   ivw.unref?.();
+
+  // 0.2.54 — nhịp tự tiến hoá: vòng đầu sau 10 phút boot, sau đó mỗi
+  // EVOLVE_ROUND_MIN phút (mặc định 6h); theo dõi sau-áp mỗi 30 phút.
+  const evBoot = setTimeout(() => void runEvolveRoundNow(), 10 * 60_000);
+  evBoot.unref?.();
+  const evIv = setInterval(() => void runEvolveRoundNow(), 6 * 3_600_000);
+  evIv.unref?.();
+  const evWatchIv = setInterval(() => void runEvolveWatchNow(), 30 * 60_000);
+  evWatchIv.unref?.();
 }

@@ -1,0 +1,38 @@
+0.2.54 — Vòng TỰ TIẾN HOÁ chiến lược (backtest + LLM đề xuất + tự hoàn tác)
+
+Đáp ứng yêu cầu: app tự tìm phương pháp vào lệnh tốt nhất → tự đo hiệu quả →
+tự chỉnh/nâng cấp liên tục, thay vì phụ thuộc một công thức/chỉ báo cố định.
+Nền tự phân tích mọi thông tin đang tích hợp: feature importance của champion
+XGBoost (34 yếu tố), grid quanh cfg, bối cảnh lệnh giấy, các vòng thử trước —
+quyết định cuối thuộc BACKTEST trên nến thật, LLM chỉ là một người đề xuất.
+
+Vòng khép kín (evolve.ts, lịch 1 vòng/6h + theo dõi/30p):
+  1. Chọn combo đại diện = champion AUC cao nhất trong pairs×runTf engine.
+  2. Refresh Strategy Lab (grid + feature-driven từ importance).
+  3. Lane LLM (llmPropose — fail-open): đọc bối cảnh tích hợp (metrics ứng
+     viên, importance, recent_evolution, 10 lệnh giấy gần nhất) → đề xuất thêm
+     1 ứng viên NGOÀI lưới, bị kẹp biên + backtest như mọi ứng viên khác.
+  4. ÁP ứng viên thắng nếu: ≥12 lệnh backtest, exp ≥ mốc + 0.10%/lệnh, DD
+     không sâu hơn 1.5× mốc, khác cfg đang chạy. Ghi EvolveLog + tin TG.
+  5. Theo dõi 15 lệnh giấy ĐÓNG kế tiếp: tệ hơn mốc → TỰ HOÀN TÁC cfg cũ +
+     TG; qua → ghi "confirm". Cooldown 24h giữa 2 lần áp. Env: EVOLVE_ON,
+     EVOLVE_ROUND_MIN, EVOLVE_COOLDOWN_H, EVOLVE_MIN_TRADES, EVOLVE_WATCH_N,
+     EVOLVE_MARGIN, EVOLVE_DD_FACTOR, EVOLVE_LLM (mặc định an toàn).
+
+- Bảng EvolveLog (schema + bootstrap) — nhật ký promote/keep/confirm/revert.
+- /api/evolve: GET trạng thái + lịch sử + tiến độ theo dõi; POST run/watch.
+- /ai: thẻ "Tự tiến hoá" — bản áp đang theo dõi, nút chạy 1 vòng ngay, 10
+  quyết định gần nhất.
+- engine.ts: bridge settings/persist/TG/LLM-endpoint/closedSince — evolve.ts
+  KHÔNG import engine (tránh vòng lặp, cùng mẫu strategy-lab).
+
+Hợp nhất với 1e630f4 (self-improve agent P1–P4): hai hệ BỔ SUNG nhau — agent
+đó chỉnh cfg cổng (minScore/minAcc/risk) theo expectancy lệnh thật theo
+methodId; hệ này chỉnh settings SL/TP/UT/SMA qua backtest + LLM, có watchdog
+tự hoàn tác. Không đụng cùng tham số, không đụng cùng bảng (ImproveEvent vs
+EvolveLog). Cả hai cùng chạy 6h nhịp riêng.
+
+Dọn dẹp: commit rác UUID 0b01338 (lần 3 — tự nuốt ~90 ảnh PNG + script e2e +
+module nháp của phiên song song) đã bị hạ bỏ; nội dung làm việc thật được trích
+lại qua patch; toàn bộ nội dung rác được lưu .backup/full-0b01338.patch
+(.backup/ đưa vào .gitignore). Sửa lại version đuổi kịp: 0.2.52(origin) → 0.2.54.

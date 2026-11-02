@@ -26,6 +26,7 @@ import {
   ChevronUp,
   Crown,
   Database,
+  Dna,
   FlaskConical,
   History,
   Loader2,
@@ -155,6 +156,59 @@ interface AiInfo {
   knobs: KnobGroup[];
 }
 
+interface EvoMetrics {
+  trades: number;
+  winRate: number;
+  expectancy: number;
+  maxDd: number;
+}
+
+interface EvoLabCfg {
+  slPct: number;
+  tpPct: number;
+  atrKey: number;
+  atrPeriod: number;
+  smaFilter: boolean;
+  smaPeriod: number;
+}
+
+interface EvoInfo {
+  on: boolean;
+  llmLane: boolean;
+  roundMin: number;
+  cooldownH: number;
+  watchN: number;
+  minTrades: number;
+  margin: number;
+  active: {
+    id: string;
+    at: string;
+    combo: string;
+    name: string;
+    detail: string;
+    cfgBefore: EvoLabCfg | null;
+    cfgAfter: EvoLabCfg | null;
+    metrics: { base?: EvoMetrics; best?: EvoMetrics } | null;
+  } | null;
+  watch: { n: number; need: number } | null;
+  history: { at: string; combo: string; decision: string; name: string; detail: string; cfgAfter: string; cfgBefore: string; metrics: string | null }[];
+}
+
+/** LabConfig → 1 dòng gọn cho UI */
+const evoCfg = (c: EvoLabCfg | null): string =>
+  c ? `SL ${c.slPct}% · TP ${c.tpPct}% · UT ${c.atrKey}·${c.atrPeriod} · SMA${c.smaFilter ? c.smaPeriod : "off"}` : "—";
+
+const evoBadge = (d: string): string =>
+  d === "promote"
+    ? "border-emerald-800 bg-emerald-950/40 text-emerald-300"
+    : d === "revert"
+      ? "border-amber-800 bg-amber-950/40 text-amber-300"
+      : d === "confirm"
+        ? "border-teal-800 bg-teal-950/40 text-teal-300"
+        : d === "error"
+          ? "border-rose-800 bg-rose-950/40 text-rose-300"
+          : "border-zinc-700 bg-zinc-900 text-zinc-400";
+
 const hyper = (p: { lr?: number; depth?: number; lambda?: number } | null): string =>
   p ? `lr ${p.lr ?? "—"} · d${p.depth ?? "—"} · λ${p.lambda ?? "—"}` : "—";
 
@@ -216,6 +270,48 @@ export default function AiPage() {
       /* ignore */
     }
   }, [data?.engine?.syncedAt]);
+
+  // ── Tự tiến hoá (0.2.54) — trạng thái vòng + lịch sử quyết định ──────────
+  const [evo, setEvo] = useState<EvoInfo | null>(null);
+  const [evoBusy, setEvoBusy] = useState(false);
+  const [evoMsg, setEvoMsg] = useState("");
+
+  useEffect(() => {
+    const f = async (): Promise<void> => {
+      try {
+        const r = await fetch("/api/evolve", { cache: "no-store" });
+        if (r.ok) setEvo((await r.json()) as EvoInfo);
+      } catch {
+        /* giữ data cũ */
+      }
+    };
+    void f();
+    const iv = setInterval(() => void f(), 60_000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const runEvolve = useCallback(async () => {
+    setEvoBusy(true);
+    try {
+      const r = await fetch("/api/evolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "run" }),
+      });
+      if (r.ok) {
+        const j = (await r.json()) as { decision: string; note: string };
+        setEvoMsg(`${j.decision}: ${j.note.slice(0, 140)}`);
+        const g = await fetch("/api/evolve", { cache: "no-store" });
+        if (g.ok) setEvo((await g.json()) as EvoInfo);
+      } else {
+        setEvoMsg(`http-${r.status}`);
+      }
+    } catch {
+      setEvoMsg("error");
+    } finally {
+      setEvoBusy(false);
+    }
+  }, []);
 
 
   // 0.2.32 — "phân tích nguyên nhân gốc": LLM đọc snapshot thống kê (/api/stats) và chỉ
@@ -886,6 +982,76 @@ export default function AiPage() {
                   <pre className="mt-0.5 max-h-28 overflow-y-auto whitespace-pre-wrap text-zinc-300">{llmTest.raw || "—"}</pre>
                 </div>
               </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* 5c — Tự tiến hoá (0.2.54): đề xuất → backtest → áp → theo dõi → hoàn tác */}
+        <Card className="border-zinc-800 bg-zinc-900/60">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
+              <Dna className="h-4 w-4 text-emerald-400" />
+              {t(lang, "ai.evo.title")}
+            </CardTitle>
+            <p className="text-[11px] leading-relaxed text-zinc-500">{t(lang, "ai.evo.sub")}</p>
+          </CardHeader>
+          <CardContent className="space-y-2 pt-0">
+            {evo && !evo.on && (
+              <Badge variant="outline" className="border-amber-700 bg-amber-950/40 text-amber-300">
+                {t(lang, "ai.evo.off")}
+              </Badge>
+            )}
+            {evo?.active && (
+              <p className="rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-2.5 text-[11px]">
+                <span className="font-bold text-emerald-300">
+                  {t(lang, "ai.evo.active")}: {evo.active.name}
+                </span>
+                <span className="mt-0.5 block font-mono text-[10px] text-zinc-400">
+                  {evo.active.combo} · {evoCfg(evo.active.cfgAfter)}
+                  {evo.active.metrics?.best ? ` · exp ${evo.active.metrics.best.expectancy.toFixed(3)}%/lệnh` : ""}
+                </span>
+                {evo.watch && (
+                  <span className="mt-0.5 block text-zinc-500">⏳ {t(lang, "ai.evo.watch", { n: evo.watch.n, need: evo.watch.need })}</span>
+                )}
+              </p>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1.5 border-zinc-700 px-2.5 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                disabled={evoBusy}
+                onClick={() => void runEvolve()}
+              >
+                {evoBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Dna className="h-3.5 w-3.5 text-emerald-400" />}
+                {evoBusy ? t(lang, "ai.evo.running") : t(lang, "ai.evo.run")}
+              </Button>
+              {evoMsg && <span className="text-[10px] text-zinc-500">{evoMsg}</span>}
+            </div>
+            {evo && evo.history.length > 0 ? (
+              <div className="rail-scroll max-h-60 space-y-1 overflow-y-auto pr-0.5">
+                {evo.history.slice(0, 10).map((h, i) => (
+                  <div key={`${h.at}-${i}`} className="rounded-md border border-zinc-800/80 bg-zinc-950/40 px-2 py-1.5 text-[10px]">
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <Badge variant="outline" className={`px-1.5 text-[9px] uppercase ${evoBadge(h.decision)}`}>
+                        {h.decision}
+                      </Badge>
+                      <span className="shrink-0 font-mono text-zinc-600">
+                        {new Date(h.at).toLocaleString(lang === "vi" ? "vi-VN" : "en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                      <span className="shrink-0 font-mono text-zinc-500">{h.combo}</span>
+                      {h.name && <span className="truncate text-zinc-300">{h.name}</span>}
+                    </span>
+                    {h.detail && (
+                      <span className="mt-0.5 block truncate text-zinc-500" title={h.detail}>
+                        {h.detail}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-zinc-600">{t(lang, "ai.evo.none")}</p>
             )}
           </CardContent>
         </Card>

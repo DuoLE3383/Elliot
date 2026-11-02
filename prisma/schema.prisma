@@ -226,3 +226,24 @@ model ImproveEvent {
   @@index([kind, createdAt])
   @@index([createdAt])
 }
+
+// ─── Evolve log — nhật ký vòng "tự tiến hoá" (0.2.54) ────────────────────────
+// Vòng khép kín trên nền Strategy Lab: sinh ứng viên từ dữ liệu đang tích hợp
+// (feature importance của champion + grid) và đề xuất LLM → backtest đúng
+// thuật toán engine trên nến thật → áp kẻ thắng vào settings engine → theo dõi
+// hiệu quả trên lệnh giấy THẬT (AutoTrade đóng sau thời điểm áp) → tự hoàn tác
+// nếu tệ hơn mốc. Mỗi quyết định 1 dòng: promote (áp) / keep (không đạt biên)
+// / confirm (qua theo dõi) / revert (hoàn tác) / error.
+model EvolveLog {
+  id        String   @id @default(cuid())
+  combo     String // "BTCUSDT 15m" — combo đại diện dùng cho backtest
+  decision  String // promote | keep | confirm | revert | error
+  name      String   @default("") // ứng viên áp/hủy — "" với keep/error
+  detail    String   @default("") // giải thích tiếng Việt + số liệu chính
+  cfgBefore String   @default("") // JSON LabConfig trước khi đổi
+  cfgAfter  String   @default("") // JSON LabConfig sau khi đổi
+  metrics   String? // JSON { base, best, watch? } — LabMetrics + số theo dõi
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}

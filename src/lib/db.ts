@@ -47,6 +47,9 @@ const SCHEMA_SQL: string[] = [
   `CREATE TABLE IF NOT EXISTS "ImproveEvent" ("id" TEXT NOT NULL PRIMARY KEY, "kind" TEXT NOT NULL, "methodId" TEXT NOT NULL DEFAULT '', "detail" TEXT NOT NULL, "note" TEXT NOT NULL DEFAULT '', "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE INDEX IF NOT EXISTS "ImproveEvent_kind_createdAt_idx" ON "ImproveEvent"("kind", "createdAt")`,
   `CREATE INDEX IF NOT EXISTS "ImproveEvent_createdAt_idx" ON "ImproveEvent"("createdAt")`,
+  // 0.2.54 — nhật ký vòng tự tiến hoá (promote/keep/confirm/revert)
+  `CREATE TABLE IF NOT EXISTS "EvolveLog" ("id" TEXT NOT NULL PRIMARY KEY, "combo" TEXT NOT NULL, "decision" TEXT NOT NULL, "name" TEXT NOT NULL DEFAULT '', "detail" TEXT NOT NULL DEFAULT '', "cfgBefore" TEXT NOT NULL DEFAULT '', "cfgAfter" TEXT NOT NULL DEFAULT '', "metrics" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+  `CREATE INDEX IF NOT EXISTS "EvolveLog_createdAt_idx" ON "EvolveLog"("createdAt")`,
 ];
 
 // ─── Thêm cột cho DB ĐÃ TỒN TẠI (0.2.28 autopsy) ────────────────────────────

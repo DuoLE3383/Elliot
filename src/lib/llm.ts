@@ -506,6 +506,97 @@ export async function llmReview(
   return (await llmReviewDebug(url, model, s, timeoutMs)).verdict;
 }
 
+// ─── Evolution proposer — LLM đề xuất 1 config vào lệnh từ dữ liệu tích hợp ───
+// Khác llmReview (JSON verdict go/skip): đầu vào là BỐI CẢNH tiến hoá (cfg
+// hiện tại, metrics backtest của các ứng viên, feature importance của champion,
+// kết quả các vòng thử trước, lệnh giấy gần nhất) và đầu ra là MỘT ứng viên
+// config MỚI dạng JSON chặt. Caller (evolve.ts) kẹp biên từng số trước khi
+// backtest — LLM không bao giờ chạm engine trực tiếp. Fail → null, vòng tiến
+// hoá vẫn chạy với grid/feature-driven như cũ (fail-open).
+export interface LlmProposal {
+  name: string;
+  hypothesis: string;
+  slPct: number;
+  tpPct: number;
+  atrKey: number;
+  atrPeriod: number;
+  smaFilter: boolean;
+  smaPeriod: number;
+}
+
+const EVOLVE_SYSTEM_PROMPT =
+  "You are the strategy-evolution proposer of a paper-trading engine. " +
+  "You receive the current entry config, backtest metrics of existing candidates, " +
+  "feature importances of the trained model, past evolution attempts and recent paper trades. " +
+  "Propose exactly ONE NEW candidate entry config that is DIFFERENT from the baseline and from " +
+  "candidates that already lost. Reason from the data only — never invent numbers. " +
+  'Reply with STRICT JSON only: {"name":"<short label>","hypothesis":"<1-2 sentences, Vietnamese>","slPct":<0.3-20>,"tpPct":<0.4-28>,"atrKey":<0.5-4>,"atrPeriod":<5-30>,"smaFilter":<true|false>,"smaPeriod":<20-250>}';
+
+export async function llmPropose(
+  url: string,
+  model: string,
+  ctxJson: string,
+  timeoutMs = LLM_TIMEOUT_MS,
+): Promise<{ ok: boolean; proposal: LlmProposal | null; raw: string; detail: string; ms: number }> {
+  const started = Date.now();
+  const base = { url, model: model.trim() || LLM_MODEL_DEFAULT };
+  try {
+    const modelId = await resolveLlmModel(url, model);
+    const res = await fetch(`${baseOf(url)}/v1/chat/completions`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      signal: AbortSignal.timeout(timeoutMs),
+      body: JSON.stringify({
+        model: modelId,
+        messages: [
+          { role: "system", content: EVOLVE_SYSTEM_PROMPT },
+          { role: "user", content: ctxJson },
+        ],
+        temperature: 0.2,
+        max_tokens: 220,
+      }),
+    });
+    const ms = Date.now() - started;
+    if (!res.ok) {
+      return { ok: false, proposal: null, raw: "", detail: `http-${res.status}`, ms };
+    }
+    const j = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+    const text = j.choices?.[0]?.message?.content ?? "";
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) return { ok: false, proposal: null, raw: text, detail: "no-json", ms };
+    const p = JSON.parse(m[0]) as Record<string, unknown>;
+    const num = (k: string): number => {
+      const v = Number(p[k]);
+      return Number.isFinite(v) ? v : NaN;
+    };
+    const slPct = num("slPct");
+    const tpPct = num("tpPct");
+    if (!Number.isFinite(slPct) || !Number.isFinite(tpPct) || slPct <= 0 || tpPct <= 0) {
+      return { ok: false, proposal: null, raw: text, detail: "bad-numbers", ms };
+    }
+    const proposal: LlmProposal = {
+      name: typeof p.name === "string" ? p.name.slice(0, 60) : "LLM đề xuất",
+      hypothesis: typeof p.hypothesis === "string" ? p.hypothesis.slice(0, 300) : "",
+      slPct,
+      tpPct,
+      atrKey: Number.isFinite(num("atrKey")) ? num("atrKey") : 2,
+      atrPeriod: Number.isFinite(num("atrPeriod")) ? num("atrPeriod") : 10,
+      smaFilter: p.smaFilter === true,
+      smaPeriod: Number.isFinite(num("smaPeriod")) ? num("smaPeriod") : 200,
+    };
+    return { ok: true, proposal, raw: text, detail: "ok", ms };
+  } catch (e) {
+    const timedOut = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
+    return {
+      ok: false,
+      proposal: null,
+      raw: "",
+      detail: timedOut ? "timeout" : "error",
+      ms: Date.now() - started,
+    };
+  }
+}
+
 // ─── Stats dive — LLM phân tích nguyên nhân gốc trên snapshot thống kê ────────────────
 // Khác llmReview: đầu vào là TOÀN BỘ snapshot thống kê (/api/stats — đã kèm
 // nhãn cơ sở logic + kết quả các kiểm tra tính nhất quán + độ tin cậy Wilson) và
