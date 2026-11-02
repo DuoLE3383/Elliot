@@ -490,6 +490,28 @@ export function trailStopPrice(side: string, entry: number, peak: number, actPct
   return side === "SHORT" ? peak * (1 + d) : peak * (1 - d);
 }
 
+/** TỰ ĐỀ XUẤT thông số trailing RIÊNG cho từng lệnh theo 3 yếu tố (0.2.63):
+ *  • pair × khung giờ — atrPct = ATR(14) nến đã đóng / giá đóng × 100 đo trên
+ *    chính khung giao dịch của lệnh: cặp nóng (PEPE, DOGE…) hay khung lớn
+ *    (4h/1d) có ATR% lớn → đề xuất rộng hơn; cặp êm/khung nhỏ → sát hơn.
+ *  • đòn bẩy — levScale = √(10/leverage) kẹp [0.5, 2]: đòn cao hơn tham chiếu
+ *    ×10 → siết khoá lời chặt hơn (bảo vệ ROE), đòn thấp → nới room cho giá chạy.
+ *  • công thức: act = atrPct × 1.2 × levScale (đi được ~1.2 ATR mới coi là xu
+ *    hướng có thịt để khoá), dist = atrPct × 0.9 × levScale (nhường ~0.9 ATR
+ *    đường về; vừa armed stop ≈ hoà vốn/lãi nhẹ).
+ *  Ví dụ: BTC 15m êm (ATR 0.3%, lev 10) → act 0.36 / dist 0.27; PEPE 15m nóng
+ *  (ATR 1.5%) → act 1.8 / dist 1.35; cùng cặp lev 20 → siết còn ×0.71. */
+export function trailAutoLevels(atrPct: number, leverage: number): { actPct: number; distPct: number; levScale: number } {
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const levScale = Math.min(2, Math.max(0.5, Math.sqrt(10 / Math.max(1, leverage))));
+  const cl = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, r2(v)));
+  return {
+    actPct: cl(atrPct * 1.2 * levScale, 0.2, 6),
+    distPct: cl(atrPct * 0.9 * levScale, 0.15, 5),
+    levScale: r2(levScale),
+  };
+}
+
 // ─── Per-combo win-rate stats ────────────────────────────────────────────────
 
 export interface ComboStat {
@@ -867,6 +889,12 @@ export interface AutoConfig {
    *  (LONG) / đáy (SHORT) cách trailDistPct%; giá lùi đủ khoảng cách là chốt
    *  lời tại chỗ (exitKind "trail"). TP/SL tĩnh vẫn hiệu lực như lưới an toàn. */
   trailOn: boolean;
+  /** 🤖 TỰ ĐỀ XUẤT thông số trailing theo pair × đòn bẩy × khung giờ (0.2.63):
+   *  mỗi lệnh khi mở được đo ATR(14)% trên chính khung giao dịch, nhân hệ số
+   *  đòn bẩy √(10/lev) rồi khoá act/dist riêng (xem trailAutoLevels). Khi đang
+   *  bật, 2 ô thủ công bên dưới bị bỏ qua. false = dùng 2 số thủ công chung
+   *  cho mọi cặp như bản 0.2.62. */
+  trailAuto: boolean;
   /** % di chuyển giá (chưa nhân đòn bẩy) cần đạt trước khi stop bắt đầu bám */
   trailActPct: number;
   /** khoảng cách % từ đỉnh/đáy tốt nhất tới stop trailing */
@@ -900,9 +928,12 @@ export const AUTO_DEFAULTS: AutoConfig = {
   whaleFilter: true,
   broadcast: true,
   autoFlip: true,
-  // trailing stop — tắt mặc định; bật = bảo vệ lời tự động (act 1% giá ≈ +10%
-  // ROE ở đòn bẩy 10, cách đỉnh 0.8% — giữ đủ đường đi, chốt khi quay đầu)
+  // trailing stop — tắt mặc định; bật = bảo vệ lời tự động. trailAuto mặc định
+  // BẬT: mỗi lệnh tự đề xuất act/dist theo ATR(cặp×khung)×đòn bẩy (0.2.63);
+  // 2 số dưới chỉ còn là phương án thủ công khi trailAuto=false và fallback
+  // khi klines lỗi.
   trailOn: false,
+  trailAuto: true,
   trailActPct: 1,
   trailDistPct: 0.8,
 };
@@ -990,6 +1021,7 @@ export function loadAutoConfig(): AutoConfig {
       broadcast: p.broadcast !== false,
       autoFlip: p.autoFlip !== false,
       trailOn: p.trailOn === true,
+      trailAuto: p.trailAuto !== false,
       trailActPct:
         typeof p.trailActPct === "number" && p.trailActPct > 0 ? Math.min(10, Math.max(0.2, p.trailActPct)) : AUTO_DEFAULTS.trailActPct,
       trailDistPct:

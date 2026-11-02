@@ -102,8 +102,9 @@ interface EngineSnap {
   train: { at: number; total: number; latest: EngineSnapTrainRun[] } | null;
   bcast: { at: number; pass: number; total: number; cooldown: number; rows: EngineSnapBcastRow[] } | null;
   cycle: { lastAt: number; status: string; nextAt: number };
-  /** trailing-stop state của vị thế đang mở — panel tự tính stop từ entry/side */
-  trail: { id: string; peak: number } | null;
+  /** trailing-stop state của vị thế đang mở — kèm bộ thông số engine đã khoá
+   *  cho lệnh đó (act/dist/atrPct/lev/src — 0.2.63): panel dùng đúng số này. */
+  trail: { id: string; peak: number; act: number; dist: number; atrPct: number; lev: number; src: "atr" | "cfg" } | null;
   llmLast: LlmLast | null;
   jobs: {
     id: string;
@@ -588,6 +589,26 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
               🪢 {t(lang, "auto.trail")}
             </button>
             {cfg.trailOn && (
+              <button
+                type="button"
+                onClick={() => updateCfg({ trailAuto: !cfg.trailAuto })}
+                aria-pressed={cfg.trailAuto}
+                title={t(lang, "auto.trail.autoTip")}
+                className={`h-7 rounded-md border px-2 text-[11px] ${
+                  cfg.trailAuto
+                    ? "border-violet-700 bg-violet-950/40 text-violet-300"
+                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                }`}
+              >
+                🤖 {t(lang, "auto.trail.auto")}
+              </button>
+            )}
+            {cfg.trailOn && cfg.trailAuto && (
+              <span className="w-full text-[10px] leading-tight text-zinc-600" title={t(lang, "auto.trail.autoTip")}>
+                {t(lang, "auto.trail.autoDesc")}
+              </span>
+            )}
+            {cfg.trailOn && !cfg.trailAuto && (
               <label className="flex items-center gap-1 text-[11px] text-zinc-500" title={t(lang, "auto.trail.tip")}>
                 {t(lang, "auto.trail.act")}
                 <Input
@@ -1133,10 +1154,15 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                     🪢 Trail
                   </span>
                   {(() => {
-                    // peak từ engine snapshot (id phải khớp lệnh đang mở);
-                    // stop tính lại client-side bằng cùng công thức updateTrail
-                    const peak = engineTrail && engineTrail.id === open.id && engineTrail.peak > 0 ? engineTrail.peak : open.entryPrice;
-                    const stop = trailStopPrice(open.side, open.entryPrice, peak, cfg.trailActPct, cfg.trailDistPct);
+                    // peak + bộ thông số ĐÃ KHOÁ từ engine snapshot (id phải khớp
+                    // lệnh đang mở); trailAuto → act/dist là số đề xuất riêng cho
+                    // lệnh (ATR(pair×TF)×đòn bẩy), không phải cfg chung; engine
+                    // chưa tick lần nào thì fallback cfg như cũ
+                    const et = engineTrail && engineTrail.id === open.id ? engineTrail : null;
+                    const peak = et && et.peak > 0 ? et.peak : open.entryPrice;
+                    const act = et && et.act > 0 ? et.act : cfg.trailActPct;
+                    const dist = et && et.dist > 0 ? et.dist : cfg.trailDistPct;
+                    const stop = trailStopPrice(open.side, open.entryPrice, peak, act, dist);
                     const move = trailMovePct(open.side, open.entryPrice, peak);
                     return (
                       <span className="text-right font-mono text-violet-300">
@@ -1150,7 +1176,15 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                             </span>
                           </>
                         ) : (
-                          <span className="text-zinc-500">{t(lang, "auto.pos.trailWait", { a: cfg.trailActPct, m: move })}</span>
+                          <span className="text-zinc-500">{t(lang, "auto.pos.trailWait", { a: act, m: move })}</span>
+                        )}
+                        {et?.src === "atr" && et.atrPct > 0 && (
+                          <span
+                            className="block text-[9px] font-sans text-zinc-600"
+                            title={t(lang, "auto.trail.autoTip")}
+                          >
+                            {t(lang, "auto.pos.trailAuto", { a: et.atrPct, l: et.lev || open.leverage, act, dist })}
+                          </span>
                         )}
                       </span>
                     );

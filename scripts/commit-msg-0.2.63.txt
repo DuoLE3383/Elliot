@@ -1,0 +1,43 @@
+0.2.63 — Trailing stop 🤖 TỰ ĐỀ XUẤT RIÊNG theo pair × đòn bẩy × khung giờ
+
+Vấn đề: 0.2.62 dùng 2 số act/dist TOÀN CỤC chung cho mọi cặp/khung — BTC 15m
+êm và PEPE 15m nóng bị ép cùng ngưỡng kích hoạt, cùng khoảng cách đỉnh; đòn
+bẩy ×5 và ×20 cũng vậy. Một con số không vừa tất cả.
+
+Cơ chế (mỗi lệnh có bộ thông số RIÊNG, khoá 1 lần lúc mới mở):
+- pair × khung giờ — ATR(14) nến đã đóng trên CHÍNH khung giao dịch của lệnh
+  (fetchKlinesDirect symbol+interval, 100 nến, 1 request duy nhất) đo độ biến
+  động: cặp nóng / khung lớn → đề xuất rộng hơn, cặp êm / khung nhỏ → sát hơn.
+- đòn bẩy — levScale = √(10/leverage) kẹp [0.5, 2]: đòn cao hơn tham chiếu ×10
+  siết khoá lời CHẶT hơn (bảo vệ ROE), đòn thấp nới room cho giá chạy.
+- công thức: act = ATR% × 1.2 × levScale (đi được ~1.2 ATR mới coi là xu hướng
+  có thịt để khoá), dist = ATR% × 0.9 × levScale (nhường ~0.9 ATR đường về;
+  vừa armed stop ≈ hoà vốn/lãi nhẹ). Kẹp act [0.2, 6] · dist [0.15, 5].
+  Ví dụ: BTC 15m ATR 0.3% lev 10 → 0.36/0.27; PEPE 15m ATR 1.5% → 1.8/1.35;
+  cùng cặp lev 20 → siết còn ×0.71 (1.02/0.76).
+- đề xuất sống trong p.trail (engine.json) — qua restart không mất; đổi lệnh
+  là reset. Klines lỗi (429/mạng) → fallback 2 số thủ công, KHÔNG retry trong
+  lệnh đó (auto=true đặt trước await chặn spam Binance mỗi tick 20s).
+- tắt 🤖 → về đúng hành vi 0.2.62 (2 ô thủ công chung mọi cặp).
+
+Sửa:
+- autotrade.ts: trailAutoLevels() thuần (engine + panel dùng chung một nguồn);
+  AutoConfig + trailAuto (mặc định BẬT), AUTO_DEFAULTS, loadAutoConfig.
+- engine.ts: p.trail mở rộng {id, peak, act, dist, atrPct, lev, src, auto}
+  (backfill bản 0.2.62 khi load); updateTrail → async, khoá đề xuất 1 lần/lệnh
+  qua atrLevelsAtEntry + trailAutoLevels, log 1 dòng khi khoá; snapshot trả đủ
+  bộ thông số cho panel; closeTradeDirect dọn state đủ field mới.
+- auto-panel.tsx: chip 🤖 auto-tune cạnh 🪢 (bấm tắt/bật, giữ nguyên 2 ô thủ
+  công khi tắt); khi bật hiện dòng mô tả công thức thay 2 ô số; thẻ vị thế
+  dùng ĐÚNG act/dist engine đã khoá (không còn tự tính từ cfg chung) + dòng
+  phụ 🤖 ATR {a}% × lev {l} → act/dist khi đề xuất thành công (src "atr").
+- i18n: auto.trail.auto / autoTip / autoDesc, auto.pos.trailAuto (vi/en).
+
+Kiểm chứng:
+- npm run build OK; tsc --noEmit không lỗi ở các file đụng tới.
+- trailAutoLevels: 7 ca biên (êm/nóng/lev 1-125/clamp) đều đúng công thức.
+- Server thật + headless browser: bật 🪢 → chip 🤖 aria-pressed=true + dòng
+  mô tả hiện; tắt 🤖 → 2 ô thủ công quay lại; engine sync on:true → watcher
+  20s khoá state trail cho lệnh mở (peak/lev đúng, src "cfg" do sandbox bị
+  Binance 429 — nhánh fallback hoạt động đúng thiết kế, không retry spam);
+  panel hiển thị theo state engine khoá. Đã dọn lệnh thử + engine off.

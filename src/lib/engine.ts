@@ -44,6 +44,7 @@ import {
   slTpHit,
   trailNextPeak,
   trailStopPrice,
+  trailAutoLevels,
   withChampion,
   confluenceBlend,
   sanitizeRunTf,
@@ -116,8 +117,12 @@ interface EnginePersisted {
   dca: { id: string; count: number; stake0: number; prices: number[] };
   /** TRAILING STOP — đỉnh/gáy giá tốt nhất seen since entry của vị thế đang mở
    *  (LONG = đỉnh cao nhất, SHORT = đáy thấp nhất; khởi tạo = entryPrice).
-   *  Sống qua restart nhờ engine.json; đổi lệnh thì reset (xem updateTrail). */
-  trail: { id: string; peak: number };
+   *  Sống qua restart nhờ engine.json; đổi lệnh thì reset (xem updateTrail).
+   *  0.2.63: kèm bộ thông số trailing ĐÃ KHOÁ cho lệnh đó — act/dist (đề xuất
+   *  tự động từ ATR(cặp×khung)×đòn bẩy khi trailAuto, hoặc số thủ công khi
+   *  tắt/lỗi dữ liệu), atrPct/lev là đầu vào của phép đề xuất, src ghi nguồn
+   *  ("atr" | "cfg"), auto = đã thử đề xuất cho lệnh này chưa (chỉ thử 1 lần). */
+  trail: { id: string; peak: number; act: number; dist: number; atrPct: number; lev: number; src: "atr" | "cfg"; auto: boolean };
   llmLast: { symbol: string; interval: string; side: string; verdict: string; reason: string; ms: number; at: number } | null;
 }
 
@@ -151,7 +156,7 @@ function defaults(): { p: EnginePersisted; v: EngineVolatile } {
       nextCycleAt: 0,
       warned: { id: "", tp: false, sl: false },
       dca: { id: "", count: 0, stake0: 0, prices: [] },
-      trail: { id: "", peak: 0 },
+      trail: { id: "", peak: 0, act: 0, dist: 0, atrPct: 0, lev: 0, src: "cfg", auto: false },
       llmLast: null,
     },
     v: {
@@ -170,7 +175,16 @@ function loadEngine(): void {
     // global sống sót qua hot-reload (module cũ tạo trước khi có field mới) —
     // bù nốt các phần thiếu để p.trail/p.dca/... không bao giờ là undefined
     const p0 = g.__elliottEngine.p;
-    if (!p0.trail) p0.trail = { id: "", peak: 0 };
+    if (!p0.trail) p0.trail = { id: "", peak: 0, act: 0, dist: 0, atrPct: 0, lev: 0, src: "cfg", auto: false };
+    else {
+      // bản 0.2.62 chỉ có {id, peak} — bù nốt các field đề xuất 0.2.63
+      p0.trail.act = typeof p0.trail.act === "number" ? p0.trail.act : 0;
+      p0.trail.dist = typeof p0.trail.dist === "number" ? p0.trail.dist : 0;
+      p0.trail.atrPct = typeof p0.trail.atrPct === "number" ? p0.trail.atrPct : 0;
+      p0.trail.lev = typeof p0.trail.lev === "number" ? p0.trail.lev : 0;
+      if (p0.trail.src !== "atr" && p0.trail.src !== "cfg") p0.trail.src = "cfg";
+      p0.trail.auto = p0.trail.auto === true;
+    }
     if (!p0.warned) p0.warned = { id: "", tp: false, sl: false };
     if (!p0.dca) p0.dca = { id: "", count: 0, stake0: 0, prices: [] };
     return;
@@ -207,7 +221,16 @@ function loadEngine(): void {
       }
       if (raw.llmLast) p.llmLast = raw.llmLast;
       if (raw.trail && typeof raw.trail === "object" && typeof raw.trail.id === "string") {
-        p.trail = { id: raw.trail.id, peak: typeof raw.trail.peak === "number" && raw.trail.peak > 0 ? raw.trail.peak : 0 };
+        p.trail = {
+          id: raw.trail.id,
+          peak: typeof raw.trail.peak === "number" && raw.trail.peak > 0 ? raw.trail.peak : 0,
+          act: typeof raw.trail.act === "number" && raw.trail.act > 0 ? raw.trail.act : 0,
+          dist: typeof raw.trail.dist === "number" && raw.trail.dist > 0 ? raw.trail.dist : 0,
+          atrPct: typeof raw.trail.atrPct === "number" && raw.trail.atrPct > 0 ? raw.trail.atrPct : 0,
+          lev: typeof raw.trail.lev === "number" && raw.trail.lev > 0 ? raw.trail.lev : 0,
+          src: raw.trail.src === "atr" ? "atr" : "cfg",
+          auto: raw.trail.auto === true,
+        };
       }
     }
   } catch {
@@ -347,7 +370,7 @@ async function closeTradeDirect(
   // trailing state của lệnh vừa đóng hết giá trị — dọn ngay để snapshot không
   // hiển thị đỉnh cũ (lệnh mới có id khác thì updateTrail cũng tự reset)
   if (eng().p.trail.id === id) {
-    eng().p.trail = { id: "", peak: 0 };
+    eng().p.trail = { id: "", peak: 0, act: 0, dist: 0, atrPct: 0, lev: 0, src: "cfg", auto: false };
     persistEngine();
   }
   if (pval("AUTOPSY_ON", AUTOPSY_ON)) {
@@ -1139,7 +1162,7 @@ async function cycleTick(): Promise<void> {
         // 1.0) TRAILING STOP — khi lời đủ act% giá, stop bám đỉnh/đáy cách
         // dist%; giá lùi đủ khoảng cách là chốt lời tại chỗ (exitKind "trail").
         // Kiểm tra TRƯỚC SL/TP tĩnh vì khi armed stop trailing luôn chặt hơn.
-        const trail = updateTrail(open, price, c);
+        const trail = await updateTrail(open, price, c);
         if (trail.hit) {
           const closed = await closeTradeDirect(open.id, price, "trail");
           if (closed) {
@@ -1513,21 +1536,64 @@ async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "c
 /** Cập nhật đỉnh trailing cho vị thế đang mở + tính stop hiện hành. Trả
  *  { stop: null, hit: false } khi trailing tắt trong cfg. Đổi lệnh (id khác)
  *  thì tự reset peak = entryPrice. Chỉ persist khi đỉnh TIẾN (LONG giá mới
- *  cao hơn / SHORT thấp hơn) — lùi giá không làm stop tuột xuống. */
-function updateTrail(open: AutoTradeRow, price: number, c: AutoConfig): { stop: number | null; hit: boolean } {
+ *  cao hơn / SHORT thấp hơn) — lùi giá không làm stop tuột xuống.
+ *
+ *  0.2.63 — TỰ ĐỀ XUẤT THEO PAIR × ĐÒN BẨY × KHUNG GIỜ: với mỗi lệnh, LẦN ĐẦU
+ *  tiên trail-tick thấy nó (id đổi), đo ATR(14)% trên chính khung giao dịch
+ *  của lệnh (fetchKlinesDirect symbol+interval — đúng 1 request, chỉ khi chưa
+ *  có đề xuất) rồi trailAutoLevels() khoá act/dist riêng, lưu trong p.trail
+ *  (sống qua restart). Khoá MỘT LẦN cho cả đời lệnh — giữa lệnh không dao động
+ *  theo ATR mới. Klines lỗi → fallback 2 số thủ công cfg (src "cfg"), không
+ *  retry nữa trong lệnh đó (auto=true chặn spam Binance mỗi tick 20s). */
+async function updateTrail(
+  open: AutoTradeRow,
+  price: number,
+  c: AutoConfig,
+): Promise<{ stop: number | null; hit: boolean; act: number; dist: number; atrPct: number; lev: number; src: "atr" | "cfg" }> {
   const { p } = eng();
-  if (!c.trailOn) return { stop: null, hit: false };
+  if (!c.trailOn) return { stop: null, hit: false, act: 0, dist: 0, atrPct: 0, lev: 0, src: "cfg" };
   if (p.trail.id !== open.id) {
-    p.trail = { id: open.id, peak: open.entryPrice };
-  }
-  const peak = trailNextPeak(open.side, p.trail.peak, price);
-  if (peak !== p.trail.peak) {
-    p.trail = { id: open.id, peak };
+    p.trail = { id: open.id, peak: open.entryPrice, act: 0, dist: 0, atrPct: 0, lev: 0, src: "cfg", auto: false };
     persistEngine();
   }
-  const stop = trailStopPrice(open.side, open.entryPrice, peak, c.trailActPct, c.trailDistPct);
+  // khoá đề xuất riêng cho lệnh — chỉ chạy 1 lần kể cả user bật trailAuto giữa chừng
+  if (c.trailAuto && !p.trail.auto) {
+    p.trail.auto = true; // đặt TRƯỚC await — tick song song không đo lại
+    p.trail.lev = open.leverage;
+    try {
+      const kl = await fetchKlinesDirect(open.symbol, open.interval, 100);
+      const live = atrLevelsAtEntry(kl); // chỉ lấy atrPct — sl/tp của lệnh không đụng vào
+      if (live) {
+        const lv = trailAutoLevels(live.atrPct, open.leverage);
+        p.trail.act = lv.actPct;
+        p.trail.dist = lv.distPct;
+        p.trail.atrPct = Math.round(live.atrPct * 100) / 100;
+        p.trail.src = "atr";
+        console.log(
+          `[engine] trail đề xuất ${open.symbol} ${open.interval}: ATR ${live.atrPct.toFixed(2)}% × lev ${open.leverage} (scale ${lv.levScale}) → act ${lv.actPct}% · dist ${lv.distPct}%`,
+        );
+      }
+    } catch {
+      // klines lỗi — dùng số thủ công, không retry trong lệnh này
+    }
+    if (p.trail.src !== "atr") {
+      p.trail.act = c.trailActPct;
+      p.trail.dist = c.trailDistPct;
+      p.trail.src = "cfg";
+    }
+    persistEngine();
+  }
+  const useAuto = c.trailAuto && p.trail.src === "atr";
+  const act = useAuto ? p.trail.act : c.trailActPct;
+  const dist = useAuto ? p.trail.dist : c.trailDistPct;
+  const peak = trailNextPeak(open.side, p.trail.peak, price);
+  if (peak !== p.trail.peak) {
+    p.trail = { ...p.trail, peak };
+    persistEngine();
+  }
+  const stop = trailStopPrice(open.side, open.entryPrice, peak, act, dist);
   const hit = stop != null && (open.side === "SHORT" ? price >= stop : price <= stop);
-  return { stop, hit };
+  return { stop, hit, act, dist, atrPct: p.trail.atrPct, lev: p.trail.lev, src: p.trail.src };
 }
 
 // ─── watcher tick — intra-cycle SL/TP/liquidation + near-hit warnings ────────
@@ -1546,7 +1612,7 @@ async function watcherTick(): Promise<void> {
     // TRAILING STOP — ưu tiên TRƯỚC dcaRescue: trail là bảo vệ LỜI, không bao
     // giờ bù DCA vào một lệnh đang được khoá lời. SL/TP tĩnh vẫn chạy phía sau
     // như lưới an toàn khi đỉnh chưa đủ ngưỡng kích hoạt.
-    const trail = updateTrail(open, price, c);
+    const trail = await updateTrail(open, price, c);
     if (trail.hit) {
       const closed = await closeTradeDirect(open.id, price, "trail");
       if (closed) {
@@ -1653,8 +1719,10 @@ export function engineSnapshot(): {
   train: TrainSnapshot;
   bcast: BcastSnapshot;
   cycle: { lastAt: number; status: string; nextAt: number };
-  /** trailing-stop state của vị thế đang mở — panel tự tính stop từ entry/side */
-  trail: { id: string; peak: number } | null;
+  /** trailing-stop state của vị thế đang mở — kèm bộ thông số đã khoá cho lệnh
+   *  (act/dist/atrPct/lev/src — 0.2.63): panel hiện đúng số engine đang dùng
+   *  thay vì tự tính từ cfg chung. */
+  trail: { id: string; peak: number; act: number; dist: number; atrPct: number; lev: number; src: "atr" | "cfg" } | null;
   llmLast: EnginePersisted["llmLast"];
   jobs: ReturnType<typeof jobViews>;
   workers: { pool: number; bundled: boolean };
@@ -1674,7 +1742,10 @@ export function engineSnapshot(): {
     train: trainCache ?? { at: 0, total: 0, latest: [] },
     bcast: bcastCache ?? { at: 0, pass: 0, total: 0, cooldown: 0, rows: [] },
     cycle: { lastAt: v.lastCycleAt, status: v.lastCycleStatus, nextAt: p.nextCycleAt },
-    trail: p.trail.id ? { id: p.trail.id, peak: p.trail.peak } : null,
+    trail:
+      p.trail.id && p.trail.peak > 0
+        ? { id: p.trail.id, peak: p.trail.peak, act: p.trail.act, dist: p.trail.dist, atrPct: p.trail.atrPct, lev: p.trail.lev, src: p.trail.src }
+        : null,
     llmLast: p.llmLast,
     jobs: jobViews(),
     workers: { pool: xgbPoolSize(), bundled: xgbPoolAvailable() },
