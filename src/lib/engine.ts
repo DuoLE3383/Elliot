@@ -58,7 +58,6 @@ import { atrLevelsAtEntry } from "./indicators";
 import { llmReview, resolveLlmEndpoint, type LlmVerdict } from "./llm";
 import { methodIdOf, methodSnapshot } from "./method";
 import { runAgentTick } from "./self-improve";
-import { runScheduledStatsDive } from "./llm";
 import { fetchKlinesDirect, fetchBoard24h } from "./klines-direct";
 import { XgbPoolNode, xgbPoolAvailable, xgbPoolSize } from "./xgb-pool-node";
 import { labCfgOf, maybeAutoLab } from "./strategy-lab";
@@ -1682,7 +1681,6 @@ export function startEngineScheduler(): void {
   // digest rơi 4/12/20h (giờ máy chủ) để hai tin dài không dồn một lúc
   const lastDigest = { bucket: 0 };
   const lastImprove = { bucket: -1 };
-  const lastDive = { bucket: -1 };
   const lastResolve = { at: 0 };
   // at=0 → lượt mổ bổ sung đầu tiên chạy ngay tick đầu tiên (~15s sau boot);
   // sau đó mỗi lượt cách nhau 6h (AUTOPSY_BACKFILL_MS)
@@ -1742,14 +1740,6 @@ export function startEngineScheduler(): void {
         } catch (e) {
           console.error(`[engine] self-improve: ${e instanceof Error ? e.message : e}`);
         }
-      }
-      // 24h Root-cause analysis (stats-dive) — English RCA saved as DiveReport
-      const bDive = Math.floor(Date.now() / (24 * 60 * 60_000));
-      if (bDive !== lastDive.bucket) {
-        lastDive.bucket = bDive;
-        void runScheduledStatsDive().catch((e) =>
-          console.error(`[engine] stats-dive-daily: ${e instanceof Error ? e.message : e}`),
-        );
       }
 
       // paper-trade cycle due?
