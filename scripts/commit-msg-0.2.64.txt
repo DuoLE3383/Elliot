@@ -1,0 +1,33 @@
+0.2.64 — nút 🤖 AI chọn được lại sau khi tải lại trang
+
+Vấn đề (user báo kèm ảnh: nút AI trong "Suggested strategies" bị mờ, không
+bấm được): nút AI chỉ BẬT khi có kết quả train sống trong RAM của PHIÊN
+duyệt (state `xgb` trong page.tsx, chỉ được ghi khi 1 job train single hoàn
+thành trong tab đó). Reload trang / pm2 restart / đổi máy là mất → nút bị
+khoá vĩnh viễn với chữ "chưa có đề xuất AI — train trước", dù combo ĐÃ từng
+train và server vẫn còn nguyên bộ đề xuất trong bảng Suggestion. Auto-retrain
+lúc đổi cặp không cứu được ca này vì nó chỉ chạy khi xgb != null mà stale.
+
+Giải pháp — nút AI rơi về bộ đề xuất ĐÃ LƯU trên server:
+- page.tsx: state `aiSaved` (SuggestionRow) — effect nạp bộ đề xuất MỚI NHẤT
+  của combo (GET /api/suggestions?symbol&interval&limit=1) khi chưa có kết
+  quả trong phiên khớp combo (xgb.key !== key); có rồi thì bỏ fallback (bộ
+  trong phiên luôn mới hơn). Ref chặn nạp lại mỗi lần xgb đổi; đổi combo nạp
+  lại theo combo.
+- applyAi(): xgb trong phiên khớp combo → applyXgb() như cũ; không thì áp
+  aiSaved (slPct/tpPct/atrKey/atrPeriod/smaFilter/smaPeriod vào settings +
+  localStorage), toast "đã áp dụng bộ AI ĐÃ LƯU (AUC …)", markApplied.
+- aiReady = (xgb trong phiên khớp) || aiSaved != null — combo CHƯA TỪNG train
+  thì vẫn khoá đúng với tooltip hướng dẫn train (không giả bộ số liệu).
+- history.ts: dùng lại fetchSuggestions() có sẵn (không thêm mới — lần đầu
+  tạo trùng, đã gộp).
+- i18n: xgb.appliedSaved (vi/en).
+
+Kiểm chứng (server thật + headless browser, phiên localStorage RỖNG):
+- BTCUSDT 5m có suggestion đã lưu (sl 5.5/tp 2.75/atrPeriod 9) → nút AI BẬT
+  ngay khi mới mở trang, không cần train;
+- bấm AI → toast "Applied the combo's SAVED AI parameters (AUC 0.71…)" +
+  utp.settings đúng sl 5.5 · tp 2.75 · atrKey 1 · atrPeriod 9 · smaFilter
+  false · smaPeriod 21, Entry plan vẽ lại SL/TP theo bộ mới;
+- XMRUSDT 5m chưa từng train (0 suggestion) → nút vẫn khoá đúng;
+- tsc --noEmit sạch · npm run build OK. Dữ liệu thử đã xoá.

@@ -24,7 +24,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtCompact } from "@/lib/market";
-import { applyBestSuggestion, fetchChampionRun, fetchRuns, markApplied, markVariantApplied, type RunRow, type VariantRow } from "@/lib/history";
+import { applyBestSuggestion, fetchChampionRun, fetchRuns, fetchSuggestions, markApplied, markVariantApplied, type RunRow, type SuggestionRow, type VariantRow } from "@/lib/history";
 import { fmtPct, fmtPrice, fmtTime, symbolLabel, t, type Lang } from "@/lib/i18n";
 import type { AutoTradeRow } from "@/lib/autotrade";
 import { LIVE_REPAIR_MS } from "@/lib/params";
@@ -159,6 +159,10 @@ export default function Home() {
   const [xgbRuns, setXgbRuns] = useState<RunRow[]>([]);
   /** best-ever run of the current combo (auc → acc → newest) — crowned in history */
   const [xgbChampion, setXgbChampion] = useState<RunRow | null>(null);
+  /** bộ đề xuất AI ĐÃ LƯU của combo trên server — phương án dự phòng cho nút
+   *  🤖 AI khi chưa có kết quả train trong phiên (reload trang/pm2 restart làm
+   *  mất `xgb` trong RAM; combo đã train bao giờ thì bảng Suggestion luôn còn). */
+  const [aiSaved, setAiSaved] = useState<SuggestionRow | null>(null);
   /** applying the champion suggestion right now */
   const [applyingBest, setApplyingBest] = useState(false);
   /** progress of a "train ALL pairs × all timeframes" pass (null = idle) */
@@ -674,6 +678,38 @@ export default function Home() {
     if (xgbRunId) void markApplied("run", xgbRunId).then((ok) => ok && bumpHist());
   }, [xgb, lang, pushToast, xgbSavedId, xgbRunId, bumpHist]);
 
+  /** Nút 🤖 AI ở dock: kết quả train TRONG PHIÊN của đúng cặp/khung thì áp
+   *  dụng trực tiếp (như cũ); chưa có (vừa tải lại trang, pm2 restart, đổi
+   *  máy…) thì rơi về bộ đề xuất ĐÃ LƯU của combo trên server — hết cảnh
+   *  "không cho chọn chiến thuật AI" chỉ vì chưa train lại trong phiên. */
+  const applyAi = useCallback(() => {
+    if (xgb && xgb.key === key) {
+      applyXgb();
+      return;
+    }
+    if (!aiSaved) return;
+    setSettings((prev) => {
+      const next = {
+        ...prev,
+        slPct: aiSaved.slPct,
+        tpPct: aiSaved.tpPct,
+        atrKey: aiSaved.atrKey,
+        atrPeriod: aiSaved.atrPeriod,
+        smaFilter: aiSaved.smaFilter,
+        smaPeriod: aiSaved.smaPeriod,
+      };
+      try {
+        localStorage.setItem("utp.settings", JSON.stringify(next));
+      } catch {
+        // storage blocked — the saved suggestion still applies for this session
+      }
+      return next;
+    });
+    prevKeyRef.current = "";
+    pushToast({ kind: "xgb", text: t(lang, "xgb.appliedSaved", { auc: aiSaved.auc.toFixed(2) }) });
+    void markApplied("suggestion", aiSaved.id).then((ok) => ok && bumpHist());
+  }, [xgb, key, aiSaved, applyXgb, lang, pushToast, bumpHist]);
+
   /** "Chọn bản tốt nhất" — server picks the combo's best-ever suggestion and its
    *  SL/TP/ATR levels become the active strategy (monotonic by construction:
    *  the best roll so far is what trades). */
@@ -776,6 +812,32 @@ export default function Home() {
       alive = false;
     };
   }, [symbol, interval, histRefresh]);
+
+  // bộ đề xuất đã lưu cho nút 🤖 AI — chỉ nạp khi CHƯA có kết quả trong phiên
+  // khớp combo (xgb.key === key): có rồi thì bộ trong phiên luôn mới hơn. Ref
+  // chặn nạp lại liên tục mỗi khi xgb đổi; đổi combo thì nạp lại theo combo.
+  const aiSavedRef = useRef("");
+  useEffect(() => {
+    let alive = true;
+    if (xgb && xgb.key === key) {
+      aiSavedRef.current = key;
+      setAiSaved(null); // kết quả phiên mới hơn — bỏ fallback
+      return;
+    }
+    if (aiSavedRef.current === key) return;
+    aiSavedRef.current = key;
+    (async () => {
+      try {
+        const list = await fetchSuggestions({ symbol, interval, limit: 1 });
+        if (alive) setAiSaved(list[0] ?? null);
+      } catch {
+        if (alive) setAiSaved(null);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [symbol, interval, key, xgb]);
 
   // auto-retrain when the shown model belongs to another pair/interval — the
   // stale banner used to sit there until the user clicked "Train lại"; now the
@@ -1407,8 +1469,8 @@ export default function Home() {
                 onToggleUt={toggleUt}
                 activePreset={activePreset}
                 onApplyPreset={applyPreset}
-                aiReady={xgb != null && !xgbStale}
-                onApplyAi={applyXgb}
+                aiReady={(xgb != null && !xgbStale) || aiSaved != null}
+                onApplyAi={applyAi}
                 latest={latestSignal}
                 confirmed={confirmedSignal}
                 gateLong={gateInfo.long}
