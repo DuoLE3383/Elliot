@@ -249,6 +249,13 @@ export type Interval = (typeof INTERVALS)[number];
 
 export const KLINE_LIMIT = 500;
 
+/** 0.2.52 — cửa sổ nến RIÊNG của thẻ Journal trên /stats (/api/journal).
+ *  Tách khỏi KLINE_LIMIT (500) để thẻ journal phản ánh regime gần đây hơn mà
+ *  KHÔNG đụng vào scan/train/view của engine (EMA50/SMA/Donchian cần nến
+ *  warmup — hạ KLINE_LIMIT sẽ làm model kém đi). Đổi nhãn i18n
+ *  "stats.j.trades" khi đổi số này. */
+export const JOURNAL_KLINES = 200;
+
 /** watchlist = 11 staples + top-30 universe scan + user customs → 60 cap */
 export const MAX_CUSTOM_PAIRS = 60;
 export const MAX_LEVERAGE = 125;

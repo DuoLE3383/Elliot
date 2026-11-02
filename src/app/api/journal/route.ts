@@ -3,7 +3,9 @@
 // GET /api/journal?interval=15m&symbol=ALL     → journal AGGREGATED across the 11 staple pairs
 //                                                  + per-pair breakdown table
 // Uses the exact same papersFrom/kpiFrom of /api/view on DEFAULT settings (SL 6% /
-// TP 3.2% / 1× / gate off) and a real 500-candle window — the browser only renders.
+// TP 3.2% / 1× / gate off) — but over its OWN window: JOURNAL_KLINES = 200 candles
+// (0.2.52, was the shared 500) so the card reflects the recent regime without
+// touching the engine's train/scan window. The browser only renders.
 // "All pairs" = the standard SYMBOLS list (staples). Custom watchlist pairs are
 // intentionally excluded so numbers stay stable and comparable across views.
 // ALL results are cached in-memory for 60 s (11× papersFrom on every call would be wasteful);
@@ -12,7 +14,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   DEFAULT_SETTINGS,
-  KLINE_LIMIT,
+  JOURNAL_KLINES,
   SYMBOLS,
 } from "@/lib/types";
 import { fetchKlinesDirectResolved } from "@/lib/klines-direct";
@@ -24,7 +26,7 @@ export const dynamic = "force-dynamic";
 export interface JournalPerPair {
   symbol: string;
   kpi: KpiStats;
-  /** số tín hiệu UT trong khung 500 nến của cặp này (cột "basis") */
+  /** số tín hiệu UT trong khung 200 nến (0.2.52) của cặp này (cột "basis") */
   signals: number;
 }
 
@@ -42,10 +44,11 @@ export interface JournalPayload {
   failed: string[];
 }
 
-/** Journal MỘT cặp — y hệt đường tính của /api/view (cùng engine, cùng nến). */
+/** Journal MỘT cặp — cùng engine papersFrom với /api/view, nhưng cửa sổ RIÊNG
+ *  200 nến (JOURNAL_KLINES, 0.2.52) — khác 500 nến của view. */
 async function journalOne(symbol: string, interval: string): Promise<{ kpi: KpiStats; basis: number } | null> {
   try {
-    const { klines } = await fetchKlinesDirectResolved(symbol, interval, KLINE_LIMIT, { revalidate: 10 });
+    const { klines } = await fetchKlinesDirectResolved(symbol, interval, JOURNAL_KLINES, { revalidate: 10 });
     if (klines.length < 10) return null;
     const s = DEFAULT_SETTINGS;
     const raw = signalsFrom(klines, s.atrKey, s.atrPeriod, s.smaPeriod);
@@ -138,7 +141,9 @@ export async function GET(req: NextRequest) {
   }
 
   // ── 1 cặp ──────────────────────────────────────────────────────────────────
-  const r = await journalOne(symbol, interval);
+  // 0.2.52: dùng chung journalOneRetry với đường ALL — mạng VPS từng đứt gói
+  // Binance ("Unexpected end of JSON input"), 1 lần thử duy nhất dễ trả 502 oan.
+  const r = await journalOneRetry(symbol, interval);
   if (!r) {
     return NextResponse.json({ error: "no klines", symbol }, { status: 502 });
   }

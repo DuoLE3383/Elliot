@@ -15,6 +15,8 @@
 // chọn — trình duyệt chỉ render. 0.2.38: chọn “Tất cả cặp” → journal GỘP 11
 // cặp tiêu chuẩn tính qua /api/journal (kèm bảng con theo từng cặp); phân tích
 // sâu vẫn theo từng cặp nên khi ALL card đó hiện ghi chú hướng dẫn.
+// 0.2.52: JOURNAL luôn qua /api/journal (1 cặp lẫn ALL) trên cửa sổ RIÊNG
+// 200 nến (JOURNAL_KLINES) — /api/view giữ 500 nến cho engine + deep analysis.
 // Nút "Root-cause dive" trên /ai vẫn gửi CÙNG snapshot server vào LLM.
 
 import { Badge } from "@/components/ui/badge";
@@ -73,6 +75,8 @@ interface JournalAllResp {
   per: PerPair[] | null;
   failed: string[];
 }
+/** 0.2.52 — response 1 cặp của /api/journal (chỉ cần kpi + basis) */
+type JournalOneResp = { kpi: KpiStats; basis: number };
 
 export default function StatsPage() {
   const [lang, setLang] = useState<Lang>("en");
@@ -110,8 +114,10 @@ export default function StatsPage() {
     }
   }, []);
 
-  // 2 section client-side — 0.2.35: tính Ở SERVER qua /api/view (setting MẶC ĐỊNH)
+  // 2 section client-side — 0.2.35: tính Ở SERVER (setting MẶC ĐỊNH)
   // 0.2.38: pickSym = ALL → journal gộp 11 cặp qua /api/journal (phân tích sâu ẩn)
+  // 0.2.52: journal 1 cặp CŨNG qua /api/journal — cùng cửa sổ 200 nến với ALL
+  // (fetchView chỉ còn phục vụ thẻ phân tích sâu — cửa sổ 500 nến của engine)
   useEffect(() => {
     let alive = true;
     setClientBusy(true);
@@ -136,21 +142,26 @@ export default function StatsPage() {
         return;
       }
       setJournalPer(null);
-      const v = await fetchView({
+      // song song: journal 200 nến (/api/journal) + phân tích sâu 500 nến (/api/view)
+      const jReq = fetch(
+        `/api/journal?interval=${encodeURIComponent(pickTf)}&symbol=${encodeURIComponent(pickSym)}`,
+        { cache: "no-store" },
+      )
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return (await res.json()) as JournalOneResp;
+        })
+        .catch(() => null);
+      const [j, v] = await Promise.all([jReq, fetchView({
         symbol: pickSym,
         interval: pickTf,
         s: DEFAULT_SETTINGS,
         w: DEFAULT_WYCKOFF,
         pairs: [],
-      });
+      })]);
       if (!alive) return;
-      if (v) {
-        setJournal({ ...v.kpi, basis: `${v.signals.length}` });
-        setAnalysis(v.analysis);
-      } else {
-        setJournal(null);
-        setAnalysis(null);
-      }
+      setJournal(j ? { ...j.kpi, basis: String(j.basis) } : null);
+      setAnalysis(v ? v.analysis : null);
       setClientBusy(false);
     })();
     return () => {
@@ -332,7 +343,7 @@ export default function StatsPage() {
               </CardContent>
             </Card>
 
-            {/* ── Trade journal — tính Ở SERVER (/api/view | /api/journal) ── */}
+            {/* ── Trade journal — tính Ở SERVER, luôn qua /api/journal (200 nến, 0.2.52) ── */}
             <Card className="border-zinc-800 bg-zinc-900/60">
               <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
                 <CardTitle className="text-sm font-semibold text-zinc-100">

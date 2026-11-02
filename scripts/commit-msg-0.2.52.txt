@@ -1,0 +1,21 @@
+0.2.52 — Journal /stats trên cửa sổ 200 nến (JOURNAL_KLINES) + retry 1 cặp
+
+Vì sao: thẻ "Trades (500 candles)" phản ánh ~5.2 ngày nến 15m — dài hơn mức
+cần "xem regime gần đây"; commit "update 200" trước đó chỉ đổi mock trong test
+nên không có tác dụng thật trên app.
+
+- types.ts: thêm JOURNAL_KLINES = 200 — cửa sổ RIÊNG của /api/journal, tách
+  khỏi KLINE_LIMIT 500 (scan/train/view giữ nguyên — EMA50/SMA/Donchian cần
+  nến warmup, hạ chung sẽ làm model kém đi).
+- /api/journal: journalOne nạp JOURNAL_KLINES; đường 1 cặp dùng chung
+  journalOneRetry với đường ALL (mạng VPS từng đứt gói Binance — 1 lần thử
+  duy nhất dễ 502 oan; test local trước khi sửa: "no klines", sau: 3/3 OK).
+- /stats: journal 1 cặp cũng fetch /api/journal (song song với fetchView cho
+  phân tích sâu) — 1 cặp và ALL cùng cửa sổ 200 nến, cùng một nhãn.
+- i18n: "Trades (500 candles)" → "Trades (200 candles)" (VI+EN);
+  stats.journalNote ghi rõ 0.2.52: 200 nến, 1 cặp lẫn ALL đều qua /api/journal.
+- Kiểm chứng: build OK; server standalone local — BTC 15m basis 32 → 12 tín
+  hiệu (đúng tỉ lệ 200/500), 3 lần gọi liên tiếp đều thành công.
+
+KHÔNG đổi: engine, scan/train, /api/view (trang chính + phân tích sâu vẫn
+500 nến), Strategy Lab (sl.subtitle vẫn nói 500 nến — đúng thực tế).
