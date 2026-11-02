@@ -28,7 +28,7 @@ import {
   type ScanRow,
 } from "@/lib/autotrade";
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
-import type { EngineSettings, Ticker } from "@/lib/types";
+import { MAX_LEVERAGE, type EngineSettings, type Ticker } from "@/lib/types";
 import { INTERVALS } from "@/lib/types";
 import { UNIVERSE, UNIVERSE_INTERVAL, type UniverseRow } from "@/lib/universe";
 import { msgClose, slPrice, tpPrice } from "@/lib/tg-msgs";
@@ -41,6 +41,8 @@ interface Props {
   pairs: string[];
   /** user leverage — applied to dry-run positions */
   leverage: number;
+  /** set user leverage from THIS panel (writes the page settings state → syncs to engine) */
+  onLeverageChange: (lev: number) => void;
   /** live ticker prices (refreshed by the page every 30s) */
   tickers: Record<string, Ticker>;
   /** user engine settings — passed through to the trainer */
@@ -149,7 +151,7 @@ const TEST_MSG =
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair, onUniverseTop, pushToast }: Props) {
+export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, settings, onPickPair, onUniverseTop, pushToast }: Props) {
   const [cfg, setCfg] = useState<AutoConfig>(loadAutoConfigSafe());
   // BACKEND ENGINE since the server-side refactor: scan / train / universe /
   // TOP-coin broadcast / paper-trade cycle / digests ALL run in the Node
@@ -471,6 +473,39 @@ export function AutoPanel({ lang, pairs, leverage, tickers, settings, onPickPair
               </button>
             ))}
           </div>
+          {/* Leverage — "tôi cài đặt x10 được không": chỉnh được NGAY đây.
+              SL/TP là % GIÁ — đòn bẩy chỉ nhân ROE (xem levTip). Đổi giá trị
+              viết vào settings của trang → useEffect sync đẩy lên engine. */}
+          <label
+            className="flex items-center gap-1.5 text-[11px] text-zinc-500"
+            title={t(lang, "auto.cfg.levTip")}
+          >
+            {t(lang, "auto.cfg.lev")}
+            <span className="flex items-center gap-1">
+              {[5, 10, 20].map((lv) => (
+                <button
+                  key={lv}
+                  type="button"
+                  onClick={() => onLeverageChange(lv)}
+                  className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
+                    leverage === lv
+                      ? "border-amber-700 bg-amber-950/40 text-amber-300"
+                      : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                  }`}
+                >
+                  ×{lv}
+                </button>
+              ))}
+              <Input
+                type="number"
+                min={1}
+                max={MAX_LEVERAGE}
+                value={leverage}
+                onChange={(e) => onLeverageChange(Math.max(1, Math.min(MAX_LEVERAGE, Number(e.target.value) || 1)))}
+                className="h-7 w-14 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
+              />
+            </span>
+          </label>
           <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.tpmode")}>
             <span className="mr-0.5 text-[11px] text-zinc-500">TP/SL</span>
             {TP_MODES.map((m) => (

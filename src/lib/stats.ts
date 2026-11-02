@@ -16,7 +16,7 @@ import { engineSnapshot } from "@/lib/engine";
 import { readAutoState } from "@/lib/autostate";
 import { comboStats, isTradeable, type ScanRow } from "@/lib/autotrade";
 import { outcomeOf, type XgbBiasRow } from "@/lib/history";
-import { LESSON_WEIGHT, NOISE_BAND, SCAN_TTL, UNIVERSE_LOOKBACK_CANDLES, UNIVERSE_SCAN_MS } from "@/lib/params";
+import { LESSON_WEIGHT, NOISE_BAND, SCAN_TTL, UNIVERSE_LOOKBACK_CANDLES, UNIVERSE_SCAN_MS, pval } from "@/lib/params";
 import { SESSIONS, sessionOf, sessionOverlap, type SessionKey } from "@/lib/market";
 import { UNIVERSE } from "@/lib/universe";
 
@@ -152,7 +152,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
   const universe = await safe("universe", async () => {
     const u = eng.universe;
     const ageMin = u ? min(now - u.at) : null;
-    const stale = !u || ageMin == null || ageMin > UNIVERSE_SCAN_MS / 60_000 + 60;
+    const stale = !u || ageMin == null || ageMin > pval("UNIVERSE_SCAN_MS", UNIVERSE_SCAN_MS) / 60_000 + 60;
     const rows = u?.rows ?? [];
     const top = rows[0];
     return {
@@ -181,6 +181,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
   // ─── 4. Auto Trade — Dry-run ──────────────────────────────────────────────
   const auto = await safe("auto", async () => {
     const st = await readAutoState();
+    const lw = pval("LESSON_WEIGHT", LESSON_WEIGHT);
     const newestClosed = st.trades.find((t) => t.status === "closed") ?? null;
     // kiểm chéo sổ vốn: trades đang mở phải có capitalBefore == capitalAfter của
     // closed trades mới nhất (engine ghi 2 số này ở 2 thời điểm khác nhau — lệch
@@ -203,7 +204,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         { k: "Equity", v: st.capital != null ? `$${st.capital.toFixed(2)}` : "—", sub: "start $1000" },
         { k: "Closed / wins", v: `${st.stats.closed} / ${st.stats.wins}`, sub: `win rate ${st.stats.winRate.toFixed(0)}%` },
         { k: "Net ROE sum", v: `${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(2)}%` },
-        { k: "Lesson samples", v: `${st.stats.closed * LESSON_WEIGHT}`, sub: `${st.stats.closed} trades × LESSON_WEIGHT ${LESSON_WEIGHT}` },
+        { k: "Lesson samples", v: `${st.stats.closed * lw}`, sub: `${st.stats.closed} trades × LESSON_WEIGHT ${lw}` },
       ],
     };
   });
@@ -216,8 +217,9 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     const stale = !scan || age == null || age > SCAN_TTL / 60_000;
     // đúng bộ lọc ứng viên của auto-cycle: isTradeable + không regressed +
     // ngoài dải nhiễu NOISE_BAND — đây là hàng sẽ được xét vào trades
+    const nb = pval("NOISE_BAND", NOISE_BAND);
     const cands = rows.filter(
-      (r) => isTradeable(r, cfg.minAuc, cfg.minAcc, cfg.minScore) && !r.regressed && Math.abs(r.prob - 0.5) >= NOISE_BAND,
+      (r) => isTradeable(r, cfg.minAuc, cfg.minAcc, cfg.minScore) && !r.regressed && Math.abs(r.prob - 0.5) >= nb,
     );
     const bcast = await db.bcastVerdict.findMany();
     const pass = bcast.filter((b) => b.verdict === "pass").length;
@@ -225,7 +227,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       state: (stale ? "warn" : "ok") as StatState,
       note: stale
         ? `Latest scan ${age == null ? "unknown" : `${age}m`} old — past SCAN_TTL ${SCAN_TTL / 60_000}m: panel keeps last scan by design; auto-cycle refreshes next 5m bucket.`
-        : `Fresh scan (< ${SCAN_TTL / 60_000}m). Candidates counted with the same auto-cycle filters: gate minAuc ${cfg.minAuc}/minAcc ${cfg.minAcc}/minScore ${cfg.minScore} + not regressed vs champion + outside noise band ±${(NOISE_BAND * 100).toFixed(0)}%.`,
+        : `Fresh scan (< ${SCAN_TTL / 60_000}m). Candidates counted with the same auto-cycle filters: gate minAuc ${cfg.minAuc}/minAcc ${cfg.minAcc}/minScore ${cfg.minScore} + not regressed vs champion + outside noise band ±${(nb * 100).toFixed(0)}%.`,
       accPct: 100,
       accNote: "live scan metrics — counted on ScanRow",
       metrics: [

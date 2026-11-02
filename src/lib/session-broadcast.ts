@@ -112,9 +112,9 @@ function inLabel(min: number): string {
  */
 export function sessionDirection(bullPct: number): { dir: "LONG" | "SHORT" | "SIDEWAYS"; pPct: number; pTxt: string } {
   const b = bullPct;
-  if (b >= SESS_BULL_LONG_MIN) return { dir: "LONG", pPct: b, pTxt: `P≈${b.toFixed(1)}% nến tăng` };
-  if (b <= SESS_BULL_SHORT_MAX) return { dir: "SHORT", pPct: 100 - b, pTxt: `P≈${(100 - b).toFixed(1)}% nến giảm` };
-  return { dir: "SIDEWAYS", pPct: Math.max(b, 100 - b), pTxt: `${b.toFixed(1)}% nến tăng — không thiên hướng rõ` };
+  if (b >= SESS_BULL_LONG_MIN) return { dir: "LONG", pPct: b, pTxt: `P≈${b.toFixed(1)}% bullish candles` };
+  if (b <= SESS_BULL_SHORT_MAX) return { dir: "SHORT", pPct: 100 - b, pTxt: `P≈${(100 - b).toFixed(1)}% bearish candles` };
+  return { dir: "SIDEWAYS", pPct: Math.max(b, 100 - b), pTxt: `${b.toFixed(1)}% bullish candles — no clear lean` };
 }
 
 /**
@@ -144,11 +144,11 @@ export function buildSessionOpenMessage(
   const st = byKey.get(opened);
   const lines: string[] = [
     pre
-      ? `⏳ <b>SẮP MỞ PHIÊN ${NAME[opened].toUpperCase()}</b> — sau ${inLabel(inMin)} — ${pad2(vnHour)}:00 GMT+7 (${pad2(o.getUTCHours())}:00 UTC)`
-      : `🚦 <b>PHIÊN ${NAME[opened].toUpperCase()}</b> — ${pad2(vnHour)}:00 GMT+7 (${pad2(o.getUTCHours())}:00 UTC)`,
+      ? `⏳ <b>${NAME[opened].toUpperCase()} SESSION OPENS SOON</b> — in ${inLabel(inMin)} — ${pad2(vnHour)}:00 GMT+7 (${pad2(o.getUTCHours())}:00 UTC)`
+      : `🚦 <b>${NAME[opened].toUpperCase()} SESSION</b> — ${pad2(vnHour)}:00 GMT+7 (${pad2(o.getUTCHours())}:00 UTC)`,
     HR,
-    `${pre ? "⏳" : "🚀"} <b>${NAME[opened]}</b> — Bull ${st?.bullPct != null ? `${st.bullPct.toFixed(0)}%` : "—"} · drift BTC ${driftTxt(st?.driftPct)} · ${
-      pre ? `sắp mở sau ${inLabel(inMin)}` : "<b>VỪA MỞ 🚀</b>"
+    `${pre ? "⏳" : "🚀"} <b>${NAME[opened]}</b> — Bull ${st?.bullPct != null ? `${st.bullPct.toFixed(0)}%` : "—"} · BTC drift ${driftTxt(st?.driftPct)} · ${
+      pre ? `opens in ${inLabel(inMin)}` : "<b>JUST OPENED 🚀</b>"
     }`,
   ];
 
@@ -158,10 +158,10 @@ export function buildSessionOpenMessage(
     if (nxStat?.bullPct != null) {
       const d = sessionDirection(nxStat.bullPct);
       lines.push(
-        `🔮 Phiên tới: <b>${NAME[nx.key]}</b> — mở sau ${inLabel(nx.inMin)} — Chiều Hướng <b>${d.dir}</b> · ${d.pTxt} (n=${nxStat.candles} phiên gần nhất)`,
+        `🔮 Next session: <b>${NAME[nx.key]}</b> — opens in ${inLabel(nx.inMin)} — Bias <b>${d.dir}</b> · ${d.pTxt} (n=${nxStat.candles} recent sessions)`,
       );
     } else {
-      lines.push(`🔮 Phiên tới: <b>${NAME[nx.key]}</b> — mở sau ${inLabel(nx.inMin)}`);
+      lines.push(`🔮 Next session: <b>${NAME[nx.key]}</b> — opens in ${inLabel(nx.inMin)}`);
     }
   }
 
@@ -171,7 +171,7 @@ export function buildSessionOpenMessage(
   if (sq) lines.push(squeezeLine(sq));
 
   lines.push(
-    `💡 Thống kê lịch sử (${SESS_SYMBOL} ${SESS_INTERVAL}) · ⛓ = OI + long/short + taker + funding từ Binance Futures — nguồn gốc mà Coinglass tổng hợp. Thống kê ≠ bảo đảm — luôn đặt SL.`,
+    `💡 Historical stats (${SESS_SYMBOL} ${SESS_INTERVAL}) · ⛓ = OI + long/short + taker + funding from Binance Futures — the raw source Coinglass aggregates. Stats ≠ guarantees — always set an SL.`,
   );
   return lines.join("\n");
 }
@@ -283,7 +283,7 @@ export async function sendSessionPreview(): Promise<{ ok: boolean; detail?: stri
       fetchKlinesDirect(SESS_SYMBOL, SESS_INTERVAL, SESS_KLINE_COUNT),
       getSqueezeReport(SESS_SYMBOL).catch(() => null),
     ]);
-    const text = `🧪 <b> — thông báo phiên</b>\n\n${buildSessionOpenMessage(opened, now, klines, now, sq)}`;
+    const text = `🧪 <b> — session broadcast preview</b>\n\n${buildSessionOpenMessage(opened, now, klines, now, sq)}`;
     return await tgSendMessage(text, "HTML");
   } catch (e) {
     return { ok: false, detail: e instanceof Error ? e.message : "kline fetch failed" };

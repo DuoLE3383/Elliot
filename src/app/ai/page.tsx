@@ -4,13 +4,15 @@
 // Answers three questions:
 //   1. What is Prob, and how confident is the model on this trade (side-aware)
 //   2. How much data has the AI learned (DB runs + dry-run lessons)
-//   3. System settings (all params.ts knobs, read-only) + llama-server status
-//      (Risk Officer — never used for finetune)
+//   3. System settings (params.ts knobs — the safe set editable in place via
+//      db/params-override.json) + llama-server status (Risk Officer — never used
+//      for finetune)
 // Data: GET /api/ai-info — read-only, manual refresh + auto every 60s.
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ParamsEditor } from "@/components/params-editor";
 import { t, type Lang } from "@/lib/i18n";
 import { loadAutoConfig, saveAutoConfig } from "@/lib/autotrade";
 import { fetchDiveReports, type DiveReportRow } from "@/lib/history";
@@ -337,8 +339,9 @@ export default function AiPage() {
   }, [loadDiveHistory]);
 
   useEffect(() => {
-    const lg = localStorage.getItem("utp.lang");
-    if (lg === "en" || lg === "vi") setLang(lg);
+    // English is the app's main language (0.2.58): boot EN every visit — the
+    // VI/EN toggle still works for the current session only.
+    setLang("en");
   }, []);
 
   const load = useCallback(async () => {
@@ -1217,7 +1220,7 @@ export default function AiPage() {
           </CardContent>
         </Card>
 
-        {/* 7 — knobs read-only */}
+        {/* 7 — knobs: editable where safe (params-override), read-only otherwise */}
         <Card className="border-zinc-800 bg-zinc-900/60">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
@@ -1226,38 +1229,8 @@ export default function AiPage() {
             </CardTitle>
             <p className="text-[11px] text-zinc-500">{t(lang, "ai.knobs.sub")}</p>
           </CardHeader>
-          <CardContent className="grid gap-3 pt-0 md:grid-cols-2">
-            {(data?.knobs ?? []).map((g) => {
-              // hide ports, URLs, tokens, keys from the public knobs grid
-              const items = g.items.filter(([k, v]) => {
-                const key = k.toUpperCase();
-                const val = String(v);
-                if (/URL|TOKEN|KEY|SECRET|PASSWORD|AUTH|BEARER/i.test(key)) return false;
-                if (/https?:\/\//i.test(val)) return false;
-                if (/:\d{2,5}/.test(val) && /127\.|localhost|0\.0\.0|192\.168/.test(val)) return false;
-                return true;
-              });
-              if (!items.length) return null;
-              return (
-              <div key={g.name} className="min-w-0 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
-                <p className="text-xs font-bold text-zinc-200">{g.name}</p>
-                <p className="mt-0.5 text-[10px] text-zinc-500">{g.note}</p>
-                <div className="mt-1.5 space-y-0.5">
-                  {items.map(([k, v]) => {
-                    const s = typeof v === "object" && v !== null ? JSON.stringify(v) : String(v);
-                    return (
-                      <div key={k} className="flex min-w-0 items-center justify-between gap-3 text-[11px]">
-                        <span className="min-w-0 truncate font-mono text-zinc-500">{k}</span>
-                        <span className="min-w-0 truncate text-right font-mono font-bold text-zinc-300" title={s}>
-                          {s}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-              );
-            })}
+          <CardContent>
+            <ParamsEditor lang={lang} />
           </CardContent>
         </Card>
       </div>

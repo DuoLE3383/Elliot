@@ -63,7 +63,7 @@ export function KpiCards({
     autoOpen.side !== openPaper.side;
 
   const cell = (
-    label: string,
+    label: ReactNode,
     value: ReactNode,
     sub: ReactNode,
     opts?: { tip?: string; bar?: number | null; icon?: ReactNode; valueClass?: string; sub2?: ReactNode },
@@ -217,12 +217,13 @@ export function KpiCards({
               },
             )}
             {cell(
-              t(lang, "kpi.paperLabel"),
+              // nhãn TÍM — bộ giả lập ảo là hệ riêng, không nhầm với Auto (xanh lá)
+              <span className="text-violet-300/90">{t(lang, "kpi.paperLabel")}</span>,
               String(stats.open),
               paperSub,
               {
                 sub2: paperSub2,
-                icon: <Activity className="h-3.5 w-3.5 text-zinc-600" />,
+                icon: <Activity className="h-3.5 w-3.5 text-violet-500/70" />,
                 tip: openPaper
                   ? `${t(lang, "kpi.paperTip")} · ${openPaper.side} @ ${fmtPrice(openPaper.entry)} ×${leverage}`
                   : t(lang, "kpi.paperTip"),
@@ -280,7 +281,7 @@ export function KpiCards({
         )}
         {cell(t(lang, "kpi.paperLabel"), String(stats.open), paperSub, {
           sub2: paperSub2,
-          icon: <Activity className="h-3.5 w-3.5 text-zinc-600" />,
+          icon: <Activity className="h-3.5 w-3.5 text-violet-500/70" />,
           tip: t(lang, "kpi.paperTip"),
         })}
         {cell(

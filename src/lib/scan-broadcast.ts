@@ -48,7 +48,7 @@ import {
   passesCoherence,
   type QualSp,
 } from "./bcast-gate";
-import { SCAN_DIGEST_POOL, SCAN_DIGEST_TOP_N } from "./params";
+import { SCAN_DIGEST_POOL, SCAN_DIGEST_TOP_N, pval } from "./params";
 import { getMarketPulse } from "./market-pulse";
 
 // MỘT thuật toán gate sống ở ./bcast-gate — re-export để chỗ cũ (test, panel)
@@ -261,7 +261,7 @@ async function enrich(row: ScanRow, tickers: Record<string, Ticker>, seen: Recor
     ]);
     if (tfKlines.length < 60 || hourly.length < 48) return null;
     const { vol24h, volRatio, buyPressure } = dayStats(hourly);
-    if (vol24h < BCAST_VOL_MIN) return null;
+    if (vol24h < pval("BCAST_VOL_MIN", BCAST_VOL_MIN)) return null;
     const tickerPrice = tickers[row.symbol]?.price ?? 0;
     const price = tickerPrice > 0 ? tickerPrice : lastClosed(tfKlines).c;
     const { support, resistance } = srLevels(tfKlines);
@@ -301,7 +301,7 @@ function coinBlock(c: CoinTech): string[] {
   const srBeyond = long ? srForSide > tp1Price : srForSide < tp1Price && srForSide > 0;
   // …otherwise project 2× the ATR-scaled TP distance
   const tp2Price = srBeyond ? srForSide : long ? c.price * (1 + (2 * row.tpPct) / 100) : c.price * (1 - (2 * row.tpPct) / 100);
-  const tp2Label = srBeyond ? (long ? "resistance" : "support") : "mở rộng";
+  const tp2Label = srBeyond ? (long ? "resistance" : "support") : "extended";
   const rr = row.slPct > 0 ? row.tpPct / row.slPct : 0;
   const lines = [
      HR_LINE,
@@ -416,7 +416,7 @@ export async function buildTopCoinsMessage(
       }
       picked.push(c);
     }
-    if (picked.length >= BCAST_TOP_N) break;
+    if (picked.length >= pval("BCAST_TOP_N", BCAST_TOP_N)) break;
   }
   if (picked.length === 0) return { text: null, picked: [], verdicts };
 
@@ -441,15 +441,18 @@ export async function buildTopCoinsMessage(
   const dateStr = `${dd}/${mo}/${yyyy}`;
   const names = picked.map((c) => symbolLabel(c.row.symbol)).join(" ");
 
+  const volMinEff = pval("BCAST_VOL_MIN", BCAST_VOL_MIN);
+  const pl1Eff = pval("BCAST_PL1_MIN", BCAST_PL1_MIN);
+  const repeatEff = pval("BCAST_REPEAT_MS", BCAST_REPEAT_MS);
   const out: string[] = [
     `============================`,
-    `🏆 <b>${names} </b> — TOP ${picked.length} COIN TIỀM NĂNG NHẤT`,
-    `⏰ ${hh}h${mm} ${dateStr} │ Lần #${state.n + 1}`,
-    `📋 Vol ≥ $${(BCAST_VOL_MIN / 1e6).toFixed(0)}M │ PL1 ≥ ${BCAST_PL1_MIN}% │ Điểm ≥ ${spEff.score} │ AUC ≥ ${spEff.auc} │ ACC ≥ ${spEff.acc}% │ Lặp ≥ ${Math.round(BCAST_REPEAT_MS / 3_600_000)}h`,
-    `Dữ liệu: ${CANDIDATE_POOL} combo tốt nhất từ ${rows.length} combo quét`
+    `🏆 <b>${names} </b> — TOP ${picked.length} MOST PROMISING COINS`,
+    `⏰ ${hh}h${mm} ${dateStr} │ Round #${state.n + 1}`,
+    `📋 Vol ≥ $${(volMinEff / 1e6).toFixed(0)}M │ PL1 ≥ ${pl1Eff}% │ Score ≥ ${spEff.score} │ AUC ≥ ${spEff.auc} │ ACC ≥ ${spEff.acc}% │ Repeat ≥ ${Math.round(repeatEff / 3_600_000)}h`,
+    `Data: ${CANDIDATE_POOL} best combos out of ${rows.length} scanned combos`,
   ];
   for (const c of picked) out.push(...coinBlock(c), "");
-  out.push(HEAVY_LINE, `📊 Tổng: ${picked.length} coins đạt tiêu chí`, `⏱ Quét lại sau 5 phút`);
+  out.push(HEAVY_LINE, `📊 Total: ${picked.length} coins passed the criteria`, `⏱ Next scan in 5 minutes`);
   return { text: out.join("\n"), picked: picked.map((c) => c.row), verdicts: [] };
 }
 
@@ -463,13 +466,13 @@ export async function buildTopCoinsMessage(
 // funding · long/short) từ market-pulse (0.2.43) — fail-soft, lỗi nguồn ngoài
 // không cản tin quét.
 
-/** Nhãn F&G tiếng Việt cho dòng thị trường đáy tin. */
+/** F&G label for the market footer line — English is the app's main language. */
 const FG_VN: Record<string, string> = {
-  "Extreme Fear": "Hoảng loạn",
-  Fear: "Sợ hãi",
-  Neutral: "Trung tính",
-  Greed: "Tham lam",
-  "Extreme Greed": "Tham lam cực độ",
+  "Extreme Fear": "Extreme Fear",
+  Fear: "Fear",
+  Neutral: "Neutral",
+  Greed: "Greed",
+  "Extreme Greed": "Extreme Greed",
 };
 
 /** 1 dòng "🌡 Thị trường: …" — F&G · BTC.D · funding · long/short. */
@@ -490,7 +493,7 @@ async function marketPulseLine(): Promise<string | null> {
       parts.push(`L/S ${l.toFixed(0)}/${(100 - l).toFixed(0)}`);
     }
     if (parts.length === 0) return null;
-    return `🌡 <b>Thị trường:</b> ${parts.join(" · ")}`;
+    return `🌡 <b>Market:</b> ${parts.join(" · ")}`;
   } catch {
     return null; // nguồn ngoài chết — tin quét vẫn gửi, chỉ thiếu dòng này
   }
@@ -557,7 +560,7 @@ export async function buildScanTop10Message(
       continue; // tự mâu thuẫn → thành reject — không liệt kê
     }
     enriched.push(c);
-    if (enriched.length >= SCAN_DIGEST_TOP_N) break;
+    if (enriched.length >= pval("SCAN_DIGEST_TOP_N", SCAN_DIGEST_TOP_N)) break;
   }
   // 0 combo đạt cổng sau enrich → KHÔNG gửi tin (đỡ spam — 0.2.45);
   // verdict đã đầy đủ ở trên, engine vẫn ghi DB cho panel trước khi check text.
@@ -582,28 +585,28 @@ export async function buildScanTop10Message(
   const nPass = verdicts.filter((v) => v.verdict === "pass").length;
 
   const out: string[] = [
-    `🔍 <b>QUÉT LỆNH · ${enriched.length} COIN ĐẠT CỔNG</b> (theo điểm model)`,
-    `⏰ ${hm} ${dd}/${mo}/${yyyy} │ Lần #${state.n + 1} │ <b>${nPass}/${rows.length}</b> combo đạt cổng`,
-    `📋 Sàn: Điểm ≥ ${spEff.score} │ AUC ≥ ${spEff.auc} │ ACC ≥ ${spEff.acc}% — chỉ liệt kê combo đạt cổng (lý do chặn xem panel web)`,
+    `🔍 <b>SCAN · ${enriched.length} COINS PASSED THE GATE</b> (by model score)`,
+    `⏰ ${hm} ${dd}/${mo}/${yyyy} │ Round #${state.n + 1} │ <b>${nPass}/${rows.length}</b> combos passed`,
+    `📋 Gate: Score ≥ ${spEff.score} │ AUC ≥ ${spEff.auc} │ ACC ≥ ${spEff.acc}% — only gate-passing combos are listed (reject reasons on the web panel)`,
   ];
   enriched.forEach((c, i) => {
     const { row } = c;
     const long = row.bias !== "SHORT";
-    const pTxt = long ? `${(row.prob * 100).toFixed(1)}% lên` : `${((1 - row.prob) * 100).toFixed(1)}% xuống`;
+    const pTxt = long ? `${(row.prob * 100).toFixed(1)}% up` : `${((1 - row.prob) * 100).toFixed(1)}% down`;
     const slPx = long ? c.price * (1 - row.slPct / 100) : c.price * (1 + row.slPct / 100);
     const tpPx = long ? c.price * (1 + row.tpPct / 100) : c.price * (1 - row.tpPct / 100);
     out.push(
       `${HR_LINE}`,
-      `${i + 1}. ${sideTag(row.bias)} <b>${row.symbol}</b> ${row.interval} │ Điểm <b>${row.score.toFixed(1)}</b> · AUC ${row.auc.toFixed(2)} · ACC ${row.acc.toFixed(1)}% · Prob ${pTxt}`,
+      `${i + 1}. ${sideTag(row.bias)} <b>${row.symbol}</b> ${row.interval} │ Score <b>${row.score.toFixed(1)}</b> · AUC ${row.auc.toFixed(2)} · ACC ${row.acc.toFixed(1)}% · Prob ${pTxt}`,
       `   💰 $${fmtPrice(c.price)} · 24h ${c.vol24h >= 1e6 ? `$${(c.vol24h / 1e6).toFixed(0)}M` : fmtPrice(c.vol24h)} · RSI ${c.rsiVal.toFixed(0)} · ATR ${c.atrPct.toFixed(2)}%${c.isNew ? " · ⚡NEW" : ""}`,
-      `   🚀 <b>ĐẠT CỔNG</b> — SL $${fmtPrice(slPx)} (${row.slPct.toFixed(1)}%) · TP1 $${fmtPrice(tpPx)} (+${row.tpPct.toFixed(1)}%)`,
+      `   🚀 <b>PASSED THE GATE</b> — SL $${fmtPrice(slPx)} (${row.slPct.toFixed(1)}%) · TP1 $${fmtPrice(tpPx)} (+${row.tpPct.toFixed(1)}%)`,
     );
   });
   out.push(HEAVY_LINE);
   const pulse = await marketPulseLine();
   if (pulse) out.push(pulse);
   out.push(
-    `⏱ Tin tổng hợp 8 giờ/lần · chỉ gửi khi CÓ combo đạt cổng · engine quét + chấm cổng mỗi 5 phút (panel web)`,
+    `⏱ Digest every 8 hours · sent only when at least one combo passes the gate · engine scans + scores every 5 min (web panel)`,
     `<i>Not investment advice. You are solely responsible for your decisions.</i>`,
   );
   return { text: out.join("\n"), picked: enriched.map((c) => c.row), verdicts };

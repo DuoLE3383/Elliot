@@ -29,6 +29,7 @@ import {
   LLM_MODEL_DEFAULT,
   LLM_TIMEOUT_MS,
   LLM_URL_DEFAULT,
+  pval,
 } from "./params";
 import { llmBaseOf, llmEnvEndpoint, llmJsonHeaders, TF_MINUTES } from "./llm";
 
@@ -264,7 +265,7 @@ export async function autopsyLlmCall(url: string, model: string, system: string,
     let res = await fetch(`${llmBaseOf(url)}/v1/chat/completions`, {
       method: "POST",
       headers: llmJsonHeaders(),
-      signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
+      signal: AbortSignal.timeout(pval("LLM_TIMEOUT_MS", LLM_TIMEOUT_MS)),
       body: JSON.stringify(payload(true)),
     });
     // llama-server cũ chê json_schema → thử lại không schema (như llmReviewDebug)
@@ -272,7 +273,7 @@ export async function autopsyLlmCall(url: string, model: string, system: string,
       res = await fetch(`${llmBaseOf(url)}/v1/chat/completions`, {
         method: "POST",
         headers: llmJsonHeaders(),
-        signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
+        signal: AbortSignal.timeout(pval("LLM_TIMEOUT_MS", LLM_TIMEOUT_MS)),
         body: JSON.stringify(payload(false)),
       });
     }
@@ -327,7 +328,7 @@ export async function autopsyClosedTrade(row: {
   llmReason: string | null;
   autopsy: string | null;
 }, opts?: { url?: string; model?: string }): Promise<AutopsyJson | null> {
-  if (!AUTOPSY_ON) return null;
+  if (!pval("AUTOPSY_ON", AUTOPSY_ON)) return null;
   if (row.status !== "closed" || !row.exitTime) return null;
   if (row.autopsy) return null; // đã mổ rồi — không mổ lại
   if (inflight.has(row.id)) return null;
@@ -408,7 +409,7 @@ export async function autopsyClosedTrade(row: {
  * hay vốn, LLM chết chỉ là lượt này bỏ qua, lượt sau mổ tiếp.
  */
 export async function autopsyBackfill(max = 3): Promise<number> {
-  if (!AUTOPSY_ON) return 0;
+  if (!pval("AUTOPSY_ON", AUTOPSY_ON)) return 0;
   const rows = await db.autoTrade.findMany({
     // exitTime not null: row "closed" dị dạng thiếu exitTime sẽ không bao giờ
     // mổ được (autopsyClosedTrade bỏ) — không loại thì nó chiếm chỗ take:max

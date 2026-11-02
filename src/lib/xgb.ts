@@ -115,6 +115,7 @@ import {
   XGB_BASE,
   XGB_GRID,
   type XgbParams,
+  pval,
 } from "./params";
 
 // Knob train/Prob sống ở ./params — MỘT nguồn; re-export cho engine/autotrade
@@ -1046,7 +1047,7 @@ export async function runXgb(
   /** closed dry-run trades of this combo — win/lose lessons mixed into training */
   trades?: TradeLesson[],
 ): Promise<XgbResult> {
-  const lv = Math.min(MAX_DIFFICULTY, Math.max(0, Math.round(difficulty)));
+  const lv = Math.min(pval("MAX_DIFFICULTY", MAX_DIFFICULTY), Math.max(0, Math.round(difficulty)));
   const horizonBase = HORIZON[interval] ?? 4;
   const horizon = horizonBase + Math.min(HORIZON_CAP, Math.floor(lv / HORIZON_STEP));
   const marginAtr = Math.min(MARGIN_CAP, lv * MARGIN_STEP);
@@ -1066,7 +1067,7 @@ export async function runXgb(
   const lessonSamples =
     trades && trades.length > 0 ? tradeLessonsToSamples(klines, ds.ctx, interval, trades) : [];
   for (const s of lessonSamples) {
-    for (let w = 0; w < LESSON_WEIGHT; w++) {
+    for (let w = 0; w < pval("LESSON_WEIGHT", LESSON_WEIGHT); w++) {
       trainRows.push(s.feats);
       trainY.push(s.y);
     }
@@ -1113,7 +1114,7 @@ export async function runXgb(
   // ── calibration — prob sát thực tế trước khi thành confidence/bias/score ──
   // Fit trên CHÍNH val split (out-of-sample) rồi áp lên probNow. AUC/ACC/logloss
   // giữ nguyên (Platt với a>0 đơn điệu tăng) — chỉ phần "đọc" prob được sửa.
-  const plattFit = CALIBRATE ? fitPlatt(valP, valY) : null;
+  const plattFit = pval("CALIBRATE", CALIBRATE) ? fitPlatt(valP, valY) : null;
   const eceRaw = eceSide(valP, valY);
   const calP = plattFit ? valP.map((p) => applyPlatt(p, plattFit)) : valP;
   const reliability = reliabilityTable(calP, valY);

@@ -273,3 +273,28 @@ export const AUTOPSY_BACKFILL_MS = 6 * 3_600_000;
  *    Bật khi muốn Risk Officer là chốt chặn CỨNG (VPS không chạy llama-server
  *    + tham số này = engine không bao giờ mở lệnh mới). */
 export const LLM_FAIL_CLOSED = false;
+
+// ── 9 · RUNTIME OVERRIDE — chỉnh tham số ngay panel, không cần deploy ────────
+// "hãy mở setting ở panel" — một tập tham số an toàn được chọn để chỉnh runtime
+// (xem params-store.ts — server-only). Server hydrate giá trị override vào
+// globalThis.__elliotParams lúc boot và mỗi lần lưu; pval() đọc từ globalThis
+// nên KHÔNG đụng fs/crypto → dùng được cả trong file client graph (autotrade,
+// xgb, bcast-gate…). Trên client globalThis.__elliotParams luôn undefined →
+// pval() trả về mặc định — đúng ngữ nghĩa: client chỉ hiển thị, engine (server)
+// mới là nơi chạy với giá trị override.
+
+export function pval<T>(key: string, def: T): T {
+  try {
+    const m = (globalThis as { __elliotParams?: Record<string, unknown> }).__elliotParams;
+    const v = m?.[key];
+    if (v === undefined || v === null) return def;
+    if (typeof def === "number") {
+      const n = Number(v);
+      return (Number.isFinite(n) ? n : def) as unknown as T;
+    }
+    if (typeof def === "boolean") return (Boolean(v) as unknown as T);
+    return v as T;
+  } catch {
+    return def;
+  }
+}

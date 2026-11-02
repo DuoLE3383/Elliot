@@ -22,6 +22,7 @@ import {
   PROB_CAP,
   REGRESS_EPS,
   SIBLING_DISCOUNT,
+  pval,
 } from "./params";
 
 // Knob sống ở ./params — MỘT nguồn config; re-export cho chỗ cũ không đổi path.
@@ -66,7 +67,7 @@ export interface ScanRow {
  *  nên "confidence" là số trung thực, không còn kiểu 86% chỉ để rồi thắng 60%.)
  */
 export const scoreFrom = (auc: number, acc: number, confidence: number): number =>
-  Math.round(((auc - 0.5) * 100 + (acc - 50) + confidence * CONF_W) * 10) / 10;
+  Math.round(((auc - 0.5) * 100 + (acc - 50) + confidence * pval("CONF_W", CONF_W)) * 10) / 10;
 
 export function scoreOf(res: XgbResult): number {
   return scoreFrom(res.auc, res.acc, res.suggestion.confidence);
@@ -122,7 +123,7 @@ export function llmTestSetup(
   leverage: number,
 ): { setup: LlmSetup; source: string } | null {
   const cands = rows.filter(
-    (r) => isTradeable(r, cfg.minAuc, cfg.minAcc, cfg.minScore) && !r.regressed && Math.abs(r.prob - 0.5) >= NOISE_BAND,
+    (r) => isTradeable(r, cfg.minAuc, cfg.minAcc, cfg.minScore) && !r.regressed && Math.abs(r.prob - 0.5) >= pval("NOISE_BAND", NOISE_BAND),
   );
   const pick = rankRows(cands)[0] ?? rankRows(rows.filter((r) => r.bias !== "NEUTRAL"))[0] ?? null;
   if (!pick) return null;
@@ -151,8 +152,8 @@ export function llmTestSetup(
   return {
     setup,
     source: gated
-      ? `setup THẬT — ứng viên tốt nhất engine đang thấy: ${id} · score ${pick.score.toFixed(1)} · đạt gate`
-      : `setup THẬT — top scan: ${id} · score ${pick.score.toFixed(1)} · CHƯA đạt gate (engine chưa có ứng viên đủ ngưỡng)`,
+      ? `REAL setup — the engine's best current candidate: ${id} · score ${pick.score.toFixed(1)} · gate passed`
+      : `REAL setup — top of scan: ${id} · score ${pick.score.toFixed(1)} · gate NOT passed (no candidate above the gate yet)`,
   };
 }
 
@@ -196,14 +197,15 @@ export function confluenceBlend(rows: ScanRow[]): ScanRow[] {
     if (group.length < 2) continue; // không có anh em cùng symbol → giữ nguyên
     for (const r of group) {
       const dev = r.prob - 0.5;
-      if (Math.abs(dev) < NOISE_BAND) continue; // row tự thân coin-flip → không mượn phiếu
+      const band = pval("NOISE_BAND", NOISE_BAND);
+      if (Math.abs(dev) < band) continue; // row tự thân coin-flip → không mượn phiếu
       const side = dev > 0 ? 1 : -1;
       const wSelf = Math.max(0.2, (r.auc - 0.5) * 4);
       let num = wSelf * logitC(r.prob);
       let den = wSelf;
       for (const s of group) {
         if (s === r) continue;
-        const w = Math.max(0.2, (s.auc - 0.5) * 4) * SIBLING_DISCOUNT;
+        const w = Math.max(0.2, (s.auc - 0.5) * 4) * pval("SIBLING_DISCOUNT", SIBLING_DISCOUNT);
         num += w * logitC(s.prob); // dấu logit tự mã hóa hướng — pool thô
         den += w;
       }
@@ -211,8 +213,9 @@ export function confluenceBlend(rows: ScanRow[]): ScanRow[] {
       // bất đồng quá mức có thể kéo prob vắt qua 0.5 — không bao giờ lật chiều
       // call của model gốc: kẹp về đúng 0.5 → bias NEUTRAL → đứng ngoài cuộc
       const kept = side > 0 ? Math.max(pooled, 0.5) : Math.min(pooled, 0.5);
+      const cap = pval("PROB_CAP", PROB_CAP);
       const row = outByKey.get(`${r.symbol}|${r.interval}`)!;
-      row.prob = Math.round(Math.min(PROB_CAP, Math.max(1 - PROB_CAP, kept)) * 10_000) / 10_000;
+      row.prob = Math.round(Math.min(cap, Math.max(1 - cap, kept)) * 10_000) / 10_000;
       row.confidence = Math.abs(row.prob - 0.5) * 2; // công thức gốc xgb.ts
       row.bias = biasFrom(row.prob); // ngưỡng chết gốc 0.56/0.44
       row.score = scoreFrom(row.auc, row.acc, row.confidence);
@@ -286,7 +289,7 @@ export function withChampion(r: ScanRow, champAuc: number, champAcc: number): Sc
     ...r,
     champAuc,
     champAcc,
-    regressed: champAuc > 0 && r.auc < champAuc - REGRESS_EPS,
+    regressed: champAuc > 0 && r.auc < champAuc - pval("REGRESS_EPS", REGRESS_EPS),
   };
 }
 
@@ -297,8 +300,8 @@ export function bestTradeableAvoid(
   trades: AutoTradeRow[],
   cooldownMin: number,
   whaleFilter = true,
-  /** khử nhiễu XGBoost — skip coin-flip probs (|P−0.5| < band); 0 = tắt */
-  noiseBand = NOISE_BAND,
+  /** XGBoost noise band — skip coin-flip probs (|P−0.5| < band); 0 = off */
+  noiseBand = pval("NOISE_BAND", NOISE_BAND),
   /** ngưỡng điểm của cùng bộ setpoint chung — 0 = không chấm điểm */
   minScore = 0,
 ): { best: ScanRow | null; allInCooldown: boolean; cands: ScanRow[]; regressedCount: number } {
@@ -348,17 +351,17 @@ export function flipDecision(
   row: ScanRow | undefined,
   cfg: Pick<AutoConfig, "minAuc" | "minAcc" | "minScore" | "whaleFilter">,
 ): FlipDecision {
-  if (!row) return { ok: false, why: "scan chưa có combo này" };
-  if (row.bias === "NEUTRAL") return { ok: false, why: "model NEUTRAL trên combo đang mở" };
-  if (row.bias === open.side) return { ok: false, why: "model vẫn xác nhận phía đang giữ" };
+  if (!row) return { ok: false, why: "scan has no such combo" };
+  if (row.bias === "NEUTRAL") return { ok: false, why: "model is NEUTRAL on the open combo" };
+  if (row.bias === open.side) return { ok: false, why: "model still confirms the held side" };
   if (!isTradeable(row, cfg.minAuc, cfg.minAcc, cfg.minScore))
     return {
       ok: false,
-      why: `tín hiệu ngược chiều chưa đạt ngưỡng (AUC ${row.auc.toFixed(2)} / ACC ${row.acc.toFixed(1)}% / điểm ${row.score.toFixed(1)})`,
+      why: `opposite signal below the quality gate (AUC ${row.auc.toFixed(2)} / ACC ${row.acc.toFixed(1)}% / score ${row.score.toFixed(1)})`,
     };
-  if (row.regressed) return { ok: false, why: "model combo này đang thoái hoá vs champion" };
-  if (Math.abs(row.prob - 0.5) < NOISE_BAND) return { ok: false, why: "tín hiệu trong dải nhiễu coin-flip" };
-  if (cfg.whaleFilter && row.whale?.tag === "whale") return { ok: false, why: "nến cuối là whale bar — không lật vào bẫy wick" };
+  if (row.regressed) return { ok: false, why: "this combo's model is regressed vs its champion" };
+  if (Math.abs(row.prob - 0.5) < pval("NOISE_BAND", NOISE_BAND)) return { ok: false, why: "signal inside the coin-flip noise band" };
+  if (cfg.whaleFilter && row.whale?.tag === "whale") return { ok: false, why: "last candle is a whale bar — not flipping into a wick trap" };
   return { ok: true, why: "" };
 }
 
@@ -723,14 +726,14 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
   const lines = [
     title,
     DIGEST_HR,
-    `📊 ${periodLabel}: <b>${opened.length} mở</b> · <b>${recent.length} đóng</b> · Win rate <b>${wr}</b> · Net ROE <b>${roe}</b>`,
+    `📊 ${periodLabel}: <b>${opened.length} opened</b> · <b>${recent.length} closed</b> · Win rate <b>${wr}</b> · Net ROE <b>${roe}</b>`,
   ];
-  if (st.open) lines.push(`🔓 Đang giữ: <b>#${st.open.symbol}</b> ${st.open.interval} ${sideTag(st.open.side)} @ ${fmtPrice(st.open.entryPrice)}`);
+  if (st.open) lines.push(`🔓 Holding: <b>#${st.open.symbol}</b> ${st.open.interval} ${sideTag(st.open.side)} @ ${fmtPrice(st.open.entryPrice)}`);
   lines.push(
-    `💰 Equity: <b>${st.capital != null ? st.capital.toFixed(2) : "—"}</b> USDT · Tổng ${st.stats.closed} đóng${st.open ? " · 1 đang mở" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(0)}%` : "—"}`,
+    `💰 Equity: <b>${st.capital != null ? st.capital.toFixed(2) : "—"}</b> USDT · Total ${st.stats.closed} closed${st.open ? " · 1 still open" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(0)}%` : "—"}`,
   );
   const best = (st.byCombo ?? []).filter((c) => c.closed >= 3).sort((a, b) => b.winRate - a.winRate)[0];
-  if (best) lines.push(`🏆 Combo tốt nhất: <b>#${best.symbol}</b> ${best.interval} · WR ${best.winRate.toFixed(0)}% (${best.closed} lệnh)`);
+  if (best) lines.push(`🏆 Best combo: <b>#${best.symbol}</b> ${best.interval} · WR ${best.winRate.toFixed(0)}% (${best.closed} trades)`);
 
   // 📋 List tổng — MỌI lệnh đã đóng (mới nhất trước), mỗi lệnh một dòng kèm
   // kết quả (TP/SL/flip/đóng tay) + ROE + giờ đóng (giờ kênh Asia/Ho_Chi_Minh).
@@ -748,14 +751,14 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
       minute: "2-digit",
       hour12: false,
     });
-    lines.push(`📋 <b>Lệnh đã chạy (${closedAll.length})</b> · mới nhất trước:`);
+    lines.push(`📋 <b>Trades executed (${closedAll.length})</b> · newest first:`);
     for (const x of closedAll.slice(0, DIGEST_LIST_MAX)) {
       const pnl = x.pnlPct ?? 0;
       lines.push(
         `• #${x.symbol} ${x.interval} ${sideTag(x.side)} ${DIGEST_KIND[x.exitKind ?? ""] ?? "✋"} <b>${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}%</b> · ${fmtT.format(new Date(x.exitTime ?? x.entryTime))}`,
       );
     }
-    if (closedAll.length > DIGEST_LIST_MAX) lines.push(`…và ${closedAll.length - DIGEST_LIST_MAX} lệnh cũ hơn`);
+    if (closedAll.length > DIGEST_LIST_MAX) lines.push(`…and ${closedAll.length - DIGEST_LIST_MAX} older trades`);
   }
   return lines;
 }

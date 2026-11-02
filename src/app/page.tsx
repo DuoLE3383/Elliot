@@ -45,6 +45,7 @@ import {
   SYMBOLS,
   Ticker,
   WyckoffSettings,
+  MAX_LEVERAGE,
   aliasFuturesSymbol,
   matchPreset,
   migratePairsTo,
@@ -254,8 +255,9 @@ export default function Home() {
       }
       const itv = localStorage.getItem("utp.interval");
       if (itv && (INTERVALS as readonly string[]).includes(itv)) setIntervalTf(itv as Interval);
-      const lg = localStorage.getItem("utp.lang");
-      if (lg === "vi" || lg === "en") setLang(lg);
+      // English is the app's main language (0.2.58): boot EN every visit — the
+      // VI/EN toggle still works for the current session only.
+      setLang("en");
       const cs = localStorage.getItem("utp.candleStyle");
       if (cs === "normal" || cs === "neon") setCandleStyle(cs);
       if (localStorage.getItem("utp.extra") === "1") setShowExtra(true);
@@ -1425,6 +1427,9 @@ export default function Home() {
                 lang={lang}
                 pairs={allPairs}
                 leverage={settings.leverage}
+                onLeverageChange={(lev) =>
+                  setSettings((s) => ({ ...s, leverage: Math.max(1, Math.min(MAX_LEVERAGE, Math.round(lev) || 1)) }))
+                }
                 tickers={tickers}
                 settings={settings}
                 onPickPair={(sym, itv) => {

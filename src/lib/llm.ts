@@ -361,13 +361,13 @@ export function factCheckReasons(reasons: string[], s: LlmSetup, verdict: "go" |
       /(rr|r:r|reward).*(inconsist|mismatch|not match|do not match|doesn.t match|wrong)/.test(low) ||
       /(inconsist|mismatch|wrong).*(rr|r:r|reward)/.test(low)
     )
-      return `${reason} ⚠ sai số liệu: tp/sl=${rr.toFixed(2)} = rr 1:${rr.toFixed(2)}`;
+      return `${reason} ⚠ fact-check: tp/sl=${rr.toFixed(2)} = rr 1:${rr.toFixed(2)} — RR is computed, it cannot mismatch`;
     // verdict skip nhưng mượn coin-flip cho số liệu MẠNH → vô lý
     if (verdict === "skip") {
       if (s.acc >= 60 && /(val_acc|accuracy|acc)/.test(low) && /(50|coin.?flip)/.test(low))
-        return `${reason} ⚠ trái coinflip_check: val_acc=${s.acc.toFixed(1)}% cao hơn coin-flip ${(s.acc - 50).toFixed(1)} điểm`;
+        return `${reason} ⚠ contradicts coinflip_check: val_acc=${s.acc.toFixed(1)}% is ${(s.acc - 50).toFixed(1)} points ABOVE a coin flip`;
       if (s.auc >= 0.6 && /(val_auc|auc)/.test(low) && /(0\.5|coin.?flip)/.test(low))
-        return `${reason} ⚠ trái coinflip_check: val_auc=${s.auc.toFixed(3)} cao hơn 0.5 tới ${(s.auc - 0.5).toFixed(3)}`;
+        return `${reason} ⚠ contradicts coinflip_check: val_auc=${s.auc.toFixed(3)} is ${(s.auc - 0.5).toFixed(3)} ABOVE 0.5`;
     }
     return reason;
   });

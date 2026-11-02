@@ -92,7 +92,9 @@ import {
   SCAN_TTL,
   TICKERS_TTL,
   UNIVERSE_MIN_CANDLES,
+  pval,
 } from "./params";
+import { hydrateParams } from "./params-store";
 import { type TradeLesson, type XgbResult } from "./xgb";
 
 // ─── engine state (global + persisted) ───────────────────────────────────────
@@ -324,7 +326,7 @@ async function closeTradeDirect(
     where: { id },
     data: { status: "closed", exitPrice, exitTime: new Date(), pnlPct, exitKind, capitalAfter },
   });
-  if (AUTOPSY_ON) {
+  if (pval("AUTOPSY_ON", AUTOPSY_ON)) {
     const { p } = eng();
     void (() => { const ep = resolveLlmEndpoint({ url: p.cfg.llmUrl, model: p.cfg.llmModel }); void autopsyClosedTrade(updated, { url: ep.url, model: ep.model }); })();
   }
@@ -553,15 +555,15 @@ async function trainCore(
   if (opts.mode === "all" && saved > 0 && tgReady()) {
     try {
       const lines = [
-        "🧠 <b>TRAIN TOÀN BỘ XONG</b>",
-        `${p.pairs.length} pair × ${p.cfg.runTf.length} TF (${p.cfg.runTf.join(",")}) · đã lưu <b>${saved}/${combos}</b> combo`,
+        "🧠 <b>FULL TRAIN COMPLETE</b>",
+        `${p.pairs.length} pair × ${p.cfg.runTf.length} TF (${p.cfg.runTf.join(",")}) · saved <b>${saved}/${combos}</b> combos`,
         best
-          ? `🏆 Tốt nhất: <b>#${best.symbol}</b> ${best.interval} · ACC ${best.acc.toFixed(1)}% · AUC ${best.auc.toFixed(2)} · Score ${best.score.toFixed(1)}`
+          ? `🏆 Best: <b>#${best.symbol}</b> ${best.interval} · ACC ${best.acc.toFixed(1)}% · AUC ${best.auc.toFixed(2)} · Score ${best.score.toFixed(1)}`
           : "",
         lessonTotals.n > 0
-          ? `🎓 Học từ <b>${lessonTotals.n}</b> lệnh dry-run thực (${lessonTotals.wins} win · ${lessonTotals.n - lessonTotals.wins} lose) — model khớp hướng ${lessonTotals.agree}/${lessonTotals.n}`
+          ? `🎓 Learned from <b>${lessonTotals.n}</b> real dry-run trades (${lessonTotals.wins} win · ${lessonTotals.n - lessonTotals.wins} lose) — model agrees on direction ${lessonTotals.agree}/${lessonTotals.n}`
           : "",
-        `⚙️ ${pool.parallelism} luồng backend${xgbPoolAvailable() ? "" : " (fallback tuần tự)"}`,
+        `⚙️ ${pool.parallelism} backend workers${xgbPoolAvailable() ? "" : " (sequential fallback)"}`,
       ].filter(Boolean);
       void tgSendMessage(lines.join("\n"), "HTML");
     } catch {
@@ -1019,7 +1021,7 @@ async function llmGate(
   try {
     // vòng học: bài giải phẫu các lệnh đã đóng của CHÍNH cặp này (mới nhất
     // trước, ≤5 bài) đi kèm setup — Risk Officer phán trên hậu quả thật.
-    const lessons = AUTOPSY_ON ? await recentAutopsyLessons(row.symbol).catch(() => []) : [];
+    const lessons = pval("AUTOPSY_ON", AUTOPSY_ON) ? await recentAutopsyLessons(row.symbol).catch(() => []) : [];
     if (lessons.length > 0) console.log(`[engine] LLM review ${row.symbol} ${row.interval} — nạp ${lessons.length} bài học autopsy`);
     const failClosed = c.llmFailClosed === true;
     // Cap at 90s by default — user reports reviews finish in ~1 min; 300s only
@@ -1173,7 +1175,7 @@ async function cycleTick(): Promise<void> {
       st.trades,
       c.cooldownMin,
       c.whaleFilter,
-      NOISE_BAND,
+      pval("NOISE_BAND", NOISE_BAND),
       c.minScore,
     );
     // walk the ranked candidates: regressed/cooldown-blocked combos are skipped,
@@ -1281,7 +1283,7 @@ async function cycleTick(): Promise<void> {
         msgOpen(
           trade,
           capitalNow,
-          c.tpMode === "atr" && live ? `📏 SL/TP = ATR ${live.atrPct.toFixed(2)}% × ${coef} — đo lúc vào lệnh` : undefined,
+          c.tpMode === "atr" && live ? `📏 SL/TP = ATR ${live.atrPct.toFixed(2)}% × ${coef} — measured at entry` : undefined,
         ),
         "HTML",
       );
@@ -1423,7 +1425,7 @@ async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "c
   const scan = v.scan;
   if (!scan || Date.now() - scan.at > SCAN_TTL) return false;
   const row = scan.rows.find((r) => r.symbol === open.symbol && r.interval === open.interval);
-  if (!row || row.bias !== open.side || Math.abs(row.prob - 0.5) < NOISE_BAND) return false;
+  if (!row || row.bias !== open.side || Math.abs(row.prob - 0.5) < pval("NOISE_BAND", NOISE_BAND)) return false;
   // model-quality floor — NGƯỠNG CHUNG (cùng bộ ba với broadcast gate): model dưới
   // ngưỡng thì không bù thêm — để SL làm việc
   if (row.auc < c.minAuc || row.acc < c.minAcc || row.score < c.minScore) {
@@ -1665,6 +1667,14 @@ export function startEngineScheduler(): void {
   if (started || gg.__elliottEngineSched) return;
   started = true;
   gg.__elliottEngineSched = true;
+  // Runtime param overrides (db/params-override.json) — hydrate BEFORE any
+  // scheduler tick reads pval(); changing a value on /ai takes effect on the
+  // very next tick with no pm2 restart needed.
+  try {
+    hydrateParams();
+  } catch {
+    // override unavailable — params.ts defaults keep working
+  }
   loadEngine();
 
   // train/broadcast-verdict snapshots for GET /api/engine — warm now, refresh every minute
@@ -1717,7 +1727,7 @@ export function startEngineScheduler(): void {
         if (tgReady() || p.cfg.on) await submitUniverse().promise.catch(() => undefined);
       }
       // 8h bucket lệch +4h — tin Telegram "QUÉT LỆNH · TOP 10" (0.2.35)
-      const d8 = Math.floor((Date.now() - SCAN_DIGEST_OFFSET_MS) / SCAN_DIGEST_EVERY_MS);
+      const d8 = Math.floor((Date.now() - SCAN_DIGEST_OFFSET_MS) / pval("SCAN_DIGEST_EVERY_MS", SCAN_DIGEST_EVERY_MS));
       if (d8 !== lastDigest.bucket) {
         lastDigest.bucket = d8;
         await scanDigestTick().catch((e) => console.error(`[engine] scan digest: ${e instanceof Error ? e.message : e}`));

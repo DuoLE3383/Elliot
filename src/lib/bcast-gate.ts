@@ -17,6 +17,7 @@ import {
   BCAST_VOL_MIN,
   PRESSURE_CAP_SHORT,
   PRESSURE_FLOOR_LONG,
+  pval,
 } from "./params";
 
 // ── Tham số config của gate sống ở ./params — MỘT nguồn định nghĩa; re-export
@@ -41,10 +42,10 @@ export interface QualSp {
   acc: number;
 }
 
-/** Ms còn lại trước khi một coin được broadcast lại (0 = được ngay). */
+/** Ms remaining before a symbol may be broadcast again (0 = free now). */
 export function bcastRepeatLeftMs(lastMs: number | undefined, now = Date.now()): number {
   if (!lastMs || lastMs <= 0) return 0;
-  return Math.max(0, lastMs + BCAST_REPEAT_MS - now);
+  return Math.max(0, lastMs + pval("BCAST_REPEAT_MS", BCAST_REPEAT_MS) - now);
 }
 
 export interface GateCtx {
@@ -62,7 +63,7 @@ export interface GateCtx {
 
 export interface GateVerdict {
   pass: boolean;
-  /** lý do loại, tiếng Việt ngắn — hiện thẳng trên panel + pm2 log */
+  /** short English reject reason — shown on the panel + pm2 log */
   reason: string;
 }
 
@@ -73,19 +74,21 @@ export interface GateVerdict {
  * cũng nằm trong module này nên vẫn là một nguồn.)
  */
 export function gateRow(r: ScanRow, ctx: GateCtx): GateVerdict {
-  const sp = ctx.sp ?? { score: BCAST_SCORE_MIN, auc: BCAST_AUC_MIN, acc: BCAST_ACC_MIN };
+  const sp = ctx.sp ?? { score: pval("BCAST_SCORE_MIN", BCAST_SCORE_MIN), auc: pval("BCAST_AUC_MIN", BCAST_AUC_MIN), acc: pval("BCAST_ACC_MIN", BCAST_ACC_MIN) };
   if (ctx.uniSyms && !ctx.uniSyms.has(r.symbol)) {
-    return { pass: false, reason: "ngoài top-30 universe 8h" };
+    return { pass: false, reason: "outside top-30 8h universe" };
   }
   if (r.auc < sp.auc) return { pass: false, reason: `AUC ${r.auc.toFixed(2)} < ${sp.auc}` };
   if (r.acc < sp.acc) return { pass: false, reason: `ACC ${r.acc.toFixed(0)}% < ${sp.acc}%` };
-  if (r.score < sp.score) return { pass: false, reason: `điểm ${r.score.toFixed(1)} < ${sp.score}` };
-  if (r.tpPct < BCAST_PL1_MIN) return { pass: false, reason: `PL1 ${r.tpPct.toFixed(1)}% < ${BCAST_PL1_MIN}%` };
-  if (ctx.tickerVol != null && ctx.tickerVol > 0 && ctx.tickerVol < BCAST_VOL_MIN) {
-    return { pass: false, reason: `vol24h $${(ctx.tickerVol / 1e6).toFixed(1)}M < $${(BCAST_VOL_MIN / 1e6).toFixed(0)}M` };
+  if (r.score < sp.score) return { pass: false, reason: `score ${r.score.toFixed(1)} < ${sp.score}` };
+  const pl1 = pval("BCAST_PL1_MIN", BCAST_PL1_MIN);
+  if (r.tpPct < pl1) return { pass: false, reason: `PL1 ${r.tpPct.toFixed(1)}% < ${pl1}%` };
+  const volMin = pval("BCAST_VOL_MIN", BCAST_VOL_MIN);
+  if (ctx.tickerVol != null && ctx.tickerVol > 0 && ctx.tickerVol < volMin) {
+    return { pass: false, reason: `vol24h $${(ctx.tickerVol / 1e6).toFixed(1)}M < $${(volMin / 1e6).toFixed(0)}M` };
   }
   const left = bcastRepeatLeftMs(ctx.lastB[r.symbol], ctx.now);
-  if (left > 0) return { pass: false, reason: `cooldown còn ${(left / 60_000).toFixed(0)}p` };
+  if (left > 0) return { pass: false, reason: `cooldown ${Math.ceil(left / 60_000)}m left` };
   return { pass: true, reason: "" };
 }
 
@@ -109,11 +112,11 @@ export interface CoherenceInput {
  *    ≤42%) hay SELL khi taker-mua chiếm ≥58% — phe kia đang áp đảo hoàn toàn.
  */
 export function passesCoherence(i: CoherenceInput): string | null {
-  if (i.long && i.emaKind === "down" && i.emaStrong) return "EMA downtrend mạnh mà gợi BUY (kéo dao rơi)";
-  if (!i.long && i.emaKind === "up" && i.emaStrong) return "EMA uptrend mạnh mà gợi SELL (đuổi trần)";
-  if (i.long && i.buyPressure <= PRESSURE_FLOOR_LONG)
-    return `áp lực mua chỉ ${i.buyPressure.toFixed(1)}% mà gợi BUY`;
-  if (!i.long && i.buyPressure >= PRESSURE_CAP_SHORT)
-    return `áp lực mua tới ${i.buyPressure.toFixed(1)}% mà gợi SELL`;
+  const floorL = pval("PRESSURE_FLOOR_LONG", PRESSURE_FLOOR_LONG);
+  const capS = pval("PRESSURE_CAP_SHORT", PRESSURE_CAP_SHORT);
+  if (i.long && i.emaKind === "down" && i.emaStrong) return "strong EMA downtrend but suggests BUY (catching a falling knife)";
+  if (!i.long && i.emaKind === "up" && i.emaStrong) return "strong EMA uptrend but suggests SELL (chasing the top)";
+  if (i.long && i.buyPressure <= floorL) return `buy pressure only ${i.buyPressure.toFixed(1)}% but suggests BUY`;
+  if (!i.long && i.buyPressure >= capS) return `buy pressure ${i.buyPressure.toFixed(1)}% but suggests SELL`;
   return null;
 }

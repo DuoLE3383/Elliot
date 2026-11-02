@@ -17,7 +17,9 @@ export function TgLinkBootstrap() {
     const sp = new URLSearchParams(window.location.search);
     const secret = sp.get("tg");
     if (!secret) return;
-    const lang: Lang = localStorage.getItem("utp.lang") === "en" ? "en" : "vi";
+    // English is the main language (0.2.58) — only a VI choice saved this
+    // session flips the toast; anything else boots EN.
+    const lang: Lang = localStorage.getItem("utp.lang") === "vi" ? "vi" : "en";
     // burn the param out of the URL first — refreshes/share must not reuse it
     window.history.replaceState(null, "", window.location.pathname);
     let cancelled = false;

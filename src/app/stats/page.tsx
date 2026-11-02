@@ -94,8 +94,9 @@ export default function StatsPage() {
   const [clientBusy, setClientBusy] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem("utp.lang");
-    if (saved === "vi" || saved === "en") setLang(saved);
+    // English is the app's main language (0.2.58): boot EN every visit — the
+    // VI/EN toggle still works for the current session only.
+    setLang("en");
   }, []);
 
   const load = useCallback(async () => {

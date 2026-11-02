@@ -255,11 +255,12 @@ export function SignalDock({
           </div>
         </div>
 
-        {/* ── Open position ─────────────────────────────────────────── */}
+        {/* ── Open position — VIỆT: "Vị trí ảo" — bộ giả lập ĐỘC LẬP với Auto
+            dry-run; tiêu đề tô TÍM để không bao giờ nhầm với thẻ Auto (xanh) ── */}
         {openPaper ? (
-          <div className="rounded-lg border border-zinc-700/80 bg-zinc-900 p-3">
+          <div className="rounded-lg border border-violet-900/60 bg-zinc-900 p-3">
             <div className="mb-1 flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+              <span className="text-xs font-semibold uppercase tracking-wide text-violet-300">
                 {t(lang, "dock.openPos")}
               </span>
               <span className={`font-mono text-sm font-bold ${SIDE_COLOR(openPaper.side)}`}>{openPaper.side}</span>
