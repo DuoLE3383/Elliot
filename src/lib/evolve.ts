@@ -38,7 +38,7 @@ import type { EngineSettings } from "./types";
 // EVOLVE_COOLDOWN_H=24   nghỉ tối thiểu giữa 2 lần ÁP (giờ)
 // EVOLVE_MIN_TRADES=12   ứng viên phải có ≥ n lệnh backtest mới đủ điều kiện
 // EVOLVE_WATCH_N=15      số lệnh giấy đóng để chấm kết thúc theo dõi
-// EVOLVE_MARGIN=0.1      biên expectancy%/lệnh phải vượt mốc
+// EVOLVE_MARGIN=0.1      biên expectancy%/trade phải vượt mốc
 // EVOLVE_DD_FACTOR=1.5   DD ứng viên không sâu hơn 1.5× DD mốc
 // EVOLVE_LLM=1           bật lane đề xuất LLM (mặc định 1)
 const envNum = (k: string, d: number): number => {
@@ -121,7 +121,7 @@ const labOf = (s: EngineSettings): LabConfig => ({
 
 const mLine = (m: LabMetrics | null): string =>
   m
-    ? `${m.trades} lệnh · exp ${r3(m.expectancy)}%/lệnh · WR ${r1(m.winRate)}% · DD ${r2(m.maxDd)}%`
+    ? `${m.trades} trades · exp ${r3(m.expectancy)}%/trade · WR ${r1(m.winRate)}% · DD ${r2(m.maxDd)}%`
     : "—";
 
 /** Kẹp LLM proposal về vùng an toàn — ngưỡng khớp chính prompt trong llm.ts. */
@@ -242,7 +242,7 @@ async function pickCombo(bridge: EvolveBridge): Promise<{ sym: string; itv: stri
 export async function evolveRound(bridge: EvolveBridge): Promise<EvolveOutcome> {
   const comboTag = (c: { sym: string; itv: string }) => `${c.sym} ${c.itv}`;
   try {
-    if (!evolveOn()) return { decision: "keep", combo: "—", note: "EVOLVE_ON=0 — vòng tắt" };
+    if (!evolveOn()) return { decision: "keep", combo: "—", note: "EVOLVE_ON=0 — loop off" };
 
     // 0 · cooldown giữa các lần ÁP — chống đun vỉ tham số
     const lastPromote = await activePromotion();
@@ -254,7 +254,7 @@ export async function evolveRound(bridge: EvolveBridge): Promise<EvolveOutcome> 
       const coolMs = COOLDOWN_H() * 3_600_000;
       if (Date.now() - lastAction.createdAt.getTime() < coolMs) {
         const h = r1((coolMs - (Date.now() - lastAction.createdAt.getTime())) / 3_600_000);
-        return { decision: "keep", combo: "—", note: `cooldown — còn ${h}h trước lần áp/khôi tiếp theo` };
+        return { decision: "keep", combo: "—", note: `cooldown — ${h}h until next apply/revert` };
       }
     }
 
@@ -357,7 +357,7 @@ export async function evolveRound(bridge: EvolveBridge): Promise<EvolveOutcome> 
                 symbol: combo.sym,
                 interval: combo.itv,
                 name: `LLM — ${pr.proposal.name}`.slice(0, 80),
-                hypothesis: (pr.proposal.hypothesis || "LLM đề xuất từ bối cảnh tích hợp").slice(0, 400),
+                hypothesis: (pr.proposal.hypothesis || "LLM proposal from integrated context").slice(0, 400),
                 sourceFeature: "llm",
                 config: JSON.stringify(cfg),
                 baseline: false,
@@ -368,7 +368,7 @@ export async function evolveRound(bridge: EvolveBridge): Promise<EvolveOutcome> 
               },
             });
             rows.push({ id: "", config: cfg, metrics, name: `LLM — ${pr.proposal.name}`, hypothesis: pr.proposal.hypothesis, baseline: false, applied: false, createdAt: new Date() });
-            llmNote = " +1 ứng viên LLM";
+            llmNote = " +1 LLM candidate";
           }
         }
       } catch (e) {
@@ -395,29 +395,29 @@ export async function evolveRound(bridge: EvolveBridge): Promise<EvolveOutcome> 
         }
       }
       const detail =
-        `vượt mốc: exp ${r3(best.metrics!.expectancy)} vs ${r3(baseMetrics.expectancy)}%/lệnh · DD ${r2(best.metrics!.maxDd)} vs ${r2(baseMetrics.maxDd)}% · ${best.hypothesis}`;
+        `beats baseline: exp ${r3(best.metrics!.expectancy)} vs ${r3(baseMetrics.expectancy)}%/trade · DD ${r2(best.metrics!.maxDd)} vs ${r2(baseMetrics.maxDd)}% · ${best.hypothesis}`;
       await logRow(comboTag(combo), "promote", best.name, detail, before, best.config, { base: baseMetrics, best: best.metrics });
       bridge.tg(
-        `🧬 <b>TỰ TIẾN HOÁ</b> — áp cho engine: <b>${best.name}</b>\n` +
-          `<code>${cfgShort(best.config)}</code> · sân thử <code>${comboTag(combo)}</code>\n` +
-          `Backtest: ${mLine(best.metrics)}\nMốc cũ: ${mLine(baseMetrics)}\n` +
-          `⏳ Theo dõi ${WATCH_N()} lệnh giấy tới — tệ hơn mốc sẽ tự hoàn tác.`,
+        `🧬 <b>EVOLVE</b> — applied to engine: <b>${best.name}</b>\n` +
+          `<code>${cfgShort(best.config)}</code> · sandbox <code>${comboTag(combo)}</code>\n` +
+          `Backtest: ${mLine(best.metrics)}\nBaseline: ${mLine(baseMetrics)}\n` +
+          `⏳ Watching next ${WATCH_N()} paper trades — auto-revert if worse than baseline.`,
       );
-      bridge.log(`promote "${best.name}" trên ${comboTag(combo)} — ${cfgShort(best.config)}`);
+      bridge.log(`promote "${best.name}" on ${comboTag(combo)} — ${cfgShort(best.config)}`);
       return { decision: "promote", combo: comboTag(combo), note: `${best.name} — ${detail}` };
     }
 
     // Không đủ biên → ghi nhận để vòng sau học (LLM đọc recent_evolution)
     const why = !best
-      ? "không ứng viên nào đủ số lệnh tối thiểu"
+      ? "no candidate met minimum trade count"
       : !passMargin
-        ? `exp ${r3(best.metrics!.expectancy)} chưa vượt mốc ${r3(baseMetrics?.expectancy ?? 0)} + ${MARGIN()}`
+        ? `exp ${r3(best.metrics!.expectancy)} did not beat baseline ${r3(baseMetrics?.expectancy ?? 0)} + ${MARGIN()}`
         : !passDd
-          ? `DD ${r2(best.metrics!.maxDd)}% sâu hơn ngưỡng cho phép`
+          ? `DD ${r2(best.metrics!.maxDd)}% deeper than allowed`
           : !passDiff
-            ? "ứng viên trùng cfg đang chạy"
-            : "ứng viên đã áp trước đó";
-    const note = best ? `${best.name}: ${why}${llmNote}` : `không ứng viên${llmNote}`;
+            ? "candidate matches live cfg"
+            : "candidate already applied before";
+    const note = best ? `${best.name}: ${why}${llmNote}` : `no candidate${llmNote}`;
     await logRow(comboTag(combo), "keep", best?.name ?? "", note, before, null, { base: baseMetrics, best: best?.metrics ?? null });
     bridge.log(`keep — ${note}`);
     return { decision: "keep", combo: comboTag(combo), note };
@@ -437,25 +437,25 @@ export async function evolveRound(bridge: EvolveBridge): Promise<EvolveOutcome> 
 export async function evolveWatch(bridge: EvolveBridge): Promise<EvolveOutcome> {
   try {
     const active = await activePromotion();
-    if (!active) return { decision: "keep", combo: "—", note: "không có bản áp nào đang theo dõi" };
+    if (!active) return { decision: "keep", combo: "—", note: "no promoted config under watch" };
     const w = await bridge.closedSince(active.at);
-    if (w.n < WATCH_N()) return { decision: "keep", combo: active.combo, note: `theo dõi ${w.n}/${WATCH_N()} lệnh` };
+    if (w.n < WATCH_N()) return { decision: "keep", combo: active.combo, note: `watching ${w.n}/${WATCH_N()} trades` };
     const baseExp = active.metrics?.base?.expectancy ?? 0;
-    const eps = 0.1; // biên nhiễu — không hoàn tác vì khác nhau trong 0.1%/lệnh
+    const eps = 0.1; // biên nhiễu — không hoàn tác vì khác nhau trong 0.1%/trade
     if (w.expectancy <= baseExp - eps) {
       // TỰ HOÀN TÁC — cfg về như trước khi áp
       if (active.cfgBefore) bridge.applyLab(active.cfgBefore);
-      const detail = `kết thúc theo dõi: ${w.n} lệnh thực exp ${r3(w.expectancy)}%/lệnh — tệ hơn mốc backtest ${r3(baseExp)} → hoàn tác về <code>${active.cfgBefore ? cfgShort(active.cfgBefore) : "—"}</code>`;
+      const detail = `watch complete: ${w.n} live trades exp ${r3(w.expectancy)}%/trade — worse than backtest baseline ${r3(baseExp)} → revert to <code>${active.cfgBefore ? cfgShort(active.cfgBefore) : "—"}</code>`;
       await logRow(active.combo, "revert", active.name, detail, active.cfgAfter, active.cfgBefore, { watch: w });
       bridge.tg(
-        `↩️ <b>TỰ TIẾN HOÁ — HOÀN TÁC</b> ${active.combo}\n` +
-          `«${active.name}» không qua theo dõi: ${w.n} lệnh exp ${r3(w.expectancy)}%/lệnh vs mốc ${r3(baseExp)}%.\n` +
-          `Cfg đã về: <code>${active.cfgBefore ? cfgShort(active.cfgBefore) : "—"}</code>`,
+        `↩️ <b>EVOLVE — REVERT</b> ${active.combo}\n` +
+          `«${active.name}» failed watch window: ${w.n} trades exp ${r3(w.expectancy)}%/trade vs baseline ${r3(baseExp)}%.\n` +
+          `Cfg restored: <code>${active.cfgBefore ? cfgShort(active.cfgBefore) : "—"}</code>`,
       );
       bridge.log(`revert "${active.name}" — watch exp ${r3(w.expectancy)} vs ${r3(baseExp)}`);
       return { decision: "revert", combo: active.combo, note: detail };
     }
-    const detail = `kết thúc theo dõi: ${w.n} lệnh exp ${r3(w.expectancy)}%/lệnh ≥ mốc ${r3(baseExp)} − 0.1 → xác nhận giữ nguyên cfg mới`;
+    const detail = `watch complete: ${w.n} trades exp ${r3(w.expectancy)}%/trade ≥ baseline ${r3(baseExp)} − 0.1 → confirm keep new cfg`;
     await logRow(active.combo, "confirm", active.name, detail, null, active.cfgAfter, { watch: w });
     bridge.log(`confirm "${active.name}" — watch exp ${r3(w.expectancy)}`);
     return { decision: "confirm", combo: active.combo, note: detail };
