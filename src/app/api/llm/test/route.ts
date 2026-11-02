@@ -19,6 +19,7 @@ import { NextResponse } from "next/server";
 import { engineSnapshot } from "@/lib/engine";
 import { llmTestSetup } from "@/lib/autotrade";
 import { llmEnvEndpoint, llmReviewDebug, LLM_MODEL_DEFAULT, LLM_TIMEOUT_MS, LLM_URL_DEFAULT, type LlmSetup } from "@/lib/llm";
+import { pval } from "@/lib/params";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +75,6 @@ export async function POST() {
   } catch {
     // engine chưa init — giữ setup giả
   }
-  const dbg = await llmReviewDebug(url, model, setup, LLM_TIMEOUT_MS); // llama CPU/tunnel có thể 30-90s/verdict
+  const dbg = await llmReviewDebug(url, model, setup, pval("LLM_TIMEOUT_MS", LLM_TIMEOUT_MS)); // llama CPU/tunnel có thể 30-90s/verdict — panel /ai chỉnh được
   return NextResponse.json({ ...dbg, setupSource });
 }

@@ -1,0 +1,45 @@
+0.2.59 — mở nốt các hàng còn khóa trong panel tham số /ai
+
+BỐI CẢNH: 0.2.58 đã biến thẻ "System parameters" thành bảng chỉnh được
+(20 tham số runtime). User gửi lại screenshot panel cũ (bản 0.2.57 trên VPS,
+vẫn tiêu đề "(read-only)") kèm yêu cầu "tôi muốn thay đổi các tham số này" —
+các hàng VẪN KHÓA sau 0.2.58 là: XGB config JSON, LLM timeout 300s,
+SESS_SYMBOL, UNIVERSE_TOP. Bản này mở khóa nốt → 32 tham số chỉnh ngay panel.
+
+THAY ĐỔI:
+
+1) XGB hyper — nhóm "Champion–challenger" thêm 9 row
+   • params.ts: xgbBase() = XGB_BASE + pval từng trường (XGB_TREES/LR/DEPTH/
+     LAMBDA/ROWSUB/COLSUB/MINCHILD/BINS) — gọi TẠI CHỖ train, không cache.
+   • xgb.ts champion–challenger: cands dựng từ xgbBase() + pval("TUNE_GRID").
+     Grid patch vẫn đè lên base (patch > override > mặc định). Hiệu lực ở lần
+     retrain kế tiếp, không cần restart.
+2) LLM Risk Officer thêm LLM_TIMEOUT_MS (nhập theo GIÂY, scale 1000, 10–600s)
+   • pval-ify mọi chỗ đọc timeout: llm.ts (default args llmReview/Debug/
+     Propose, Math.max stats-dive, browser AbortSignal), llm-daily.ts,
+     /api/llm/review (ATTEMPT_TIMEOUT_MS → hàm attemptTimeoutMs() đọc pval
+     tại lúc gọi), /api/llm/test, /api/llm/stats-dive. Autopsy đã pval sẵn.
+   • Risk-review của engine vẫn dùng cfg.llmTimeoutSec (Auto panel) — note
+     trong panel nói rõ để tránh tưởng panel chỉnh không tác dụng.
+3) Nhóm MỚI "Universe / sessions": UNIVERSE_TOP (5–100), SESS_SYMBOL (string)
+   • Trước đây khóa vì tưởng đọc một lúc boot; rà lại: rankUniverse() và
+     session-broadcast (4 chỗ: fetch kline ×2, squeeze radar, dòng stats)
+     đều đọc tại chỗ gọi → pval-ify, chỉnh runtime có hiệu lực tick kế tiếp.
+4) params-store: type "string" (maxLen + pattern regex, trim, từ chối rỗng/
+     sai pattern), Overrides mở rộng, paramCatalog trả maxLen/pattern,
+     GROUPS thêm "Universe / sessions"; /api/params POST nhận string.
+5) params-editor: ô nhập text cho type string (uppercase, maxLength, validate
+     pattern client trước khi POST).
+6) /api/ai-info: bảng params hiển thị GIÁ TRỊ HIỆU LỰC (pval/xgbBase) thay vì
+   hằng mặc định — diag không nữa nói dối khi đã có override.
+7) test-params-02-58.mts: assertion nhóm 6 → >= 6 (0.2.59 thêm nhóm thứ 7).
+
+QA: scripts/test-params-02-59.mts — 27/27 PASS (xgbBase round-trip, clamp
+biên theo đơn vị hiển thị, string pattern/trim/type reject, catalog 7 nhóm
+32 row, LLM_TIMEOUT view theo giây); test-params-02-58 ALL PASS; npm run
+build qua (client graph không dính fs — pval/xgbBase thuần JS).
+
+DEPLOY: cd ~/Elliot && git pull && npm run build && pm2 restart elliott --update-env && pm2 flush
+Sau deploy: panel /ai → System parameters — mọi hàng trong screenshot đều
+có ô nhập; giá trị lưu db/params-override.json, hiệu lực ngay (XGB hyper áp
+cho lần retrain kế tiếp).

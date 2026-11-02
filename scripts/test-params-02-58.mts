@@ -41,9 +41,9 @@ check("pval back to default", pval("BCAST_VOL_MIN", BCAST_VOL_MIN) === 7e6);
 setOverride("NOISE_BAND", null);
 setOverride("CALIBRATE", null);
 
-// 3) catalog đầy đủ nhóm
+// 3) catalog đầy đủ nhóm (0.2.59 thêm "Universe / sessions" → >= 6)
 const cat = paramCatalog();
-check("catalog has 6 groups", cat.groups.length === 6);
+check("catalog has >= 6 groups", cat.groups.length >= 6);
 check("catalog items >= 20", EDITABLE.length >= 20);
 const vol = cat.groups.flatMap((g) => g.items).find((i) => i.key === "BCAST_VOL_MIN")!;
 check("catalog view scale (7e6 → 7)", vol.view === 7 && vol.override === null);

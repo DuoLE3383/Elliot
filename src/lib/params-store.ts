@@ -12,9 +12,11 @@
 //     GET /api/params. File nằm ngoài client graph nên không dính lỗi
 //     "Can't resolve 'fs'" kiểu 0.2.55.
 //
-// KhÔNG đưa vào danh sách chỉnh-runtime: các tham số cấu trúc (UNIVERSE_*,
-// SESS_*, LIVE_*, LLM_URL/MODEL…) vì chúng được đọc đúng MỘT lúc boot/scheduler
-// setup — đổi runtime không có tác dụng, chỉ tạo ảo giác đã chỉnh.
+// KhÔNG đưa vào danh sách chỉnh-runtime: LIVE_* (nhịp SSE/poll — client graph
+// build-time) và LLM_URL/MODEL (cfg.llmUrl/llmModel Auto panel + env đã phủ,
+// đưa vào panel sẽ hai chỗ chỉnh một giá trị). UNIVERSE_TOP/SESS_SYMBOL từng
+// bị coi là "đọc một lúc boot" — thực tế rankUniverse() và session-broadcast
+// đọc tại chỗ gọi (0.2.59 pval-ify), nên chỉnh runtime được.
 
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { DATA_DIR, dataFile } from "./data-dir";
@@ -29,6 +31,7 @@ import {
   BCAST_VOL_MIN,
   CONF_W,
   LESSON_WEIGHT,
+  LLM_TIMEOUT_MS,
   MAX_DIFFICULTY,
   NOISE_BAND,
   PRESSURE_CAP_SHORT,
@@ -37,8 +40,12 @@ import {
   REGRESS_EPS,
   SCAN_DIGEST_EVERY_MS,
   SCAN_DIGEST_TOP_N,
+  SESS_SYMBOL,
   SIBLING_DISCOUNT,
   CALIBRATE,
+  TUNE_GRID,
+  UNIVERSE_TOP,
+  XGB_BASE,
   pval,
 } from "./params";
 
@@ -47,19 +54,30 @@ import {
 export interface ParamMeta {
   key: string;
   /** nhóm hiển thị trên panel (cùng nhóm với thẻ knobs cũ) */
-  group: "Quality gate" | "5-minute broadcast" | "Scan digest" | "Train / Prob" | "Champion–challenger" | "LLM Risk Officer";
-  type: "number" | "bool";
-  def: number | boolean;
+  group:
+    | "Quality gate"
+    | "5-minute broadcast"
+    | "Scan digest"
+    | "Train / Prob"
+    | "Champion–challenger"
+    | "LLM Risk Officer"
+    | "Universe / sessions";
+  type: "number" | "bool" | "string";
+  def: number | boolean | string;
   min?: number;
   max?: number;
   /** bước nhập (number) */
   step?: number;
   /** số nguyên bắt buộc (number) */
   int?: boolean;
-  /** giá trị nhập/hiển thị = raw / scale (BCAST_VOL_MIN theo triệu $, REPEAT theo giờ) */
+  /** giá trị nhập/hiển thị = raw / scale (BCAST_VOL_MIN theo triệu $, REPEAT theo giờ, LLM_TIMEOUT theo giây) */
   scale?: number;
   /** đơn vị hiển thị cạnh giá trị */
   unit?: string;
+  /** (string) chiều dài tối đa sau trim */
+  maxLen?: number;
+  /** (string) regex nguồn mà giá trị phải khớp — không khớp từ chối lưu */
+  pattern?: string;
   /** chú thích ngắn dưới input — tiếng Anh (ngôn ngữ chính của app) */
   note: string;
 }
@@ -90,16 +108,37 @@ export const EDITABLE: ParamMeta[] = [
   { key: "SIBLING_DISCOUNT", group: "Champion–challenger", type: "number", def: SIBLING_DISCOUNT, min: 0, max: 1, step: 0.05, note: "Vote weight of other timeframes. Higher = stronger consensus boost, more double-counting risk." },
   { key: "CONF_W", group: "Champion–challenger", type: "number", def: CONF_W, min: 0, max: 30, step: 1, int: true, note: "Weight of the confidence term in scoreOf. Lower it if Prob looks inflated." },
   { key: "REGRESS_EPS", group: "Champion–challenger", type: "number", def: REGRESS_EPS, min: 0, max: 0.1, step: 0.01, note: "AUC drop vs the combo champion that marks a retrain as a regression." },
-  // LLM Risk Officer — CHỈ AUTOPSY_ON là runtime-được: fail-closed sống trong
-  // cfg.llmFailClosed (Auto panel) và LLM_URL/TIMEOUT đọc lúc gọi, không ở đây.
+  // XGB booster hyper — override runtime cho XGB_BASE (params.ts xgbBase()).
+  // Hiệu lực ở lần RETRAIN kế tiếp (champion–challenger tự chạy định kỳ);
+  // grid ứng viên vẫn patch đè lên base nên "base" mới là mốc bị đổi.
+  { key: "TUNE_GRID", group: "Champion–challenger", type: "bool", def: TUNE_GRID, note: "Champion–challenger grid: on = every retrain races the candidate hyper set; off = train the base set only (faster, no exploration)." },
+  { key: "XGB_TREES", group: "Champion–challenger", type: "number", def: XGB_BASE.trees, min: 40, max: 600, step: 10, int: true, note: "Boosting rounds of the base model. More = smoother prob, slower train; too many overfit the short history." },
+  { key: "XGB_LR", group: "Champion–challenger", type: "number", def: XGB_BASE.lr, min: 0.005, max: 0.5, step: 0.005, note: "Shrinkage per tree. Lower = calmer prob that needs more trees; higher = jumpy." },
+  { key: "XGB_DEPTH", group: "Champion–challenger", type: "number", def: XGB_BASE.depth, min: 2, max: 10, step: 1, int: true, note: "Tree depth. 2–3 keeps interactions simple; deeper memorises noise." },
+  { key: "XGB_LAMBDA", group: "Champion–challenger", type: "number", def: XGB_BASE.lambda, min: 0, max: 20, step: 0.5, note: "L2 leaf-weight penalty. Higher = flatter leaves, more conservative prob." },
+  { key: "XGB_ROWSUB", group: "Champion–challenger", type: "number", def: XGB_BASE.rowSub, min: 0.3, max: 1, step: 0.05, note: "Row subsample per tree. Lower = more decorrelation but noisier." },
+  { key: "XGB_COLSUB", group: "Champion–challenger", type: "number", def: XGB_BASE.colSub, min: 0.3, max: 1, step: 0.05, note: "Column (feature) subsample per tree." },
+  { key: "XGB_MINCHILD", group: "Champion–challenger", type: "number", def: XGB_BASE.minChild, min: 1, max: 64, step: 1, int: true, note: "Min samples per leaf. Higher = fewer, safer leaves." },
+  { key: "XGB_BINS", group: "Champion–challenger", type: "number", def: XGB_BASE.bins, min: 8, max: 256, step: 8, int: true, note: "Histogram bins for feature quantisation. 32 is fine — touch only with a reason." },
+  // LLM Risk Officer — AUTOPSY_ON + LLM_TIMEOUT_MS là runtime-được: timeout
+  // được đọc pval tại MỌI chỗ gọi (autopsy, review/test/stats-dive route,
+  // llm.ts default args). Fail-closed sống trong cfg.llmFailClosed (Auto
+  // panel); endpoint/model là cfg.llmUrl/llmModel (Auto panel) + env — ba lớp
+  // đó thắng giá trị mặc định nên không đưa vào panel để tránh hai chỗ chỉnh
+  // một giá trị.
   { key: "AUTOPSY_ON", group: "LLM Risk Officer", type: "bool", def: AUTOPSY_ON, note: "Trade autopsy — LLM dissects every closed trade and stores the lesson for future reviews." },
+  { key: "LLM_TIMEOUT_MS", group: "LLM Risk Officer", type: "number", def: LLM_TIMEOUT_MS, min: 10, max: 600, step: 5, scale: 1000, unit: "s", note: "Budget for ONE LLM call (verdict / autopsy / stats-dive), default 300s. The engine risk-review uses the Auto panel llmTimeoutSec instead. Env LLM_TIMEOUT_MS still works as a fallback." },
+  // Universe / sessions — trước đây bị khóa vì tưởng đọc một lúc boot; thật ra
+  // rankUniverse và session-broadcast đều đọc tại chỗ gọi nên runtime được.
+  { key: "UNIVERSE_TOP", group: "Universe / sessions", type: "number", def: UNIVERSE_TOP, min: 5, max: 100, step: 1, int: true, note: "Top N trending pairs the universe scan publishes (UI card + Telegram + fallback watchlist)." },
+  { key: "SESS_SYMBOL", group: "Universe / sessions", type: "string", def: SESS_SYMBOL, maxLen: 20, pattern: "^[A-Z0-9]{5,20}$", note: "Reference symbol for session-open stats (Bull%/drift) and the squeeze radar — a Binance USDT-M futures symbol like BTCUSDT / ETHUSDT." },
 ];
 
-const GROUPS: ParamMeta["group"][] = ["Quality gate", "5-minute broadcast", "Scan digest", "Train / Prob", "Champion–challenger", "LLM Risk Officer"];
+const GROUPS: ParamMeta["group"][] = ["Quality gate", "5-minute broadcast", "Scan digest", "Train / Prob", "Champion–challenger", "LLM Risk Officer", "Universe / sessions"];
 
 // ── Store (db/params-override.json) ──────────────────────────────────────────
 
-type Overrides = Record<string, number | boolean>;
+type Overrides = Record<string, number | boolean | string>;
 
 const OVERRIDE_FILE = "params-override.json";
 
@@ -114,12 +153,30 @@ const readOverrides = (): Overrides => {
         out[meta.key] = clampNum(meta, v);
       } else if (meta.type === "bool" && typeof v === "boolean") {
         out[meta.key] = v;
+      } else if (meta.type === "string" && typeof v === "string") {
+        const s = sanitizeStr(meta, v);
+        if (s !== null) out[meta.key] = s; // hỏng pattern/maxLen → bỏ, dùng mặc định
       }
     }
     return out;
   } catch {
     return {}; // chưa có file / JSON hỏng → dùng toàn bộ mặc định
   }
+};
+
+/** (string) trim + khống chế maxLen/pattern — null = từ chối. */
+const sanitizeStr = (meta: ParamMeta, raw: string): string | null => {
+  const s = raw.trim();
+  if (!s) return null;
+  if (meta.maxLen != null && s.length > meta.maxLen) return null;
+  if (meta.pattern) {
+    try {
+      if (!new RegExp(meta.pattern).test(s)) return null;
+    } catch {
+      return null; // pattern hỏng (lỗi dev) → an toàn hơn là chấp nhận
+    }
+  }
+  return s;
 };
 
 const clampNum = (meta: ParamMeta, raw: number): number => {
@@ -153,7 +210,7 @@ export function getOverrides(): Overrides {
 }
 
 /** Giá trị ĐANG HIỆU LỰC của một tham số (override ?? mặc định) — cho UI. */
-export function effectiveValue(meta: ParamMeta): number | boolean {
+export function effectiveValue(meta: ParamMeta): number | boolean | string {
   return pval(meta.key, meta.def);
 }
 
@@ -164,7 +221,7 @@ export interface SetResult {
 }
 
 /** Đặt / xoá một override. value = null → trả về mặc định. Lưu xong hydrate ngay. */
-export function setOverride(key: string, value: number | boolean | null): SetResult {
+export function setOverride(key: string, value: number | boolean | string | null): SetResult {
   const meta = EDITABLE.find((m) => m.key === key);
   if (!meta) return { ok: false, error: `Unknown parameter: ${key}`, overrides: getOverrides() };
   const ov = getOverrides();
@@ -176,6 +233,11 @@ export function setOverride(key: string, value: number | boolean | null): SetRes
     }
     const scaled = meta.scale ? value * meta.scale : value;
     ov[key] = clampNum(meta, scaled);
+  } else if (meta.type === "string") {
+    if (typeof value !== "string") return { ok: false, error: `${key}: expected a string`, overrides: ov };
+    const s = sanitizeStr(meta, value);
+    if (s === null) return { ok: false, error: `${key}: invalid value (must match ${meta.pattern ?? "non-empty"})`, overrides: ov };
+    ov[key] = s;
   } else {
     if (typeof value !== "boolean") return { ok: false, error: `${key}: expected boolean`, overrides: ov };
     ov[key] = value;
@@ -193,17 +255,19 @@ export interface ParamGroupOut {
     key: string;
     type: ParamMeta["type"];
     /** giá trị đang hiệu lực (raw + scaled-view) */
-    value: number | boolean;
-    view: number | boolean;
-    def: number | boolean;
+    value: number | boolean | string;
+    view: number | boolean | string;
+    def: number | boolean | string;
     /** override đang đặt (null = dùng mặc định) */
-    override: number | boolean | null;
+    override: number | boolean | string | null;
     min?: number;
     max?: number;
     step?: number;
     int?: boolean;
     scale?: number;
     unit?: string;
+    maxLen?: number;
+    pattern?: string;
     note: string;
   }[];
 }
@@ -228,6 +292,8 @@ export function paramCatalog(): { groups: ParamGroupOut[]; file: string } {
         int: m.int,
         scale: m.scale,
         unit: m.unit,
+        maxLen: m.maxLen,
+        pattern: m.pattern,
         note: m.note,
       };
     }),

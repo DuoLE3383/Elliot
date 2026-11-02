@@ -16,17 +16,19 @@ import { useCallback, useEffect, useState } from "react";
 
 interface Item {
   key: string;
-  type: "number" | "bool";
-  value: number | boolean; // đang hiệu lực (override ?? default)
-  view: number | boolean; // giá trị ở đơn vị nhập (raw / scale)
-  def: number | boolean;
-  override: number | boolean | null;
+  type: "number" | "bool" | "string";
+  value: number | boolean | string; // đang hiệu lực (override ?? default)
+  view: number | boolean | string; // giá trị ở đơn vị nhập (raw / scale)
+  def: number | boolean | string;
+  override: number | boolean | string | null;
   min?: number;
   max?: number;
   step?: number;
   int?: boolean;
   scale?: number;
   unit?: string;
+  maxLen?: number;
+  pattern?: string;
   note: string;
 }
 interface Group {
@@ -60,7 +62,7 @@ export function ParamsEditor({ lang }: { lang: Lang }) {
   }, [load]);
 
   const save = useCallback(
-    async (key: string, value: number | boolean | null) => {
+    async (key: string, value: number | boolean | string | null) => {
       try {
         const res = await fetch("/api/params", {
           method: "POST",
@@ -124,6 +126,50 @@ export function ParamsEditor({ lang }: { lang: Lang }) {
                           checked={Boolean(it.value)}
                           onCheckedChange={(v) => void save(it.key, v)}
                           aria-label={it.key}
+                        />
+                        {overridden && (
+                          <button
+                            type="button"
+                            title={t(lang, "ai.knobs.reset")}
+                            onClick={() => void save(it.key, null)}
+                            className="text-zinc-600 transition hover:text-teal-300"
+                          >
+                            <RotateCcw className="h-3 w-3" />
+                          </button>
+                        )}
+                      </span>
+                    ) : it.type === "string" ? (
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        <Input
+                          type="text"
+                          value={shown}
+                          maxLength={it.maxLen ?? 40}
+                          onChange={(e) => setDrafts((d) => ({ ...d, [it.key]: e.target.value }))}
+                          onBlur={() => {
+                            if (draft == null) return;
+                            const s = draft.trim();
+                            if (!s || (it.pattern && !new RegExp(it.pattern).test(s))) {
+                              setFlash({ key: it.key, ok: false, msg: t(lang, "ai.knobs.invalid") });
+                              setDrafts((d) => {
+                                const n = { ...d };
+                                delete n[it.key];
+                                return n;
+                              });
+                              return;
+                            }
+                            void save(it.key, s);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                            if (e.key === "Escape") {
+                              setDrafts((d) => {
+                                const n = { ...d };
+                                delete n[it.key];
+                                return n;
+                              });
+                            }
+                          }}
+                          className={`h-6 w-32 border-zinc-800 bg-zinc-900 px-1.5 font-mono text-[11px] uppercase ${cls}`}
                         />
                         {overridden && (
                           <button

@@ -12,6 +12,7 @@ import { engineSnapshot } from "@/lib/engine";
 import { db } from "@/lib/db";
 import { buildStatsSnapshot } from "@/lib/stats";
 import { llmEnvEndpoint, llmStatsDive, LLM_MODEL_DEFAULT, LLM_TIMEOUT_MS, LLM_URL_DEFAULT } from "@/lib/llm";
+import { pval } from "@/lib/params";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +39,7 @@ export async function POST() {
   const { url, model } = resolveEndpoint();
   const snap = await buildStatsSnapshot();
   // Prefer engine cfg timeout when higher; floor 300s, cap 600s for long-form English RCA
-  let timeoutMs = Math.max(LLM_TIMEOUT_MS, 300_000);
+  let timeoutMs = Math.max(pval("LLM_TIMEOUT_MS", LLM_TIMEOUT_MS), 300_000);
   try {
     const sec = engineSnapshot().cfg?.llmTimeoutSec;
     if (typeof sec === "number" && sec >= 60) timeoutMs = Math.min(600_000, Math.max(timeoutMs, sec * 1000));

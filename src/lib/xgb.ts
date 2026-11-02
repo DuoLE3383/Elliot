@@ -116,6 +116,7 @@ import {
   XGB_GRID,
   type XgbParams,
   pval,
+  xgbBase,
 } from "./params";
 
 // Knob train/Prob sống ở ./params — MỘT nguồn; re-export cho engine/autotrade
@@ -1078,10 +1079,13 @@ export async function runXgb(
   // hằng — khác nhau chỉ hyper) và CÙNG bins → khác biệt thuần là hyper.
   // Winner = AUC val cao nhất, hoà → logloss thấp hơn; base luôn có mặt làm
   // mốc nên grid không bao giờ thua "làm như cũ".
-  const cands: { name: string; p: XgbParams }[] = TUNE_GRID
-    ? XGB_GRID.map((g) => ({ name: g.name, p: { ...XGB_BASE, ...g.patch } }))
-    : [{ name: "base", p: { ...XGB_BASE } }];
-  const bins = makeBins(trainRows, XGB_BASE.bins); // quantise 1 lần, dùng chung
+  // base = XGB_BASE + override runtime (panel /ai — xgbBase() đọc pval tại
+  // chỗ gọi nên lần train kế tiếp dùng ngay giá trị mới, không cần restart).
+  const baseEff = xgbBase();
+  const cands: { name: string; p: XgbParams }[] = pval("TUNE_GRID", TUNE_GRID)
+    ? XGB_GRID.map((g) => ({ name: g.name, p: { ...baseEff, ...g.patch } }))
+    : [{ name: "base", p: { ...baseEff } }];
+  const bins = makeBins(trainRows, baseEff.bins); // quantise 1 lần, dùng chung
   const seed = 20260101 + lv * 7919; // per-level seed → each difficulty trains a fresh ensemble
   const grid: { name: string; auc: number; logloss: number }[] = [];
   let best: { name: string; model: TrainedModel; imp: number[]; valP: number[]; auc: number; ll: number } | null = null;

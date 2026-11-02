@@ -59,8 +59,9 @@ import {
   UNIVERSE_MIN_CANDLES,
   UNIVERSE_SCAN_MS,
   UNIVERSE_TOP,
-  XGB_BASE,
   XGB_GRID,
+  pval,
+  xgbBase,
 } from "@/lib/params";
 
 export const dynamic = "force-dynamic";
@@ -360,14 +361,14 @@ export async function GET() {
         ["LESSON_WEIGHT", LESSON_WEIGHT],
         ["CALIBRATE", String(CALIBRATE)],
         ["PLATT_MIN_VAL", PLATT_MIN_VAL],
-        ["TUNE_GRID", String(TUNE_GRID)],
+        ["TUNE_GRID", String(pval("TUNE_GRID", TUNE_GRID))],
       ],
     },
     {
       name: "Champion–challenger + confluence",
       note: "Candidate grid + probability cap after multi-TF confluence.",
       items: [
-        ["XGB_BASE", XGB_BASE],
+        ["XGB_BASE", xgbBase()], // base + override runtime (panel /ai)
         ["XGB_GRID", XGB_GRID.map((g) => g.name).join(", ")],
         ["REGRESS_EPS", REGRESS_EPS],
         ["NEAR_FRAC", NEAR_FRAC],
@@ -381,7 +382,7 @@ export async function GET() {
       items: [
         ["LLM_URL_DEFAULT", LLM_URL_DEFAULT],
         ["LLM_MODEL_DEFAULT", LLM_MODEL_DEFAULT],
-        ["LLM_TIMEOUT_MS", `${LLM_TIMEOUT_MS / 1000}s`],
+        ["LLM_TIMEOUT_MS", `${pval("LLM_TIMEOUT_MS", LLM_TIMEOUT_MS) / 1000}s`],
         ["LLM_FAIL_CLOSED", String(LLM_FAIL_CLOSED)],
       ],
     },
@@ -391,9 +392,9 @@ export async function GET() {
       items: [
         ["UNIVERSE_INTERVAL", UNIVERSE_INTERVAL],
         ["UNIVERSE_SCAN_MS", `${UNIVERSE_SCAN_MS / 3_600_000}h`],
-        ["UNIVERSE_TOP", UNIVERSE_TOP],
+        ["UNIVERSE_TOP", pval("UNIVERSE_TOP", UNIVERSE_TOP)],
         ["UNIVERSE_MIN_CANDLES", UNIVERSE_MIN_CANDLES],
-        ["SESS_SYMBOL", SESS_SYMBOL],
+        ["SESS_SYMBOL", pval("SESS_SYMBOL", SESS_SYMBOL)],
         ["SESS_INTERVAL", SESS_INTERVAL],
         ["SESS_KLINE_COUNT", SESS_KLINE_COUNT],
         ["SCAN_FRESH_MS", `${SCAN_FRESH_MS / 60_000}m`],

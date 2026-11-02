@@ -17,6 +17,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { llmEnvEndpoint, llmReview, LLM_TIMEOUT_MS, LLM_URL_DEFAULT, LLM_MODEL_DEFAULT, type LlmSetup } from "@/lib/llm";
+import { pval } from "@/lib/params";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,9 @@ export const dynamic = "force-dynamic";
 // cũ "đỡ stall đường vào lệnh" KHÔNG còn đúng: engine gọi llmReview trực
 // tiếp (90s), route này chỉ phục vụ llmReviewViaApi (browser) — hai bên
 // phải cùng nhịp, nếu không browser chờ 95s trong khi server đã buông 10s.
-const ATTEMPT_TIMEOUT_MS = LLM_TIMEOUT_MS;
+// Đọc pval TẠI LÚC GỌI (không cache module) — chỉnh LLM_TIMEOUT_MS trên
+// panel /ai có hiệu lực cho request kế tiếp, không cần restart.
+const attemptTimeoutMs = () => pval("LLM_TIMEOUT_MS", LLM_TIMEOUT_MS);
 const BREAKER_TRIP = 3;
 const BREAKER_COOLDOWN_MS = 10 * 60_000;
 
@@ -61,7 +64,7 @@ export async function POST(req: NextRequest) {
   const model =
     asStr(env.model, /^.{1,60}$/) ?? asStr(body.model, /^.{1,60}$/) ?? LLM_MODEL_DEFAULT;
 
-  const v = await llmReview(url, model, setup, ATTEMPT_TIMEOUT_MS);
+  const v = await llmReview(url, model, setup, attemptTimeoutMs());
   if (v) {
     fails = 0;
     return NextResponse.json(v);

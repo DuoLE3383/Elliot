@@ -39,6 +39,7 @@ import {
   SESS_LATE_WINDOW_MIN,
   SESS_SYMBOL,
   SESS_TICK_MS,
+  pval,
 } from "./params";
 
 /** Binance USDT-M Futures host cũ — đã thay bằng binanceHosts() (KLINES_HOSTS
@@ -171,7 +172,7 @@ export function buildSessionOpenMessage(
   if (sq) lines.push(squeezeLine(sq));
 
   lines.push(
-    `💡 Historical stats (${SESS_SYMBOL} ${SESS_INTERVAL}) · ⛓ = OI + long/short + taker + funding from Binance Futures — the raw source Coinglass aggregates. Stats ≠ guarantees — always set an SL.`,
+    `💡 Historical stats (${pval("SESS_SYMBOL", SESS_SYMBOL)} ${SESS_INTERVAL}) · ⛓ = OI + long/short + taker + funding from Binance Futures — the raw source Coinglass aggregates. Stats ≠ guarantees — always set an SL.`,
   );
   return lines.join("\n");
 }
@@ -239,7 +240,7 @@ export async function tickSessionBroadcast(now = Date.now()): Promise<TickResult
 
   let klines: Kline[];
   try {
-    klines = await fetchKlinesDirect(SESS_SYMBOL, SESS_INTERVAL, SESS_KLINE_COUNT);
+    klines = await fetchKlinesDirect(pval("SESS_SYMBOL", SESS_SYMBOL), SESS_INTERVAL, SESS_KLINE_COUNT);
   } catch (e) {
     console.error(`[session-bcast] kline fetch failed: ${e instanceof Error ? e.message : e}`);
     return { due: due.map((x) => x.key), sent: [], reason: "kline_fetch_failed" };
@@ -280,8 +281,8 @@ export async function sendSessionPreview(): Promise<{ ok: boolean; detail?: stri
     "london";
   try {
     const [klines, sq] = await Promise.all([
-      fetchKlinesDirect(SESS_SYMBOL, SESS_INTERVAL, SESS_KLINE_COUNT),
-      getSqueezeReport(SESS_SYMBOL).catch(() => null),
+      fetchKlinesDirect(pval("SESS_SYMBOL", SESS_SYMBOL), SESS_INTERVAL, SESS_KLINE_COUNT),
+      getSqueezeReport(pval("SESS_SYMBOL", SESS_SYMBOL)).catch(() => null),
     ]);
     const text = `🧪 <b> — session broadcast preview</b>\n\n${buildSessionOpenMessage(opened, now, klines, now, sq)}`;
     return await tgSendMessage(text, "HTML");

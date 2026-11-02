@@ -13,6 +13,7 @@
 // tick; never throws to the scheduler.
 
 import { LLM_TIMEOUT_MS, llmStatsDive, resolveLlmEndpoint } from "./llm";
+import { pval } from "./params";
 
 export async function runScheduledStatsDive(): Promise<{ ok: boolean; ms: number; detail: string }> {
   try {
@@ -24,7 +25,7 @@ export async function runScheduledStatsDive(): Promise<{ ok: boolean; ms: number
       console.warn("[stats-dive-daily] no LLM URL configured — skip");
       return { ok: false, ms: 0, detail: "no-url" };
     }
-    let timeoutMs = Math.max(LLM_TIMEOUT_MS, 300_000);
+    let timeoutMs = Math.max(pval("LLM_TIMEOUT_MS", LLM_TIMEOUT_MS), 300_000);
     try {
       const sec = engineSnapshot().cfg?.llmTimeoutSec;
       if (typeof sec === "number" && sec >= 60) timeoutMs = Math.min(600_000, Math.max(timeoutMs, sec * 1000));

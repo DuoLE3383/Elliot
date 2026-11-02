@@ -197,6 +197,23 @@ export const XGB_GRID: { name: string; patch: Partial<XgbParams> }[] = [
 ];
 export const TUNE_GRID = true;
 
+/** Bộ hyper ĐANG HIỆU LỰC = XGB_BASE + override runtime (panel tham số /ai).
+ *  Gọi NGAY tại chỗ train (không cache module-level) nên chỉnh panel xong,
+ *  lần retrain kế tiếp dùng ngay giá trị mới — không cần restart. Grid ứng
+ *  viên vẫn patch ĐÈ lên base như cũ (patch > override > mặc định). */
+export function xgbBase(): XgbParams {
+  return {
+    trees: pval("XGB_TREES", XGB_BASE.trees),
+    lr: pval("XGB_LR", XGB_BASE.lr),
+    depth: pval("XGB_DEPTH", XGB_BASE.depth),
+    lambda: pval("XGB_LAMBDA", XGB_BASE.lambda),
+    rowSub: pval("XGB_ROWSUB", XGB_BASE.rowSub),
+    colSub: pval("XGB_COLSUB", XGB_BASE.colSub),
+    minChild: pval("XGB_MINCHILD", XGB_BASE.minChild),
+    bins: pval("XGB_BINS", XGB_BASE.bins),
+  };
+}
+
 // ── 6c · CALIBRATION — prob sát thực tế trước khi thành confidence/score ────
 // Vấn đề thật (31/10): XGBoost không được calibrate — 120 cây × lr 0.1 đẩy prob
 // ra xa 0.5, LESSON_WEIGHT khuếch đại thêm, nên model AUC 0.74 / ACC 67% lại

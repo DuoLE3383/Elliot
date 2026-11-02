@@ -26,6 +26,7 @@ import {
   UNIVERSE_LOOKBACK_CANDLES,
   UNIVERSE_SCAN_MS,
   UNIVERSE_TOP,
+  pval,
 } from "./params";
 
 /** majors + high-ATR alts — Binance USDT-M Futures symbols, every entry
@@ -134,8 +135,10 @@ export function scorePair(symbol: string, k: Kline[]): UniverseRow {
   };
 }
 
-/** Sort by score descending, keep the top `top`. */
-export function rankUniverse(rows: UniverseRow[], top = UNIVERSE_TOP): UniverseRow[] {
+/** Sort by score descending, keep the top `top`.
+ *  top đọc pval tại chỗ gọi — chỉnh UNIVERSE_TOP trên panel /ai có hiệu lực
+ *  ở lần scan/broadcast kế tiếp, không cần restart. */
+export function rankUniverse(rows: UniverseRow[], top = pval("UNIVERSE_TOP", UNIVERSE_TOP)): UniverseRow[] {
   return [...rows].sort((x, y) => y.score - x.score).slice(0, top);
 }
 

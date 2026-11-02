@@ -9,7 +9,7 @@
 //   • one short call per cycle, only for the candidate about to be entered
 
 // Hằng LLM sống ở ./params — MỘT nguồn config; re-export cho autotrade/chỗ cũ.
-import { LLM_MODEL_DEFAULT, LLM_TIMEOUT_MS, LLM_URL_DEFAULT } from "./params";
+import { LLM_MODEL_DEFAULT, LLM_TIMEOUT_MS, LLM_URL_DEFAULT, pval } from "./params";
 export { LLM_MODEL_DEFAULT, LLM_TIMEOUT_MS, LLM_URL_DEFAULT } from "./params";
 
 export interface LlmSetup {
@@ -217,7 +217,7 @@ export async function llmReviewViaApi(
     const res = await fetch("/api/llm/review", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      signal: AbortSignal.timeout(LLM_TIMEOUT_MS + 5_000), // browser chờ cùng nhịp server→llama (mặc định 300s, env LLM_TIMEOUT_MS)
+      signal: AbortSignal.timeout(pval("LLM_TIMEOUT_MS", LLM_TIMEOUT_MS) + 5_000), // browser chờ cùng nhịp server→llama (mặc định 300s, env LLM_TIMEOUT_MS, panel /ai chỉnh được)
       body: JSON.stringify({ url, model, setup: s }),
     });
     if (!res.ok) return null;
@@ -402,7 +402,7 @@ export async function llmReviewDebug(
   url: string,
   model: string,
   s: LlmSetup,
-  timeoutMs = LLM_TIMEOUT_MS,
+  timeoutMs = pval("LLM_TIMEOUT_MS", LLM_TIMEOUT_MS),
 ): Promise<LlmDebugResult> {
   return withLlmLock(() => llmReviewDebugUnlocked(url, model, s, timeoutMs));
 }
@@ -411,7 +411,7 @@ async function llmReviewDebugUnlocked(
   url: string,
   model: string,
   s: LlmSetup,
-  timeoutMs = LLM_TIMEOUT_MS,
+  timeoutMs = pval("LLM_TIMEOUT_MS", LLM_TIMEOUT_MS),
 ): Promise<LlmDebugResult> {
   const started = Date.now();
   const prompt = setupPrompt(s);
@@ -501,7 +501,7 @@ export async function llmReview(
   url: string,
   model: string,
   s: LlmSetup,
-  timeoutMs = LLM_TIMEOUT_MS,
+  timeoutMs = pval("LLM_TIMEOUT_MS", LLM_TIMEOUT_MS),
 ): Promise<LlmVerdict | null> {
   return (await llmReviewDebug(url, model, s, timeoutMs)).verdict;
 }
@@ -536,7 +536,7 @@ export async function llmPropose(
   url: string,
   model: string,
   ctxJson: string,
-  timeoutMs = LLM_TIMEOUT_MS,
+  timeoutMs = pval("LLM_TIMEOUT_MS", LLM_TIMEOUT_MS),
 ): Promise<{ ok: boolean; proposal: LlmProposal | null; raw: string; detail: string; ms: number }> {
   const started = Date.now();
   const base = { url, model: model.trim() || LLM_MODEL_DEFAULT };
@@ -641,7 +641,7 @@ export async function llmStatsDive(
   model: string,
   snapshotJson: string,
   /** Stats dive is long-form; default floor 300s even if review timeout is lower. */
-  timeoutMs = Math.max(LLM_TIMEOUT_MS, 300_000),
+  timeoutMs = Math.max(pval("LLM_TIMEOUT_MS", LLM_TIMEOUT_MS), 300_000),
 ): Promise<LlmTextResult> {
   const started = Date.now();
   const base = { prompt: snapshotJson.slice(0, 4000), url, model };

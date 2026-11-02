@@ -22,7 +22,8 @@ export async function POST(req: Request) {
     const body = (await req.json().catch(() => null)) as { key?: unknown; value?: unknown } | null;
     const key = typeof body?.key === "string" ? body.key : null;
     if (!key) return NextResponse.json({ ok: false, error: "Missing key" }, { status: 400 });
-    // value: null = reset về mặc định; còn lại number | boolean
+    // value: null = reset về mặc định; còn lại number | boolean | string
+    // (string do setOverride tự validate pattern/maxLen — route chỉ đưa qua).
     const raw = body?.value;
     const value =
       raw === null || raw === undefined
@@ -31,9 +32,11 @@ export async function POST(req: Request) {
           ? raw
           : typeof raw === "number" && Number.isFinite(raw)
             ? raw
-            : null;
+            : typeof raw === "string"
+              ? raw
+              : null;
     if (raw != null && value === null) {
-      return NextResponse.json({ ok: false, error: "Value must be a number, a boolean or null" }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "Value must be a number, a boolean, a string or null" }, { status: 400 });
     }
     const r = setOverride(key, value);
     if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 400 });
