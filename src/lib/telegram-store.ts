@@ -1,9 +1,10 @@
-// ─── Telegram notifications — env-only config (server-only) ───────────────────
-// ONE path, zero UI: TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID come from .env and
-// every notification (auto-trade opens/closes, digests, top-coin broadcast,
-// test sends) goes to that channel. Deliberately nothing else — no runtime
-// overrides, no connect links, no pasted tokens. Change the channel by editing
-// .env (helper: deploy/set-telegram-env.sh) and restarting the app.
+// ─── Telegram notifications — env config + runtime overrides (server-only) ────
+// Base config comes from .env (TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID, optional
+// TELEGRAM_API_BASE proxy — helper: deploy/set-telegram-env.sh). The Telegram
+// panel can ALSO set all three at runtime (paste token, bind chat via /start
+// deeplink, discover, ?tg= one-time links) — persisted to db/telegram.json and
+// surviving restarts. Resolution everywhere: stored → env → default, so an
+// untouched install behaves exactly like the old env-only setup.
 //
 // TELEGRAM_CHAT_ID accepts every shape a user plausibly pastes:
 //   -1001234567890   numeric id (required for PRIVATE channels)
@@ -11,9 +12,13 @@
 // TELEGRAM_API_BASE (optional) points at a Cloudflare Worker proxy for VPS
 // routes that cannot reach api.telegram.org (deploy/tg-proxy-worker.js).
 
+import { randomBytes } from "crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import path from "path";
 import { dedupeSend, textKey } from "@/lib/tg-dedupe";
+import { dataFile } from "./data-dir";
 
-const TG_API_BASE_DEFAULT = "https://api.telegram.org";
+export const TG_API_BASE_DEFAULT = "https://api.telegram.org";
 
 /**
  * Accept every shape a user plausibly pastes as a chat id and return the form
@@ -31,14 +36,18 @@ export function normalizeChatId(raw: string): string | null {
   return username ? `@${username}` : null;
 }
 
-/** Effective chat id — .env only. */
-export function effectiveChatId(): { id: string | null; source: "env" | null } {
+/** Effective chat id — runtime bind (deeplink/discover UI) first, then .env. */
+export function effectiveChatId(): { id: string | null; source: "env" | "store" | null } {
+  const st = readTgStore();
+  if (st.chatId) return { id: st.chatId, source: "store" };
   const env = normalizeChatId(process.env.TELEGRAM_CHAT_ID ?? "");
   return env ? { id: env, source: "env" } : { id: null, source: null };
 }
 
-/** Effective bot token — .env only. */
-export function effectiveToken(): { token: string | null; source: "env" | null } {
+/** Effective bot token — stored (panel) first, then .env. */
+export function effectiveToken(): { token: string | null; source: "env" | "store" | null } {
+  const st = readTgStore();
+  if (st.token) return { token: st.token, source: "store" };
   const env = process.env.TELEGRAM_BOT_TOKEN ?? "";
   return env ? { token: env, source: "env" } : { token: null, source: null };
 }
@@ -82,7 +91,15 @@ function isSelfCall(base: string): boolean {
  * Effective Telegram API origin: TELEGRAM_API_BASE env, then the official
  * api.telegram.org — skipping any base that is a self-call (see LOOPBACK_HOSTS).
  */
-export function effectiveApiBase(): { base: string; source: "env" | "default" } {
+export function effectiveApiBase(): { base: string; source: "env" | "store" | "default" } {
+  const st = readTgStore();
+  const stored = st.apiBase ? normalizeApiBase(st.apiBase) : null;
+  if (stored && !isSelfCall(stored)) return { base: stored, source: "store" };
+  if (stored) {
+    console.warn(
+      `[telegram] ignoring stored API base ${stored} — it points at this app itself (self-call footgun)`,
+    );
+  }
   const base = normalizeApiBase(process.env.TELEGRAM_API_BASE ?? "");
   if (base && !isSelfCall(base)) return { base, source: "env" };
   if (base) {
@@ -223,4 +240,135 @@ export async function tgSendMessage(
     });
     return r.detail ? { ok: false, detail: r.detail } : { ok: true };
   });
+}
+
+// ─── Runtime overrides (db/telegram.json) — tg-connect UI flows ───────────────
+// Paste-token, /start deeplink bind, discover and ?tg= one-time links all
+// persist here so they survive restarts WITHOUT touching .env. An empty slot
+// simply means "not set — fall through to env/default".
+
+interface TgStoreFile {
+  token?: string;
+  tokenBot?: string | null;
+  tokenVerified?: boolean;
+  chatId?: string;
+  apiBase?: string;
+  /** pending ?tg= one-time connect link (burned on consume, 30 min TTL) */
+  connect?: { secret: string; token: string; bot: string | null; verified: boolean; exp: number };
+  /** pending t.me/<bot>?start=<secret> one-time bind link */
+  start?: { secret: string; exp: number };
+}
+
+function readTgStore(): TgStoreFile {
+  try {
+    const f = dataFile("telegram.json");
+    if (!existsSync(f)) return {};
+    return (JSON.parse(readFileSync(f, "utf8")) as TgStoreFile) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+function writeTgStore(s: TgStoreFile): void {
+  try {
+    const f = dataFile("telegram.json");
+    mkdirSync(path.dirname(f), { recursive: true });
+    writeFileSync(f, JSON.stringify(s, null, 2) + "\n", "utf8");
+  } catch {
+    // best-effort — a failed write loses the last override, .env keeps working
+  }
+}
+
+/** Persist a bot token (the caller verifies it via getMe when possible). */
+export function setStoredToken(token: string, meta?: { bot?: string | null; verified?: boolean }): void {
+  const s = readTgStore();
+  s.token = token.trim();
+  s.tokenBot = meta?.bot ?? null;
+  s.tokenVerified = meta?.verified !== false;
+  writeTgStore(s);
+}
+
+/** Drop the stored token — the effective token falls back to .env. */
+export function clearStoredToken(): void {
+  const s = readTgStore();
+  delete s.token;
+  delete s.tokenBot;
+  delete s.tokenVerified;
+  writeTgStore(s);
+}
+
+/** Stored-token metadata for the panel — safe to expose (never the token). */
+export function getStoredTokenMeta(): { bot: string | null; verified?: boolean } {
+  const s = readTgStore();
+  if (!s.token) return { bot: null };
+  return { bot: s.tokenBot ?? null, verified: s.tokenVerified !== false };
+}
+
+/** Persist the notification chat id (normalized) — runtime bind from the UI. */
+export function setStoredChatId(raw: string): string {
+  const id = normalizeChatId(raw) ?? raw.trim();
+  const s = readTgStore();
+  s.chatId = id;
+  writeTgStore(s);
+  return id;
+}
+
+/**
+ * Persist the Bot-API origin override (anti-503 proxy). Empty string clears
+ * it (falls back to TELEGRAM_API_BASE env, then the official origin).
+ * Returns the stored base, "" when cleared, or null for an invalid URL.
+ */
+export function setStoredApiBase(raw: string): string | null {
+  const s = readTgStore();
+  const v = raw.trim();
+  if (!v) {
+    delete s.apiBase;
+    writeTgStore(s);
+    return "";
+  }
+  const base = normalizeApiBase(v);
+  if (!base) return null;
+  s.apiBase = base;
+  writeTgStore(s);
+  return base;
+}
+
+const LINK_TTL_MS = 30 * 60_000; // both link kinds die after 30 minutes
+
+/** Mint a one-time /start bind secret (32 hex) — a new mint kills the old one. */
+export function createStartLink(): string {
+  const secret = randomBytes(16).toString("hex");
+  const s = readTgStore();
+  s.start = { secret, exp: Date.now() + LINK_TTL_MS };
+  writeTgStore(s);
+  return secret;
+}
+
+/** Consume a /start secret — true exactly once, then the link is burned. */
+export function popStartLink(param: string): boolean {
+  const s = readTgStore();
+  const p = s.start;
+  if (!p || p.secret !== param.trim() || Date.now() > p.exp) return false;
+  delete s.start;
+  writeTgStore(s);
+  return true;
+}
+
+/** Mint a one-time ?tg= connect link bound to the CURRENT effective token. */
+export function createConnectLink(token: string, bot: string | null, verified: boolean): string {
+  const secret = randomBytes(16).toString("hex");
+  const s = readTgStore();
+  s.connect = { secret, token, bot, verified, exp: Date.now() + LINK_TTL_MS };
+  writeTgStore(s);
+  return secret;
+}
+
+/** Consume a ?tg= secret — returns the bound token once, then burns the link. */
+export function popConnectLink(secret: string): { token: string; bot: string | null; verified: boolean } | null {
+  const s = readTgStore();
+  const c = s.connect;
+  if (!c || c.secret !== secret.trim() || Date.now() > c.exp) return null;
+  delete s.connect;
+  writeTgStore(s);
+  return { token: c.token, bot: c.bot, verified: c.verified };
 }

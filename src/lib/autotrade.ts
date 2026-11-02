@@ -644,6 +644,25 @@ export async function telegramStatus(): Promise<TgStatus> {
   }
 }
 
+/** Consume a one-time ?tg=<secret> connect link (POST /api/telegram/link/connect) —
+ *  installs the bound bot token server-side; the link burns after one use. */
+export async function telegramLinkConnect(
+  secret: string,
+): Promise<{ ok: boolean; bot?: string | null; detail?: string }> {
+  try {
+    const res = await fetch("/api/telegram/link/connect", {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ secret }),
+    });
+    const json = (await res.json().catch(() => null)) as { ok?: boolean; bot?: string | null; error?: string } | null;
+    if (!res.ok) return { ok: false, detail: json?.error ?? `HTTP ${res.status}` };
+    return { ok: json?.ok === true, bot: json?.bot ?? null };
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : "fetch failed" };
+  }
+}
+
 /**
  * Fire-and-forget notification — resolves {ok:false, detail} instead of throwing.
  * `html: true` (default) sends with parse_mode HTML — templates must escape
@@ -682,6 +701,10 @@ export async function sendTelegram(
 
 const DIGEST_HR = "━━━━━━━━━━━━━━━━━━";
 const sideTag = (side: string): string => (side === "LONG" ? "LONG 🟢" : side === "SHORT" ? "SHORT 🔴" : "NEUTRAL ⚪");
+/** Số dòng tối đa của mục "Lệnh đã chạy" — giữ digest dưới trần 4096 ký tự Telegram */
+const DIGEST_LIST_MAX = 40;
+/** exitKind → icon kết quả (null/không rõ = ✋ đóng tay) */
+const DIGEST_KIND: Record<string, string> = { tp: "✅", sl: "🔻", flip: "🔄", manual: "✋" };
 
 /**
  * Digest body — counts OPENS as well as closes inside the window (an hourly
@@ -708,6 +731,32 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
   );
   const best = (st.byCombo ?? []).filter((c) => c.closed >= 3).sort((a, b) => b.winRate - a.winRate)[0];
   if (best) lines.push(`🏆 Combo tốt nhất: <b>#${best.symbol}</b> ${best.interval} · WR ${best.winRate.toFixed(0)}% (${best.closed} lệnh)`);
+
+  // 📋 List tổng — MỌI lệnh đã đóng (mới nhất trước), mỗi lệnh một dòng kèm
+  // kết quả (TP/SL/flip/đóng tay) + ROE + giờ đóng (giờ kênh Asia/Ho_Chi_Minh).
+  // Giới hạn DIGEST_LIST_MAX dòng, phần cũ gộp một dòng để không vượt 4096 ký tự.
+  // Lệnh đang mở không nằm đây — đã có dòng "🔓 Đang giữ" ở trên.
+  const closedAll = st.trades
+    .filter((x) => x.status === "closed")
+    .sort((a, b) => new Date(b.exitTime ?? b.entryTime).getTime() - new Date(a.exitTime ?? a.entryTime).getTime());
+  if (closedAll.length) {
+    const fmtT = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    lines.push(`📋 <b>Lệnh đã chạy (${closedAll.length})</b> · mới nhất trước:`);
+    for (const x of closedAll.slice(0, DIGEST_LIST_MAX)) {
+      const pnl = x.pnlPct ?? 0;
+      lines.push(
+        `• #${x.symbol} ${x.interval} ${sideTag(x.side)} ${DIGEST_KIND[x.exitKind ?? ""] ?? "✋"} <b>${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}%</b> · ${fmtT.format(new Date(x.exitTime ?? x.entryTime))}`,
+      );
+    }
+    if (closedAll.length > DIGEST_LIST_MAX) lines.push(`…và ${closedAll.length - DIGEST_LIST_MAX} lệnh cũ hơn`);
+  }
   return lines;
 }
 

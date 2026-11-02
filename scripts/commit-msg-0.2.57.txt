@@ -1,0 +1,34 @@
+0.2.57 — báo cáo giờ/dày thêm "Lệnh đã chạy" + vá main gãy bởi tg-connect dở dang
+
+PHẦN 1 — YÊU CẦU USER: báo cáo Telegram thêm list tổng
+- statLines (autotrade.ts) bổ sung mục "📋 Lệnh đã chạy (N) · mới nhất trước":
+  mỗi lệnh ĐÃ ĐÓNG một dòng — cặp · khung · chiều · kết quả (✅ TP / 🔻 SL /
+  🔄 flip / ✋ đóng tay) · ROE · giờ đóng giờ VN (Asia/Ho_Chi_Minh).
+- Áp dụng cho CẢ 3 loại digest dùng chung bộ sinh: HOURLY, DAILY và
+  "gửi ngay" AUTO STATS — một chỗ sửa, ba báo cáo nhất quán.
+- Giới hạn 40 dòng gần nhất (DIGEST_LIST_MAX); phần cũ gộp dòng
+  "…và N lệnh cũ hơn" — giữ message dưới trần 4096 ký tự Telegram.
+- Lệnh đang mở không lặp trong list — đã có dòng "🔓 Đang giữ" riêng.
+- Bổ sung helper client telegramLinkConnect() + i18n tgboot.ok/tgboot.fail
+  (VI/EN) cho component tg-connect-link đã commit trước đó nhưng chưa có chữ.
+
+PHẦN 2 — VÁ BUILD: main gãy vì commit 4ef582d (tg-connect) dở dang
+- 7 route /api/telegram/* mới import 10 export KHÔNG TỒN TẠI trong
+  telegram-store.ts → Turbopack build gãy 16 lỗi "Export doesn't exist".
+- telegram-store.ts mở rộng đúng hợp đồng mà route đã khai báo:
+  · export TG_API_BASE_DEFAULT (hằng sẵn có, trước đây private).
+  · bộ lưu runtime db/telegram.json: setStoredToken/clearStoredToken/
+    getStoredTokenMeta/setStoredChatId/setStoredApiBase.
+  · link dùng-một-lần TTL 30 phút: createStartLink/popStartLink (bind chat
+    qua /start deeplink) và createConnectLink/popConnectLink (?tg= 32 hex,
+    tự burn khi tiêu thụ).
+  · effectiveToken/effectiveChatId/effectiveApiBase nâng resolution thành
+    stored → env → default: cài đặt .env cũ hoạt động Y HỆT trước đây;
+    panel connect UI ghi đè được khi env không set.
+- Không đụng logic gửi tin hiện có (tgApi/tgSendMessage/dedupe giữ nguyên).
+
+KIỂM CHỨNG: npm run build thành công (toàn bộ route + 7 route telegram mới
+đóng gói sạch); test statLines với dữ liệu mô phỏng in đúng định dạng list.
+
+SAU DEPLOY: `cd ~/Elliot && git pull && npm run build && pm2 restart elliott --update-env && pm2 flush`
+— báo cáo giờ kế tiếp (đúng giờ) sẽ kèm list tổng các lệnh đã chạy + kết quả.
