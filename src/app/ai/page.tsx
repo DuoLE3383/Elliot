@@ -162,6 +162,9 @@ const hyper = (p: { lr?: number; depth?: number; lambda?: number } | null): stri
 const verdictCls = (v: string): string =>
   v === "go" ? "text-emerald-400" : v === "skip" ? "text-rose-400" : "text-amber-400";
 
+/** 300000ms → "300s" — đọc nhanh hơn ms thô trên dòng "Latest review" */
+const fmtMs = (ms: number): string => (ms >= 1000 ? `${(ms / 1000).toFixed(ms % 1000 ? 1 : 0)}s` : `${ms}ms`);
+
 /** ẨN đường dẫn LLM trên UI (ảnh chụp sẽ lộ IP nội bộ) — chỉ hiện local/remote */
 const llmScope = (url: string): string => {
   if (!url) return "—";
@@ -188,6 +191,18 @@ export default function AiPage() {
   const [llmDraftTimeout, setLlmDraftTimeout] = useState(90);
   const [llmDraftFailClosed, setLlmDraftFailClosed] = useState(false);
   const [llmSaveState, setLlmSaveState] = useState<"idle" | "saving" | "ok" | "fail">("idle");
+  // 0.2.53 — cụm "LLM setup" gấp gọn MẶC ĐỊNH: chỉnh hiếm, để mở cố định dễ nhìn nhầm
+  // là trạng thái vận hành; bấm tiêu đề là mở lại.
+  const [llmSetupOpen, setLlmSetupOpen] = useState(false);
+
+  // khôi phục trạng thái mở/đóng của cụm setup (mặc định: ĐÓNG)
+  useEffect(() => {
+    try {
+      setLlmSetupOpen(localStorage.getItem("utp.llmSetupOpen") === "1");
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   // seed LLM form from localStorage + engine snapshot
   useEffect(() => {
@@ -697,9 +712,27 @@ export default function AiPage() {
               {cfg?.llmModel && <span className="font-mono text-zinc-500">· {cfg.llmModel}</span>}
             </div>
 
-            {/* ── Editable LLM setup ─────────────────────────────────── */}
+            {/* ── Editable LLM setup — ẨN MẶC ĐỊNH (0.2.53): cụm này chỉnh hiếm,
+                để mở cố định giữa panel dễ nhìn nhầm là trạng thái; bấm dòng tiêu đề
+                để mở. Trạng thái nhớ trong localStorage (utp.llmSetupOpen). */}
+            <button
+              type="button"
+              onClick={() => {
+                const nv = !llmSetupOpen;
+                setLlmSetupOpen(nv);
+                try {
+                  localStorage.setItem("utp.llmSetupOpen", nv ? "1" : "0");
+                } catch {
+                  /* ignore */
+                }
+              }}
+              className="flex w-fit items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 transition-colors hover:text-zinc-300"
+            >
+              {llmSetupOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              {t(lang, "ai.llm.setup")}
+            </button>
+            {llmSetupOpen && (
             <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-3 space-y-2.5">
-              <p className="text-[11px] font-semibold text-zinc-300">{t(lang, "ai.llm.setup")}</p>
               <div className="grid gap-2 sm:grid-cols-2">
                 <label className="block space-y-1 sm:col-span-2">
                   <span className="flex items-center justify-between text-[10px] uppercase tracking-wide text-zinc-500">
@@ -762,14 +795,27 @@ export default function AiPage() {
                 </span>
               </div>
             </div>
+            )}
 
             {data?.engine?.llmLast ? (
               <p className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5 text-[11px]">
-                <span className="font-bold text-zinc-200">{t(lang, "ai.llm.last")}: </span>
-                <span className="font-mono text-zinc-300">
+                {/* 0.2.53 — llmLast được persist sống qua restart: không có mốc thời
+                    gian thì bản ghi cũ 1 ngày trước vẫn đứng im như thể vừa xảy ra */}
+                <span className="flex flex-wrap items-center gap-x-2">
+                  <span className="font-bold text-zinc-200">{t(lang, "ai.llm.last")}</span>
+                  <span className="ml-auto font-mono text-[10px] text-zinc-500">
+                    {new Date(data.engine.llmLast.at).toLocaleString(lang === "vi" ? "vi-VN" : "en-GB", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </span>
+                <span className="mt-0.5 block font-mono text-zinc-300">
                   #{data.engine.llmLast.symbol} {data.engine.llmLast.interval} {data.engine.llmLast.side} →{" "}
                   <span className={verdictCls(data.engine.llmLast.verdict)}>{data.engine.llmLast.verdict}</span>{" "}
-                  ({data.engine.llmLast.ms}ms)
+                  ({fmtMs(data.engine.llmLast.ms)})
                 </span>
                 <span className="mt-0.5 block truncate text-zinc-500">{data.engine.llmLast.reason}</span>
               </p>

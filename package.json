@@ -1,13 +1,13 @@
 {
   "name": "nextjs_tailwind_shadcn_ts",
-  "version": "0.2.52",
+  "version": "0.2.53",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
     "prebuild": "node scripts/write-build-id.mjs",
     "build": "prisma generate && node scripts/trace-stub.mjs && rm -rf .next/cache && next build && node scripts/postbuild.mjs && cp -r db .next/standalone/",
     "build:secure": "OBFUSCATE=1 bun run build",
-    "postinstall": "prisma generate || echo '[postinstall] prisma generate failed \u2014 the build step will retry it'",
+    "postinstall": "prisma generate || echo '[postinstall] prisma generate failed — the build step will retry it'",
     "start": "NODE_ENV=production node .next/standalone/server.js",
     "start:node": "NODE_ENV=production node .next/standalone/server.js",
     "lint": "eslint .",
