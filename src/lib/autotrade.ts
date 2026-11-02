@@ -526,6 +526,8 @@ export interface AutoTradeRow {
   llmReason: string | null;
   /** JSON giải phẫu lệnh (autopsy) sau khi đóng — xem src/lib/autopsy.ts */
   autopsy: string | null;
+  /** entry-policy fingerprint for self-improve agent */
+  methodId: string | null;
   createdAt: string;
 }
 

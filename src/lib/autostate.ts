@@ -31,6 +31,7 @@ export type TradeRow = {
   llmVerdict: string | null;
   llmReason: string | null;
   autopsy: string | null;
+  methodId: string | null;
   createdAt: string;
 };
 
@@ -59,6 +60,7 @@ export const serialize = (r: {
   llmVerdict: string | null;
   llmReason: string | null;
   autopsy: string | null;
+  methodId?: string | null;
   createdAt: Date;
 }): TradeRow => ({
   id: r.id,
@@ -85,6 +87,7 @@ export const serialize = (r: {
   llmVerdict: r.llmVerdict,
   llmReason: r.llmReason,
   autopsy: r.autopsy,
+  methodId: r.methodId ?? null,
   createdAt: r.createdAt.toISOString(),
 });
 

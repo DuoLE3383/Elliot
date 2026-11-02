@@ -56,6 +56,8 @@ import { aliasFuturesSymbol, type EngineSettings, type Ticker } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 import { atrLevelsAtEntry } from "./indicators";
 import { llmReview, resolveLlmEndpoint, type LlmVerdict } from "./llm";
+import { methodIdOf, methodSnapshot } from "./method";
+import { runAgentTick } from "./self-improve";
 import { fetchKlinesDirect, fetchBoard24h } from "./klines-direct";
 import { XgbPoolNode, xgbPoolAvailable, xgbPoolSize } from "./xgb-pool-node";
 import { labCfgOf, maybeAutoLab } from "./strategy-lab";
@@ -1260,6 +1262,7 @@ async function cycleTick(): Promise<void> {
         auc: best.auc,
         score: best.score,
         capitalBefore: capitalNow,
+        methodId: methodIdOf(methodSnapshot(c, p.leverage)),
         // verdict LLM LÚC VÀO LỆNH — đi kèm lệnh để autopsy đối chiếu "risk
         // officer duyệt go mà lệnh vẫn thua" một cách khách quan (0.2.28).
         // null (lỗi bất ngờ trước khi gọi) cũng ghi rõ, không đoán mò.
@@ -1366,6 +1369,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
       auc: row.auc,
       score: row.score,
       capitalBefore: capitalNow,
+      methodId: methodIdOf(methodSnapshot(c, p.leverage)),
       // verdict LLM LÚC LẬT — đi kèm lệnh để autopsy đối chiếu sau này
       llmVerdict: lastVerdict ? lastVerdict.verdict : "unreachable",
       llmReason: lastVerdict?.reasons[0] ? lastVerdict.reasons[0].slice(0, 180) : null,
@@ -1617,6 +1621,7 @@ export function startEngineScheduler(): void {
   // bucket 8h LỆCH PHA +4h cho tin "QUÉT LỆNH · TOP 10" — universe rơi 0/8/16h,
   // digest rơi 4/12/20h (giờ máy chủ) để hai tin dài không dồn một lúc
   const lastDigest = { bucket: 0 };
+  const lastImprove = { bucket: -1 };
   const lastResolve = { at: 0 };
   // at=0 → lượt mổ bổ sung đầu tiên chạy ngay tick đầu tiên (~15s sau boot);
   // sau đó mỗi lượt cách nhau 6h (AUTOPSY_BACKFILL_MS)
@@ -1663,6 +1668,21 @@ export function startEngineScheduler(): void {
         lastResolve.at = Date.now();
         await resolveTick();
       }
+
+      // 6h self-improve agent (P1–P4) — measure methods, tighten/restore gates
+      const bImp = Math.floor(Date.now() / (6 * 60 * 60_000));
+      if (bImp !== lastImprove.bucket) {
+        lastImprove.bucket = bImp;
+        try {
+          await runAgentTick(p.cfg, p.leverage, (patch) => {
+            p.cfg = { ...p.cfg, ...patch };
+            persistEngine();
+          });
+        } catch (e) {
+          console.error(`[engine] self-improve: ${e instanceof Error ? e.message : e}`);
+        }
+      }
+
       // paper-trade cycle due?
       if (p.cfg.on && p.nextCycleAt > 0 && Date.now() >= p.nextCycleAt) {
         p.nextCycleAt = Date.now() + p.cfg.cycleMin * 60_000;

@@ -124,9 +124,12 @@ model AutoTrade {
    *  Cả lệnh thắng lẫn thua đều được mổ; lesson được nạp lại vào prompt duyệt
    *  các lệnh sau của cùng cặp (vòng học khép kín). */
   autopsy       String?
+  /** fingerprint of entry policy (gates/stake/lev/TF) at open — self-improve agent */
+  methodId      String?
   createdAt     DateTime  @default(now())
 
   @@index([status, createdAt])
+  @@index([methodId])
   @@index([symbol, interval])
 }
 
@@ -208,4 +211,18 @@ model SignalTotal {
   updatedAt DateTime @updatedAt
 
   @@id([symbol, interval])
+}
+
+// ─── Improve event — self-improve agent log (24/7) ───────────────────────────
+// measure | discover | promote | rollback | skip — numeric policy decisions.
+model ImproveEvent {
+  id        String   @id @default(cuid())
+  kind      String // measure | discover | promote | rollback | skip
+  methodId  String   @default("")
+  detail    String // JSON payload
+  note      String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([kind, createdAt])
+  @@index([createdAt])
 }
