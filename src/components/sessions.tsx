@@ -18,6 +18,7 @@ import {
 import type { SessionStat, WhaleDelta } from "@/lib/market";
 import type { MarketPulse } from "@/lib/market-pulse";
 import { cyclePhase } from "@/lib/market-pulse";
+import type { SessionVerdict } from "@/lib/session-forecast";
 import { Activity, CalendarDays, Clock, Gauge, Radar, Waves } from "lucide-react";
 
 const SESSION_LABEL: Record<string, string> = {
@@ -45,11 +46,13 @@ export function SessionsPanel({
   stats,
   whale,
   cycles,
+  forecast,
 }: {
   lang: Lang;
   stats: SessionStat[];
   whale: WhaleDelta | null;
   cycles: CycleStats | null;
+  forecast: SessionVerdict | null;
 }) {
   // SSR-safe clock: a stable per-mount fallback first, then live every 30s
   const [fallback] = useState(() => Date.now());
@@ -163,7 +166,7 @@ export function SessionsPanel({
 
         <p className="text-[10px] leading-relaxed text-zinc-600">{t(lang, "sess.note")}</p>
 
-        {/* ── Session forecast — frequentist lean from the same closed candles ── */}
+        {/* ── Session forecast — composite verdict 9 yếu tố (0.2.60) ── */}
         {(() => {
           const valid = stats.filter((s) => s.bullPct != null && s.candles >= 5);
           if (valid.length === 0) return null;
@@ -176,52 +179,105 @@ export function SessionsPanel({
               : nx.inMin >= 60
                 ? `${Math.floor(nx.inMin / 60)}h${nx.inMin % 60 ? ` ${nx.inMin % 60}m` : ""}`
                 : `${nx.inMin}m`;
+          const callCls = (c: string): string =>
+            c === "BULL"
+              ? "bg-emerald-950/60 text-emerald-300 border-emerald-800"
+              : c === "BEAR"
+                ? "bg-rose-950/60 text-rose-300 border-rose-800"
+                : "bg-zinc-800/80 text-zinc-300 border-zinc-700";
+          const fLean = (f: { lean: number | null }): { mark: string; cls: string } =>
+            f.lean == null
+              ? { mark: "·", cls: "text-zinc-500" }
+              : f.lean >= 0.15
+                ? { mark: "▲", cls: "text-emerald-400" }
+                : f.lean <= -0.15
+                  ? { mark: "▼", cls: "text-rose-400" }
+                  : { mark: "•", cls: "text-zinc-500" };
           return (
             <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5">
               <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
                 <Radar className="h-3.5 w-3.5" />
                 {t(lang, "sess.forecast.title")}
               </p>
-              {nx && nxStat?.bullPct != null && (() => {
-                const bull = nxStat.bullPct!;
-                // Thresholds: <40 BEAR, >60 BULL, else NEUTRAL (user request)
-                const call = bull < 40 ? "BEAR" : bull > 60 ? "BULL" : "NEUTRAL";
-                const callCls =
-                  call === "BULL"
-                    ? "bg-emerald-950/60 text-emerald-300 border-emerald-800"
-                    : call === "BEAR"
-                      ? "bg-rose-950/60 text-rose-300 border-rose-800"
-                      : "bg-zinc-800/80 text-zinc-300 border-zinc-700";
-                const conf = call === "NEUTRAL" ? Math.abs(50 - bull) : Math.max(bull, 100 - bull);
-                return (
-                  <div className="mt-1.5 space-y-1.5">
-                    <p className="text-[11px] text-zinc-400">
-                      {t(lang, "sess.forecast.next", { sess: t(lang, SESSION_LABEL[nx.key]), in: inLabel })}
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={`rounded-md border px-2 py-0.5 font-mono text-sm font-bold ${callCls}`}>
-                        {call}
+              {forecast ? (
+                <>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <span className={`rounded-md border px-2 py-0.5 font-mono text-sm font-bold ${callCls(forecast.call)}`}>
+                      {forecast.call}
+                    </span>
+                    <span className="font-mono text-[12px] text-zinc-300">
+                      {forecast.score >= 0 ? "+" : ""}
+                      {forecast.score}
+                      <span className="ml-1.5 text-[10px] text-zinc-500">
+                        {t(lang, "sess.forecast.conf", { p: forecast.confidence.toFixed(0) })} · ±{forecast.band}
                       </span>
-                      <span className="font-mono text-[12px] text-zinc-300">
-                        Bull {bull.toFixed(0)}%
-                        {nxStat.driftPct != null && (
-                          <span className={nxStat.driftPct >= 0 ? " text-emerald-400" : " text-rose-400"}>
-                            {" · drift "}
-                            {nxStat.driftPct >= 0 ? "+" : ""}
-                            {nxStat.driftPct.toFixed(3)}%
-                          </span>
-                        )}
-                      </span>
+                    </span>
+                    {forecast.targetSession && (
                       <span className="text-[10px] text-zinc-500">
-                        n={nxStat.candles} · {t(lang, "sess.forecast.conf", { p: conf.toFixed(0) })}
+                        {t(lang, "sess.forecast.next", {
+                          sess: t(lang, SESSION_LABEL[forecast.targetSession]),
+                          in: inLabel,
+                        })}
                       </span>
-                    </div>
-                    <p className="text-[10px] text-zinc-600">
-                      {t(lang, "sess.forecast.rule")}
-                    </p>
+                    )}
                   </div>
-                );
-              })()}
+                  {/* thước điểm −100..+100 — vùng giữa là NEUTRAL (±band) */}
+                  <div className="relative mt-1.5 h-2 overflow-hidden rounded-full bg-zinc-800/70">
+                    <div
+                      className="absolute inset-y-0 bg-zinc-700/60"
+                      style={{ left: `${(50 - forecast.band / 2)}%`, width: `${forecast.band}%` }}
+                    />
+                    <div
+                      className="absolute inset-y-[-2px] w-0.5 bg-zinc-100/90"
+                      style={{ left: `${((forecast.score + 100) / 200) * 100}%` }}
+                    />
+                  </div>
+                  {/* bảng yếu tố — hết hộp đen: từng phiếu + lý do */}
+                  <div className="mt-1.5 space-y-0.5">
+                    {forecast.factors.map((f) => {
+                      const m = fLean(f);
+                      return (
+                        <div key={f.key} className="flex items-baseline gap-2 text-[10.5px]">
+                          <span className="w-[86px] shrink-0 font-medium text-zinc-400">{t(lang, `sess.fc.f.${f.key}`)}</span>
+                          <span className="min-w-0 flex-1 truncate text-zinc-600" title={f.text}>
+                            {f.text}
+                          </span>
+                          <span className={`shrink-0 font-mono ${m.cls}`}>
+                            {m.mark}
+                            {f.lean == null ? "—" : `${f.lean >= 0 ? "+" : ""}${f.lean.toFixed(1)}`}
+                            <span className="ml-0.5 text-zinc-700">×{f.weight}</span>
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-1 text-[10px] leading-relaxed text-zinc-600">
+                    {t(lang, "sess.fc.rule", { b: forecast.band, n: forecast.factors.length })}
+                  </p>
+                </>
+              ) : nxStat?.bullPct != null ? (
+                (() => {
+                  // fallback — quy tắc đơn cũ khi chưa đủ dữ liệu composite
+                  const bull = nxStat.bullPct!;
+                  const call = bull < 40 ? "BEAR" : bull > 60 ? "BULL" : "NEUTRAL";
+                  const conf = call === "NEUTRAL" ? Math.abs(50 - bull) : Math.max(bull, 100 - bull);
+                  return (
+                    <div className="mt-1.5 space-y-1.5">
+                      <p className="text-[11px] text-zinc-400">
+                        {t(lang, "sess.forecast.next", { sess: nx ? t(lang, SESSION_LABEL[nx.key]) : "", in: inLabel })}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded-md border px-2 py-0.5 font-mono text-sm font-bold ${callCls(call)}`}>
+                          {call}
+                        </span>
+                        <span className="font-mono text-[12px] text-zinc-300">Bull {bull.toFixed(0)}%</span>
+                        <span className="text-[10px] text-zinc-500">{t(lang, "sess.forecast.conf", { p: conf.toFixed(0) })}</span>
+                      </div>
+                      <p className="text-[10px] text-zinc-600">{t(lang, "sess.forecast.rule")}</p>
+                    </div>
+                  );
+                })()
+              ) : null}
               <p className="mt-1 text-[11px] text-zinc-400">
                 {t(lang, "sess.forecast.best", {
                   hi: t(lang, SESSION_LABEL[best.key]),

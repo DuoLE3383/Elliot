@@ -30,6 +30,7 @@ import {
   BCAST_TOP_N,
   BCAST_VOL_MIN,
   CONF_W,
+  CYCLE_DAYS,
   LESSON_WEIGHT,
   LLM_TIMEOUT_MS,
   MAX_DIFFICULTY,
@@ -40,6 +41,9 @@ import {
   REGRESS_EPS,
   SCAN_DIGEST_EVERY_MS,
   SCAN_DIGEST_TOP_N,
+  SESS_BULL_LONG_MIN,
+  SESS_BULL_SHORT_MAX,
+  SESS_CALL_BAND,
   SESS_SYMBOL,
   SIBLING_DISCOUNT,
   CALIBRATE,
@@ -132,6 +136,11 @@ export const EDITABLE: ParamMeta[] = [
   // rankUniverse và session-broadcast đều đọc tại chỗ gọi nên runtime được.
   { key: "UNIVERSE_TOP", group: "Universe / sessions", type: "number", def: UNIVERSE_TOP, min: 5, max: 100, step: 1, int: true, note: "Top N trending pairs the universe scan publishes (UI card + Telegram + fallback watchlist)." },
   { key: "SESS_SYMBOL", group: "Universe / sessions", type: "string", def: SESS_SYMBOL, maxLen: 20, pattern: "^[A-Z0-9]{5,20}$", note: "Reference symbol for session-open stats (Bull%/drift) and the squeeze radar — a Binance USDT-M futures symbol like BTCUSDT / ETHUSDT." },
+  // Session forecast v2 (0.2.60) — composite verdict + chu kỳ lịch
+  { key: "SESS_BULL_LONG_MIN", group: "Universe / sessions", type: "number", def: SESS_BULL_LONG_MIN, min: 51, max: 90, step: 1, int: true, unit: "%", note: "Telegram session bias: Bull% ≥ this → LONG. Legacy single-rule threshold, composite verdict uses SESS_CALL_BAND instead." },
+  { key: "SESS_BULL_SHORT_MAX", group: "Universe / sessions", type: "number", def: SESS_BULL_SHORT_MAX, min: 10, max: 49, step: 1, int: true, unit: "%", note: "Telegram session bias: Bull% ≤ this → SHORT." },
+  { key: "SESS_CALL_BAND", group: "Universe / sessions", type: "number", def: SESS_CALL_BAND, min: 10, max: 45, step: 1, int: true, note: "Composite session verdict: |score| ≥ band → BULL/BEAR, else NEUTRAL. Lower = more decisive calls (and more noise)." },
+  { key: "CYCLE_DAYS", group: "Universe / sessions", type: "number", def: CYCLE_DAYS, min: 100, max: 2000, step: 50, int: true, unit: "d", note: "Daily candles fetched for calendar-cycle stats (weekday / month / quarter). 2000 ≈ 5.5 years; Binance futures history starts ~Sep 2019." },
 ];
 
 const GROUPS: ParamMeta["group"][] = ["Quality gate", "5-minute broadcast", "Scan digest", "Train / Prob", "Champion–challenger", "LLM Risk Officer", "Universe / sessions"];

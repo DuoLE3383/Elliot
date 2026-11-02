@@ -11,6 +11,7 @@ import type { Analysis } from "./analysis";
 import type { CycleStats } from "./cycles";
 import type { SessionStat, WhaleDelta } from "./market";
 import type { KpiStats, PendingEntry } from "./papers";
+import type { SessionVerdict } from "./session-forecast";
 import type { EngineSettings, Paper, Signal, WyckoffSettings } from "./types";
 import type { WyckoffResult } from "./wyckoff";
 
@@ -78,6 +79,8 @@ export interface ViewPayload {
   sessStats: SessionStat[];
   whale: WhaleDelta | null;
   cycles: CycleStats | null;
+  /** composite session forecast (0.2.60) — null khi chưa đủ dữ liệu */
+  forecast: SessionVerdict | null;
   // ── watchlist ──────────────────────────────────────────────────────────────
   watch: WatchRow[];
 }

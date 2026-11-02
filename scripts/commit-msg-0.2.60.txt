@@ -1,0 +1,55 @@
+0.2.60 — Session forecast v2: composite verdict 9 yếu tố + chu kỳ lịch 5,5 năm
+
+YÊU CẦU: "cần scan và lọc mạnh hơn để tìm ra phán đoán hướng đi của phiên
+rõ ràng hơn" — forecast cũ là MỘT quy tắc Bull<40/>60 trên cửa sổ 1h ngắn
+(~40 ngày) nên gần như luôn NEUTRAL và không thấy bối cảnh nào khác.
+
+GIẢI PHÁP — điểm composite −100..+100 từ 9 phiếu bầu có trọng số
+(src/lib/session-forecast.ts, hàm thuần sessionVerdict + builder
+buildSessionVerdict):
+
+  1. sessionBull  (w=2.0) — Bull% phiên tới, reliability theo n (mẫu mỏng mờ đi)
+  2. sessionDrift (w=1.0) — drift trung bình mỗi nến phiên
+  3. regime       (w=2.0) — giá vs SMA200 khung đang xem
+  4. momentum24h  (w=1.0) — % đổi 24h tính theo THỜI GIAN (đúng mọi TF)
+  5. weekday      (w=1.5) — tần suất thứ đó đóng tăng
+  6. calendar     (w=0.5) — đầu/cuối tháng, cuối quý
+  7. whale        (w=1.5) — taker delta 20 nến / tổng volume cửa sổ
+  8. fearGreed    (w=1.0) — contrarian tại cực trị (mua sợ / bán tham)
+  9. derivatives  (w=1.0) — funding cao + long chật chội → lean ngược
+
+call: |score| ≥ SESS_CALL_BAND (25, chỉnh panel được) → BULL/BEAR, else
+NEUTRAL. confidence = |score|. Toàn bộ 9 phiếu + chữ giải thích trả về
+payload → panel liệt kê từng yếu tố (▲/▼/• + lean × weight + chi tiết) —
+hết hộp đen.
+
+SCAN MẠNH HƠN — dữ liệu:
+  • deepDaily(): phân trang ngược endTime (fetchKlinesDirect cap 1000) →
+    nến 1d CYCLE_DAYS = 2000 ngày ≈ 5,5 NĂM (cũ: 1000 ≈ 2,7 năm) cho
+    cycleStats: ~256 mẫu/thứ thay vì ~142. Cache 30 phút, tự clamp theo
+    lịch sử thật của cặp (Binance futures từ ~09/2019).
+  • /api/view: btcDaily dùng deepDaily; thêm field `forecast` vào payload.
+
+WIRE:
+  • Panel phiên (sessions.tsx): badge call + điểm + thước −100..+100 (vùng
+    NEUTRAL ±band tô đậm) + bảng 9 yếu tố; fallback quy tắc đơn cũ khi
+    forecast null. i18n mới sess.fc.* (VI+EN).
+  • Telegram session broadcast: thêm dòng "🧭 Composite verdict: BULL +54 ·
+    edge 54% · threshold ±25" + "top factors: regime ▲1.0 · weekday ▲0.3…"
+    (topFactorLine — 4 phiếu mạnh nhất). Fail-soft: thiếu verdict tin vẫn đi.
+  • page.tsx truyền view.forecast vào SessionsPanel.
+
+THAM SỐ MỚI chỉnh ngay panel (nhóm Universe / sessions, tổng 36 row):
+  • SESS_CALL_BAND 25 (10–45) — ngưỡng composite; hạ = quyết đoán hơn, nhiễu hơn
+  • CYCLE_DAYS 2000 (100–2000) — độ sâu lịch cho chu kỳ lịch
+  • SESS_BULL_LONG_MIN 60 / SESS_BULL_SHORT_MAX 40 — pval-ify
+    sessionDirection() trong broadcast (quy tắc đơn, giữ làm fallback)
+
+QA: scripts/test-forecast-02-60.mts 19/19 PASS (BULL +81 / BEAR −77 /
+NEUTRAL flat / thin-sample reliability / band override qua pval / daily rỗng
+vẫn verdict); test-params 02-58+02-59 ALL PASS; build qua.
+
+NGUYÊN TẮC: thống kê/chu kỳ = BỐI CẢNH phán đoán phiên — KHÔNG trực tiếp
+mở lệnh; engine vào lệnh vẫn qua XGBoost + Risk Officer như cũ.
+
+DEPLOY: cd ~/Elliot && git pull && npm run build && pm2 restart elliott --update-env && pm2 flush

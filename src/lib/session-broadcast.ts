@@ -24,12 +24,14 @@ import {
   nextSessionOpen,
   sessionOf,
   sessionStats,
+  whaleDelta,
   type SessionKey,
 } from "./market";
 import type { Kline } from "./types";
 import { getSqueezeReport, squeezeLine, type SqueezeReport } from "./squeeze";
 import { binanceHosts, binanceJson } from "./klines-direct";
 import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store";
+import { buildSessionVerdict, topFactorLine, type SessionVerdict } from "./session-forecast";
 import {
   SESS_BULL_LONG_MIN,
   SESS_BULL_SHORT_MAX,
@@ -113,8 +115,9 @@ function inLabel(min: number): string {
  */
 export function sessionDirection(bullPct: number): { dir: "LONG" | "SHORT" | "SIDEWAYS"; pPct: number; pTxt: string } {
   const b = bullPct;
-  if (b >= SESS_BULL_LONG_MIN) return { dir: "LONG", pPct: b, pTxt: `P≈${b.toFixed(1)}% bullish candles` };
-  if (b <= SESS_BULL_SHORT_MAX) return { dir: "SHORT", pPct: 100 - b, pTxt: `P≈${(100 - b).toFixed(1)}% bearish candles` };
+  // 0.2.60: ngưỡng 60/40 đọc pval — chỉnh được trên panel /ai (nhóm Universe / sessions)
+  if (b >= pval("SESS_BULL_LONG_MIN", SESS_BULL_LONG_MIN)) return { dir: "LONG", pPct: b, pTxt: `P≈${b.toFixed(1)}% bullish candles` };
+  if (b <= pval("SESS_BULL_SHORT_MAX", SESS_BULL_SHORT_MAX)) return { dir: "SHORT", pPct: 100 - b, pTxt: `P≈${(100 - b).toFixed(1)}% bearish candles` };
   return { dir: "SIDEWAYS", pPct: Math.max(b, 100 - b), pTxt: `${b.toFixed(1)}% bullish candles — no clear lean` };
 }
 
@@ -133,6 +136,7 @@ export function buildSessionOpenMessage(
   klines: Kline[],
   openTs = now,
   sq: SqueezeReport | null = null,
+  verdict: SessionVerdict | null = null,
 ): string {
   const stats = sessionStats(klines);
   const byKey = new Map(stats.map((s) => [s.key, s]));
@@ -164,6 +168,15 @@ export function buildSessionOpenMessage(
     } else {
       lines.push(`🔮 Next session: <b>${NAME[nx.key]}</b> — opens in ${inLabel(nx.inMin)}`);
     }
+  }
+
+  // 🧭 composite verdict (0.2.60) — 9 yếu tố gộp một điểm; caller tính sẵn
+  if (verdict) {
+    lines.push(
+      `🧭 Composite verdict: <b>${verdict.call} ${verdict.score >= 0 ? "+" : ""}${verdict.score}</b> · edge ${verdict.confidence}% · threshold ±${verdict.band}`,
+    );
+    const tf = topFactorLine(verdict);
+    if (tf) lines.push(`   <i>top factors:</i> ${tf}`);
   }
 
   // ⛓ radar đòn bẩy — dữ liệu gốc Binance Futures (nguồn Coinglass tổng hợp):
@@ -247,10 +260,17 @@ export async function tickSessionBroadcast(now = Date.now()): Promise<TickResult
   }
   // radar đòn bẩy chạy song song kiến thức phiên — fail thì bỏ khối ⛓
   const sq = await getSqueezeReport(BCAST_SYMBOL).catch(() => null);
+  // composite verdict 9 yếu tố (0.2.60) — fail-soft, thiếu thì tin vẫn đi không dòng 🧭
+  const verdict = await buildSessionVerdict({
+    symbol: pval("SESS_SYMBOL", SESS_SYMBOL),
+    klines,
+    sessStats: sessionStats(klines),
+    whale: whaleDelta(klines),
+  }).catch(() => null);
 
   const sent: SessionKey[] = [];
   for (const item of due) {
-    const r = await tgSendMessage(buildSessionOpenMessage(item.key, now, klines, item.openTs, sq), "HTML");
+    const r = await tgSendMessage(buildSessionOpenMessage(item.key, now, klines, item.openTs, sq, verdict), "HTML");
     if (r.ok) {
       sent.push(item.key);
       const st = loadState(); // re-read: survives parallel ticks / manual edits
@@ -284,7 +304,13 @@ export async function sendSessionPreview(): Promise<{ ok: boolean; detail?: stri
       fetchKlinesDirect(pval("SESS_SYMBOL", SESS_SYMBOL), SESS_INTERVAL, SESS_KLINE_COUNT),
       getSqueezeReport(pval("SESS_SYMBOL", SESS_SYMBOL)).catch(() => null),
     ]);
-    const text = `🧪 <b> — session broadcast preview</b>\n\n${buildSessionOpenMessage(opened, now, klines, now, sq)}`;
+    const verdict = await buildSessionVerdict({
+      symbol: pval("SESS_SYMBOL", SESS_SYMBOL),
+      klines,
+      sessStats: sessionStats(klines),
+      whale: whaleDelta(klines),
+    }).catch(() => null);
+    const text = `🧪 <b> — session broadcast preview</b>\n\n${buildSessionOpenMessage(opened, now, klines, now, sq, verdict)}`;
     return await tgSendMessage(text, "HTML");
   } catch (e) {
     return { ok: false, detail: e instanceof Error ? e.message : "kline fetch failed" };

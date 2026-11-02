@@ -1203,7 +1203,7 @@ export default function Home() {
                 onSelect={setSymbol}
                 defaultPairs={SYMBOLS}
               />
-              <SessionsPanel lang={lang} stats={view.sessStats} whale={view.whale} cycles={view.cycles} />
+              <SessionsPanel lang={lang} stats={view.sessStats} whale={view.whale} cycles={view.cycles} forecast={view.forecast} />
             </div>
 
             {/* ── mobile toggle for the low-traffic areas (order-3 → sits right

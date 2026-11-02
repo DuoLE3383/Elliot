@@ -95,6 +95,13 @@ export const SESS_TICK_MS = 60_000;
  *  (≥60% / ≤40% nến tăng), giữa là SIDEWAYS. Hết kiểu "SIDEWAYS mà P≈50%". */
 export const SESS_BULL_LONG_MIN = 60; // Bull% ≥ 60 → LONG
 export const SESS_BULL_SHORT_MAX = 40; // Bull% ≤ 40 → SHORT
+/** Ngưỡng composite verdict (session-forecast.ts): |điểm| ≥ band → BULL/BEAR,
+ *  còn lại NEUTRAL. Panel /ai chỉnh được (0.2.60). */
+export const SESS_CALL_BAND = 25;
+/** Số nến 1d nạp cho thống kê chu kỳ lịch (session-forecast deepDaily).
+ *  2000 ≈ 5,5 năm — tối đa hữu ích trên Binance futures (~7 năm có thật).
+ *  Cặp mới listing tự ngắn lại theo dữ liệu có. */
+export const CYCLE_DAYS = 2000;
 
 // ── 5 · ENGINE CADENCE — nhịp quét của vòng auto ─────────────────────────────
 

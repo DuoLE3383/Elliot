@@ -24,6 +24,7 @@ import { wyckoffFrom } from "@/lib/wyckoff";
 import { analyze } from "@/lib/analysis";
 import { sessionStats, whaleDelta } from "@/lib/market";
 import { cycleStats } from "@/lib/cycles";
+import { buildSessionVerdict, deepDaily } from "@/lib/session-forecast";
 import type { PieStat, Sparkline, ViewPayload, WatchRow, WatchStatus } from "@/lib/view";
 
 export const dynamic = "force-dynamic";
@@ -105,20 +106,16 @@ async function miniFor(sym: string, interval: string): Promise<Kline[] | null> {
   }
 }
 
-// ─── BTC daily cho chu kỳ lịch — cache 1h tại chỗ ────────────────────────────
+// ─── BTC daily cho chu kỳ lịch + composite verdict — deep fetch 30 phút/lần ──
 
 let dailyCache: { at: number; klines: Kline[] } | null = null;
-const DAILY_TTL_MS = 3_600_000;
+const DAILY_TTL_MS = 30 * 60_000;
 
 async function btcDaily(): Promise<Kline[]> {
   if (dailyCache && Date.now() - dailyCache.at < DAILY_TTL_MS) return dailyCache.klines;
-  try {
-    const { klines } = await fetchKlinesDirectResolved("BTCUSDT", "1d", 1000, { revalidate: 1800 });
-    dailyCache = { at: Date.now(), klines };
-    return klines;
-  } catch {
-    return dailyCache?.klines ?? [];
-  }
+  const klines = await deepDaily("BTCUSDT"); // 0.2.60: 1000 → CYCLE_DAYS (2000 ≈ 5,5 năm)
+  if (klines.length > 0) dailyCache = { at: Date.now(), klines };
+  return klines.length > 0 ? klines : (dailyCache?.klines ?? []);
 }
 
 // ─── payload cache 1.5s — nhiều tab cùng xem một combo chia nhau một lượt tính ─
@@ -226,11 +223,12 @@ export async function GET(req: NextRequest) {
       return { key: p.key, k: kpiFrom(resP.papers), slices: allSlices.filter((x) => x.n > 0) };
     });
 
-    // ── phiên + cá voi + chu kỳ lịch ────────────────────────────────────────
+    // ── phiên + cá voi + chu kỳ lịch + composite forecast ────────────────────
     const sessStats = sessionStats(klines);
     const whale = whaleDelta(klines);
     const daily = await btcDaily();
     const cycles = daily.length >= 60 ? cycleStats(daily) : null;
+    const forecast = await buildSessionVerdict({ symbol, klines, sessStats, whale, daily });
 
     // ── watchlist — song song, mỗi cặp mini 48 nến (cache 60s) ──────────────
     const minis = await Promise.all(pairs.map((sym) => miniFor(sym, interval)));
@@ -261,6 +259,7 @@ export async function GET(req: NextRequest) {
       sessStats,
       whale,
       cycles,
+      forecast,
       watch,
     };
 
