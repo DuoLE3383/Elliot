@@ -50,6 +50,35 @@ function loadDotenv(): void {
 
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  // 0. Timestamp EVERY server console line (user request 0.2.68: "thêm thời
+  //    gian vào backend log"). pm2 without `--time` shows raw output, so the
+  //    app prefixes its own logs: [YYYY-MM-DD HH:MM:SS] in Asia/Ho_Chi_Minh
+  //    (UTC+7) — fixed TZ so log lines stay comparable across VPS relocations.
+  //    Next internal logs and worker-thread output still flow through the same
+  //    console objects, so everything in `pm2 logs elliott` gets the stamp.
+  try {
+    const fmt = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+    const stamp = (): string => {
+      const p = new Map<string, string>();
+      for (const part of fmt.formatToParts(new Date())) p.set(part.type, part.value);
+      return `[${p.get("year")}-${p.get("month")}-${p.get("day")} ${p.get("hour")}:${p.get("minute")}:${p.get("second")}]`;
+    };
+    for (const m of ["log", "info", "warn", "error"] as const) {
+      const orig = console[m].bind(console);
+      console[m] = (...args: unknown[]) => orig(stamp(), ...args);
+    }
+  } catch {
+    // Intl/timezone unavailable — plain unprefixed logs still work
+  }
   loadDotenv();
   try {
     // getBuiltinModule = Node ≥22.3 — loads builtins with zero bundler surface,

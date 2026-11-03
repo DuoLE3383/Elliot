@@ -1,23 +1,43 @@
-0.2.67 — trang /stats: tô màu ngữ nghĩa cho MỌI field (35/35), hết trắng xám đều
+0.2.68 — /stats: biểu đồ SVG + Market Model dự báo xu hướng + màu phân luồng + tooltip hover + log có giờ
 
-Vấn đề: sau 0.2.66 panel có đủ nội dung nhưng mọi giá trị đều text-zinc-100
-trắng xám — không phân biệt tốt/xấu/cần chú ý khi nhìn lướt.
+YÊU CẦU: "thêm biểu đồ và đồ thị, thêm nhiều màu sắc để phân biệt các chức
+năng kết nối nhau; trading session thay thành Market Model dự báo xu hướng;
+thêm thời gian vào backend log" + "rê chuột hiện hint giải thích các trường".
 
-Giải pháp: server gắn tone theo ngưỡng thật, client chỉ tô — không tự suy từ
-chữ nên màu không bao giờ lệch giữa server và màn hình:
-  ok   xanh lá  = tốt      (WR ≥50%, ROE dương, phiên OPEN, LLM go, breakout)
-  warn vàng    = cần chú ý (WR 40–49%, Auto OFF, 0 ứng viên, RSI quá mua/bán)
-  bad  đỏ      = xấu      (ROE âm, WR <40%, breakdown, LONG/SHORT theo side)
-  info teal    = mô tả/live (số đếm, one-hot, cửa sổ tính)
-  dim  xám     = không dữ liệu/chân trang (Notes, closed session, "—")
+1) BIỂU ĐỒ (SVG tự vẽ — stat-charts.tsx, KHÔNG thêm library):
+   • Đường vốn (line) — chuỗi capitalAfter từng lệnh đóng, emerald/rose
+   • PnL 20 lệnh gần nhất (bars xanh/đỏ) + Win rate combo (bars 0–100%)
+   • Top-8 universe score (bars)
+   • Phân bố bias scan / exit-kind TP·SL·trail·flip·manual / outcome đề
+     xuất (stack + chú giải)
+   • Timeline 24h của 4 phiên UTC + vạch "now" (đúng bảng SESSIONS)
+   Dữ liệu do server nhét vào snapshot (StatChart), client chỉ vẽ.
 
-- stats.ts: StatTone + tone trên StatMetric; gắn đủ 8 section (sessions,
-  combo, universe, auto, dock, open, hist, sg) + fix 0/0 uptrend → dim.
-- stats/page.tsx: TONE_TEXT + viền trái ô field cùng màu (TONE_EDGE); Metric
-  nhận tone — journal (WR/TP-SL/net) + deep analysis (trend/RSI/volume/ATR/
-  structure) đều tô theo ngưỡng.
-- Import type StatTone erased lúc build — bundle client không kéo db/engine.
+2) MARKET MODEL (thay Trading sessions, key "market"):
+   • Forecast = đồng thuận có trọng số prob từ scan: lean = (Σprob LONG −
+     Σprob SHORT)/(Σ hai bên), bỏ NEUTRAL; ≥±15% mới gọi nghiêng hẳn —
+     tone theo hướng (LONG xanh / SHORT đỏ / BALANCED teal)
+   • Directional coverage, Strongest signal, Trend regime (universe),
+     Session input one-hot + liqFlag, Open now, Next session
+   • basis mới nói rõ: tổng hợp output model hiện có, không phải model mới.
 
-Kiểm chứng: tsc/lint/build sạch; standalone E2E — /api/stats 35/35 field có
-tone; soi ảnh /stats: sessions OPEN xanh/closed xám, Equity xanh, Auto OFF
-vàng, 0/17 vàng, TP/SL xanh, Win rate 44% vàng, Structure breakout xanh.
+3) MÀU PHÂN LUỒNG: mỗi section một accent (market cyan → universe sky →
+   combo violet → dock amber → auto emerald → open rose → hist orange →
+   sg indigo; journal fuchsia, analysis blue) — viền trên + tiêu đề + chấm
+   màu; FLOW CHIPS dưới tiêu đề cho biết section nối giai đoạn nào của
+   pipeline Thị trường → Model → Quét → Lệnh → Lịch sử.
+
+4) TOOLTIP HOVER: mọi field + biểu đồ có hint EN (hint) + VI (hintVi) do
+   server gắn — hiện bằng React state (mouseenter/mouseleave + tap cho cảm
+   ứng), KHÔNG dùng CSS :hover vì Tailwind 4 bọc group-hover trong
+   @media (hover:hover) — headless/touch bị tắt variant (bắt được khi test).
+
+5) LOG CÓ GIỜ: instrumentation.ts prefix [YYYY-MM-DD HH:MM:SS] (TZ cố định
+   Asia/Ho_Chi_Minh) cho console log/info/warn/error server — pm2 logs elliott
+   đọc được giờ từng dòng kể cả khi không chạy pm2 --time.
+
+Kiểm chứng: tsc/lint/build sạch; standalone E2E — API đủ 8 section + charts
+(timeline/bars/line/stack), seed dữ liệu giấy giả vào DB sandbox để soi ảnh:
+timeline 4 phiên + now, đường vốn $1000→$1097.9, PnL bars 9 lệnh, 3 stack,
+tooltip EN/VI hiện đúng vị trí; log server in [2026-11-04 01:16:57] từng dòng.
+scripts/seed-stats-test.cjs = tool seed DB sandbox (không đụng DB thật VPS).
