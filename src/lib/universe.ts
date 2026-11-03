@@ -161,11 +161,14 @@ export function universeFingerprint(top: UniverseRow[], n = UNIVERSE_BCAST_TOP):
 }
 
 /**
- * Universe re-rank Telegram template (every ~8h).
+ * Universe re-rank Telegram template (every ~8h) — 0.2.70 table redesign.
  * Design rules:
  *  - One clear purpose: "which alts are most tradable right now" (ATR + trend)
- *  - Show Δ rank when previous fingerprint is provided
- *  - Compact rows; no wall of identical numbers every restart
+ *  - True monospace TABLE with a column header — no per-row "ATR x · 24h y ·
+ *    10d z · d" label soup; values right-aligned with explicit signs so the
+ *    eye scans one column at a time
+ *  - Δ rank column + In/Out line only when a previous ranking exists
+ *    (first post after cold start stays clean — no 10× "NEW" noise)
  *  - Footer: cadence + disclaimer (not a trade signal)
  */
 export function universeBroadcastText(
@@ -177,38 +180,53 @@ export function universeBroadcastText(
   const prevRank = new Map(prev.map((s, i) => [s, i + 1]));
   const when = opts?.at ? new Date(opts.at) : new Date();
   const hhmm = when.toISOString().slice(11, 16) + " UTC";
+  const showDelta = prev.length > 0;
+
+  const pct = (v: number): string => `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}`;
 
   const rows = show.map((r, idx) => {
     const sym = r.symbol.replace("USDT", "");
     const rank = idx + 1;
-    const old = prevRank.get(sym);
-    let delta = "·";
-    if (old == null) delta = "NEW";
-    else if (old > rank) delta = `↑${old - rank}`;
-    else if (old < rank) delta = `↓${rank - old}`;
-    else delta = "=";
-    const bias =
-      r.trend >= 0.08 ? "▲" : r.trend <= -0.08 ? "▼" : "→";
-    return `${String(rank).padStart(2, " ")}. ${sym.padEnd(8, " ")} ${bias} ATR ${r.atrPct.toFixed(2)}% · 24h ${(r.ret24h * 100).toFixed(1)}% · 10d ${(r.ret10d * 100).toFixed(1)}% · ${delta}`;
+    const bias = r.trend >= 0.08 ? "▲" : r.trend <= -0.08 ? "▼" : "→";
+    let delta = "";
+    if (showDelta) {
+      const old = prevRank.get(sym);
+      if (old == null) delta = "NEW";
+      else if (old > rank) delta = `↑${old - rank}`;
+      else if (old < rank) delta = `↓${rank - old}`;
+      else delta = "=";
+    }
+    return (
+      `${String(rank).padStart(2)} ${bias}${sym.padEnd(8)}` +
+      ` ${pct(r.ret24h).padStart(6)} ${pct(r.ret10d).padStart(6)}` +
+      ` ${r.atrPct.toFixed(2).padStart(5)}` +
+      (showDelta ? ` ${delta.padStart(3)}` : "")
+    ).trimEnd();
   });
 
-  const entered = show
-    .map((r) => r.symbol.replace("USDT", ""))
-    .filter((s) => prev.length > 0 && !prevRank.has(s));
-  const exited = prev.filter((s) => !show.some((r) => r.symbol.replace("USDT", "") === s));
+  // header dựng bằng ĐÚNG độ rộng ô của rows (2·9·6·6·5·3) → cột không bao giờ lệch
+  const head =
+    `${" #".padStart(2)} ${"COIN".padEnd(9)} ${"24h%".padStart(6)} ${"10d%".padStart(6)} ${"ATR%".padStart(5)}` +
+    (showDelta ? ` ${"Δ".padStart(3)}` : "");
+
+  // cold start (không có prev) → KHÔNG in In/Out (mọi coin đều "mới" là vô nghĩa)
+  const entered = showDelta
+    ? show.map((r) => r.symbol.replace("USDT", "")).filter((s) => !prevRank.has(s))
+    : [];
+  const exited = showDelta ? prev.filter((s) => !show.some((r) => r.symbol.replace("USDT", "") === s)) : [];
 
   const changes: string[] = [];
-  if (entered.length) changes.push(`In: ${entered.join(", ")}`);
-  if (exited.length) changes.push(`Out: ${exited.join(", ")}`);
+  if (entered.length) changes.push(`<b>In:</b> ${entered.join(", ")}`);
+  if (exited.length) changes.push(`<b>Out:</b> ${exited.join(", ")}`);
 
   const lines = [
-    `📡 <b>UNIVERSE · TOP ${show.length}</b> · ATR + trend · ${hhmm}`,
-    `<code>${rows.join("\n")}</code>`,
+    `📡 <b>UNIVERSE · TOP ${show.length}</b> · ${hhmm}`,
+    "",
+    `<code>${[head, ...rows].join("\n")}</code>`,
   ];
   if (changes.length) lines.push(`🔀 ${changes.join(" · ")}`);
-  else if (prev.length) lines.push(`🔀 Rank unchanged vs last post`);
-  lines.push(
-    `⏱ Re-rank every 8h · not a trade signal · open the app for full top-${top.length}`,
-  );
+  else if (showDelta) lines.push(`🔀 No rank changes vs last post`);
+  const more = top.length > show.length ? ` · full top-${top.length} in the app` : "";
+  lines.push(`⏱ Re-rank every 8h · not a trade signal${more}`);
   return lines.join("\n");
 }

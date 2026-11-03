@@ -780,62 +780,76 @@ export async function sendTelegram(
 
 const DIGEST_HR = "━━━━━━━━━━━━━━━━━━";
 const sideTag = (side: string): string => (side === "LONG" ? "LONG 🟢" : side === "SHORT" ? "SHORT 🔴" : "NEUTRAL ⚪");
-/** Số dòng tối đa của mục "Lệnh đã chạy" — giữ digest dưới trần 4096 ký tự Telegram */
+/** Số dòng tối đa của bảng lệnh — giữ digest dưới trần 4096 ký tự Telegram */
 const DIGEST_LIST_MAX = 40;
-/** exitKind → icon kết quả (null/không rõ = ✋ đóng tay) */
-const DIGEST_KIND: Record<string, string> = { tp: "✅", sl: "🔻", flip: "🔄", manual: "✋" };
+/** exitKind → icon kết quả đứng ĐẦU dòng bảng (mỗi dòng đúng 1 icon → cột thẳng) */
+const DIGEST_KIND: Record<string, string> = { tp: "✅", sl: "❌", flip: "🔄", manual: "✋" };
+/** exitKind → mã 2 ký tự trong bảng monospace */
+const DIGEST_KIND_CODE: Record<string, string> = { tp: "TP", sl: "SL", flip: "FL", manual: "MN" };
+/** bỏ đuôi USDT cho gọn bảng (DOGEUSDT → DOGE) */
+const baseSym = (s: string): string => s.replace(/USDT$/, "");
 
 /**
- * Digest body — counts OPENS as well as closes inside the window (an hourly
- * report saying "0 lệnh" right after a fresh open reads as broken), and shows
- * "—" instead of a fake 0% win rate while nothing has settled yet.
- * Built server-side (see /api/autotrade/push) so every open tab/device shares
- * one exactly-once sender.
+ * Digest body — 0.2.70 redesign đọc nhanh:
+ *  - khối trạng thái gọn: window stats → equity → best combo → position đang giữ
+ *  - bảng lệnh monospace CÓ CỘT: icon kết quả đầu dòng, PnL thẳng cột, side L/S,
+ *    mã exit (TP/SL/FL/MN), nhóm theo ngày
+ *  - CHỈ liệt kê lệnh đóng TRONG CỬA SỔ báo cáo (hourly = 1h, daily = 24h) —
+ *    hết kiểu hourly đổ cả lịch sử 28 lệnh cũ ra mỗi giờ; cửa sổ trống → 1 dòng 😴
+ * Vẫn đếm OPENS trong cửa sổ (báo "0 lệnh" ngay sau khi vừa mở lệnh đọc như
+ * hỏng) và hiện "—" thay vì 0% win-rate giả khi chưa có lệnh nào chốt.
  */
 export function statLines(st: AutoState, sinceMs: number, title: string, periodLabel: string): string[] {
-  const recent = st.trades.filter((x) => x.status === "closed" && x.exitTime && new Date(x.exitTime).getTime() >= sinceMs);
+  const recent = st.trades
+    .filter((x) => x.status === "closed" && x.exitTime && new Date(x.exitTime).getTime() >= sinceMs)
+    .sort((a, b) => new Date(b.exitTime ?? b.entryTime).getTime() - new Date(a.exitTime ?? a.entryTime).getTime());
   const opened = st.trades.filter((x) => new Date(x.entryTime).getTime() >= sinceMs);
   const wins = recent.filter((x) => (x.pnlPct ?? 0) > 0).length;
   const net = recent.reduce((a, x) => a + (x.pnlPct ?? 0), 0);
   const wr = recent.length ? `${Math.round((wins / recent.length) * 100)}%` : "—";
   const roe = recent.length ? `${net >= 0 ? "+" : ""}${net.toFixed(2)}%` : "—";
+  const capLabel = periodLabel.charAt(0).toUpperCase() + periodLabel.slice(1);
+  const eq = st.capital != null ? st.capital.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
   const lines = [
     title,
     DIGEST_HR,
-    `📊 ${periodLabel}: <b>${opened.length} opened</b> · <b>${recent.length} closed</b> · Win rate <b>${wr}</b> · Net ROE <b>${roe}</b>`,
+    `📊 <b>${capLabel}</b>: ${opened.length} opened · ${recent.length} closed · WR <b>${wr}</b> · ROE <b>${roe}</b>`,
+    `💰 Equity <b>${eq}</b> USDT · ${st.stats.closed} closed all-time${st.open ? " · 1 open" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(0)}%` : "—"}`,
   ];
-  if (st.open) lines.push(`🔓 Holding: <b>#${st.open.symbol}</b> ${st.open.interval} ${sideTag(st.open.side)} @ ${fmtPrice(st.open.entryPrice)}`);
-  lines.push(
-    `💰 Equity: <b>${st.capital != null ? st.capital.toFixed(2) : "—"}</b> USDT · Total ${st.stats.closed} closed${st.open ? " · 1 still open" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(0)}%` : "—"}`,
-  );
   const best = (st.byCombo ?? []).filter((c) => c.closed >= 3).sort((a, b) => b.winRate - a.winRate)[0];
-  if (best) lines.push(`🏆 Best combo: <b>#${best.symbol}</b> ${best.interval} · WR ${best.winRate.toFixed(0)}% (${best.closed} trades)`);
+  if (best) lines.push(`🏆 Best: <b>#${baseSym(best.symbol)}</b> ${best.interval} · WR ${best.winRate.toFixed(0)}% (${best.closed} trades)`);
+  if (st.open)
+    lines.push(`🔓 Holding: <b>#${baseSym(st.open.symbol)}</b> ${st.open.interval} ${sideTag(st.open.side)} @ ${fmtPrice(st.open.entryPrice)}`);
 
-  // 📋 List tổng — MỌI lệnh đã đóng (mới nhất trước), mỗi lệnh một dòng kèm
-  // kết quả (TP/SL/flip/đóng tay) + ROE + giờ đóng (giờ kênh Asia/Ho_Chi_Minh).
-  // Giới hạn DIGEST_LIST_MAX dòng, phần cũ gộp một dòng để không vượt 4096 ký tự.
-  // Lệnh đang mở không nằm đây — đã có dòng "🔓 Đang giữ" ở trên.
-  const closedAll = st.trades
-    .filter((x) => x.status === "closed")
-    .sort((a, b) => new Date(b.exitTime ?? b.entryTime).getTime() - new Date(a.exitTime ?? a.entryTime).getTime());
-  if (closedAll.length) {
-    const fmtT = new Intl.DateTimeFormat("en-GB", {
-      timeZone: "Asia/Ho_Chi_Minh",
-      day: "2-digit",
-      month: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-    lines.push(`📋 <b>Trades executed (${closedAll.length})</b> · newest first:`);
-    for (const x of closedAll.slice(0, DIGEST_LIST_MAX)) {
-      const pnl = x.pnlPct ?? 0;
-      lines.push(
-        `• #${x.symbol} ${x.interval} ${sideTag(x.side)} ${DIGEST_KIND[x.exitKind ?? ""] ?? "✋"} <b>${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}%</b> · ${fmtT.format(new Date(x.exitTime ?? x.entryTime))}`,
-      );
-    }
-    if (closedAll.length > DIGEST_LIST_MAX) lines.push(`…and ${closedAll.length - DIGEST_LIST_MAX} older trades`);
+  lines.push("");
+  if (recent.length === 0) {
+    lines.push(`😴 No trades closed ${periodLabel}`);
+    return lines;
   }
+
+  // 📋 bảng lệnh trong cửa sổ — mới nhất trước, nhóm theo ngày (giờ VN)
+  lines.push(`📋 Trades closed ${periodLabel} — newest first:`);
+  const fmtD = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Ho_Chi_Minh", day: "2-digit", month: "2-digit" });
+  const fmtT = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Ho_Chi_Minh", hour: "2-digit", minute: "2-digit", hour12: false });
+  const rows: string[] = [];
+  let curDate = "";
+  for (const x of recent.slice(0, DIGEST_LIST_MAX)) {
+    const at = new Date(x.exitTime ?? x.entryTime);
+    const d = fmtD.format(at);
+    if (d !== curDate) {
+      rows.push(`— ${d} —`);
+      curDate = d;
+    }
+    const pnl = x.pnlPct ?? 0;
+    const pnlTxt = `${pnl >= 0 ? "+" : ""}${pnl.toFixed(1)}%`.padStart(6);
+    const side = x.side === "LONG" ? "L" : x.side === "SHORT" ? "S" : "—";
+    const code = DIGEST_KIND_CODE[x.exitKind ?? ""] ?? "—";
+    rows.push(
+      `${DIGEST_KIND[x.exitKind ?? ""] ?? "✋"} ${pnlTxt}  ${baseSym(x.symbol).padEnd(9)} ${x.interval.padStart(3)} ${side} ${code}  ${fmtT.format(at)}`,
+    );
+  }
+  lines.push(`<code>${rows.join("\n")}</code>`);
+  if (recent.length > DIGEST_LIST_MAX) lines.push(`…+${recent.length - DIGEST_LIST_MAX} more`);
   return lines;
 }
 

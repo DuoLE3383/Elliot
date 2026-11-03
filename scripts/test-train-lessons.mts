@@ -114,8 +114,8 @@ console.log("\n[2] runXgb — lessons vào train split, metrics val giữ thuầ
   check("không có trades → không có lessons", resPlain.lessons === undefined);
 }
 
-// ── 3 · universe broadcast — TOP-10 compact ───────────────────────────────────
-console.log("\n[3] universeBroadcastText — 30 coins không thành 1 nùi");
+// ── 3 · universe broadcast — bảng cột 0.2.70 ─────────────────────────────────
+console.log("\n[3] universeBroadcastText — bảng monospace có cột, gọn");
 {
   const rows: UniverseRow[] = Array.from({ length: 30 }, (_, i) => ({
     symbol: `COIN${String(i + 1).padStart(2, "0")}USDT`,
@@ -126,13 +126,30 @@ console.log("\n[3] universeBroadcastText — 30 coins không thành 1 nùi");
     score: 1 - i * 0.03,
   }));
   const txt = universeBroadcastText(rows);
-  const numbered = (txt.match(/\d{1,2}\. COIN/g) ?? []).length;
+  const numbered = (txt.match(/\d{1,2} ▲COIN/g) ?? []).length;
   check("chỉ 10 dòng coin", numbered === 10, `got ${numbered}`);
-  check("header TOP 10/30", txt.includes("TOP 10/30"));
-  check("footer …và 20 coin khác", txt.includes("…và 20 coin khác trong top-30"));
+  check("header TOP 10", txt.includes("UNIVERSE · TOP 10</b>"));
+  check("footer full top-30", txt.includes("full top-30 in the app"));
+  check("không prev → không cột Δ/NEW", !txt.includes("NEW") && !txt.includes("Δ"));
+  check("cold start → không in dòng In (mọi coin đều mới là vô nghĩa)", !txt.includes("In:"));
+  const code = txt.split("<code>")[1]?.split("</code>")[0] ?? "";
+  const lens = new Set(code.split("\n").map((l) => l.length));
+  check("cột thẳng hàng (mọi dòng cùng độ dài)", lens.size === 1, [...lens].join(","));
   const few: UniverseRow[] = rows.slice(0, 5);
   const txt5 = universeBroadcastText(few);
-  check("dưới 10 → không footer", !txt5.includes("…và") && txt5.includes("TOP 5/5"));
+  check("dưới 10 → TOP 5, footer gọn", txt5.includes("TOP 5</b>") && !txt5.includes("full top"));
+  // có prev → cột Δ + In/Out: đảo thứ tự 9 coin, COIN10 mới vào, GONE rớt khỏi top
+  const prev = ["COIN09", "COIN08", "COIN07", "COIN06", "COIN05", "COIN04", "COIN03", "COIN02", "COIN01", "GONE"];
+  const txtP = universeBroadcastText(rows, { prevSyms: prev });
+  check("có prev → In/Out line", txtP.includes("<b>In:</b> COIN10") && txtP.includes("<b>Out:</b> GONE"));
+  check("có prev → cột Δ (NEW + ↑8 + =)", txtP.includes("NEW") && txtP.includes("↑8") && /  =$/m.test(txtP));
+  check("có prev → header có Δ", (txtP.split("<code>")[1] ?? "").split("\n")[0].includes("Δ"));
+  const codeP = txtP.split("<code>")[1]?.split("</code>")[0] ?? "";
+  check("có prev → cột vẫn thẳng", new Set(codeP.split("\n").map((l) => l.length)).size === 1);
+  // prev giống hệt → "No rank changes", mọi delta "="
+  const same = rows.slice(0, 10).map((r) => r.symbol.replace("USDT", ""));
+  const txtS = universeBroadcastText(rows, { prevSyms: same });
+  check("prev trùng → No rank changes", txtS.includes("No rank changes") && !txtS.includes("NEW"));
 }
 
 // ── 4 · scan-state persist/load — chạy riêng: scripts/test-scanstate.ts ──────

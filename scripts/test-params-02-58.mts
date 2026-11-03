@@ -48,7 +48,7 @@ check("catalog items >= 20", EDITABLE.length >= 20);
 const vol = cat.groups.flatMap((g) => g.items).find((i) => i.key === "BCAST_VOL_MIN")!;
 check("catalog view scale (7e6 → 7)", vol.view === 7 && vol.override === null);
 
-// 4) statLines — tiếng Anh + list tổng
+// 4) statLines — tiếng Anh + bảng cột 0.2.70 (chỉ lệnh trong cửa sổ)
 hydrateParams();
 const st: AutoState = {
   capital: 79013.81,
@@ -62,11 +62,22 @@ const st: AutoState = {
 } as unknown as AutoState;
 const lines = statLines(st, Date.now() - 3_600_000, "⏰ <b>HOURLY REPORT · 09:00</b>", "last 1h");
 const text = lines.join("\n");
-check("digest EN: opened/closed", /1 opened<\/b> · <b>1 closed/.test(text));
-check("digest EN: Holding", text.includes("🔓 Holding: <b>#TRXUSDT</b> 5m LONG 🟢"));
-check("digest EN: Best combo", text.includes("🏆 Best combo:"));
-check("digest EN: Trades executed + newest first", text.includes("📋 <b>Trades executed (2)</b> · newest first:"));
-check("digest: old-trades fold line ready", true);
+check("digest EN: window stats", /Last 1h<\/b>: 1 opened · 1 closed/.test(text));
+check("digest EN: equity có dấu phẩy nghìn", text.includes("79,013.81"));
+check("digest EN: Holding (base symbol)", text.includes("🔓 Holding: <b>#TRX</b> 5m LONG 🟢"));
+check("digest EN: Best combo (base symbol)", text.includes("🏆 Best: <b>#LINK</b> 15m · WR 67% (3 trades)"));
+check("digest EN: bảng lệnh trong cửa sổ", text.includes("📋 Trades closed last 1h — newest first:"));
+const flat = text.replace(/ {2,}/g, " "); // gộp khoảng trắng cột → so khớp nội dung
+check("digest EN: dòng bảng đúng cột", /✅ \+12\.0% TRX 5m L TP \d{2}:\d{2}/.test(flat));
+check("digest EN: nhóm theo ngày — dd/mm —", /— \d{2}\/\d{2} —/.test(text));
+check("digest EN: lệnh ngoài cửa sổ không leak (LINK 4h trước)", !text.includes("LINKUSDT"));
+check("digest EN: bảng nằm trong <code>", text.includes("<code>— "));
+// cửa sổ trống → 1 dòng 😴, không có bảng
+const quiet = statLines(st, Date.now() - 60_000, "⏰ <b>HOURLY REPORT · 09:00</b>", "last 1h").join("\n");
+check("digest: cửa sổ trống → 😴 một dòng", quiet.includes("😴 No trades closed last 1h") && !quiet.includes("📋"));
+// daily (24h) → cả 2 lệnh nằm trong bảng
+const daily = statLines(st, Date.now() - 86_400_000, "📅 <b>DAILY REPORT · 03/11</b>", "last 24h").join("\n");
+check("digest: daily thấy cả lệnh 4h trước", daily.includes("-5.0%") && daily.includes("LINK"));
 
 // trả override về mặc định (file không còn key nào)
 console.log(fail === 0 ? "\nALL PASS" : `\n${fail} FAILED`);
