@@ -35,8 +35,9 @@ export interface XgbSuggestion {
   tpPct: number;
   /**
    * ATR multiplier that produced slPct/tpPct — RETRAINED per coin by the
-   * expectancy scan below. Live entry (tpMode "atr") re-applies it to the
-   * fresh ATR at entry time instead of freezing the train-time levels.
+   * expectancy scan below. Live entry (tpMode "dyn") re-applies it to the
+   * fresh ATR × time × volume at entry time instead of freezing the
+   * train-time levels.
    */
   atrCoef: number;
   atrKey: number;

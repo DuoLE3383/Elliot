@@ -112,7 +112,7 @@ console.log("\n═══ 3. decidePatch — nắn flipCooldownMin theo flip-expe
     on: true,
     capital: 1000,
     riskPct: 25,
-    tpMode: "atr" as const,
+    tpMode: "dyn" as const,
     slPct: 1,
     tpPct: 2,
     atrCoef: 1.5,

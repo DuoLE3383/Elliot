@@ -42,6 +42,7 @@ import {
   roeOf,
   rowOf,
   scoreOf,
+  sanitizeTpMode,
   slCooldownLeft,
   flipCooldownLeft,
   slTpHit,
@@ -60,7 +61,7 @@ import { readAutoState, serialize } from "./autostate";
 import { autopsyBackfill, autopsyClosedTrade, recentAutopsyLessons, recentFlipLessons } from "./autopsy";
 import { aliasFuturesSymbol, type EngineSettings, type Ticker } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
-import { atrLevelsAtEntry } from "./indicators";
+import { atrLevelsAtEntry, dynLevelsAtEntry } from "./indicators";
 import { llmReview, resolveLlmEndpoint, type LlmVerdict } from "./llm";
 import { methodIdOf, methodSnapshot } from "./method";
 import { runAgentTick } from "./self-improve";
@@ -206,6 +207,9 @@ function loadEngine(): void {
       const p = g.__elliottEngine.p;
       if (raw.cfg) {
         p.cfg = { ...AUTO_DEFAULTS, ...raw.cfg };
+        // 0.2.74: "atr" (ATR thuần) → "dyn" (pair × time × volume) — một nguồn
+        // với loadAutoConfig/syncEngine, engine.json cũ map thẳng
+        p.cfg.tpMode = sanitizeTpMode(p.cfg.tpMode);
         // ngưỡng chung — kẹp + migration legacy 0.55/55 (thời "no UI") trong một nguồn
         Object.assign(p.cfg, sanitizeFloors(p.cfg.minAuc, p.cfg.minAcc, p.cfg.minScore));
         p.cfg.runTf = sanitizeRunTf(p.cfg.runTf);
@@ -1308,18 +1312,26 @@ async function cycleTick(): Promise<void> {
       return;
     }
 
-    // 2.2) live ATR levels at entry (tpMode "atr")
+    // 2.2) live DYNAMIC levels at entry (tpMode "dyn") — pair × time × volume:
+    // ATR%(pair·khung) × heat(TR 5 nến gần vs ATR) × vol(20 vs 100 nến), đo
+    // tại THỜI ĐIỂM vào lệnh. ROE không còn là số cứng — mỗi coin, mỗi phút,
+    // mỗi chế độ volume một bộ SL/TP riêng.
     const coef = best.atrCoef > 0 ? best.atrCoef : c.atrCoef;
-    let live: { slPct: number; tpPct: number; atrPct: number } | null = null;
-    if (c.tpMode === "atr") {
+    let live: { slPct: number; tpPct: number; atrPct: number; heatMul: number; volMul: number } | null = null;
+    if (c.tpMode === "dyn") {
       try {
-        live = atrLevelsAtEntry(await fetchKlinesDirect(best.symbol, best.interval), coef);
+        live = dynLevelsAtEntry(await fetchKlinesDirect(best.symbol, best.interval), coef);
       } catch {
         // fail-open — keep the train-time scan-row levels
       }
+      if (live && (Math.abs(live.heatMul - 1) > 0.01 || Math.abs(live.volMul - 1) > 0.01)) {
+        console.log(
+          `[engine] SL/TP dyn @ ${best.symbol} ${best.interval}: ATR ${live.atrPct.toFixed(2)}% × ${coef} · time ×${live.heatMul.toFixed(2)} · vol ×${live.volMul.toFixed(2)} (pair/time/volume)`,
+        );
+      }
     }
-    const entrySl = c.tpMode === "manual" ? c.slPct : c.tpMode === "atr" && live ? live.slPct : best.slPct;
-    const entryTp = c.tpMode === "manual" ? c.tpPct : c.tpMode === "atr" && live ? live.tpPct : best.tpPct;
+    const entrySl = c.tpMode === "manual" ? c.slPct : c.tpMode === "dyn" && live ? live.slPct : best.slPct;
+    const entryTp = c.tpMode === "manual" ? c.tpPct : c.tpMode === "dyn" && live ? live.tpPct : best.tpPct;
     // 2.3) SL/TP × LEVERAGE (0.2.72) — khoảng cách chuẩn hoá theo đòn bẩy để
     // ROE-at-SL không phình theo lev (lin: ref/lev, chỉ thu hẹp khi lev > ref)
     // + mui an toàn thanh khoản (SL ≤ TP_LIQ_SAFE% đường tới liq — áp MỌI mode,
@@ -1393,8 +1405,8 @@ async function cycleTick(): Promise<void> {
         msgOpen(
           trade,
           capitalNow,
-          c.tpMode === "atr" && live
-            ? `📏 SL/TP = ATR ${live.atrPct.toFixed(2)}% × ${coef}${levScale < 1 ? ` · lev-norm ×${levScale.toFixed(2)} @ ×${p.leverage}` : ""}${finalSl !== entrySl || finalTp !== entryTp ? ` → SL ${finalSl}% · TP ${finalTp}%` : ""} — measured at entry`
+          c.tpMode === "dyn" && live
+            ? `📏 SL/TP động = ATR ${live.atrPct.toFixed(2)}% × ${coef} · time ×${live.heatMul.toFixed(2)} · vol ×${live.volMul.toFixed(2)}${levScale < 1 ? ` · lev-norm ×${levScale.toFixed(2)} @ ×${p.leverage}` : ""} → SL ${finalSl}% · TP ${finalTp}% — pair/time/volume đo tại entry`
             : finalSl !== entrySl || finalTp !== entryTp
               ? `📏 SL/TP liq-capped @ ×${p.leverage}: ${entrySl}/${entryTp}% → ${finalSl}/${finalTp}% (max ${pval("TP_LIQ_SAFE", TP_LIQ_SAFE)}% of the liquidation distance)`
               : undefined,
@@ -1415,8 +1427,8 @@ async function cycleTick(): Promise<void> {
 //   1. Đóng lệnh cũ với exitKind "flip" (autopsy tự chạy fire-and-forget;
 //      không rơi vào SL-cooldown/chase guard — flip là luận điểm MỚI, không
 //      phải đu theo lỗ cũ).
-//   2. SL/TP của lệnh mới đo lại tại giá bây giờ (tpMode "atr") — y hệt luồng
-//      vào lệnh thường.
+//   2. SL/TP động của lệnh mới đo lại tại giá bây giờ (tpMode "dyn") — y hệt
+//      luồng vào lệnh thường.
 //   3. Risk Officer duyệt lệnh đảo chiều qua llmGate (chung luồng vào lệnh):
 //      veto → đứng ngoài chờ chu kỳ sau; unreachable → fail-open/closed theo
 //      tham số như entry thường.
@@ -1438,18 +1450,19 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
   v.lastCycleStatus = `${open.symbol} ${open.interval} LẬT CHIỀU ${from}→${to}`;
   void notifyClosed(closed);
 
-  // 2) SL/TP mới đo tại giá lật (tpMode "atr") — fail-open giữ mức scan row
+  // 2) SL/TP động đo tại giá lật (tpMode "dyn") — fail-open giữ mức scan row;
+  //    y hệt luồng vào lệnh thường: pair × time × volume tại THỜI ĐIỂM lật
   const coef = row.atrCoef > 0 ? row.atrCoef : c.atrCoef;
-  let live: { slPct: number; tpPct: number; atrPct: number } | null = null;
-  if (c.tpMode === "atr") {
+  let live: { slPct: number; tpPct: number; atrPct: number; heatMul: number; volMul: number } | null = null;
+  if (c.tpMode === "dyn") {
     try {
-      live = atrLevelsAtEntry(await fetchKlinesDirect(row.symbol, row.interval), coef);
+      live = dynLevelsAtEntry(await fetchKlinesDirect(row.symbol, row.interval), coef);
     } catch {
       // fail-open — keep the scan-row levels
     }
   }
-  const slPct = c.tpMode === "manual" ? c.slPct : c.tpMode === "atr" && live ? live.slPct : row.slPct;
-  const tpPct = c.tpMode === "manual" ? c.tpPct : c.tpMode === "atr" && live ? live.tpPct : row.tpPct;
+  const slPct = c.tpMode === "manual" ? c.slPct : c.tpMode === "dyn" && live ? live.slPct : row.slPct;
+  const tpPct = c.tpMode === "manual" ? c.tpPct : c.tpMode === "dyn" && live ? live.tpPct : row.tpPct;
   // SL/TP × LEVERAGE (0.2.72) — y hệt luồng vào lệnh thường: scale theo lev
   // (manual bỏ qua) + mui thanh khoản, R:R giữ nguyên.
   const levScale = c.tpMode === "manual" ? 1 : levNormScale(p.leverage);
@@ -1510,8 +1523,8 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
       msgOpen(
         trade,
         capitalNow,
-        c.tpMode === "atr" && live
-          ? `📏 SL/TP = ATR ${live.atrPct.toFixed(2)}% × ${coef}${levScale < 1 ? ` · lev-norm ×${levScale.toFixed(2)} @ ×${p.leverage}` : ""}${finalSl !== slPct || finalTp !== tpPct ? ` → SL ${finalSl}% · TP ${finalTp}%` : ""} — đo lúc LẬT CHIỀU 🔄`
+        c.tpMode === "dyn" && live
+          ? `📏 SL/TP động = ATR ${live.atrPct.toFixed(2)}% × ${coef} · time ×${live.heatMul.toFixed(2)} · vol ×${live.volMul.toFixed(2)}${levScale < 1 ? ` · lev-norm ×${levScale.toFixed(2)} @ ×${p.leverage}` : ""} → SL ${finalSl}% · TP ${finalTp}% — pair/time/volume đo lúc LẬT CHIỀU 🔄`
           : finalSl !== slPct || finalTp !== tpPct
             ? `📏 SL/TP liq-capped @ ×${p.leverage}: ${slPct}/${tpPct}% → ${finalSl}/${finalTp}% (max ${pval("TP_LIQ_SAFE", TP_LIQ_SAFE)}% of the liquidation distance)`
             : undefined,
@@ -1738,6 +1751,9 @@ export function syncEngine(input: {
   const { p } = eng();
   if (input.cfg) {
     p.cfg = { ...p.cfg, ...input.cfg };
+    // 0.2.74: "atr" → "dyn" — tab cũ còn cache giá trị pre-0.2.74 cũng map
+    // thẳng khi sync (một nguồn với loadAutoConfig/loadEngine)
+    p.cfg.tpMode = sanitizeTpMode(p.cfg.tpMode);
     // ngưỡng chung — browser gửi gì cũng bị kẹp về vùng hợp lệ (một nguồn với
     // engine.json/localStorage); migration legacy nằm trong sanitizeFloors
     Object.assign(p.cfg, sanitizeFloors(p.cfg.minAuc, p.cfg.minAcc, p.cfg.minScore));

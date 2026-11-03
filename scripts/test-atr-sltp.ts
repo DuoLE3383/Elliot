@@ -7,7 +7,7 @@
 //   3. suggestFrom retrains the ATR coefficient per coin (grid 1..3) and
 //      slPct/tpPct really are atrPct × coef / × 1.4
 //   4. the retrained coef flows through rowOf → ScanRow and the config
-//      defaults (tpMode "atr", atrCoef 1.5)
+//      defaults (tpMode "dyn", atrCoef 1.5)
 
 import {
   atrLevelsAtEntry,
@@ -124,8 +124,8 @@ console.log("== config plumbing ==");
   const s = { bias: "LONG" as const, prob: 0.6, confidence: 0.2, slPct: 1.5, tpPct: 2.1, atrCoef: 2, atrKey: 2, atrPeriod: 10, smaFilter: false, smaPeriod: 200 };
   const row = rowOf({ suggestion: s } as unknown as XgbResult, "TEST", "1h");
   check(row.atrCoef === 2, `rowOf carries the retrained coef (got ${row.atrCoef})`);
-  check(TP_MODES.includes("atr"), `TP_MODES has "atr" (${TP_MODES.join(", ")})`);
-  check(AUTO_DEFAULTS.tpMode === "atr" && AUTO_DEFAULTS.atrCoef === 1.5, `defaults: tpMode "atr" · atrCoef 1.5 (got ${AUTO_DEFAULTS.tpMode} · ${AUTO_DEFAULTS.atrCoef})`);
+  check(TP_MODES.includes("dyn"), `TP_MODES has "dyn" (${TP_MODES.join(", ")})`);
+  check(AUTO_DEFAULTS.tpMode === "dyn" && AUTO_DEFAULTS.atrCoef === 1.5, `defaults: tpMode "dyn" · atrCoef 1.5 (got ${AUTO_DEFAULTS.tpMode} · ${AUTO_DEFAULTS.atrCoef})`);
   const cfg = AUTO_DEFAULTS as AutoConfig;
   check(cfg.slPct === 1 && cfg.tpPct === 1.5, "manual fallback levels unchanged");
 }

@@ -27,7 +27,7 @@ const row = (over: Partial<ScanRow>): ScanRow => ({
   ...over,
 });
 
-const cfg = { minAuc: 0.8, minAcc: 70, minScore: 60, tpMode: "atr" as const, slPct: 1, tpPct: 1.5, riskPct: 25 };
+const cfg = { minAuc: 0.8, minAcc: 70, minScore: 60, tpMode: "dyn" as const, slPct: 1, tpPct: 1.5, riskPct: 25 };
 
 // 1) có ứng viên đạt gate → chọn top, nhãn "đạt gate", số liệu THẬT
 const gated = llmTestSetup(

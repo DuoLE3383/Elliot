@@ -526,10 +526,10 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                     : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
                 }`}
               >
-                {t(lang, m === "atr" ? "auto.cfg.tpAtr" : m === "auto" ? "auto.cfg.tpAuto" : "auto.cfg.tpManual")}
+                {t(lang, m === "dyn" ? "auto.cfg.tpDyn" : m === "auto" ? "auto.cfg.tpAuto" : "auto.cfg.tpManual")}
               </button>
             ))}
-            {cfg.tpMode === "atr" && (
+            {cfg.tpMode === "dyn" && (
               <label className="flex items-center gap-1 text-[11px] text-zinc-500">
                 {t(lang, "auto.cfg.atrCoef")}
                 <Input
@@ -569,8 +569,8 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                 %
               </label>
             )}
-            {cfg.tpMode === "atr" && (
-              <span className="w-full text-[10px] leading-tight text-zinc-600">{t(lang, "auto.cfg.tpAtrDesc")}</span>
+            {cfg.tpMode === "dyn" && (
+              <span className="w-full text-[10px] leading-tight text-zinc-600">{t(lang, "auto.cfg.tpDynDesc")}</span>
             )}
           </div>
           {/* TRAILING STOP — khoá lời di động: act% giá thì arm, stop bám đỉnh/đáy cách dist% */}

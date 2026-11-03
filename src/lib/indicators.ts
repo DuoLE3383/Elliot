@@ -163,6 +163,113 @@ export function atrLevelsAtEntry(
   return { slPct, tpPct, atrPct };
 }
 
+// ─── SL/TP ĐỘNG — pair × time × volume (0.2.74) ──────────────────────────────
+// "ROE is dynamic and calculated by pair / time / volume .. not use hard
+// setting" — khoảng cách SL/TP không còn là số cứng hay ATR thuần: nó là hàm
+// của CHÍNH pair, THỜI ĐIỂM vào lệnh và VOLUME thật, đo trên klines đã đóng:
+//
+//   pair  → atrPct  = ATR(14) nến đóng / close × 100
+//           (xương sống: mỗi coin một độ biến động riêng, đo trên đúng khung
+//            giao dịch — 5m khác 1h)
+//   time  → heatMul = mean TR(5 nến đóng cuối) / ATR14, kẹp [0.8, 1.4]
+//           (thị trường ĐANG nóng hay nguội so với baseline của chính pair —
+//            cùng một coin, hai thời điểm → hai con số khác nhau)
+//   vol   → volMul  = mean volume(20 nến cuối) / mean volume(100 nến trước
+//           đó), kẹp [0.85, 1.25] (volume phồng → biến động sắp nới ra → SL
+//           rộng thêm; volume khô → co lại)
+//
+//   slPct = clamp(atrPct × coef × heatMul × volMul, 0.3, 20)
+//   tpPct = clamp(slPct × tpRatio, 0.4, 28)      — R:R giữ nguyên như ATR mode
+//
+// Hai hệ số kẹp chỉ ĐIỀU TUYẾN (modulate) trên xương sống ATR — combined tối
+// đa 1.4 × 1.25 = 1.75, tối thiểu 0.68 — không bao giờ lấn át pair. Khi thị
+// trường trung tính (heatMul = volMul = 1) công thức suy biến ĐÚNG bằng
+// atrLevelsAtEntry cũ — mode "atr" 0.2.73 là trường hợp riêng của "dyn".
+// Leverage KHÔNG nhân ở đây: levNormScale + mui thanh khoản (0.2.72) áp ở
+// engine sau calculator, giữ ROE-at-SL độc lập đòn bẩy. Pure function — engine
+// (entry + flip) gọi tại thời điểm mở lệnh; fail-open trả null khi thiếu nến.
+export interface DynLevels {
+  slPct: number;
+  tpPct: number;
+  /** pair × khung — ATR(14)% nến đóng cuối */
+  atrPct: number;
+  /** time — mean TR(5 nến đóng cuối) / ATR14, kẹp [0.8, 1.4] */
+  heatMul: number;
+  /** volume — vol(20 gần nhất) / vol(100 trước đó), kẹp [0.85, 1.25] */
+  volMul: number;
+}
+
+/** Số nến đóng gần nhất cho hệ số "time" (heat). */
+export const DYN_HEAT_WIN = 5;
+/** Cửa sổ volume gần nhất cho hệ số "volume". */
+export const DYN_VOL_WIN = 20;
+/** Baseline volume (nến đóng ngay trước cửa sổ gần nhất). */
+export const DYN_VOL_BASE = 100;
+/** Hệ số kẹp heatMul — [0.8, 1.4]. */
+export const DYN_HEAT_CLAMP: readonly [number, number] = [0.8, 1.4];
+/** Hệ số kẹp volMul — [0.85, 1.25]. */
+export const DYN_VOL_CLAMP: readonly [number, number] = [0.85, 1.25];
+
+export function dynLevelsAtEntry(
+  klines: Kline[],
+  coef = 1.5,
+  tpRatio = 1.4,
+): DynLevels | null {
+  const last = klines.length - 2; // last CLOSED candle (final row may be forming)
+  if (last < 14) return null;
+  const arr = atr(klines, 14);
+  const a = arr[last];
+  const close = klines[last]?.c ?? 0;
+  if (a == null || a <= 0 || !close) return null;
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+  const r1 = (v: number) => Math.round(v * 10) / 10;
+  const atrPct = (a / close) * 100;
+
+  // time — heat regime: TR trung bình của DYN_HEAT_WIN nến đóng cuối so với
+  // ATR14 (TR định nghĩa y hệt atr(): bao gồm gap với close nến trước)
+  const trAt = (i: number): number => {
+    const k = klines[i];
+    const prev = klines[i - 1];
+    return prev
+      ? Math.max(k.h - k.l, Math.abs(k.h - prev.c), Math.abs(k.l - prev.c))
+      : k.h - k.l;
+  };
+  let trSum = 0;
+  for (let i = Math.max(1, last - DYN_HEAT_WIN + 1); i <= last; i++) trSum += trAt(i);
+  const heatCnt = last - Math.max(1, last - DYN_HEAT_WIN + 1) + 1;
+  const heatMul =
+    heatCnt > 0 && Number.isFinite(trSum) ? clamp(trSum / heatCnt / a, DYN_HEAT_CLAMP[0], DYN_HEAT_CLAMP[1]) : 1;
+
+  // volume — regime volume: mean volume của DYN_VOL_WIN nến đóng cuối so với
+  // baseline DYN_VOL_BASE nến ngay trước đó. Baseline ngắn hơn 30 nến hoặc
+  // toàn 0 (một số nguồn không có volume) → trung tính 1, không phá ATR
+  const volAt = (i: number): number => {
+    const v = klines[i]?.v;
+    return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0;
+  };
+  let recSum = 0;
+  let recCnt = 0;
+  for (let i = Math.max(0, last - DYN_VOL_WIN + 1); i <= last; i++) {
+    recSum += volAt(i);
+    recCnt++;
+  }
+  const baseEnd = last - DYN_VOL_WIN;
+  const baseStart = Math.max(0, baseEnd - DYN_VOL_BASE + 1);
+  let baseSum = 0;
+  let baseCnt = 0;
+  for (let i = baseStart; i <= baseEnd; i++) {
+    baseSum += volAt(i);
+    baseCnt++;
+  }
+  const recAvg = recCnt > 0 ? recSum / recCnt : 0;
+  const baseAvg = baseCnt >= 30 ? baseSum / baseCnt : 0;
+  const volMul = baseAvg > 0 && recAvg > 0 ? clamp(recAvg / baseAvg, DYN_VOL_CLAMP[0], DYN_VOL_CLAMP[1]) : 1;
+
+  const slPct = r1(clamp(atrPct * coef * heatMul * volMul, 0.3, 20));
+  const tpPct = r1(clamp(slPct * tpRatio, 0.4, 28));
+  return { slPct, tpPct, atrPct, heatMul, volMul };
+}
+
 /**
  * UT Bot Alerts trailing stop (non-heikin-ashi, on regular closes).
  * Returns the trailing stop value per index and the trend state per index:

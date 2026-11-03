@@ -46,7 +46,7 @@ export interface ScanRow {
   bias: XgbBias;
   slPct: number;
   tpPct: number;
-  /** ATR multiplier retrained for this coin — live "atr" entries re-apply it at entry time */
+  /** ATR multiplier retrained for this coin — live "dyn" entries re-apply it at entry time */
   atrCoef: number;
   score: number;
   samples: number;
@@ -959,15 +959,18 @@ export interface AutoConfig {
   capital: number;
   /** share of equity staked per trade, % (100 = all-in) */
   riskPct: number;
-  /** TP/SL source: "atr" = live ATR × coef measured at entry time (default),
-   *  "auto" = the scan row's train-time ATR levels, "manual" = fixed */
-  tpMode: "atr" | "auto" | "manual";
+  /** TP/SL source: "dyn" = dynamic calculator pair × time × volume measured
+   *  at entry time (default, 0.2.74 — ATR% × heat(TR 5 nến gần vs ATR) × vol(20
+   *  vs 100 nến); degenerates to the legacy ATR mode when the regime is
+   *  neutral), "auto" = the scan row's train-time ATR levels, "manual" = fixed */
+  tpMode: "dyn" | "auto" | "manual";
   /** manual SL % (price move, before leverage) — used when tpMode = manual */
   slPct: number;
   /** manual TP % (price move, before leverage) — used when tpMode = manual */
   tpPct: number;
-  /** ATR × multiplier for live entry levels — used when tpMode = "atr" and the
-   *  scan row carries no retrained coef; 1.5 ≈ the classic ATR stop */
+  /** ATR × multiplier for live entry levels — used when tpMode is "dyn" and the
+   *  scan row carries no retrained coef; 1.5 ≈ the classic ATR stop (the
+   *  heat/volume multipliers modulate AROUND this backbone) */
   atrCoef: number;
   /** cycle interval, minutes */
   cycleMin: number;
@@ -1037,7 +1040,7 @@ export const AUTO_DEFAULTS: AutoConfig = {
   on: false,
   capital: 1000,
   riskPct: 25,
-  tpMode: "atr",
+  tpMode: "dyn",
   slPct: 1,
   tpPct: 1.5,
   atrCoef: 1.5,
@@ -1078,7 +1081,17 @@ export const FLIP_COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
 /** DCA adds allowed into a losing position (model still confirming) */
 export const DCA_CHOICES = [0, 1, 2] as const;
 export const RISK_CHOICES = [10, 25, 50, 100] as const;
-export const TP_MODES = ["atr", "auto", "manual"] as const;
+export const TP_MODES = ["dyn", "auto", "manual"] as const;
+
+/** Chuẩn hoá tpMode — MỘT nguồn cho localStorage (loadAutoConfig), engine.json
+ *  (loadEngine) và browser sync (syncEngine). 0.2.74 nâng mode "atr" (ATR thuần,
+ *  default chưa từng có UI riêng) thành "dyn" — calculator động pair × time ×
+ *  volume; giá trị "atr" cũ trong config/engine.json map thẳng sang "dyn"
+ *  (công thức cũ chính là trường hợp suy biến heatMul = volMul = 1). Giá trị lạ
+ *  / thiếu cũng rơi về "dyn" — an toàn mặc định. */
+export function sanitizeTpMode(v: unknown): "dyn" | "auto" | "manual" {
+  return v === "manual" ? "manual" : v === "auto" ? "auto" : "dyn";
+}
 
 /** auto-trade rescan cycle choices — minutes + display label ("1w" = 1 tuần) */
 export const CYCLE_CHOICES = [
@@ -1132,7 +1145,7 @@ export function loadAutoConfig(): AutoConfig {
       on: p.on === true,
       capital: typeof p.capital === "number" && p.capital > 0 ? p.capital : AUTO_DEFAULTS.capital,
       riskPct: RISK_CHOICES.includes(p.riskPct as (typeof RISK_CHOICES)[number]) ? (p.riskPct as number) : AUTO_DEFAULTS.riskPct,
-      tpMode: p.tpMode === "manual" ? "manual" : p.tpMode === "auto" ? "auto" : "atr",
+      tpMode: sanitizeTpMode(p.tpMode),
       slPct: typeof p.slPct === "number" ? Math.min(20, Math.max(0.2, p.slPct)) : AUTO_DEFAULTS.slPct,
       tpPct: typeof p.tpPct === "number" ? Math.min(30, Math.max(0.2, p.tpPct)) : AUTO_DEFAULTS.tpPct,
       atrCoef: typeof p.atrCoef === "number" && p.atrCoef > 0 ? Math.min(5, Math.max(0.5, p.atrCoef)) : AUTO_DEFAULTS.atrCoef,
