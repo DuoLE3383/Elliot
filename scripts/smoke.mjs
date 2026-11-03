@@ -520,8 +520,10 @@ function runWyckoffSuite(klines, tag) {
 }
 
 /** Synthetic accumulation: flat → climax dump → base → rally → flat peak.
- *  Must yield SC (bar 79, price = bar low) and AR (flat peak), and the exact
- *  inverted series must yield BC/AR(dist) at mirrored prices (T-space proof). */
+ *  Must yield SC (bar 119, price = bar low) and AR (flat peak), and the exact
+ *  inverted series must yield BC/AR(dist) at mirrored prices (T-space proof).
+ *  0.2.73: lead-in im 70 → 110 nến — EMA89 (auto intraday) cần 89 nến warmup
+ *  trước cú climax, nếu không closePvT < emaPvT không bao giờ đúng (EMA null). */
 function runWyckoffSynthetic() {
   const tag = "wy synth";
   const mk = (invert) => {
@@ -537,7 +539,7 @@ function runWyckoffSynthetic() {
       );
       i++;
     };
-    for (let k = 0; k < 70; k++) push(99.9, 100.2, 99.8, 100, 1); // quiet
+    for (let k = 0; k < 110; k++) push(99.9, 100.2, 99.8, 100, 1); // quiet (EMA89 warmup)
     for (let k = 1; k <= 10; k++)
       push(100 - (k - 1) * 1.5, 100 - (k - 1) * 1.5 + 0.3, 100 - k * 1.5 - 0.4, 100 - k * 1.5, 8); // climax dump
     for (let k = 0; k < 30; k++) {
@@ -563,12 +565,12 @@ function runWyckoffSynthetic() {
   check(sc != null, `${tag}: SC detected`, JSON.stringify(liveAcc.map((e) => e.kind)));
   check(ar != null, `${tag}: AR detected`, JSON.stringify(liveAcc.map((e) => e.kind)));
   if (sc) {
-    check(sc.bar === 79, `${tag}: SC at dump-bottom bar`, String(sc.bar));
+    check(sc.bar === 119, `${tag}: SC at dump-bottom bar`, String(sc.bar));
     check(Math.abs(sc.price - 84.6) < 1e-9, `${tag}: SC price == bar low`, String(sc.price));
     check(sc.below, `${tag}: SC label below`);
   }
   if (ar) {
-    check(ar.bar === 133, `${tag}: AR at flat-peak bar`, String(ar.bar));
+    check(ar.bar === 173, `${tag}: AR at flat-peak bar`, String(ar.bar));
     check(Math.abs(ar.price - 95.4) < 1e-9, `${tag}: AR price == bar high`, String(ar.price));
     check(!ar.below, `${tag}: AR label above`);
   }
@@ -587,7 +589,7 @@ function runWyckoffSynthetic() {
   const bc = liveDist.find((e) => e.kind === "BC" && e.dir === -1);
   check(bc != null, `${tag}: BC detected on inverted series`, JSON.stringify(liveDist.map((e) => `${e.dir}:${e.kind}`)));
   if (bc) {
-    check(bc.bar === 79, `${tag}: BC at pump-top bar`, String(bc.bar));
+    check(bc.bar === 119, `${tag}: BC at pump-top bar`, String(bc.bar));
     check(Math.abs(bc.price - 115.4) < 1e-9, `${tag}: BC price == mirrored bar high`, String(bc.price));
     check(!bc.below, `${tag}: BC label above`);
   }

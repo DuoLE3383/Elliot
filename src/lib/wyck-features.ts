@@ -5,7 +5,7 @@
 //   • Phase C events             → wySpring (Spring / Upthrust proxy, decays)
 //   • climactic action           → wyClimax (Selling/Buying Climax proxy, decays)
 //   • effort vs result           → wyEffort (big volume, tiny net move = absorption)
-//   • markup / markdown          → wyTrend  (EMA50 slope confirmed vs SMA100)
+//   • markup / markdown          → wyTrend  (EMA89 slope confirmed vs SMA100)
 // Every value is a pure function of bars ≤ i (rebuilding the past state the
 // schematic reader would have had at that bar) — test scripts assert the
 // no-lookahead property by mutating the future and expecting identical output.
@@ -28,7 +28,7 @@ export interface WyckFeatInputs {
   volMean: (number | null)[];
   volStd: (number | null)[];
   atr14: (number | null)[];
-  ema50: (number | null)[];
+  ema89: (number | null)[];
   sma100: (number | null)[];
 }
 
@@ -106,15 +106,15 @@ export function wyckFeatureAt(k: Kline[], i: number, ctx: WyckFeatInputs): numbe
   const move5 = a != null && a > 0 && i >= 5 && k[i - 5].c > 0 ? (c - k[i - 5].c) / (a * Math.sqrt(5)) : 0;
   const effort = zN > 0 ? Math.tanh(zSum / zN / 2) * Math.max(0, 1 - Math.abs(move5)) * (move5 === 0 ? 1 : Math.sign(move5)) : 0;
 
-  // ── markup / markdown: EMA50 rising AND price above SMA100 → markup, the
+  // ── markup / markdown: EMA89 rising AND price above SMA100 → markup, the
   //    mirror → markdown, anything else = undecided (0) ──
-  const e50 = ctx.ema50[i];
-  const e50old = i >= 10 ? ctx.ema50[i - 10] : null;
+  const e89 = ctx.ema89[i];
+  const e89old = i >= 10 ? ctx.ema89[i - 10] : null;
   const s100 = ctx.sma100[i];
   let trend = 0;
-  if (e50 != null && e50old != null && s100 != null) {
-    if (e50 > e50old && c > s100) trend = 1;
-    else if (e50 < e50old && c < s100) trend = -1;
+  if (e89 != null && e89old != null && s100 != null) {
+    if (e89 > e89old && c > s100) trend = 1;
+    else if (e89 < e89old && c < s100) trend = -1;
   }
 
   return [rangePos, rangeW, climax, spring, effort, trend];

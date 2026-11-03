@@ -14,7 +14,7 @@
 // SL/TP, UT Bot key/period and SMA gate settings) by greedy expectancy scans
 // over the real paper-trading engine.
 
-import { atr, ema, rsi, sma, utTrail } from "./indicators";
+import { EMA_FAST, atr, ema, rsi, sma, utTrail } from "./indicators";
 import { calendarFlags, dowFeatures, hourFeatures, sessionAge, sessionOneHot, sessionOverlap } from "./market";
 import { kpiFrom, papersFrom } from "./papers";
 import { signalsFrom } from "./signals";
@@ -147,7 +147,7 @@ export const FEATURE_NAMES = [
   "atrPct",
   "sma20",
   "sma100",
-  "ema50",
+  "ema89",
   "volZ",
   "body",
   "wick",
@@ -194,7 +194,8 @@ export const FEATURE_NAMES = [
 export interface XgbCtx {
   sma20: (number | null)[];
   sma100: (number | null)[];
-  ema50: (number | null)[];
+  /** EMA(EMA_FAST = 89) — đổi kèm EMA_FAST, không phải số cứng (0.2.73) */
+  ema89: (number | null)[];
   rsi14: (number | null)[];
   atr14: (number | null)[];
   stop: (number | null)[];
@@ -212,7 +213,7 @@ export function buildCtx(klines: Kline[], atrKey: number, atrPeriod: number): Xg
   const n = klines.length;
   const s20 = sma(klines, 20);
   const s100 = sma(klines, 100);
-  const e50 = ema(klines, 50);
+  const e89 = ema(klines, EMA_FAST);
   const r14 = rsi(klines, 14);
   const a14 = atr(klines, 14);
   const ut = utTrail(klines, atrKey, atrPeriod);
@@ -267,7 +268,7 @@ export function buildCtx(klines: Kline[], atrKey: number, atrPeriod: number): Xg
     }
   }
 
-  return { sma20: s20, sma100: s100, ema50: e50, rsi14: r14, atr14: a14, stop: ut.stop, trend: ut.trend, volMean, volStd, atrPct, bbw };
+  return { sma20: s20, sma100: s100, ema89: e89, rsi14: r14, atr14: a14, stop: ut.stop, trend: ut.trend, volMean, volStd, atrPct, bbw };
 }
 
 /**
@@ -322,12 +323,12 @@ function featuresAt(k: Kline[], i: number, ctx: XgbCtx): number[] | null {
   const atrV = ctx.atr14[i];
   const s20 = ctx.sma20[i];
   const s100 = ctx.sma100[i];
-  const e50 = ctx.ema50[i];
+  const e89 = ctx.ema89[i];
   const vm = ctx.volMean[i];
   const vs = ctx.volStd[i];
   const trend = ctx.trend[i];
   const stop = ctx.stop[i];
-  if (r1 == null || r3 == null || r10 == null || rsiV == null || atrV == null || s20 == null || s100 == null || e50 == null || vm == null || vs == null) {
+  if (r1 == null || r3 == null || r10 == null || rsiV == null || atrV == null || s20 == null || s100 == null || e89 == null || vm == null || vs == null) {
     return null;
   }
   const stopDist =
@@ -354,7 +355,7 @@ function featuresAt(k: Kline[], i: number, ctx: XgbCtx): number[] | null {
     atrV / cur.c,
     (cur.c - s20) / cur.c,
     (cur.c - s100) / cur.c,
-    (cur.c - e50) / cur.c,
+    (cur.c - e89) / cur.c,
     volZ,
     (cur.c - cur.o) / denom,
     (cur.h - Math.max(cur.o, cur.c) - (Math.min(cur.o, cur.c) - cur.l)) / denom,

@@ -308,8 +308,8 @@ export function featureLab(importance: FeatureGain[], base: LabConfig, klines: K
     config: { ...base, atrKey: 1, atrPeriod: 7, smaFilter: false },
   }));
 
-  // 4 · MA (sma20/sma100/ema50) → cổng SMA100
-  const leadMa = leadOf(["sma20", "sma100", "ema50"]);
+  // 4 · MA (sma20/sma100/ema89) → cổng SMA100
+  const leadMa = leadOf(["sma20", "sma100", "ema89"]);
   push(leadMa, () => ({
     name: "MA dẫn — Gate SMA100",
     hypothesis: `Đường MA là tín hiệu chính (${leadMa} gain cao): bắt cổng SMA100 — LONG trên SMA, SHORT dưới SMA, lọc sạch giao dịch ngược cấu trúc.`,

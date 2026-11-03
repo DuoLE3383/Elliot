@@ -600,12 +600,12 @@ export default function StatsPage() {
                   <div className="grid gap-1.5 sm:grid-cols-2">
                     <Metric
                       lang={lang}
-                      k="Trend (EMA50/200)"
+                      k="Trend (EMA89/200)"
                       v={analysis.trend}
-                      sub={analysis.ema50 != null ? `EMA50 ${fmtPrice(analysis.ema50)}` : undefined}
+                      sub={analysis.ema89 != null ? `EMA89 ${fmtPrice(analysis.ema89)}` : undefined}
                       tone={analysis.trend === "up" ? "ok" : analysis.trend === "down" ? "bad" : "dim"}
-                      hint="EMA stack of the last closed candle: up = close > EMA50 > EMA200 (green), down = close < EMA50 < EMA200 (red)."
-                      hintVi="Ngăn xếp EMA của nến đóng cuối: up = giá > EMA50 > EMA200 (xanh), down = giá < EMA50 < EMA200 (đỏ)."
+                      hint="EMA stack of the last closed candle: up = close > EMA89 > EMA200 (green), down = close < EMA89 < EMA200 (red)."
+                      hintVi="Ngăn xếp EMA của nến đóng cuối: up = giá > EMA89 > EMA200 (xanh), down = giá < EMA89 < EMA200 (đỏ)."
                     />
                     <Metric
                       lang={lang}

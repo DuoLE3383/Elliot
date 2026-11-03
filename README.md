@@ -9,7 +9,7 @@ Cryptocurrency paper-trading application built with Next.js. It simulates trades
 - **Interactive price chart** — candles, SMA/EMA, BUY/SELL markers, ENTRY / FLIP / SL / TP levels, pin signals for inspection.
 - **Multi-pair watchlist** — add/remove pairs (defaults to major USDT-M symbols), live ticker strip, periodic refresh.
 - **UT Bot + SMA gate** — every signal shows why it was allowed or blocked by the directional SMA filter.
-- **Deep Analysis panel** — breakout / inside / breakdown structure, RSI(14), EMA50/200, volume ratio, ATR% vs 50-candle average (calculated on closed candles only).
+- **Deep Analysis panel** — breakout / inside / breakdown structure, RSI(14), EMA89/200, volume ratio, ATR% vs 50-candle average (calculated on closed candles only).
 - **Wyckoff panel** — phase detection (accumulation / distribution), swing pivots, events and trend stages.
 - **XGBoost suggestions** — pure-TypeScript XGB model trained in the browser or on the server; each train produces a bias (LONG / SHORT / NEUTRAL), probability, SL/TP and horizon; results are scored win/loss after the horizon.
 - **Finetune & history** — track accuracy / AUC across finetune runs and compare model performance.

@@ -4,12 +4,12 @@
 // watchlists differ per browser, this does not). Every 8 hours (cadence —
 // UNIVERSE_SCAN_MS) the engine re-ranks; each pass scores the LAST 10 DAYS of
 // price action (UNIVERSE_LOOKBACK_CANDLES = 240 × 1h closed candles) by
-//   trend   — EMA20/EMA50 spread + Donchian position (−1 markdown … +1 markup)
+//   trend   — EMA20/EMA89 spread + Donchian position (−1 markdown … +1 markup)
 //   ATR%    — ATR(14) as % of close (volatility you can actually trade)
 // and publishes the top UNIVERSE_TOP "trending pairs" (UI card + Telegram).
 // The auto cycle falls back to this list when the user's watchlist is empty.
 
-import { atr, ema } from "./indicators";
+import { EMA_FAST, atr, ema } from "./indicators";
 import type { Kline } from "./types";
 
 // Tham số universe scan sống ở ./params — MỘT nguồn; re-export cho chỗ cũ.
@@ -95,18 +95,21 @@ export function ret10dAt(k: Kline[]): number {
 
 /**
  * Trend score −1..1 of the last closed candle:
- *   60% — EMA20 vs EMA50 spread (±2.5% spread saturates)
+ *   60% — EMA20 vs EMA89 spread (±2.5% spread saturates; EMA89 từ 0.2.73 —
+ *         chậm hơn EMA50 cũ nên xu hướng universe ít giật hơn)
  *   40% — close position in the 20-bar Donchian range (0=đáy → 1=đỉnh)
  * Pure function of closed candles only.
  */
 export function trendScore(k: Kline[]): number {
   const n = k.length;
-  if (n < 55) return 0;
+  // EMA89 cần tối thiểu 89 nến đóng (i = n−2 ≥ 88) — thiếu thì trả 0 thay vì
+  // đọc EMA nửa vời (guard cũ 55 tương ứng EMA50).
+  if (n < EMA_FAST + 1) return 0;
   const e20 = ema(k, 20);
-  const e50 = ema(k, 50);
+  const e89 = ema(k, EMA_FAST);
   const i = n - 2;
   const a = e20[i];
-  const b = e50[i];
+  const b = e89[i];
   const c = k[i].c;
   if (a == null || b == null || c <= 0) return 0;
   const spread = clamp((((a - b) / c) * 40), -1, 1);

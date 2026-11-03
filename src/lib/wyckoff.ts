@@ -14,7 +14,7 @@
 //    (Phase E end / opposite Phase E climax) keeps the drawings on the chart.
 //  - The machine only steps on CLOSED candles; the forming candle never steps.
 
-import { atr, ema, rsi } from "./indicators";
+import { EMA_FAST, EMA_SLOW, atr, ema, rsi } from "./indicators";
 import type { Kline, WyckoffSettings } from "./types";
 
 export type WyckoffKind =
@@ -71,6 +71,9 @@ export interface WyckoffDash {
   trend: "bull" | "bear";
   emaF: number | null;
   emaS: number | null;
+  /** chu kỳ EMA thực sự đang dùng theo mode/khung — panel ghi nhãn đúng (0.2.73) */
+  emaFLen: number;
+  emaSLen: number;
   pivLen: number;
   climaxMult: number;
   mode: string;
@@ -98,9 +101,9 @@ const TF_SECONDS: Record<string, number> = {
 const AR_ATR = 2.0;
 /** Min Volume Filter — the original defaults to 0 (off) */
 const MIN_VOL = 0;
-/** Manual-mode overrides (Pine input defaults) */
+/** Manual-mode overrides (Pine input defaults) — 0.2.73: emaF 50 → 89 (EMA_FAST), emaS giữ 200 */
 const MANUAL = {
-  climax: 1.5, volLen: 30, atrLen: 14, maxTR: 250, emaF: 50, emaS: 200, piv: 7,
+  climax: 1.5, volLen: 30, atrLen: 14, maxTR: 250, emaF: EMA_FAST, emaS: EMA_SLOW, piv: 7,
 };
 
 /** SMA over a plain number series (volume MA). */
@@ -119,11 +122,11 @@ function tfSeconds(interval: string): number {
   return TF_SECONDS[interval] ?? 300;
 }
 
-function emptyDash(mode: string, pivLen: number, climaxMult: number): WyckoffDash {
+function emptyDash(mode: string, pivLen: number, climaxMult: number, emaFLen: number, emaSLen: number): WyckoffDash {
   return {
     dir: 0, st: 0, phaseTxt: "", rsi: null, rsiZone: "neutral",
     volRatio: null, volTag: "normal", trend: "bull",
-    emaF: null, emaS: null, pivLen, climaxMult, mode,
+    emaF: null, emaS: null, emaFLen, emaSLen, pivLen, climaxMult, mode,
   };
 }
 
@@ -175,8 +178,10 @@ export function wyckoffFrom(
   const autoVol = tfs <= 1800 ? 2.2 : tfs <= 3600 ? 2.0 : tfs <= 7200 ? 1.8 : tfs <= 14400 ? 1.5 : 1.3;
   const autoPivBase = tfs <= 300 ? 8 : tfs <= 1800 ? 7 : tfs <= 7200 ? 6 : tfs <= 14400 ? 5 : 4;
   const autoMaxTR = tfs <= 1800 ? 250 : tfs <= 3600 ? 200 : tfs <= 7200 ? 150 : tfs <= 14400 ? 120 : 100;
-  const autoEmaF = tfs >= 86400 ? 20 : 50;
-  const autoEmaS = tfs >= 86400 ? 50 : 200;
+  // auto intraday: 89/200 (EMA_FAST/EMA_SLOW từ 0.2.73, trước là 50/200); auto
+  // daily+ giữ 20/50 — trên 1d chiếc 50 giữ vai trò EMA CHẬM (đối ứng của 200)
+  const autoEmaF = tfs >= 86400 ? 20 : EMA_FAST;
+  const autoEmaS = tfs >= 86400 ? 50 : EMA_SLOW;
 
   const climaxMult = isAuto ? autoVol : MANUAL.climax;
   const volLen = isAuto ? 30 : MANUAL.volLen;
@@ -399,7 +404,7 @@ export function wyckoffFrom(
     return {
       events, boxes, pivots, tints,
       emaF: emaFArr, emaS: emaSArr,
-      dash: emptyDash(settings.mode, pivLen, climaxMult),
+      dash: emptyDash(settings.mode, pivLen, climaxMult, emaFLen, emaSLen),
       lastClosed,
     };
   }
@@ -519,6 +524,8 @@ export function wyckoffFrom(
     trend: eF != null && eS != null ? (eF > eS ? "bull" : "bear") : "bull",
     emaF: eF,
     emaS: eS,
+    emaFLen,
+    emaSLen,
     pivLen,
     climaxMult,
     mode: settings.mode,

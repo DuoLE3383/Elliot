@@ -51,7 +51,7 @@ export function RailContext({ lang, a, stats, whale, openPaper, confirmed }: Pro
   const side = openPaper?.side ?? (confirmed ? (confirmed.dir === "BUY" ? "LONG" : "SHORT") : undefined);
   const sideClass = side === "LONG" ? "text-emerald-400" : side === "SHORT" ? "text-rose-400" : "text-zinc-500";
   const trendLine =
-    a.trend === "up" ? t(lang, "rail.trendUp") : a.trend === "down" ? t(lang, "rail.trendDown") : "EMA50 ≈ EMA200";
+    a.trend === "up" ? t(lang, "rail.trendUp") : a.trend === "down" ? t(lang, "rail.trendDown") : "EMA89 ≈ EMA200";
 
   const openSessions = stats.filter((s) => openSet.has(s.key));
 

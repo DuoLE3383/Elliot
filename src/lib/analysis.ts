@@ -1,4 +1,4 @@
-import { atr, ema, rsi } from "./indicators";
+import { EMA_FAST, EMA_SLOW, atr, ema, rsi } from "./indicators";
 import type { Kline } from "./types";
 
 /**
@@ -9,9 +9,9 @@ import type { Kline } from "./types";
 export interface Analysis {
   /** index of the last closed candle every reading is taken from */
   i: number;
-  ema50: number | null;
+  ema89: number | null;
   ema200: number | null;
-  /** close vs EMA50 vs EMA200 stack */
+  /** close vs EMA89 vs EMA200 stack (0.2.73: EMA nhanh 50 → 89, slow giữ 200) */
   trend: "up" | "down" | "neutral";
   rsi14: number | null;
   /** last closed volume ÷ mean volume of the prior 20 closed candles */
@@ -44,7 +44,7 @@ export function analyze(klines: Kline[]): Analysis {
   const closed = klines[i];
   const out: Analysis = {
     i,
-    ema50: null,
+    ema89: null,
     ema200: null,
     trend: "neutral",
     rsi14: null,
@@ -60,15 +60,15 @@ export function analyze(klines: Kline[]): Analysis {
   const c = closed.c;
 
   // ── trend (EMA stack) ────────────────────────────────────────────────────
-  const e50 = ema(klines, 50)[i] ?? null;
-  const e200 = ema(klines, 200)[i] ?? null;
-  out.ema50 = e50;
+  const e89 = ema(klines, EMA_FAST)[i] ?? null;
+  const e200 = ema(klines, EMA_SLOW)[i] ?? null;
+  out.ema89 = e89;
   out.ema200 = e200;
-  if (e50 != null && e200 != null) {
-    if (c > e50 && e50 > e200) out.trend = "up";
-    else if (c < e50 && e50 < e200) out.trend = "down";
-  } else if (e50 != null) {
-    out.trend = c > e50 ? "up" : "down";
+  if (e89 != null && e200 != null) {
+    if (c > e89 && e89 > e200) out.trend = "up";
+    else if (c < e89 && e89 < e200) out.trend = "down";
+  } else if (e89 != null) {
+    out.trend = c > e89 ? "up" : "down";
   }
 
   // ── momentum (Wilder RSI) ────────────────────────────────────────────────

@@ -250,7 +250,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         {
           k: "Trend regime",
           v: uRows.length > 0 ? `${upN}/${uRows.length} uptrend` : "—",
-          sub: "universe pairs with EMA20>EMA50 trend",
+          sub: "universe pairs with EMA20>EMA89 trend",
           tone: uRows.length === 0 ? "dim" : upShare > 0.5 ? "ok" : upN > 0 ? "warn" : "bad",
           hint: "Share of universe pairs in an uptrend (positive trend component of the universe score) — regime context: >50% = broad uptrend, mixed = choppy.",
           hintVi: "Tỉ lệ cặp trong universe đang uptrend (thành phần xu hướng dương của điểm universe) — bối cảnh regime: >50% = uptrend rộng, trộn lẫn = thị trường xoay chiều.",

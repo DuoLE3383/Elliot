@@ -1,5 +1,12 @@
 import type { Kline } from "./types";
 
+// ─── Trend EMA pair (single source of truth) ──────────────────────────────────
+// 0.2.73 — EMA nhanh đổi 50 → 89 (Fibonacci) theo setting mới; EMA chậm giữ 200.
+// Mọi nơi dùng "EMA50 cũ" (analysis stack, Wyckoff trend filter, feature xgb,
+// universe trendScore, stack quét 9/21/x) đều đọc từ đây — đổi 1 dòng là đổi cả hệ.
+export const EMA_FAST = 89;
+export const EMA_SLOW = 200;
+
 /** Simple moving average over `period` closes; aligned to kline index. */
 export function sma(klines: Kline[], period: number): (number | null)[] {
   const out: (number | null)[] = new Array(klines.length).fill(null);

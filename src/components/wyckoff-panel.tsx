@@ -141,7 +141,7 @@ export function WyckoffPanel({ lang, wy, on, sens }: Props) {
                 valueClass={trendClass}
                 sub={
                   dash?.emaF != null
-                    ? `EMA50 ${fmtPrice(dash.emaF)}${dash.emaS != null ? ` · EMA200 ${fmtPrice(dash.emaS)}` : ""}`
+                    ? `EMA${dash.emaFLen} ${fmtPrice(dash.emaF)}${dash.emaS != null ? ` · EMA${dash.emaSLen} ${fmtPrice(dash.emaS)}` : ""}`
                     : "—"
                 }
               />

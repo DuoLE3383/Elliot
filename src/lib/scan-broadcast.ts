@@ -31,7 +31,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
 import { dataFile } from "./data-dir";
-import { atr, ema, macd, rsi } from "./indicators";
+import { EMA_FAST, atr, ema, macd, rsi } from "./indicators";
 import { fetchKlinesDirect } from "./klines-direct";
 import { fmtPrice, symbolLabel } from "./i18n";
 import type { ScanRow } from "./autotrade";
@@ -153,23 +153,23 @@ export interface EmaRead {
   txt: string;
   /** direction of the stack: "up" | "down" | "flat" */
   kind: "up" | "down" | "flat";
-  /** true only for the full 9>21>50 (or <) stack — a strong, established trend */
+  /** true only for the full 9>21>89 (or <) stack — a strong, established trend */
   strong: boolean;
 }
 
-function emaStackRead(k: Kline[]): EmaRead {
+export function emaStackRead(k: Kline[]): EmaRead {
   const e9 = ema(k, 9);
   const e21 = ema(k, 21);
-  const e50 = ema(k, 50);
+  const e89 = ema(k, EMA_FAST);
   const i = k.length - 2;
   const a = e9[i];
   const b = e21[i];
-  const c = e50[i];
+  const c = e89[i];
   if (a == null || b == null || c == null) return { txt: "EMA insufficient data", kind: "flat", strong: false };
   // &lt;/&gt; entities — this text is embedded in HTML parse_mode messages
-  // (raw "<21<50" made Telegram reject the whole message: "Unsupported start tag")
-  if (a > b && b > c) return { txt: "📈 EMA9&gt;21&gt;50 (strong uptrend)", kind: "up", strong: true };
-  if (a < b && b < c) return { txt: "📉 EMA9&lt;21&lt;50 (strong downtrend)", kind: "down", strong: true };
+  // (raw "<21<89" made Telegram reject the whole message: "Unsupported start tag")
+  if (a > b && b > c) return { txt: "📈 EMA9&gt;21&gt;89 (strong uptrend)", kind: "up", strong: true };
+  if (a < b && b < c) return { txt: "📉 EMA9&lt;21&lt;89 (strong downtrend)", kind: "down", strong: true };
   if (a > b) return { txt: "📈 EMA9&gt;21 (weak uptrend)", kind: "up", strong: false };
   if (a < b) return { txt: "📉 EMA9&lt;21 (weak downtrend)", kind: "down", strong: false };
   return { txt: "➡️ EMA flat", kind: "flat", strong: false };

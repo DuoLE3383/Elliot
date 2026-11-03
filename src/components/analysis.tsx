@@ -56,10 +56,10 @@ export function DeepAnalysis({
   const trendClass =
     a.trend === "up" ? "text-emerald-400" : a.trend === "down" ? "text-rose-400" : "text-zinc-300";
   const trendSub =
-    a.ema50 != null && a.ema200 != null
-      ? `EMA50 ${a.ema50 > a.ema200 ? ">" : "<"} EMA200`
-      : a.ema50 != null
-        ? `EMA50 ${fmtPrice(a.ema50)}`
+    a.ema89 != null && a.ema200 != null
+      ? `EMA89 ${a.ema89 > a.ema200 ? ">" : "<"} EMA200`
+      : a.ema89 != null
+        ? `EMA89 ${fmtPrice(a.ema89)}`
         : "—";
 
   const rsiVal = a.rsi14;
