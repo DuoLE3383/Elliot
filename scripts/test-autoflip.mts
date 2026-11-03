@@ -53,11 +53,12 @@ const cfg = { minAuc: 0.8, minAcc: 70, minScore: 60, whaleFilter: true };
 console.log("\n═══ 1. flipDecision — đủ điều kiện lật ═══");
 {
   // SHORT đang mở, model bật LONG dứt khoát (P(up)=0.75 → theo phía LONG)
-  const d = flipDecision(open("SHORT"), row({ bias: "LONG", prob: 0.75 }), cfg);
+  // 0.2.72: flip cần prob ≥ 0.62 THEO PHÍA MỚI + score ≥ sàn+10 → nâng score 72
+  const d = flipDecision(open("SHORT"), row({ bias: "LONG", prob: 0.75, score: 72 }), cfg);
   check("SHORT mở + model LONG đạt sàn → lật", d.ok, d.why);
   // LONG đang mở, model bật SHORT dứt khoát — prob 0.265 là P(up) ⇒ MẠNH theo
   // phía SHORT (73.5% tin giá giảm) — KHÔNG được chặn vì "prob thấp"
-  const d2 = flipDecision(open("LONG"), row({ bias: "SHORT", prob: 0.265 }), cfg);
+  const d2 = flipDecision(open("LONG"), row({ bias: "SHORT", prob: 0.265, score: 72 }), cfg);
   check("LONG mở + model SHORT prob=0.265 (mạnh theo phía) → lật", d2.ok, d2.why);
 }
 
@@ -73,15 +74,29 @@ console.log("\n═══ 2. flipDecision — từ chối có lý do ═══");
   check("dưới sàn chung → không lật", !d4.ok && d4.why.includes("chưa đạt sàn"));
   const d5 = flipDecision(open("LONG"), row({ bias: "SHORT", regressed: true }), cfg);
   check("model thoái hoá vs champion → không lật", !d5.ok && d5.why.includes("thoái hoá"));
-  const whaleRow = row({ bias: "SHORT" }) as ScanRow & { whale?: { tag: string } };
+  const whaleRow = row({ bias: "SHORT", prob: 0.265, score: 72 }) as ScanRow & { whale?: { tag: string } };
   whaleRow.whale = { tag: "whale" };
   const d6 = flipDecision(open("LONG"), whaleRow, cfg);
   check("nến whale → không lật vào bẫy wick", !d6.ok && d6.why.includes("whale"));
-  // whale filter tắt → nến whale không còn chặn
+  // whale filter tắt → nến whale không còn chặn (score 72 vượt sàn flip 0.2.72)
   const d7 = flipDecision(open("LONG"), whaleRow, { ...cfg, whaleFilter: false });
   check("whale filter TẮT → nến whale không chặn", d7.ok, d7.why);
   const d8 = flipDecision(open("LONG"), undefined, cfg);
   check("scan chưa có combo → không lật", !d8.ok && d8.why.includes("chưa có"));
+}
+
+console.log("\n═══ 2b. flipDecision — ngưỡng BẤT ĐỐI XỨNG 0.2.72 (prob ≥ 0.62 theo phía mới + score ≥ sàn+10) ═══");
+{
+  // prob theo phía mới 0.58 — vượt noise band (đủ vào lệnh thường) nhưng
+  // dưới 0.62 → KHÔNG đủ tư cách phá lệnh đang mở
+  const w1 = flipDecision(open("SHORT"), row({ bias: "LONG", prob: 0.58, score: 72 }), cfg);
+  check("prob theo phía mới 58% (vượt noise band) → vẫn không lật", !w1.ok && w1.why.includes("62%"));
+  // phía SHORT: prob P(up)=0.42 → theo SHORT 58% — cùng mức, phải bị chặn như nhau
+  const w2 = flipDecision(open("LONG"), row({ bias: "SHORT", prob: 0.42, score: 72 }), cfg);
+  check("SHORT 58% theo phía (P(up)=0.42) → đối xứng, cũng không lật", !w2.ok && w2.why.includes("58.0%"));
+  // prob đủ nhưng score 66.5 < sàn+10 → chặn
+  const w3 = flipDecision(open("SHORT"), row({ bias: "LONG", prob: 0.75, score: 66.5 }), cfg);
+  check("prob 75% nhưng score 66.5 < 70 → không lật", !w3.ok && w3.why.includes("score ≥ 70"));
 }
 
 console.log("\n═══ 3. champ_check — LLM đọc được dữ liệu champion ═══");

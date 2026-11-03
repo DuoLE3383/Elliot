@@ -130,6 +130,39 @@ export const TG_STREAK_ALERT = 4;
  *  Chỉnh runtime trên /ai. */
 export const TG_DD_ALERT = 5;
 
+// ── 4c · FLIP GATE + SL/TP LEVERAGE (0.2.72) ────────────────────────────────
+// Data 0.2.71: 97 lệnh đóng có ~75 flip net −105% ROE trong khi TP:SL là 16:6
+// (dương) → exit engine chảy máu, KHÔNG phải entry. Hai nút vít:
+
+/** FLIP BẤT ĐỐI XỨNG — lật chiều phải chắc chắn HƠN mở lệnh (một flip tốn
+ *  exit + entry mới + reset SL/TP). prob THEO PHÍA MỚI (bias SHORT → 1−prob)
+ *  phải ≥ ngưỡng này, trong khi vào lệnh thường chỉ cần vượt noise band.
+ *  0.5 = tắt (hạ về mức vào lệnh). Mặc định 0.62: giữa noise band (~0.56)
+ *  và tín hiệu mạnh (0.70). Chỉnh runtime trên /ai. */
+export const FLIP_PROB_MIN = 0.62;
+/** Flip thêm yêu cầu score ≥ sàn vào lệnh (cfg.minScore) + phần bù này.
+ *  0 = tắt (dùng đúng sàn vào lệnh). Mặc định +10: combo 66 điểm được mở
+ *  lệnh mới nhưng KHÔNG đủ tư cách phá lệnh đang mở. Chỉnh runtime /ai. */
+export const FLIP_SCORE_EXTRA = 10;
+
+/** SL/TP ĐỘC LẬP VỚI ĐÒN BẨY — khoảng cách SL/TP (theo % giá) nhân hệ số
+ *  chuẩn hoá theo leverage để ROE-at-SL KHÔNG phình theo đòn bẩy:
+ *   off  = 1 (legacy — cùng khoảng cách giá mọi leverage, ROE-at-SL ~ lev)
+ *   sqrt = √(ref/lev) — mềm, giống công thức trailing 0.2.63
+ *   lin  = ref/lev — độc lập hoàn toàn: ROE-at-SL = baseline mọi leverage
+ *  Chỉ THU HẸP khi lev > ref; lev ≤ ref giữ nguyên (SL không nới ra ngoài
+ *  cấu trúc ATR chỉ vì đòn bẩy thấp — rủi ro chỉ NHỎ HƠN baseline, không to
+ *  hơn). tpMode "manual" không nhân hệ số (user tự đặt %), chỉ ăn cap liq. */
+export const TP_LEV_MODE = "lin";
+/** Leverage tham chiếu — hệ số chuẩn hoá = 1 tại đúng mức này (lin: lev 20
+ *  ref 10 → SL/TP × 0.5). Nên đặt bằng leverage bạn vẫn chạy. */
+export const TP_LEV_REF = 10;
+/** MUI AN TOÀN THANH KHOẢN — SL không bao giờ đặt xa hơn x% quãng đường tới
+ *  giá thanh lý (100/lev %). 60 = SL dừng ở tối đa 60% đường tới liq; áp cho
+ *  MỌI tpMode (kể cả manual — SL ngoài liq là config tự hoại). TP đi theo để
+ *  giữ nguyên R:R. */
+export const TP_LIQ_SAFE = 60;
+
 // ── 5 · ENGINE CADENCE — nhịp quét của vòng auto ────────────────────────────
 
 /** Metronome 5 phút tái dùng snapshot scan mới hơn 4.5 phút (không quét lại). */

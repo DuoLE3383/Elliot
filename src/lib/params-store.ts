@@ -50,6 +50,11 @@ import {
   TG_DD_ALERT,
   TG_MUTE,
   TG_STREAK_ALERT,
+  TP_LEV_MODE,
+  TP_LEV_REF,
+  TP_LIQ_SAFE,
+  FLIP_PROB_MIN,
+  FLIP_SCORE_EXTRA,
   CALIBRATE,
   TUNE_GRID,
   UNIVERSE_TOP,
@@ -70,7 +75,8 @@ export interface ParamMeta {
     | "Champion–challenger"
     | "LLM Risk Officer"
     | "Universe / sessions"
-    | "Telegram notify";
+    | "Telegram notify"
+    | "Flip / SL-TP";
   type: "number" | "bool" | "string";
   def: number | boolean | string;
   min?: number;
@@ -152,9 +158,15 @@ export const EDITABLE: ParamMeta[] = [
   { key: "TG_MUTE", group: "Telegram notify", type: "string", def: TG_MUTE, maxLen: 40, pattern: "^(near|veto|autopsy|scan|close)?(,(near|veto|autopsy|scan|close))*$", note: "Silence noisy Telegram categories (comma-separated): near, veto, autopsy, scan, close. Empty = everything on. Alerts (loss streak / drawdown) are NEVER muted. Results still roll into the hourly/daily digest." },
   { key: "TG_STREAK_ALERT", group: "Telegram notify", type: "number", def: TG_STREAK_ALERT, min: 0, max: 10, step: 1, int: true, unit: "losses", note: "🔴 Alert after every N consecutive losses (fires at N, 2N, 3N…; a win resets). Streak = regime mismatch — review gates or pause auto. 0 = off." },
   { key: "TG_DD_ALERT", group: "Telegram notify", type: "number", def: TG_DD_ALERT, min: 0, max: 50, step: 0.5, unit: "%", note: "🔴 Alert the moment equity crosses below (24h peak × (1 − x%)). Fires once per crossing. 0 = off." },
+  // Flip / SL-TP (0.2.72) — flip bất đối xứng + SL/TP độc lập đòn bẩy
+  { key: "FLIP_PROB_MIN", group: "Flip / SL-TP", type: "number", def: FLIP_PROB_MIN, min: 0.5, max: 0.9, step: 0.01, note: "Asymmetric flip gate: prob toward the NEW side must be ≥ this to flip an open position (entry only needs the noise band). 0.5 = off. Data 0.2.71: 75 flips net −105% ROE while TP:SL was 16:6 — flips needed a higher bar." },
+  { key: "FLIP_SCORE_EXTRA", group: "Flip / SL-TP", type: "number", def: FLIP_SCORE_EXTRA, min: 0, max: 40, step: 1, int: true, note: "Flip also needs score ≥ entry floor (Auto panel minScore) + this. 0 = off (same floor as entry)." },
+  { key: "TP_LEV_MODE", group: "Flip / SL-TP", type: "string", def: TP_LEV_MODE, maxLen: 4, pattern: "^(off|sqrt|lin)$", note: "Leverage-independent SL/TP: shrink price distance as leverage grows so ROE-at-SL stops scaling with lev. off = legacy · sqrt = √(ref/lev) (matches trailing 0.2.63) · lin = ref/lev (fully independent). Only shrinks when lev > ref. Manual tpMode skips the scale (still liq-capped)." },
+  { key: "TP_LEV_REF", group: "Flip / SL-TP", type: "number", def: TP_LEV_REF, min: 1, max: 50, step: 1, int: true, unit: "×", note: "Reference leverage where the scale = 1 (set to the leverage you actually run). lin at lev 20 / ref 10 → SL/TP × 0.5." },
+  { key: "TP_LIQ_SAFE", group: "Flip / SL-TP", type: "number", def: TP_LIQ_SAFE, min: 10, max: 90, step: 5, int: true, unit: "%", note: "Liquidation safety roof: SL never sits further than this % of the way to the liquidation price (100/lev %). Applies to EVERY tpMode incl. manual; TP follows to keep R:R." },
 ];
 
-const GROUPS: ParamMeta["group"][] = ["Quality gate", "5-minute broadcast", "Scan digest", "Train / Prob", "Champion–challenger", "LLM Risk Officer", "Universe / sessions", "Telegram notify"];
+const GROUPS: ParamMeta["group"][] = ["Quality gate", "5-minute broadcast", "Scan digest", "Train / Prob", "Champion–challenger", "LLM Risk Officer", "Universe / sessions", "Telegram notify", "Flip / SL-TP"];
 
 // ── Store (db/params-override.json) ──────────────────────────────────────────
 

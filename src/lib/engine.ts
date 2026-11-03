@@ -33,6 +33,8 @@ import {
   AUTO_DEFAULTS,
   bestTradeableAvoid,
   flipDecision,
+  levAdjSlTp,
+  levNormScale,
   liquidationHit,
   nearHit,
   passesChaseGuard,
@@ -96,6 +98,7 @@ import {
   SCAN_FRESH_MS,
   SCAN_TTL,
   TICKERS_TTL,
+  TP_LIQ_SAFE,
   UNIVERSE_MIN_CANDLES,
   pval,
 } from "./params";
@@ -1317,6 +1320,19 @@ async function cycleTick(): Promise<void> {
     }
     const entrySl = c.tpMode === "manual" ? c.slPct : c.tpMode === "atr" && live ? live.slPct : best.slPct;
     const entryTp = c.tpMode === "manual" ? c.tpPct : c.tpMode === "atr" && live ? live.tpPct : best.tpPct;
+    // 2.3) SL/TP × LEVERAGE (0.2.72) — khoảng cách chuẩn hoá theo đòn bẩy để
+    // ROE-at-SL không phình theo lev (lin: ref/lev, chỉ thu hẹp khi lev > ref)
+    // + mui an toàn thanh khoản (SL ≤ TP_LIQ_SAFE% đường tới liq — áp MỌI mode,
+    // manual chỉ bỏ qua scale, không bỏ qua mui). R:R giữ nguyên.
+    const levScale = c.tpMode === "manual" ? 1 : levNormScale(p.leverage);
+    const adj = levAdjSlTp(entrySl, entryTp, levScale, p.leverage);
+    const finalSl = adj.slPct;
+    const finalTp = adj.tpPct;
+    if (finalSl !== entrySl || finalTp !== entryTp) {
+      console.log(
+        `[engine] SL/TP lev-adjust @ ×${p.leverage}: ${entrySl}/${entryTp}% → ${finalSl}/${finalTp}% (scale ${levScale.toFixed(2)} · liq-cap ${((pval("TP_LIQ_SAFE", TP_LIQ_SAFE) / 100) * (100 / p.leverage)).toFixed(2)}%)`,
+      );
+    }
 
     // 2.5) LLM risk officer — silent. LLM CHẾT thì tuỳ tham số LLM_FAIL_CLOSED:
     //  • fail-open (mặc định)  → lệnh vẫn vào đường XGBoost-only, nhưng lượt
@@ -1333,8 +1349,8 @@ async function cycleTick(): Promise<void> {
     const { verdict: lastVerdict, vetoed } = await llmGate(
       best,
       best.bias as "LONG" | "SHORT",
-      entrySl,
-      entryTp,
+      finalSl,
+      finalTp,
       track,
     );
     if (vetoed) return;
@@ -1350,8 +1366,8 @@ async function cycleTick(): Promise<void> {
         interval: best.interval,
         side: best.bias === "SHORT" ? "SHORT" : "LONG",
         entryPrice: price,
-        slPct: entrySl,
-        tpPct: entryTp,
+        slPct: finalSl,
+        tpPct: finalTp,
         leverage: p.leverage,
         stakePct: c.riskPct,
         prob: best.prob,
@@ -1377,7 +1393,11 @@ async function cycleTick(): Promise<void> {
         msgOpen(
           trade,
           capitalNow,
-          c.tpMode === "atr" && live ? `📏 SL/TP = ATR ${live.atrPct.toFixed(2)}% × ${coef} — measured at entry` : undefined,
+          c.tpMode === "atr" && live
+            ? `📏 SL/TP = ATR ${live.atrPct.toFixed(2)}% × ${coef}${levScale < 1 ? ` · lev-norm ×${levScale.toFixed(2)} @ ×${p.leverage}` : ""}${finalSl !== entrySl || finalTp !== entryTp ? ` → SL ${finalSl}% · TP ${finalTp}%` : ""} — measured at entry`
+            : finalSl !== entrySl || finalTp !== entryTp
+              ? `📏 SL/TP liq-capped @ ×${p.leverage}: ${entrySl}/${entryTp}% → ${finalSl}/${finalTp}% (max ${pval("TP_LIQ_SAFE", TP_LIQ_SAFE)}% of the liquidation distance)`
+              : undefined,
         ),
         "HTML",
       );
@@ -1430,6 +1450,17 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
   }
   const slPct = c.tpMode === "manual" ? c.slPct : c.tpMode === "atr" && live ? live.slPct : row.slPct;
   const tpPct = c.tpMode === "manual" ? c.tpPct : c.tpMode === "atr" && live ? live.tpPct : row.tpPct;
+  // SL/TP × LEVERAGE (0.2.72) — y hệt luồng vào lệnh thường: scale theo lev
+  // (manual bỏ qua) + mui thanh khoản, R:R giữ nguyên.
+  const levScale = c.tpMode === "manual" ? 1 : levNormScale(p.leverage);
+  const adj = levAdjSlTp(slPct, tpPct, levScale, p.leverage);
+  const finalSl = adj.slPct;
+  const finalTp = adj.tpPct;
+  if (finalSl !== slPct || finalTp !== tpPct) {
+    console.log(
+      `[engine] SL/TP lev-adjust (flip) @ ×${p.leverage}: ${slPct}/${tpPct}% → ${finalSl}/${finalTp}% (scale ${levScale.toFixed(2)})`,
+    );
+  }
 
   // 3) Risk Officer duyệt lệnh đảo chiều — Y HỆT luồng vào lệnh (kể cả track record)
   const st = await readAutoState();
@@ -1437,7 +1468,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
     st.stats.closed > 0
       ? `${st.stats.wins}W/${st.stats.closed - st.stats.wins}L · win rate ${st.stats.winRate.toFixed(0)}% · net ${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(1)}% ROE (${st.stats.closed} paper trades)`
       : undefined;
-  const { verdict: lastVerdict, vetoed } = await llmGate(row, to, slPct, tpPct, track, { isFlip: true });
+  const { verdict: lastVerdict, vetoed } = await llmGate(row, to, finalSl, finalTp, track, { isFlip: true });
   if (vetoed) {
     v.lastCycleStatus = `flip ${from}→${to} bị chặn — đứng ngoài, chu kỳ sau xét lại`;
     return true; // lệnh cũ ĐÃ đóng — không ôm chiều cũ, cũng không mở mới
@@ -1454,8 +1485,8 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
       interval: row.interval,
       side: to,
       entryPrice: price,
-      slPct,
-      tpPct,
+      slPct: finalSl,
+      tpPct: finalTp,
       leverage: p.leverage,
       stakePct: c.riskPct,
       prob: row.prob,
@@ -1479,7 +1510,11 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
       msgOpen(
         trade,
         capitalNow,
-        c.tpMode === "atr" && live ? `📏 SL/TP = ATR ${live.atrPct.toFixed(2)}% × ${coef} — đo lúc LẬT CHIỀU 🔄` : undefined,
+        c.tpMode === "atr" && live
+          ? `📏 SL/TP = ATR ${live.atrPct.toFixed(2)}% × ${coef}${levScale < 1 ? ` · lev-norm ×${levScale.toFixed(2)} @ ×${p.leverage}` : ""}${finalSl !== slPct || finalTp !== tpPct ? ` → SL ${finalSl}% · TP ${finalTp}%` : ""} — đo lúc LẬT CHIỀU 🔄`
+          : finalSl !== slPct || finalTp !== tpPct
+            ? `📏 SL/TP liq-capped @ ×${p.leverage}: ${slPct}/${tpPct}% → ${finalSl}/${finalTp}% (max ${pval("TP_LIQ_SAFE", TP_LIQ_SAFE)}% of the liquidation distance)`
+            : undefined,
       ),
       "HTML",
     );

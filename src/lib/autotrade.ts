@@ -17,11 +17,16 @@ import { biasFrom, runXgb, type WhaleReadout, type WhaleTag, type XgbBias, type 
 import { LLM_MODEL_DEFAULT, LLM_URL_DEFAULT, type LlmSetup } from "./llm";
 import {
   CONF_W,
+  FLIP_PROB_MIN,
+  FLIP_SCORE_EXTRA,
   NEAR_FRAC,
   NOISE_BAND,
   PROB_CAP,
   REGRESS_EPS,
   SIBLING_DISCOUNT,
+  TP_LEV_MODE,
+  TP_LEV_REF,
+  TP_LIQ_SAFE,
   pval,
 } from "./params";
 
@@ -388,6 +393,23 @@ export function flipDecision(
   if (row.regressed) return { ok: false, why: "this combo's model is regressed vs its champion" };
   if (Math.abs(row.prob - 0.5) < pval("NOISE_BAND", NOISE_BAND)) return { ok: false, why: "signal inside the coin-flip noise band" };
   if (cfg.whaleFilter && row.whale?.tag === "whale") return { ok: false, why: "last candle is a whale bar — not flipping into a wick trap" };
+  // ── FLIP BẤT ĐỐI XỨNG (0.2.72) — lật chiều phải chắc chắn HƠN mở lệnh ──
+  // Data: ~75 flip net −105% ROE trong khi TP:SL 16:6 dương — flip theo tín
+  // hiệu “vừa vượt sàn” là chảy máu. Một flip tốn exit + entry mới + reset
+  // SL/TP nên ngưỡng PHẢI bất đối xứng với vào lệnh thường:
+  //   (a) prob THEO PHÍA MỚI ≥ FLIP_PROB_MIN (vào lệnh chỉ cần vượt noise band)
+  //   (b) score ≥ sàn vào lệnh + FLIP_SCORE_EXTRA
+  // Hai nút chỉnh runtime /ai; hạ 0.5 / 0 = tắt (về hành vi đối xứng cũ).
+  const fpMin = pval("FLIP_PROB_MIN", FLIP_PROB_MIN);
+  if (fpMin > 0.5) {
+    const toward = row.bias === "LONG" ? row.prob : 1 - row.prob;
+    if (toward < fpMin)
+      return { ok: false, why: `flip cần prob ≥ ${(fpMin * 100).toFixed(0)}% theo phía mới (đang ${(toward * 100).toFixed(1)}%) — dưới mức ổn cho vào lệnh thường` };
+  }
+  const sx = pval("FLIP_SCORE_EXTRA", FLIP_SCORE_EXTRA);
+  if (sx > 0 && row.score < cfg.minScore + sx) {
+    return { ok: false, why: `flip cần score ≥ ${cfg.minScore + sx} (sàn vào lệnh +${sx}; đang ${row.score.toFixed(1)})` };
+  }
   return { ok: true, why: "" };
 }
 
@@ -472,6 +494,53 @@ export function liquidationHit(side: string, price: number, entry: number, lever
   if (leverage <= 1 || !entry || !price) return false;
   const move = side === "SHORT" ? ((entry - price) / entry) * 100 : ((price - entry) / entry) * 100;
   return move <= -(100 / leverage);
+}
+
+// ─── SL/TP × LEVERAGE (0.2.72) — độc lập rủi ro ROE theo đòn bẩy ──────────────
+
+/**
+ * Hệ số chuẩn hoá khoảng cách SL/TP theo leverage (TP_LEV_MODE):
+ *   off → 1 (legacy) · sqrt → √(ref/lev) · lin → ref/lev (độc lập hoàn toàn)
+ * Chỉ THU HẸP khi lev > ref (min 1 với cả hai mode — lev ≤ ref giữ nguyên:
+ * rủi ro ROE-at-SL chỉ NHỎ HƠN baseline, không bao giờ TO hơn). Giá trị lạ /
+ * lev ≤ 0 → 1 (an toàn). ROE-at-SL = slPct × lev ≈ hằng số bằng baseline.
+ */
+export function levNormScale(lev: number): number {
+  const mode = String(pval("TP_LEV_MODE", TP_LEV_MODE) ?? "off").trim().toLowerCase();
+  if (mode !== "lin" && mode !== "sqrt") return 1;
+  const ref = pval("TP_LEV_REF", TP_LEV_REF);
+  if (!(lev > 0) || !(ref > 0)) return 1;
+  const r = ref / lev;
+  return Math.min(1, mode === "lin" ? r : Math.sqrt(r));
+}
+
+/**
+ * Máy tính SL/TP độc lập leverage — áp lên CẶP khoảng cách (theo % giá) trước
+ * khi ghi vào lệnh:
+ *  1. nhân `scale` (levNormScale; caller truyền 1 cho tpMode "manual");
+ *  2. mui an toàn thanh khoản: SL không vượt TP_LIQ_SAFE% quãng đường tới giá
+ *     thanh lý (100/lev %) — áp MỌI mode, manual cũng không đặt SL ngoài liq;
+ *  3. sàn 0.15% — scale không đẩy SL vào vùng spread-noise (khi mui cho phép);
+ *  mọi lần co giãn đều kéo TP theo CÙNG hệ số → R:R giữ nguyên. SL làm tròn
+ *  XUỐNG 2 chữ số (không bao giờ xa hơn tính toán — ROE-at-SL không vượt
+ *  baseline vì làm tròn); TP làm tròn thường (chỉ lạc ≤ 0.01% khoảng cách).
+ */
+export function levAdjSlTp(sl: number, tp: number, scale: number, lev: number): { slPct: number; tpPct: number } {
+  const safe = pval("TP_LIQ_SAFE", TP_LIQ_SAFE);
+  let s = sl * scale;
+  let t = tp * scale;
+  const cap = lev > 0 ? (safe / 100) * (100 / lev) : 0; // = safe/lev (% giá)
+  if (cap > 0 && s > cap) {
+    const k = cap / s;
+    s *= k;
+    t *= k;
+  }
+  if (s > 0 && s < 0.15 && cap >= 0.15) {
+    const k = 0.15 / s;
+    s *= k;
+    t *= k;
+  }
+  return { slPct: Math.floor(s * 100) / 100, tpPct: Math.round(t * 100) / 100 };
 }
 
 /** Warn once the price has covered this share of the way to TP/SL (0..1) —
