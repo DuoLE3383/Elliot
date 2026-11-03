@@ -162,6 +162,7 @@ const vi: Dict = {
   "toast.error": "Không tải được dữ liệu Binance",
   "toast.xgbDone": "XGBoost train xong — Acc {acc}% · AUC {auc}",
   "toast.xgbFail": "Train XGBoost thất bại — thử lại",
+  "toast.trainFail": "Train thất bại — {err}",
 
   // ─── XGBoost panel ───
   "xgb.title": "XGBoost Tinh chỉnh",
@@ -204,6 +205,7 @@ const vi: Dict = {
   "xgb.trainAll.busy": "{done}/{total} · {current}",
   "xgb.trainAll.workers": "· {w} luồng song song",
   "xgb.trainAll.done": "Train tất cả xong — đã lưu {saved}/{total} combo",
+  "xgb.trainAll.failed": "{n} combo lỗi",
   "xgb.trainAll.last": "Lần trước: lưu {saved}/{total} combo",
   "xgb.history.sub": "Mỗi lần train được lưu vào database theo pair + khung + thời điểm",
   "xgb.history.empty": "Chưa có lần train nào cho pair/khung này",
@@ -928,6 +930,7 @@ const en: Dict = {
   "toast.error": "Failed to load Binance data",
   "toast.xgbDone": "XGBoost trained — Acc {acc}% · AUC {auc}",
   "toast.xgbFail": "XGBoost training failed — try again",
+  "toast.trainFail": "Training failed — {err}",
 
   // ─── XGBoost panel ───
   "xgb.title": "XGBoost Tuner",
@@ -970,6 +973,7 @@ const en: Dict = {
   "xgb.trainAll.busy": "{done}/{total} · {current}",
   "xgb.trainAll.workers": "· {w} threads",
   "xgb.trainAll.done": "Train-all finished — {saved}/{total} combos saved",
+  "xgb.trainAll.failed": "{n} combos failed",
   "xgb.trainAll.last": "Last pass: {saved}/{total} combos saved",
   "xgb.history.sub": "Every training run is stored per pair + interval + time",
   "xgb.history.empty": "No training runs for this pair/interval yet",

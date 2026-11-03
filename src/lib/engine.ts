@@ -500,6 +500,8 @@ async function trainCore(
   const combos = list.length;
   let done = 0;
   let saved = 0;
+  let failed = 0;
+  let lastError: string | null = null;
   const ranked: { sym: string; itv: string; res: XgbResult }[] = [];
   let best: { symbol: string; interval: string; acc: number; auc: number; score: number } | null = null;
   let lastResult: Record<string, unknown> | null = null;
@@ -546,6 +548,11 @@ async function trainCore(
       p.settings,
       {
         onComboStart: (sym, itv) => report({ progress: { done, total: combos, current: `${sym} ${itv}` } }),
+        onComboProgress: (sym, itv, pr) => {
+          // worker-side tree progress — the single-train dialog bar reads
+          // extra.progress; multi-combo passes keep the done/total bar instead
+          if (opts.mode === "single") report({ progress: { done, total: combos, current: `${sym} ${itv}` }, extra: { progress: pr } });
+        },
         onComboDone: async (sym, itv, res, entryPrice) => {
           if (opts.mode === "single" && !opts.persist) {
             // silent auto-retrain (pair/interval switch) — compute only, the
@@ -572,9 +579,14 @@ async function trainCore(
           done += 1;
           report({ progress: { done, total: combos, current: "" } });
         },
-        onComboFail: () => {
+        onComboFail: (sym, itv, error) => {
+          // KHÔNG nuốt lỗi nữa (03/11 — nút Train "chết im"): combo fail phải
+          // thấy được ở job extra + pm2 log, client đọc lastError để toast.
+          failed += 1;
+          lastError = `${sym} ${itv}: ${error}`;
+          console.warn(`[engine] train fail — ${lastError}`);
           done += 1;
-          report({ progress: { done, total: combos, current: "" } });
+          report({ progress: { done, total: combos, current: "" }, extra: { failed, lastError } });
         },
       },
     );
@@ -617,7 +629,7 @@ async function trainCore(
       // summary is best-effort
     }
   }
-  return { saved, total: combos, best, ...(opts.mode === "single" && lastResult ? { result: lastResult } : {}) };
+  return { saved, total: combos, failed, ...(lastError ? { lastError } : {}), best, ...(opts.mode === "single" && lastResult ? { result: lastResult } : {}) };
 }
 
 // ─── train history snapshot (GET /api/engine → train) ───────────────────────

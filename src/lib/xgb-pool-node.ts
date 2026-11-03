@@ -27,6 +27,8 @@ export interface QueueHooks {
   onComboStart?: (sym: string, itv: string) => void;
   onComboDone?: (sym: string, itv: string, res: XgbResult, entryPrice: number) => void | Promise<void>;
   onComboFail?: (sym: string, itv: string, error: string) => void;
+  /** worker-side training progress 0..1 (per combo) — single-train UI bar */
+  onComboProgress?: (sym: string, itv: string, p: number) => void;
 }
 
 /** Pool width — leave one core for the server itself; cap 6 (fetch + RAM). XGB_WORKERS env overrides. */
@@ -60,11 +62,13 @@ export function xgbPoolAvailable(): boolean {
 interface QueueItem {
   req: XgbTrainRequest;
   resolve: (o: TrainOutcome) => void;
+  onProgress?: (p: number) => void;
 }
 
 interface Pending {
   worker: Worker;
   resolve: (o: TrainOutcome) => void;
+  onProgress?: (p: number) => void;
 }
 
 export class XgbPoolNode {
@@ -91,18 +95,19 @@ export class XgbPoolNode {
   train(
     req: Omit<XgbTrainRequest, "kind" | "id">,
     onStart?: () => void,
+    onProgress?: (p: number) => void,
   ): Promise<TrainOutcome> {
     const full: XgbTrainRequest = { ...req, kind: "train", id: this.nextId++ };
     if (!this.file || this.destroyed) {
       onStart?.();
-      return this.runInline(full);
+      return this.runInline(full, onProgress);
     }
     return new Promise<TrainOutcome>((resolve) => {
       if (this.destroyed) {
         resolve({ ok: false, error: "pool destroyed" });
         return;
       }
-      this.queue.push({ req: full, resolve });
+      this.queue.push({ req: full, resolve, onProgress });
       this.pump(onStart);
     });
   }
@@ -118,6 +123,7 @@ export class XgbPoolNode {
         this.train(
           { sym: s.sym, itv: s.itv, difficulty: s.difficulty, trades: s.trades, settings },
           () => hooks.onComboStart?.(s.sym, s.itv),
+          (p) => hooks.onComboProgress?.(s.sym, s.itv, p),
         ).then(async (out) => {
           if (out.ok) await hooks.onComboDone?.(s.sym, s.itv, out.res, out.entryPrice);
           else hooks.onComboFail?.(s.sym, s.itv, out.error);
@@ -152,7 +158,10 @@ export class XgbPoolNode {
     w.on("message", (m: XgbWorkerMsg) => {
       const p = this.pending.get(m.id);
       if (!p) return;
-      if (m.kind === "progress") return; // per-combo progress — pool stays cheap
+      if (m.kind === "progress") {
+        p.onProgress?.(m.p); // per-combo progress — single-train bar lives on it
+        return;
+      }
       this.pending.delete(m.id);
       this.idle.push(w);
       p.resolve(m.kind === "done" ? { ok: true, res: m.res, entryPrice: m.entryPrice } : { ok: false, error: m.error });
@@ -175,16 +184,16 @@ export class XgbPoolNode {
   }
 
   private dispatch(w: Worker, job: QueueItem): void {
-    this.pending.set(job.req.id, { worker: w, resolve: job.resolve });
+    this.pending.set(job.req.id, { worker: w, resolve: job.resolve, onProgress: job.onProgress });
     w.postMessage(job.req);
   }
 
   /** Sequential fallback — no worker bundle (dev mode). Same math, one core. */
-  private async runInline(req: XgbTrainRequest): Promise<TrainOutcome> {
+  private async runInline(req: XgbTrainRequest, onProgress?: (p: number) => void): Promise<TrainOutcome> {
     try {
       const klines = req.klines ?? (await fetchKlinesDirect(req.sym, req.itv));
       const lv = req.difficulty ?? 0;
-      const res = await runXgb(klines, req.settings, `${req.sym}-${req.itv}`, req.itv, undefined, lv, req.trades);
+      const res = await runXgb(klines, req.settings, `${req.sym}-${req.itv}`, req.itv, onProgress ? (p) => onProgress(p) : undefined, lv, req.trades);
       const entryPrice = klines.length >= 2 ? klines[klines.length - 2].c : 0;
       return { ok: true, res, entryPrice };
     } catch (e) {

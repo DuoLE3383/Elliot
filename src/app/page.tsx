@@ -93,6 +93,9 @@ const normalizePair = (raw: string): string => {
   return QUOTE_RE.test(s) ? s : `${s}USDT`;
 };
 
+/** job extra.lastError → toast-sized (network errors carry long URL chains) */
+const clipErr = (s: string): string => (s.length > 120 ? `${s.slice(0, 117)}…` : s);
+
 /** Live VN + UTC clocks — 1 Hz external "store", SSR-safe (server snapshot 0). */
 function Clocks({ lang }: { lang: Lang }) {
   // seconds-precision snapshot keeps getSnapshot stable within a second
@@ -612,7 +615,19 @@ export default function Home() {
             trainHandledRef.current = job.id;
             const saved = Number(job.extra?.saved ?? 0);
             const total = Number(job.extra?.total ?? 0);
-            pushToast({ kind: "xgb", text: t(lang, "xgb.trainAll.done", { saved: String(saved), total: String(total) }) });
+            const failed = Number(job.extra?.failed ?? 0);
+            const err = typeof job.extra?.lastError === "string" ? job.extra.lastError : "";
+            if (saved === 0 && failed > 0) {
+              // every combo failed (e.g. Binance unreachable) — used to be silent
+              pushToast({ kind: "error", text: t(lang, "toast.trainFail", { err: clipErr(err) }) });
+            } else {
+              pushToast({
+                kind: "xgb",
+                text:
+                  t(lang, "xgb.trainAll.done", { saved: String(saved), total: String(total) }) +
+                  (failed > 0 ? ` · ${t(lang, "xgb.trainAll.failed", { n: String(failed) })}` : ""),
+              });
+            }
             bumpHist();
           } else if (job.state === "failed" && trainHandledRef.current !== job.id) {
             trainHandledRef.current = job.id;
@@ -634,6 +649,11 @@ export default function Home() {
               setXgbRunId(r.runId ?? null);
               if (r.suggestionId || r.runId) pushToast({ kind: "xgb", text: t(lang, "sg.saved") });
               bumpHist();
+            } else if (job.state === "done" && !r?.res) {
+              // combo-level failure (klines fetch, worker crash…) — the old build
+              // stayed silent here, the button just looked dead
+              const err = typeof job.extra?.lastError === "string" ? job.extra.lastError : "";
+              pushToast({ kind: "error", text: t(lang, err ? "toast.trainFail" : "toast.xgbFail", ...(err ? [{ err: clipErr(err) }] : [{}])) });
             } else if (job.state === "failed") {
               pushToast({ kind: "error", text: t(lang, "toast.xgbFail") });
             }

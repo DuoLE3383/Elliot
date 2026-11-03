@@ -20,6 +20,15 @@ const HOSTS = [
   "https://fapi3.binance.com",
 ];
 
+/** Last-resort hosts for KLINES ONLY (03/11 — train button "chết im": the VPS
+ * route to fapi*.binance.com got cut/geo-blocked, every combo failed silently).
+ * Spot serves the SAME kline row layout (index 9 = taker-buy base volume), so
+ * the chart math is unchanged; only 1000-contract pairs are price-scaled
+ * differently (percent-based indicators stay valid). They are tried AFTER the
+ * futures list — the perp board remains the source of truth when reachable. */
+const SPOT_HOSTS = ["https://api.binance.com", "https://data-api.binance.vision"];
+const SPOT_PATH = "/api/v3/klines";
+
 /**
  * Host list for Binance Futures — KLINES_HOSTS env override when the VPS route
  * to *.binance.com is blocked/cut persistently (pm2 logspam "Unexpected end of
@@ -88,7 +97,6 @@ export async function fetchKlinesDirect(
   limit: number = KLINE_LIMIT,
   opts?: { revalidate?: number },
 ): Promise<Kline[]> {
-  const hosts = binanceHosts();
   const sym = symbol.toUpperCase();
   if (!/^[A-Z0-9]{5,20}$/.test(sym)) throw new Error("invalid symbol");
   const lim = Math.min(Math.max(1, Math.floor(limit) || KLINE_LIMIT), 1000);
@@ -101,6 +109,18 @@ export async function fetchKlinesDirect(
   if (typeof mapped === "string" && !candidates.includes(mapped)) candidates.push(mapped);
   const thousand = thousandVariant(sym);
   if (thousand && !candidates.includes(thousand)) candidates.push(thousand);
+  // spot fallback needs the REVERSE direction too: 1000PEPEUSDT (perp) exists
+  // on spot as plain PEPEUSDT — otherwise the last-resort board 400-s on it
+  if (sym.startsWith("1000")) {
+    const bare = sym.slice(4);
+    if (!candidates.includes(bare)) candidates.push(bare);
+  }
+
+  // futures hosts first (perp board = source of truth), spot mirrors last
+  const hostList: { url: string; label: string }[] = [
+    ...binanceHosts().map((h) => ({ url: "", label: h })),
+    ...SPOT_HOSTS.map((h) => ({ url: SPOT_PATH, label: h })),
+  ];
 
   let lastErr: string | null = null;
   let invalidSymbol = false;
@@ -109,13 +129,20 @@ export async function fetchKlinesDirect(
       invalidSymbol = true; // previous candidate 400-ed — remember but try alias
       lastErr = null;
     }
-    for (const host of hosts) {
+    for (const h of hostList) {
       try {
-        const url = `${host}/fapi/v1/klines?symbol=${cand}&interval=${interval}&limit=${lim}`;
+        const url = `${h.label}${h.url || "/fapi/v1/klines"}?symbol=${cand}&interval=${interval}&limit=${lim}`;
         const res = await fetch(url, {
           ...(opts?.revalidate != null ? { next: { revalidate: opts.revalidate } } : {}),
           signal: AbortSignal.timeout(9000),
         });
+        // geo-block shapes (03/11): fapi 418-teapot, fapi1-3 302 → www.binance.com/en
+        // (follow lands 202 + empty body → the old "empty body" dead end). Name it,
+        // then fail over — spot mirrors sit right behind in the list.
+        if (res.redirected && !/\/fapi\/|\/api\//.test(res.url)) {
+          lastErr = `${h.label}: geo-blocked (redirected to ${res.url})`;
+          continue;
+        }
         if (!res.ok) {
           lastErr = `HTTP ${res.status}`;
           // Binance answers 400 for an unknown symbol — try the next candidate
@@ -126,7 +153,7 @@ export async function fetchKlinesDirect(
           }
           continue;
         }
-        const raw = await binanceJson<unknown[]>(res, host);
+        const raw = await binanceJson<unknown[]>(res, h.label);
         return raw.map(mapRow);
       } catch (e) {
         lastErr = e instanceof Error ? e.message : "fetch failed";

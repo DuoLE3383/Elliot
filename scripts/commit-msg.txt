@@ -1,0 +1,1 @@
+0.2.65 — nút Train chết im: dữ liệu futures bị chặn vẫn train được qua spot + lỗi train hiện toast rõ

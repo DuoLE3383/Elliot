@@ -46,6 +46,10 @@ interface Job {
 interface Lane {
   current: Job | null;
   queue: Job[];
+  /** last terminal job — kept in the snapshot ~20s so a 2s-poll client ALWAYS
+   * sees done/failed (03/11: a train that failed in <1s used to vanish between
+   * polls → the click looked dead: no toast, no error, nothing). */
+  lastDone: Job | null;
 }
 
 interface JobsGlobal {
@@ -59,7 +63,7 @@ const store = g.__elliottJobs;
 const laneOf = (kind: JobKind): Lane => {
   let l = store.lanes.get(kind);
   if (!l) {
-    l = { current: null, queue: [] };
+    l = { current: null, queue: [], lastDone: null };
     store.lanes.set(kind, l);
   }
   return l;
@@ -102,10 +106,10 @@ function drain(lane: Lane): void {
       for (const j of job.joined) j(job.view.extra); // joined callers still get partial data
     })
     .finally(() => {
+      // the finished job leaves the lane but lingers as lastDone for ~20s —
+      // its terminal state stays visible to every polling client
+      lane.lastDone = job;
       lane.current = null;
-      // the finished job leaves the lane immediately — its "Lần trước" result
-      // lives on in the client state that submitted it, so /api/engine never
-      // accumulates stale rows
       drain(lane);
     });
 }
@@ -163,12 +167,18 @@ export function enqueueJob(
   return { promise, view: job.view, coalesced: false };
 }
 
-/** Snapshot for GET /api/engine — running + queued + the last finished job. */
+/** Snapshot for GET /api/engine — running + queued first, then the last
+ * finished job of each lane (max ~20s old) so nobody misses a fast failure. */
 export function jobViews(): JobView[] {
   const out: JobView[] = [];
+  const now = Date.now();
   for (const [, lane] of store.lanes) {
     for (const j of [lane.current, ...lane.queue]) {
       if (j) out.push({ ...j.view, progress: j.view.progress ? { ...j.view.progress } : null, extra: { ...j.view.extra } });
+    }
+    const ld = lane.lastDone;
+    if (ld && ld !== lane.current && !lane.queue.includes(ld) && ld.view.finishedAt != null && now - ld.view.finishedAt < 20_000) {
+      out.push({ ...ld.view, progress: ld.view.progress ? { ...ld.view.progress } : null, extra: { ...ld.view.extra } });
     }
   }
   return out;
