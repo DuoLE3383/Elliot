@@ -109,7 +109,28 @@ export const SESS_LIQ_WEIGHT = 2.5;
  *  Cặp mới listing tự ngắn lại theo dữ liệu có. */
 export const CYCLE_DAYS = 2000;
 
-// ── 5 · ENGINE CADENCE — nhịp quét của vòng auto ─────────────────────────────
+// ── 4b · TELEGRAM NOTIFY — tắt ồn + BÁO ĐỘNG (0.2.71) ────────────────────────
+// Triết lý 3 tầng: (1) ALERT — sự kiện chủ bot PHẢI biết ngay, không tắt được;
+// (2) DIGEST — hourly/daily đã gộp đủ (bảng lệnh 0.2.70); (3) MUTE — tin rờm
+// không hành động được, tắt theo loại ở TG_MUTE.
+
+/** Loại tin Telegram bị TẮT — danh sách cách nhau bởi dấu phẩy, chọn trong:
+ *  near (⚠️ NEAR TP/SL), veto (🛑 LLM VETO), autopsy (🔬 per-trade autopsy),
+ *  scan (tin TOP-coin), close (🤖 AUTO CLOSE — cẩn thận: mất push kết quả,
+ *  hourly digest vẫn còn bảng lệnh). Mặc định "near,veto": hai loại này CHẮC
+ *  CHẮN xả đúng ~2 tin/lệnh + mỗi entry bị chặn, mà chủ bot không hành động
+ *  được gì — bot tự xử. Rỗng = bật lại tất cả. Chỉnh runtime trên /ai. */
+export const TG_MUTE = "near,veto";
+/** Báo động 🔴 LOSS STREAK sau mỗi N thua LIÊN TIẾP (mỗi bội N báo lại 1 lần:
+ *  4, 8, 12...; thắng là reset). Chuỗi thua = tín hiệu regime mismatch —
+ *  model đang giao dịch sai thị trường. 0 = tắt. Chỉnh runtime trên /ai. */
+export const TG_STREAK_ALERT = 4;
+/** Báo động 🔴 DRAWDOWN khi vốn chạm mức đỉnh 24h × (1 − x%) — chỉ bắn ĐÚNG
+ *  LẦN chạm ngưỡng (crossing), hồi về trên rồi phá thêm mới bắn tiếp. 0 = tắt.
+ *  Chỉnh runtime trên /ai. */
+export const TG_DD_ALERT = 5;
+
+// ── 5 · ENGINE CADENCE — nhịp quét của vòng auto ────────────────────────────
 
 /** Metronome 5 phút tái dùng snapshot scan mới hơn 4.5 phút (không quét lại). */
 export const SCAN_FRESH_MS = 4.5 * 60_000;

@@ -154,3 +154,46 @@ export const msgAutopsy = (
     `💡 <b>Lesson:</b> ${escHtml(a.lesson)}`,
     `🧠 ${escHtml(a.model ?? "llm")}${a.ms ? ` · ${(a.ms / 1000).toFixed(1)}s` : ""} — lesson feeds the next review for this pair`,
   ].join("\n");
+
+// ─── ALERT builders (0.2.71) — tier-1 notify, KHÔNG BAO GIỜ bị TG_MUTE ───────
+
+const eqTxt = (x: number): string => x.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/**
+ * 🔴 LOSS STREAK — chuỗi thua liên tiếp chạm bội TG_STREAK_ALERT (4, 8, 12…).
+ * `chain` = chính các lệnh thua trong chuỗi, mới nhất trước (đã cắt sẵn).
+ */
+export const msgLossStreak = (
+  streak: number,
+  chain: { symbol: string; interval: string; pnlPct?: number | null }[],
+  equity: number | null,
+): string => {
+  const CAP = 6;
+  const shown = chain.slice(0, CAP).map((t) => `#${t.symbol} ${t.interval} ${(t.pnlPct ?? 0) >= 0 ? "+" : ""}${(t.pnlPct ?? 0).toFixed(1)}%`);
+  if (chain.length > CAP) shown.push(`+${chain.length - CAP} more`);
+  const net = chain.reduce((a, t) => a + (t.pnlPct ?? 0), 0);
+  return [
+    `🔴 <b>ALERT · LOSS STREAK — ${streak} losses in a row</b>`,
+    HR,
+    `📉 Chain (newest first): ${shown.join(" · ")}`,
+    `💰 Equity: <b>${equity != null ? eqTxt(equity) : "—"}</b> USDT · chain ROE <b>${net >= 0 ? "+" : ""}${net.toFixed(1)}%</b>`,
+    `🧠 Regime mismatch? Check /ai — entry gates, flip cooldown, or pause auto.`,
+  ].join("\n");
+};
+
+/**
+ * 🔴 DRAWDOWN — vốn vừa cắt XUỐNG mức (đỉnh 24h × (1 − dd%)). Chỉ bắn đúng
+ * lần chạm ngưỡng; hồi phục rồi phá tiếp mới bắn lại (crossing logic ở
+ * tg-alerts.ddCrossOf).
+ */
+export const msgDrawdown = (
+  x: { peak: number; level: number; nowEq: number; ddPct: number },
+  crossedOn: { symbol: string; interval: string; pnlPct?: number | null },
+): string =>
+  [
+    `🔴 <b>ALERT · DRAWDOWN — equity ${x.ddPct.toFixed(1)}% under the 24h peak</b>`,
+    HR,
+    `💰 Equity <b>${eqTxt(x.nowEq)}</b> USDT · 24h peak ${eqTxt(x.peak)} → alert level ${eqTxt(x.level)}`,
+    `🚪 Crossed on: <b>#${crossedOn.symbol}</b> ${crossedOn.interval} closed ${(crossedOn.pnlPct ?? 0) >= 0 ? "+" : ""}${(crossedOn.pnlPct ?? 0).toFixed(2)}%`,
+    `🧠 Risk check: consecutive losses + DCA usage on /ai — consider pausing auto.`,
+  ].join("\n");

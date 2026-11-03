@@ -47,6 +47,9 @@ import {
   SESS_LIQ_WEIGHT,
   SESS_SYMBOL,
   SIBLING_DISCOUNT,
+  TG_DD_ALERT,
+  TG_MUTE,
+  TG_STREAK_ALERT,
   CALIBRATE,
   TUNE_GRID,
   UNIVERSE_TOP,
@@ -66,7 +69,8 @@ export interface ParamMeta {
     | "Train / Prob"
     | "Champion–challenger"
     | "LLM Risk Officer"
-    | "Universe / sessions";
+    | "Universe / sessions"
+    | "Telegram notify";
   type: "number" | "bool" | "string";
   def: number | boolean | string;
   min?: number;
@@ -143,9 +147,14 @@ export const EDITABLE: ParamMeta[] = [
   { key: "SESS_CALL_BAND", group: "Universe / sessions", type: "number", def: SESS_CALL_BAND, min: 10, max: 45, step: 1, int: true, note: "Composite session verdict: |score| ≥ band → BULL/BEAR, else NEUTRAL. Lower = more decisive calls (and more noise)." },
   { key: "SESS_LIQ_WEIGHT", group: "Universe / sessions", type: "number", def: SESS_LIQ_WEIGHT, min: 0, max: 4, step: 0.1, note: "Weight of the liquidation-cascade ballot (squeeze radar: OI + L/S + taker + funding) in the composite session verdict. Default 2.5 = the largest single ballot. 0 = disable (the ⛓ Telegram line still shows); 4 ≈ 25% of the total vote." },
   { key: "CYCLE_DAYS", group: "Universe / sessions", type: "number", def: CYCLE_DAYS, min: 100, max: 2000, step: 50, int: true, unit: "d", note: "Daily candles fetched for calendar-cycle stats (weekday / month / quarter). 2000 ≈ 5.5 years; Binance futures history starts ~Sep 2019." },
+  // Telegram notify (0.2.71) — 3 tầng: ALERT (streak/drawdown, không tắt được)
+  // + DIGEST (hourly/daily đã gộp) + MUTE (tin rờm theo loại ở TG_MUTE).
+  { key: "TG_MUTE", group: "Telegram notify", type: "string", def: TG_MUTE, maxLen: 40, pattern: "^(near|veto|autopsy|scan|close)?(,(near|veto|autopsy|scan|close))*$", note: "Silence noisy Telegram categories (comma-separated): near, veto, autopsy, scan, close. Empty = everything on. Alerts (loss streak / drawdown) are NEVER muted. Results still roll into the hourly/daily digest." },
+  { key: "TG_STREAK_ALERT", group: "Telegram notify", type: "number", def: TG_STREAK_ALERT, min: 0, max: 10, step: 1, int: true, unit: "losses", note: "🔴 Alert after every N consecutive losses (fires at N, 2N, 3N…; a win resets). Streak = regime mismatch — review gates or pause auto. 0 = off." },
+  { key: "TG_DD_ALERT", group: "Telegram notify", type: "number", def: TG_DD_ALERT, min: 0, max: 50, step: 0.5, unit: "%", note: "🔴 Alert the moment equity crosses below (24h peak × (1 − x%)). Fires once per crossing. 0 = off." },
 ];
 
-const GROUPS: ParamMeta["group"][] = ["Quality gate", "5-minute broadcast", "Scan digest", "Train / Prob", "Champion–challenger", "LLM Risk Officer", "Universe / sessions"];
+const GROUPS: ParamMeta["group"][] = ["Quality gate", "5-minute broadcast", "Scan digest", "Train / Prob", "Champion–challenger", "LLM Risk Officer", "Universe / sessions", "Telegram notify"];
 
 // ── Store (db/params-override.json) ──────────────────────────────────────────
 
@@ -178,7 +187,18 @@ const readOverrides = (): Overrides => {
 /** (string) trim + khống chế maxLen/pattern — null = từ chối. */
 const sanitizeStr = (meta: ParamMeta, raw: string): string | null => {
   const s = raw.trim();
-  if (!s) return null;
+  if (!s) {
+    // rỗng = giá trị HỢP LỆ chỉ khi pattern chủ đích cho phép (TG_MUTE=""
+    // nghĩa là "bật lại tất cả"); param mặc định non-empty vẫn bị chặn như cũ.
+    if (meta.pattern) {
+      try {
+        return new RegExp(meta.pattern).test("") ? "" : null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
   if (meta.maxLen != null && s.length > meta.maxLen) return null;
   if (meta.pattern) {
     try {

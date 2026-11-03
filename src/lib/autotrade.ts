@@ -850,6 +850,23 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
   }
   lines.push(`<code>${rows.join("\n")}</code>`);
   if (recent.length > DIGEST_LIST_MAX) lines.push(`…+${recent.length - DIGEST_LIST_MAX} more`);
+
+  // 💡 Lesson rollup (0.2.71) — khi per-trade AUTOPSY bị mute (TG_MUTE), bài
+  // học VẪN lọt vào digest: lấy autopsy MỚI NHẤT trong cửa sổ, gọn 1 dòng.
+  // JSON hỏng / rỗng → bỏ im lặng; không có lệnh nào → không in gì thêm.
+  for (const x of recent) {
+    if (!x.autopsy) continue;
+    try {
+      const a = JSON.parse(x.autopsy) as { lesson?: string };
+      const raw = (a.lesson ?? "").trim();
+      if (!raw) continue;
+      const esc = raw.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      lines.push("", `💡 Lesson (#${baseSym(x.symbol)} ${x.interval}): ${esc.length > 130 ? `${esc.slice(0, 130)}…` : esc}`);
+      break; // mới nhất trước — chỉ 1 bài học mỗi digest
+    } catch {
+      continue;
+    }
+  }
   return lines;
 }
 

@@ -23,6 +23,7 @@ import { db } from "./db";
 import { fetchKlinesDirect } from "./klines-direct";
 import { msgAutopsy } from "./tg-msgs";
 import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store";
+import { tgMuted } from "./tg-alerts";
 import type { Kline } from "./types";
 import {
   AUTOPSY_ON,
@@ -380,7 +381,7 @@ export async function autopsyClosedTrade(row: {
     console.log(
       `[autopsy] ${input.symbol} ${input.interval} ${input.side} ${json.outcome.toUpperCase()} · tag=${json.tag} · ${call.ms}ms — lesson: ${json.lesson}`,
     );
-    if (tgReady()) {
+    if (tgReady() && !tgMuted("autopsy")) {
       try {
         await tgSendMessage(msgAutopsy(input, json), "HTML");
       } catch {

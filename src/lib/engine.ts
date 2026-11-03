@@ -81,7 +81,8 @@ import { buildTopCoinsMessage, buildScanTop10Message, loadBcastState, saveBcastS
 import { loadScanState, saveScanState } from "./scan-state";
 import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store";
 import { pushAutoDigests } from "./autodigest";
-import { msgClose, msgDca, msgLlmVeto, msgNear, msgOpen } from "./tg-msgs";
+import { msgDca, msgLlmVeto, msgNear, msgOpen } from "./tg-msgs";
+import { notifyClosed, tgMuted } from "./tg-alerts";
 import { enqueueJob, jobViews } from "./engine-jobs";
 import { directionalPnl, outcomeOf } from "./history";
 import {
@@ -990,6 +991,10 @@ async function scanDigestTick(): Promise<void> {
     state.lastB[r.symbol] = now;
   }
   saveBcastState(state);
+  if (tgMuted("scan")) {
+    console.log(`[engine] scan digest muted (TG_MUTE) — top ${built.picked.length} of ${rows.length} rows`);
+    return;
+  }
   try {
     await tgSendMessage(built.text, "HTML");
     console.log(`[engine] scan digest sent — top ${built.picked.length} of ${rows.length} rows`);
@@ -1160,7 +1165,7 @@ async function llmGate(
     if (verdict && verdict.verdict === "skip") {
       vetoed = true;
       v.lastCycleStatus = `LLM veto ${row.symbol} ${row.interval}`;
-      if (tgReady()) void tgSendMessage(msgLlmVeto(row, verdict), "HTML");
+      if (tgReady() && !tgMuted("veto")) void tgSendMessage(msgLlmVeto(row, verdict), "HTML");
     }
   } catch {
     if (c.llmFailClosed === true) {
@@ -1193,10 +1198,7 @@ async function cycleTick(): Promise<void> {
           const closed = await closeTradeDirect(open.id, price, "trail");
           if (closed) {
             v.lastCycleStatus = `${closed.symbol} ${closed.interval} closed trail`;
-            if (tgReady()) {
-              const s2 = await readAutoState();
-              void tgSendMessage(msgClose(closed, s2.stats.closed, s2.stats.winRate, s2.stats.netPnlPct), "HTML");
-            }
+            void notifyClosed(closed);
           }
           return; // one position at a time — the next cycle re-evaluates entry
         }
@@ -1206,10 +1208,7 @@ async function cycleTick(): Promise<void> {
           const closed = await closeTradeDirect(open.id, price, liq ? "sl" : (kind ?? "sl"));
           if (closed) {
             v.lastCycleStatus = `${closed.symbol} ${closed.interval} closed ${closed.exitKind ?? ""}`;
-            if (tgReady()) {
-              const s2 = await readAutoState();
-              void tgSendMessage(msgClose(closed, s2.stats.closed, s2.stats.winRate, s2.stats.netPnlPct), "HTML");
-            }
+            void notifyClosed(closed);
           }
           return; // one position at a time — the next cycle re-evaluates entry
         }
@@ -1417,10 +1416,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
     `[engine] FLIP ${open.symbol} ${open.interval} ${from}→${to} @ ${price} — đóng lệnh cũ ROE ${(closed.pnlPct ?? 0) >= 0 ? "+" : ""}${(closed.pnlPct ?? 0).toFixed(2)}%`,
   );
   v.lastCycleStatus = `${open.symbol} ${open.interval} LẬT CHIỀU ${from}→${to}`;
-  if (tgReady()) {
-    const s2 = await readAutoState();
-    void tgSendMessage(msgClose(closed, s2.stats.closed, s2.stats.winRate, s2.stats.netPnlPct), "HTML");
-  }
+  void notifyClosed(closed);
 
   // 2) SL/TP mới đo tại giá lật (tpMode "atr") — fail-open giữ mức scan row
   const coef = row.atrCoef > 0 ? row.atrCoef : c.atrCoef;
@@ -1649,10 +1645,7 @@ async function watcherTick(): Promise<void> {
     if (trail.hit) {
       const closed = await closeTradeDirect(open.id, price, "trail");
       if (closed) {
-        if (tgReady()) {
-          const s2 = await readAutoState();
-          void tgSendMessage(msgClose(closed, s2.stats.closed, s2.stats.winRate, s2.stats.netPnlPct), "HTML");
-        }
+        void notifyClosed(closed);
         // book the fresh entry a few seconds later — same as the client flow
         if (c.on) {
           setTimeout(() => {
@@ -1670,10 +1663,7 @@ async function watcherTick(): Promise<void> {
     if (kind || liq) {
       const closed = await closeTradeDirect(open.id, price, liq ? "sl" : (kind ?? "sl"));
       if (closed) {
-        if (tgReady()) {
-          const s2 = await readAutoState();
-          void tgSendMessage(msgClose(closed, s2.stats.closed, s2.stats.winRate, s2.stats.netPnlPct), "HTML");
-        }
+        void notifyClosed(closed);
         // book the fresh entry a few seconds later — same as the client flow
         if (c.on) {
           setTimeout(() => {
@@ -1692,7 +1682,7 @@ async function watcherTick(): Promise<void> {
     if (near && !p.warned[near]) {
       p.warned[near] = true;
       persistEngine();
-      if (tgReady()) void tgSendMessage(msgNear(open, price, near), "HTML");
+      if (tgReady() && !tgMuted("near")) void tgSendMessage(msgNear(open, price, near), "HTML");
     }
     // price inside the near-SL band and the model still confident → DCA now,
     // before the stop ever fires (the warn above already announced the risk)
