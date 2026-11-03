@@ -35,12 +35,19 @@ export function wilsonLB(wins: number, n: number, z = 1.96): number {
 }
 
 export type StatState = "ok" | "warn" | "na";
+/** 0.2.67 — màu ngữ nghĩa của GIÁ TRỊ một field: server gắn tone theo ngưỡng
+ *  thật (ok xanh = tốt, warn vàng = cần chú ý, bad đỏ = xấu, info teal = mô
+ *  tả/live, dim xám = không dữ liệu/chân trang) — client chỉ tô, KHÔNG tự suy
+ *  từ chữ nên không bao giờ lệch giữa server và màn hình. */
+export type StatTone = "ok" | "warn" | "bad" | "info" | "dim";
 export interface StatMetric {
   k: string; // nhãn tiếng Việt (chuẩn chung với /api/ai-info — server gắn nhãn)
   v: string;
   sub?: string;
   /** chiếm trọn cả hàng (sm:col-span-2) — dòng dài không bị cắt giữa chừng */
   wide?: boolean;
+  /** 0.2.67 — tone màu cho giá trị (client tô theo bảng TONE_TEXT/TONE_EDGE) */
+  tone?: StatTone;
 }
 export interface StatSection {
   key: string;
@@ -122,6 +129,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         k: SESSION_VI[key],
         v: openNow ? `OPEN · closes in ${fmtDur(left)}` : `closed · opens in ${fmtDur(left)}`,
         sub: `${hh(s.from)}–${hh(s.to)}h UTC`,
+        tone: openNow ? "ok" : "dim", // xanh = phiên đang mở, xám = đã đóng (quy ước sàn)
       };
     };
 
@@ -132,12 +140,12 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       accPct: 100,
       accNote: "config + clock metrics — 100% from market.ts definitions",
       metrics: [
-        { k: "Open now", v: active.length ? active.map((s) => SESSION_VI[s]).join(" + ") : "between sessions", sub: `London+NY deep-liquidity flag = ${ov}` },
-        { k: "Next session", v: `${SESSION_VI[nextKey]} opens in ${fmtDur(nextInMin)}` },
+        { k: "Open now", v: active.length ? active.map((s) => SESSION_VI[s]).join(" + ") : "between sessions", sub: `London+NY deep-liquidity flag = ${ov}`, tone: active.length ? "ok" : "dim" },
+        { k: "Next session", v: `${SESSION_VI[nextKey]} opens in ${fmtDur(nextInMin)}`, tone: "info" },
         ...SESSIONS.map((s) => sessTile(s.key)),
-        { k: "Model input now", v: `one-hot [${oneHot.join(" · ")}]`, sub: "order: Sydney · Tokyo · London · New York" },
-        { k: "Liquidity windows", v: "00–06 · 07–09 · 12–16 (peak)", sub: "Syd+Tok · Tok+Lon · Lon+NY — all UTC" },
-        { k: "Notes", v: "London + New York overlap 12–16h UTC = peak liquidity — deepest books, tightest spreads; Sydney/Tokyo hours run thinner", wide: true },
+        { k: "Model input now", v: `one-hot [${oneHot.join(" · ")}]`, sub: "order: Sydney · Tokyo · London · New York", tone: "info" },
+        { k: "Liquidity windows", v: "00–06 · 07–09 · 12–16 (peak)", sub: "Syd+Tok · Tok+Lon · Lon+NY — all UTC", tone: "info" },
+        { k: "Notes", v: "London + New York overlap 12–16h UTC = peak liquidity — deepest books, tightest spreads; Sydney/Tokyo hours run thinner", wide: true, tone: "dim" },
       ],
     };
   });
@@ -163,13 +171,17 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       accPct: wilsonLB(wins, closed),
       accNote: `Wilson 95% lower bound on ${closed} closed trades — worst-case WR still credible`,
       metrics: [
-        { k: "Closed trades", v: String(closed), sub: `${wins} wins` },
-        { k: "Combos with data", v: String(comboStats(rows).length) },
-        ...combos.map((c) => ({
-          k: `${c.symbol.replace("USDT", "")} ${c.interval}`,
-          v: `${c.winRate.toFixed(0)}%`,
-          sub: `${c.closed} trades · net ${c.netPnlPct >= 0 ? "+" : ""}${c.netPnlPct.toFixed(1)}%`,
-        })),
+        { k: "Closed trades", v: String(closed), sub: `${wins} wins`, tone: "info" },
+        { k: "Combos with data", v: String(comboStats(rows).length), tone: "info" },
+        ...combos.map(
+          (c): StatMetric => ({
+            k: `${c.symbol.replace("USDT", "")} ${c.interval}`,
+            v: `${c.winRate.toFixed(0)}%`,
+            sub: `${c.closed} trades · net ${c.netPnlPct >= 0 ? "+" : ""}${c.netPnlPct.toFixed(1)}%`,
+            // WR ≥50% xanh, ≥40% vàng, dưới đỏ — cùng ngưỡng với bảng theo cặp
+            tone: c.winRate >= 50 ? "ok" : c.winRate >= 40 ? "warn" : "bad",
+          }),
+        ),
       ],
     };
   });
@@ -181,6 +193,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     const stale = !u || ageMin == null || ageMin > pval("UNIVERSE_SCAN_MS", UNIVERSE_SCAN_MS) / 60_000 + 60;
     const rows = u?.rows ?? [];
     const top = rows[0];
+    const upN = rows.filter((r) => r.trend > 0).length;
     return {
       state: (stale ? "warn" : "ok") as StatState,
       note: stale
@@ -189,17 +202,18 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       accPct: 100,
       accNote: "ranking metrics — 100% from universe.ts formula",
       metrics: [
-        { k: "Universe pool", v: `${UNIVERSE.length} pairs`, sub: "11 staple pairs always included" },
-        { k: "Published top", v: `${rows.length} pairs`, sub: u ? `scored ${ago(u.at)}` : "no snapshot yet" },
+        { k: "Universe pool", v: `${UNIVERSE.length} pairs`, sub: "11 staple pairs always included", tone: "info" },
+        { k: "Published top", v: `${rows.length} pairs`, sub: u ? `scored ${ago(u.at)}` : "no snapshot yet", tone: rows.length > 0 ? "info" : "warn" },
         ...(top
           ? [{
               k: "Top ranked",
               v: top.symbol.replace("USDT", ""),
               sub: `score ${top.score.toFixed(2)} · ATR ${top.atrPct.toFixed(2)}% · trend ${(top.trend * 100).toFixed(0)}% · 10d ${(top.ret10d * 100).toFixed(1)}%`,
+              tone: "info" as StatTone,
             }]
           : []),
-        { k: "Uptrend count", v: `${rows.filter((r) => r.trend > 0).length}/${rows.length}` },
-        { k: "Scoring window", v: `${UNIVERSE_LOOKBACK_CANDLES} 1h bars (~10 days)` },
+        { k: "Uptrend count", v: `${upN}/${rows.length}`, tone: rows.length === 0 ? "dim" : upN / rows.length > 0.5 ? "ok" : upN > 0 ? "warn" : "bad" },
+        { k: "Scoring window", v: `${UNIVERSE_LOOKBACK_CANDLES} 1h bars (~10 days)`, tone: "dim" },
       ],
     };
   });
@@ -226,11 +240,11 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       accPct: st.stats.closed > 0 ? wilsonLB(st.stats.wins, st.stats.closed) : 0,
       accNote: st.stats.closed > 0 ? `Wilson 95% lower bound on ${st.stats.closed} trades` : "no closed trades yet",
       metrics: [
-        { k: "Mode", v: cfg.on ? "Auto ON" : "Auto OFF", sub: "paper dry-run only" },
-        { k: "Equity", v: st.capital != null ? `$${st.capital.toFixed(2)}` : "—", sub: "start $1000" },
-        { k: "Closed / wins", v: `${st.stats.closed} / ${st.stats.wins}`, sub: `win rate ${st.stats.winRate.toFixed(0)}%` },
-        { k: "Net ROE sum", v: `${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(2)}%` },
-        { k: "Lesson samples", v: `${st.stats.closed * lw}`, sub: `${st.stats.closed} trades × LESSON_WEIGHT ${lw}` },
+        { k: "Mode", v: cfg.on ? "Auto ON" : "Auto OFF", sub: "paper dry-run only", tone: cfg.on ? "ok" : "warn" },
+        { k: "Equity", v: st.capital != null ? `$${st.capital.toFixed(2)}` : "—", sub: "start $1000", tone: st.capital == null ? "dim" : st.capital > 1000 ? "ok" : st.capital < 1000 ? "bad" : "info" },
+        { k: "Closed / wins", v: `${st.stats.closed} / ${st.stats.wins}`, sub: `win rate ${st.stats.winRate.toFixed(0)}%`, tone: st.stats.closed === 0 ? "dim" : st.stats.winRate >= 50 ? "ok" : st.stats.winRate >= 40 ? "warn" : "bad" },
+        { k: "Net ROE sum", v: `${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(2)}%`, tone: st.stats.netPnlPct > 0 ? "ok" : st.stats.netPnlPct < 0 ? "bad" : "dim" },
+        { k: "Lesson samples", v: `${st.stats.closed * lw}`, sub: `${st.stats.closed} trades × LESSON_WEIGHT ${lw}`, tone: "info" },
       ],
     };
   });
@@ -257,10 +271,10 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       accPct: 100,
       accNote: "live scan metrics — counted on ScanRow",
       metrics: [
-        { k: "Latest scan", v: scan ? ago(scan.at) : "not scanned", sub: `${rows.length} combo` },
-        { k: "Gate-pass candidates", v: `${cands.length}/${rows.length}`, sub: cands[0] ? `best ${cands[0].symbol.replace("USDT", "")} ${cands[0].interval} score ${cands[0].score.toFixed(1)}` : "—"},
-        { k: "NEUTRAL (skipped)", v: String(rows.filter((r) => r.bias === "NEUTRAL").length) },
-        { k: "Bcast gate 5m", v: `${pass}/${bcast.length} pass`, sub: "single gate algorithm for panel + Telegram" },
+        { k: "Latest scan", v: scan ? ago(scan.at) : "not scanned", sub: `${rows.length} combo`, tone: scan ? "info" : "bad" },
+        { k: "Gate-pass candidates", v: `${cands.length}/${rows.length}`, sub: cands[0] ? `best ${cands[0].symbol.replace("USDT", "")} ${cands[0].interval} score ${cands[0].score.toFixed(1)}` : "—", tone: cands.length > 0 ? "ok" : "warn" },
+        { k: "NEUTRAL (skipped)", v: String(rows.filter((r) => r.bias === "NEUTRAL").length), tone: "dim" },
+        { k: "Bcast gate 5m", v: `${pass}/${bcast.length} pass`, sub: "single gate algorithm for panel + Telegram", tone: bcast.length > 0 && pass === bcast.length ? "ok" : pass > 0 ? "info" : "warn" },
       ],
     };
   });
@@ -275,7 +289,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         note: "No open auto trade — engine stays flat until a gated candidate + LLM go.",
         accPct: 100,
         accNote: "empty state — by design",
-        metrics: [{ k: "Position", v: "No open trade" }],
+        metrics: [{ k: "Position", v: "No open trade", tone: "dim" }],
       };
     }
     const durMs = now - new Date(o.entryTime).getTime();
@@ -305,11 +319,12 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       accPct: 100,
       accNote: "live price at request time (if Binance responds)",
       metrics: [
-        { k: "Position", v: `${o.side} ${o.symbol.replace("USDT", "")} ${o.interval}`, sub: `×${o.leverage} · stake ${o.stakePct ?? 100}%` },
-        { k: "Entry", v: String(o.entryPrice), sub: `${durH.toFixed(1)}h ago` },
-        ...(roe != null ? [{ k: "Unrealized ROE", v: `${roe >= 0 ? "+" : ""}${roe.toFixed(2)}%` }] : []),
-        { k: "SL / TP", v: `${o.slPct}% / ${o.tpPct}%`, ...(slDist != null ? { sub: `to SL ${slDist >= 0 ? "+" : ""}${slDist.toFixed(2)} pts %` } : {}) },
-        { k: "LLM at entry", v: o.llmVerdict ?? "—", sub: o.llmReason ?? undefined },
+        // LONG xanh / SHORT đỏ — đúng quy ước side của cả app (suggestions, auto-panel…)
+        { k: "Position", v: `${o.side} ${o.symbol.replace("USDT", "")} ${o.interval}`, sub: `×${o.leverage} · stake ${o.stakePct ?? 100}%`, tone: o.side === "LONG" ? "ok" : "bad" },
+        { k: "Entry", v: String(o.entryPrice), sub: `${durH.toFixed(1)}h ago`, tone: "info" },
+        ...(roe != null ? [{ k: "Unrealized ROE", v: `${roe >= 0 ? "+" : ""}${roe.toFixed(2)}%`, tone: roe >= 0 ? ("ok" as StatTone) : ("bad" as StatTone) }] : []),
+        { k: "SL / TP", v: `${o.slPct}% / ${o.tpPct}%`, ...(slDist != null ? { sub: `to SL ${slDist >= 0 ? "+" : ""}${slDist.toFixed(2)} pts %` } : {}), tone: "info" },
+        { k: "LLM at entry", v: o.llmVerdict ?? "—", sub: o.llmReason ?? undefined, tone: o.llmVerdict === "go" ? "ok" : o.llmVerdict === "skip" ? "warn" : o.llmVerdict ? "bad" : "dim" },
       ],
     };
   });
@@ -342,11 +357,12 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       accPct: 100,
       accNote: "exact DB counts — not estimates",
       metrics: [
-        { k: "Total trades", v: String(rows.length), sub: `${rows.length - closed.length} open · ${closed.length} closed` },
-        { k: "TP / SL", v: `${kinds.tp} / ${kinds.sl}`, sub: `trail ${kinds.trail} · flip ${kinds.flip} · tay ${kinds.manual}` },
-        ...(avg != null ? [{ k: "Avg ROE", v: `${avg >= 0 ? "+" : ""}${avg.toFixed(2)}%` }] : []),
-        ...(best != null ? [{ k: "Best / worst", v: `+${best.toFixed(1)}% / ${worst ?? 0}%` }] : []),
-        { k: "Last 7 days", v: `${last7d} closed trades` },
+        { k: "Total trades", v: String(rows.length), sub: `${rows.length - closed.length} open · ${closed.length} closed`, tone: "info" },
+        // TP nhiều hơn SL xanh, ngược lại đỏ — bằng nhau thì teal
+        { k: "TP / SL", v: `${kinds.tp} / ${kinds.sl}`, sub: `trail ${kinds.trail} · flip ${kinds.flip} · tay ${kinds.manual}`, tone: kinds.tp > kinds.sl ? "ok" : kinds.tp < kinds.sl ? "bad" : "info" },
+        ...(avg != null ? [{ k: "Avg ROE", v: `${avg >= 0 ? "+" : ""}${avg.toFixed(2)}%`, tone: (avg > 0 ? "ok" : avg < 0 ? "bad" : "dim") as StatTone }] : []),
+        ...(best != null ? [{ k: "Best / worst", v: `+${best.toFixed(1)}% / ${worst ?? 0}%`, tone: "info" as StatTone }] : []),
+        { k: "Last 7 days", v: `${last7d} closed trades`, tone: "info" },
       ],
     };
   });
@@ -384,11 +400,11 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       accPct: judged > 0 ? wilsonLB(win, judged) : 0,
       accNote: judged > 0 ? `Wilson 95% lower bound on ${judged} resolved suggestions (ex-flat)` : "no scored suggestions yet",
       metrics: [
-        { k: "Total suggestions", v: String(rows.length), sub: `${rows.length - res.length} awaiting horizon` },
-        { k: "Win / Loss", v: `${win} / ${loss}`, sub: `flat ${flat} (excluded from hit-rate)` },
-        { k: "Side-aware hit-rate", v: judged > 0 ? `${((win / judged) * 100).toFixed(0)}%` : "—", sub: "prob aligned to bias side" },
-        ...(avgPnl != null ? [{ k: "Avg PnL", v: `${avgPnl >= 0 ? "+" : ""}${avgPnl.toFixed(2)}%` }] : []),
-        { k: "LONG / SHORT", v: `${rows.filter((r) => r.bias === "LONG").length} / ${rows.filter((r) => r.bias === "SHORT").length}` },
+        { k: "Total suggestions", v: String(rows.length), sub: `${rows.length - res.length} awaiting horizon`, tone: "info" },
+        { k: "Win / Loss", v: `${win} / ${loss}`, sub: `flat ${flat} (excluded from hit-rate)`, tone: judged === 0 ? "dim" : win > loss ? "ok" : win < loss ? "bad" : "info" },
+        { k: "Side-aware hit-rate", v: judged > 0 ? `${((win / judged) * 100).toFixed(0)}%` : "—", sub: "prob aligned to bias side", tone: judged === 0 ? "dim" : (win / judged) * 100 >= 50 ? "ok" : (win / judged) * 100 >= 40 ? "warn" : "bad" },
+        ...(avgPnl != null ? [{ k: "Avg PnL", v: `${avgPnl >= 0 ? "+" : ""}${avgPnl.toFixed(2)}%`, tone: (avgPnl >= 0 ? "ok" : "bad") as StatTone }] : []),
+        { k: "LONG / SHORT", v: `${rows.filter((r) => r.bias === "LONG").length} / ${rows.filter((r) => r.bias === "SHORT").length}`, tone: "info" },
       ],
     };
   });

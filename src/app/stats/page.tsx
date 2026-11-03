@@ -26,6 +26,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { fmtPct, fmtPrice, t, type Lang } from "@/lib/i18n";
 import type { Analysis } from "@/lib/analysis";
 import type { KpiStats } from "@/lib/papers";
+// 0.2.67 — chỉ import TYPE (erased lúc build) nên bundle trình duyệt không kéo
+// db/engine của stats.ts vào; màu do SERVER gắn qua field tone, client chỉ tô.
+import type { StatTone } from "@/lib/stats";
 import { fetchView } from "@/lib/view";
 import { DEFAULT_SETTINGS, DEFAULT_WYCKOFF, SYMBOLS } from "@/lib/types";
 import {
@@ -43,7 +46,7 @@ import { useCallback, useEffect, useState } from "react";
 
 // ─── hình dạng snapshot (khớp src/lib/stats.ts — khai tại chỗ để trang client
 // không kéo db/engine vào bundle trình duyệt) ─────────────────────────────────
-interface StatMetric { k: string; v: string; sub?: string; wide?: boolean }
+interface StatMetric { k: string; v: string; sub?: string; wide?: boolean; tone?: StatTone }
 interface StatSection {
   key: string;
   state: "ok" | "warn" | "na";
@@ -62,6 +65,28 @@ const PICK_TFS = ["5m", "15m", "1h", "4h"];
 // + giá trị đặc biệt "ALL" = journal gộp mọi cặp qua /api/journal
 const PICK_ALL = "ALL";
 const PICK_SYMBOLS: readonly string[] = SYMBOLS;
+
+// 0.2.67 — màu ngữ nghĩa cho MỌI field: server gắn tone theo ngưỡng thật,
+// client chỉ tra bảng — không tự suy từ chữ nên không bao giờ lệch màu.
+//   ok = xanh lá (tốt) · warn = vàng (cần chú ý) · bad = đỏ (xấu)
+//   info = teal (mô tả/số liệu live) · dim = xám (không dữ liệu/chân trang)
+const TONE_TEXT: Record<StatTone, string> = {
+  ok: "text-emerald-400",
+  warn: "text-amber-300",
+  bad: "text-rose-400",
+  info: "text-teal-300",
+  dim: "text-zinc-400",
+};
+/** viền trái ô field cùng màu với giá trị — nhìn lướt là biết tình trạng */
+const TONE_EDGE: Record<StatTone, string> = {
+  ok: "border-l-emerald-500/60",
+  warn: "border-l-amber-500/60",
+  bad: "border-l-rose-500/60",
+  info: "border-l-teal-500/60",
+  dim: "border-l-zinc-600/50",
+};
+const toneText = (tone?: StatTone): string => (tone ? TONE_TEXT[tone] : "text-zinc-100");
+const toneEdge = (tone?: StatTone): string => (tone ? TONE_EDGE[tone] : "border-l-zinc-800/80");
 
 /** một dòng bảng con theo cặp của /api/journal?symbol=ALL */
 interface PerPair {
@@ -229,10 +254,10 @@ export default function StatsPage() {
           {s.metrics.map((m, i) => (
             <div
               key={i}
-              className={`min-w-0 rounded-md border border-zinc-800/80 bg-zinc-950/50 px-2.5 py-1.5 ${m.wide ? "sm:col-span-2" : ""}`}
+              className={`min-w-0 rounded-md border border-l-2 border-zinc-800/80 bg-zinc-950/50 px-2.5 py-1.5 ${m.wide ? "sm:col-span-2" : ""} ${toneEdge(m.tone)}`}
             >
               <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">{m.k}</p>
-              <p className={`font-mono text-[13px] font-semibold text-zinc-100 ${m.wide ? "" : "truncate"}`}>{m.v}</p>
+              <p className={`font-mono text-[13px] font-semibold ${toneText(m.tone)} ${m.wide ? "" : "truncate"}`}>{m.v}</p>
               {m.sub && <p className={`text-[10px] text-zinc-500 ${m.wide ? "" : "truncate"}`}>{m.sub}</p>}
             </div>
           ))}
@@ -359,12 +384,17 @@ export default function StatsPage() {
               <CardContent className="space-y-2.5 pt-0">
                 {journal ? (
                   <div className="grid gap-1.5 sm:grid-cols-2">
-                    <Metric k={t(lang, "stats.j.trades")} v={String(journal.total)} sub={`${journal.closed} closed · ${journal.open} open`} />
-                    <Metric k="Win rate" v={`${journal.winRate.toFixed(0)}%`} sub={`${journal.wins} wins / ${journal.losses} losses`} />
-                    <Metric k="TP / SL" v={`${journal.tpCount} / ${journal.slCount}`} />
-                    <Metric k={t(lang, "stats.j.flips")} v={String(journal.flipCount)} sub={`net ${fmtPct(journal.flipNetPnl)}`} />
-                    <Metric k={t(lang, "stats.j.net")} v={fmtPct(journal.netPnl)} />
-                    <Metric k="UT-Bot signals" v={journal.basis} />
+                    <Metric k={t(lang, "stats.j.trades")} v={String(journal.total)} sub={`${journal.closed} closed · ${journal.open} open`} tone="info" />
+                    <Metric
+                      k="Win rate"
+                      v={`${journal.winRate.toFixed(0)}%`}
+                      sub={`${journal.wins} wins / ${journal.losses} losses`}
+                      tone={journal.closed === 0 ? "dim" : journal.winRate >= 50 ? "ok" : journal.winRate >= 40 ? "warn" : "bad"}
+                    />
+                    <Metric k="TP / SL" v={`${journal.tpCount} / ${journal.slCount}`} tone={journal.tpCount > journal.slCount ? "ok" : journal.tpCount < journal.slCount ? "bad" : "info"} />
+                    <Metric k={t(lang, "stats.j.flips")} v={String(journal.flipCount)} sub={`net ${fmtPct(journal.flipNetPnl)}`} tone="info" />
+                    <Metric k={t(lang, "stats.j.net")} v={fmtPct(journal.netPnl)} tone={journal.netPnl > 0 ? "ok" : journal.netPnl < 0 ? "bad" : "dim"} />
+                    <Metric k="UT-Bot signals" v={journal.basis} tone="info" />
                   </div>
                 ) : (
                   <p className="text-xs text-zinc-500">— {clientBusy ? "…" : "failed to load candles"}</p>
@@ -434,12 +464,12 @@ export default function StatsPage() {
                   <p className="text-xs leading-relaxed text-zinc-500">— {t(lang, "stats.analysisAll")}</p>
                 ) : analysis ? (
                   <div className="grid gap-1.5 sm:grid-cols-2">
-                    <Metric k="Trend (EMA50/200)" v={analysis.trend} sub={analysis.ema50 != null ? `EMA50 ${fmtPrice(analysis.ema50)}` : undefined} />
-                    <Metric k="RSI(14)" v={analysis.rsi14 != null ? analysis.rsi14.toFixed(1) : "—"} />
-                    <Metric k="Volume vs TB20" v={analysis.volRatio != null ? `${analysis.volRatio.toFixed(2)}×` : "—"} />
-                    <Metric k="ATR% (vs TB50)" v={analysis.atrPct != null ? `${analysis.atrPct.toFixed(2)}%` : "—"} sub={analysis.atrRel != null ? `${analysis.atrRel.toFixed(2)}× average` : undefined} />
-                    <Metric k="Structure" v={analysis.structure ?? "—"} sub={analysis.rangePos != null ? `range position ${analysis.rangePos.toFixed(0)}%` : undefined} />
-                    <Metric k="Swing range" v={analysis.rangeLow != null && analysis.rangeHigh != null ? `${fmtPrice(analysis.rangeLow)} – ${fmtPrice(analysis.rangeHigh)}` : "—"} />
+                    <Metric k="Trend (EMA50/200)" v={analysis.trend} sub={analysis.ema50 != null ? `EMA50 ${fmtPrice(analysis.ema50)}` : undefined} tone={analysis.trend === "up" ? "ok" : analysis.trend === "down" ? "bad" : "dim"} />
+                    <Metric k="RSI(14)" v={analysis.rsi14 != null ? analysis.rsi14.toFixed(1) : "—"} tone={analysis.rsi14 == null ? "dim" : analysis.rsi14 > 70 || analysis.rsi14 < 30 ? "warn" : "info"} />
+                    <Metric k="Volume vs TB20" v={analysis.volRatio != null ? `${analysis.volRatio.toFixed(2)}×` : "—"} tone={analysis.volRatio == null ? "dim" : analysis.volRatio > 2 ? "warn" : "info"} />
+                    <Metric k="ATR% (vs TB50)" v={analysis.atrPct != null ? `${analysis.atrPct.toFixed(2)}%` : "—"} sub={analysis.atrRel != null ? `${analysis.atrRel.toFixed(2)}× average` : undefined} tone={analysis.atrPct == null ? "dim" : analysis.atrPct > 3 ? "warn" : "info"} />
+                    <Metric k="Structure" v={analysis.structure ?? "—"} sub={analysis.rangePos != null ? `range position ${analysis.rangePos.toFixed(0)}%` : undefined} tone={analysis.structure === "breakout" ? "ok" : analysis.structure === "breakdown" ? "bad" : "info"} />
+                    <Metric k="Swing range" v={analysis.rangeLow != null && analysis.rangeHigh != null ? `${fmtPrice(analysis.rangeLow)} – ${fmtPrice(analysis.rangeHigh)}` : "—"} tone="info" />
                   </div>
                 ) : (
                   <p className="text-xs text-zinc-500">— {clientBusy ? "…" : "failed to load candles"}</p>
@@ -466,11 +496,11 @@ export default function StatsPage() {
   );
 }
 
-function Metric({ k, v, sub }: { k: string; v: string; sub?: string }) {
+function Metric({ k, v, sub, tone }: { k: string; v: string; sub?: string; tone?: StatTone }) {
   return (
-    <div className="min-w-0 rounded-md border border-zinc-800/80 bg-zinc-950/50 px-2.5 py-1.5">
+    <div className={`min-w-0 rounded-md border border-l-2 border-zinc-800/80 bg-zinc-950/50 px-2.5 py-1.5 ${toneEdge(tone)}`}>
       <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">{k}</p>
-      <p className="truncate font-mono text-[13px] font-semibold text-zinc-100">{v}</p>
+      <p className={`truncate font-mono text-[13px] font-semibold ${toneText(tone)}`}>{v}</p>
       {sub && <p className="truncate text-[10px] text-zinc-500">{sub}</p>}
     </div>
   );

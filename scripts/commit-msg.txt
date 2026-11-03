@@ -1,1 +1,23 @@
-0.2.66 — panel Trading sessions /stats: đầy đủ nội dung (trạng thái + đếm ngược tới phút cả 4 phiên, one-hot model đang nhận, cửa sổ thanh khoản), hết cắt chữ
+0.2.67 — trang /stats: tô màu ngữ nghĩa cho MỌI field (35/35), hết trắng xám đều
+
+Vấn đề: sau 0.2.66 panel có đủ nội dung nhưng mọi giá trị đều text-zinc-100
+trắng xám — không phân biệt tốt/xấu/cần chú ý khi nhìn lướt.
+
+Giải pháp: server gắn tone theo ngưỡng thật, client chỉ tô — không tự suy từ
+chữ nên màu không bao giờ lệch giữa server và màn hình:
+  ok   xanh lá  = tốt      (WR ≥50%, ROE dương, phiên OPEN, LLM go, breakout)
+  warn vàng    = cần chú ý (WR 40–49%, Auto OFF, 0 ứng viên, RSI quá mua/bán)
+  bad  đỏ      = xấu      (ROE âm, WR <40%, breakdown, LONG/SHORT theo side)
+  info teal    = mô tả/live (số đếm, one-hot, cửa sổ tính)
+  dim  xám     = không dữ liệu/chân trang (Notes, closed session, "—")
+
+- stats.ts: StatTone + tone trên StatMetric; gắn đủ 8 section (sessions,
+  combo, universe, auto, dock, open, hist, sg) + fix 0/0 uptrend → dim.
+- stats/page.tsx: TONE_TEXT + viền trái ô field cùng màu (TONE_EDGE); Metric
+  nhận tone — journal (WR/TP-SL/net) + deep analysis (trend/RSI/volume/ATR/
+  structure) đều tô theo ngưỡng.
+- Import type StatTone erased lúc build — bundle client không kéo db/engine.
+
+Kiểm chứng: tsc/lint/build sạch; standalone E2E — /api/stats 35/35 field có
+tone; soi ảnh /stats: sessions OPEN xanh/closed xám, Equity xanh, Auto OFF
+vàng, 0/17 vàng, TP/SL xanh, Win rate 44% vàng, Structure breakout xanh.
