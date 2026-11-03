@@ -43,7 +43,7 @@ import { useCallback, useEffect, useState } from "react";
 
 // ─── hình dạng snapshot (khớp src/lib/stats.ts — khai tại chỗ để trang client
 // không kéo db/engine vào bundle trình duyệt) ─────────────────────────────────
-interface StatMetric { k: string; v: string; sub?: string }
+interface StatMetric { k: string; v: string; sub?: string; wide?: boolean }
 interface StatSection {
   key: string;
   state: "ok" | "warn" | "na";
@@ -227,10 +227,13 @@ export default function StatsPage() {
       <CardContent className="space-y-2.5 pt-0">
         <div className="grid gap-1.5 sm:grid-cols-2">
           {s.metrics.map((m, i) => (
-            <div key={i} className="min-w-0 rounded-md border border-zinc-800/80 bg-zinc-950/50 px-2.5 py-1.5">
+            <div
+              key={i}
+              className={`min-w-0 rounded-md border border-zinc-800/80 bg-zinc-950/50 px-2.5 py-1.5 ${m.wide ? "sm:col-span-2" : ""}`}
+            >
               <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">{m.k}</p>
-              <p className="truncate font-mono text-[13px] font-semibold text-zinc-100">{m.v}</p>
-              {m.sub && <p className="truncate text-[10px] text-zinc-500">{m.sub}</p>}
+              <p className={`font-mono text-[13px] font-semibold text-zinc-100 ${m.wide ? "" : "truncate"}`}>{m.v}</p>
+              {m.sub && <p className={`text-[10px] text-zinc-500 ${m.wide ? "" : "truncate"}`}>{m.sub}</p>}
             </div>
           ))}
         </div>

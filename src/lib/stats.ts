@@ -17,7 +17,7 @@ import { readAutoState } from "@/lib/autostate";
 import { comboStats, isTradeable, type ScanRow } from "@/lib/autotrade";
 import { outcomeOf, type XgbBiasRow } from "@/lib/history";
 import { LESSON_WEIGHT, NOISE_BAND, SCAN_TTL, UNIVERSE_LOOKBACK_CANDLES, UNIVERSE_SCAN_MS, pval } from "@/lib/params";
-import { SESSIONS, sessionOf, sessionOverlap, type SessionKey } from "@/lib/market";
+import { SESSIONS, sessionOf, sessionOneHot, sessionOverlap, type SessionKey } from "@/lib/market";
 import { UNIVERSE } from "@/lib/universe";
 
 // ─── Wilson 95% lower bound — độ tin cậy cận dưới của một tỉ lệ ─────────────
@@ -39,6 +39,8 @@ export interface StatMetric {
   k: string; // nhãn tiếng Việt (chuẩn chung với /api/ai-info — server gắn nhãn)
   v: string;
   sub?: string;
+  /** chiếm trọn cả hàng (sm:col-span-2) — dòng dài không bị cắt giữa chừng */
+  wide?: boolean;
 }
 export interface StatSection {
   key: string;
@@ -88,30 +90,54 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
   const cfg = eng.cfg;
 
   // ─── 1. Trading sessions ──────────────────────────────────────────────────
+  // 0.2.66 — panel "còn trống" → đầy đủ: trạng thái + đếm ngược TỚI PHÚT của
+  // cả 4 phiên, vector one-hot model đang nhận lúc này, các cửa sổ chồng phiên.
+  // Tất cả suy ra từ đúng 1 bảng SESSIONS (market.ts) — vẫn "definition only".
   const sessions = await safe("sessions", async () => {
     const active = sessionOf(now);
     const ov = sessionOverlap(now);
-    const h = new Date(now).getUTCHours();
-    // phiên kế tiếp mở sớm nhất
-    let nextIn = 999;
+    const d = new Date(now);
+    const minsNow = d.getUTCHours() * 60 + d.getUTCMinutes();
+    const fmtDur = (m: number): string => `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
+    const hh = (n: number): string => String(n).padStart(2, "0");
+
+    // đếm ngược tới lúc PHIÊN KẾ mở (phút) — bỏ phiên đang mở (wait = 0)
+    let nextInMin = 1440;
     let nextKey: SessionKey = "sydney";
     for (const s of SESSIONS) {
-      const wait = (s.from - h + 24) % 24;
-      if (wait > 0 && wait < nextIn) {
-        nextIn = wait;
+      const wait = (s.from * 60 - minsNow + 1440) % 1440;
+      if (wait > 0 && wait < nextInMin) {
+        nextInMin = wait;
         nextKey = s.key;
       }
     }
+
+    // một ô cho mỗi phiên: OPEN + còn bao lâu đóng / closed + bao lâu nữa mở
+    const sessTile = (key: SessionKey): StatMetric => {
+      const s = SESSIONS.find((x) => x.key === key)!;
+      const openNow = active.includes(key);
+      const edge = (openNow ? s.to : s.from) * 60; // phút mốc đóng/mở kế tiếp
+      const left = (edge - minsNow + 1440) % 1440;
+      return {
+        k: SESSION_VI[key],
+        v: openNow ? `OPEN · closes in ${fmtDur(left)}` : `closed · opens in ${fmtDur(left)}`,
+        sub: `${hh(s.from)}–${hh(s.to)}h UTC`,
+      };
+    };
+
+    const oneHot = sessionOneHot(now);
     return {
       state: "ok" as StatState,
-      note: "Sessions are fixed UTC hour ranges — same frame the model gets via sessionOneHot at train time. No dynamic cross-check (definition only).",
+      note: "Sessions are fixed UTC hour ranges — same frame the model gets via sessionOneHot at train time. Statuses, countdowns and the one-hot vector are computed live from the SAME SESSIONS table; no dynamic cross-check (definition only).",
       accPct: 100,
-      accNote: "config metrics — 100% from market.ts definitions",
+      accNote: "config + clock metrics — 100% from market.ts definitions",
       metrics: [
-        { k: "Open now", v: active.length ? active.map((s) => SESSION_VI[s]).join(" + ") : "between sessions", sub: `overlap ${Math.round(ov * 100)}%` },
-        { k: "Next session", v: `${SESSION_VI[nextKey]} sau ${nextIn}h` },
-        { k: "Hours (UTC)", v: SESSIONS.map((s) => `${SESSION_VI[s.key]} ${s.from}–${s.to}h`).join(" · ") },
-        { k: "Notes", v: "London + New York overlap 12–16h UTC = peak liquidity" },
+        { k: "Open now", v: active.length ? active.map((s) => SESSION_VI[s]).join(" + ") : "between sessions", sub: `London+NY deep-liquidity flag = ${ov}` },
+        { k: "Next session", v: `${SESSION_VI[nextKey]} opens in ${fmtDur(nextInMin)}` },
+        ...SESSIONS.map((s) => sessTile(s.key)),
+        { k: "Model input now", v: `one-hot [${oneHot.join(" · ")}]`, sub: "order: Sydney · Tokyo · London · New York" },
+        { k: "Liquidity windows", v: "00–06 · 07–09 · 12–16 (peak)", sub: "Syd+Tok · Tok+Lon · Lon+NY — all UTC" },
+        { k: "Notes", v: "London + New York overlap 12–16h UTC = peak liquidity — deepest books, tightest spreads; Sydney/Tokyo hours run thinner", wide: true },
       ],
     };
   });
