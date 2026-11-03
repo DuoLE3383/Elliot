@@ -279,8 +279,36 @@ export function SignalDock({
                 icon={<Gauge className="h-3.5 w-3.5" />}
               />
             )}
-            <Row label={t(lang, "dock.row.sl")} value={fmtPrice(openPaper.sl)} className="text-rose-400" />
-            <Row label={t(lang, "dock.row.tp")} value={fmtPrice(openPaper.tp)} className="text-emerald-400" />
+            {/* % khoảng cách giá từ entry → SL/TP (tính từ giá thật đã lưu trên
+                lệnh, không phải slPct/tpPct prop — props có thể đã đổi sau khi
+                lệnh mở). leverage > 1 → kèm ROE% (= price% × leverage) y hệt
+                khối "Entry plan" bên dưới cho nhất quán. */}
+            {(() => {
+              const slMovePct = openPaper.entry > 0 ? Math.abs((openPaper.sl - openPaper.entry) / openPaper.entry) * 100 : 0;
+              const tpMovePct = openPaper.entry > 0 ? Math.abs((openPaper.tp - openPaper.entry) / openPaper.entry) * 100 : 0;
+              return (
+                <>
+                  <Row
+                    label={t(lang, "dock.row.sl")}
+                    value={
+                      fmtPrice(openPaper.sl) +
+                      ` · ${fmtPct(-slMovePct)}` +
+                      (leverage > 1 ? ` · ROE ${fmtPct(-slMovePct * leverage)}` : "")
+                    }
+                    className="text-rose-400"
+                  />
+                  <Row
+                    label={t(lang, "dock.row.tp")}
+                    value={
+                      fmtPrice(openPaper.tp) +
+                      ` · ${fmtPct(tpMovePct)}` +
+                      (leverage > 1 ? ` · ROE ${fmtPct(tpMovePct * leverage)}` : "")
+                    }
+                    className="text-emerald-400"
+                  />
+                </>
+              );
+            })()}
             <Row
               label={t(lang, "dock.row.flip")}
               value={t(lang, "dock.nextOpen")}

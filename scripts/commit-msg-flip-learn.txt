@@ -1,0 +1,51 @@
+flip-learning Phase 1 — LLM-side flip memory + anti-churn cooldown
+
+Problem: the flip path was the only auto-trade flow with no learning loop.
+- LLM gate at flip time got the same generic autopsy lessons as fresh entries
+  (mixed with entry wins/losses) — no memory of how THIS PAIR's past flips died.
+- No cooldown between flips — a model that oscillates LONG/SHORT every scan
+  cycle (5 min) could churn the position, paying spread + resetting SL/TP each
+  time. Self-improve agent had no flip-specific knob to tune.
+
+Phase 1 (LLM-side + control-plane; sample-efficient, no model retrain):
+
+1. autopsy.recentFlipLessons(symbol) — filters exitKind="flip" only, so the
+   flip gate sees flip-specific post-mortems instead of diluted entry lessons.
+
+2. LlmSetup.flipLessons — renders a DISTINCT "flip_lessons" block in the prompt
+   (separate from "recent_lessons"). The LLM sees "the bot has reversed here
+   before" and weighs those outcomes when deciding whether to flip again.
+
+3. engine.llmGate(row, side, slPct, tpPct, track, { isFlip }) — when isFlip,
+   fetches recentFlipLessons and passes them as flipLessons. tryFlip now calls
+   llmGate with { isFlip: true }.
+
+4. AutoConfig.flipCooldownMin + flipCooldownLeft() — anti-churn gate. 0 = off
+   (default, backward compatible). When > 0, the engine skips a flip if the
+   same combo was flipped within the last N minutes. Mirrors slCooldownLeft.
+
+5. self-improve.measureFlips() + decidePatch flip-tuning — every 6h, the agent
+   measures expectancy over closed flip trades (regardless of methodId). When
+   n >= 8 and expectancy < 0, raise flipCooldownMin one step (0->15->30->60).
+   When healthy, lower one step. Entry and flip tuning are ADDITIVE — both can
+   fire in one tick.
+
+Phase 2 (deferred, needs Phase 1 data): flip-specific XGBoost label
+(flipPnl > holdPnl counterfactual) and counterfactual KPI (flipEdgePct).
+TODOs left at xgb.ts:tradeLessonsToSamples and papers.ts:kpiFrom.
+
+Tests:
+- scripts/test-flip-learn.mts — 20 new tests covering flipLessons prompt
+  block, flipCooldownLeft math, and decidePatch flip-cooldown tuning.
+- scripts/test-autopsy.mts — 42 pass, no regressions.
+- scripts/test-autoflip.mts — 25 pass / 6 fail (the 6 failures are
+  pre-existing Vietnamese-substring mismatches in the test, present on the
+  unmodified main branch — verified by git stash).
+
+Files changed:
+  src/lib/autopsy.ts        +recentFlipLessons()
+  src/lib/llm.ts            +flipLessons field + prompt block
+  src/lib/engine.ts         llmGate isFlip flag, flipCooldownLeft guard, tryFlip wiring
+  src/lib/autotrade.ts      +flipCooldownLeft(), +flipCooldownMin knob
+  src/lib/self-improve.ts   +measureFlips(), decidePatch flip-tuning
+  scripts/test-flip-learn.mts (new)
