@@ -2,6 +2,17 @@
 // Runs inside the engine scheduler. Never opens live orders — only retunes
 // AutoConfig gates/stake within hard bounds after enough closed paper trades.
 // LLM RCA may *suggest*; this module *decides* with numeric rules only (P4).
+//
+// 0.2.75 — FALLBACK VOTER: methodId hashes the WHOLE policy string, so every
+// knob change (user edit, the agent's own +2 step, tpMode swap) mints a NEW
+// methodId and the active method's sample restarts at 0 — the agent used to go
+// dormant exactly while equity bled (LLM stats-dive then recommended manual
+// tightening = this agent's own job). Now a RECENT cross-method window (last
+// AGENT_RECENT_WINDOW closed trades, any methodId) may vote — TIGHTEN ONLY,
+// never restore (loosening must prove itself under the CURRENT policy).
+// Flip-cooldown tuning also runs when the active method is starved: flipStats
+// was already measured cross-method, the method-pure gate had no reason to
+// block it.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
@@ -9,6 +20,7 @@ import { db } from "./db";
 import { dataFile } from "./data-dir";
 import type { AutoConfig } from "./autotrade";
 import { FLIP_COOLDOWN_CHOICES } from "./autotrade";
+import { AGENT_FALLBACK_N, pval } from "./params";
 import { methodIdOf, methodLabel, methodSnapshot, type MethodSnapshot } from "./method";
 
 const STATE_FILE = dataFile("self-improve.json");
@@ -17,6 +29,11 @@ const MIN_N_MEASURE = 10;
 const MIN_N_PROMOTE = 20;
 const MIN_N_TIGHTEN = 15;
 const MIN_N_FLIP = 8; // need ≥8 closed flips before judging flip-expectancy
+/** Cửa sổ fallback — N lệnh đóng GẦN NHẤT (mọi methodId, theo exitTime).
+ *  30 ≈ đúng bán kính regime: đủ dài để không phản ứng sớm, đủ ngắn để số
+ *  mùa cũ không nói thay mùa hiện tại. Ngưỡng bật nằm ở AGENT_FALLBACK_N
+ *  (params.ts §4d, chỉnh runtime /ai). */
+const AGENT_RECENT_WINDOW = 30;
 
 export interface MethodStats {
   methodId: string;
@@ -148,6 +165,51 @@ export async function measureFlips(): Promise<MethodStats | null> {
   };
 }
 
+/** Tổng hợp một chuỗi pnlPct (lệnh đóng) thành MethodStats — hàm THUẦN để
+ *  test đối chiếu tay; measureRecent dùng đúng hàm này. */
+export function aggStats(methodId: string, pnls: number[]): MethodStats {
+  let wins = 0;
+  let net = 0;
+  let winSum = 0;
+  let lossSum = 0;
+  for (const pnl of pnls) {
+    net += pnl;
+    if (pnl > 0) {
+      wins += 1;
+      winSum += pnl;
+    } else if (pnl < 0) {
+      lossSum += pnl;
+    }
+  }
+  const n = pnls.length;
+  return {
+    methodId,
+    n,
+    wins,
+    winRate: n ? (wins / n) * 100 : 0,
+    netRoe: Math.round(net * 100) / 100,
+    expectancy: n ? Math.round((net / n) * 100) / 100 : 0,
+    avgWin: wins ? winSum / wins : 0,
+    avgLoss: n - wins ? lossSum / (n - wins) : 0,
+  };
+}
+
+/** CỬA SỔ GẦN — stats trên N lệnh đóng mới nhất qua MỌI methodId (theo
+ *  exitTime desc). Đây là cử tri fallback khi method active còn non (xem §4d
+ *  params.ts): chính sách có thể đổi mỗi ngày, nhưng 28 lệnh đóng gần nhất
+ *  mất −1.4%/lệnh là sự thật của CÙNG thị trường mà method mới sắp bước vào.
+ *  Null khi chưa có lệnh đóng nào. */
+export async function measureRecent(take = AGENT_RECENT_WINDOW): Promise<MethodStats | null> {
+  const rows = await db.autoTrade.findMany({
+    where: { status: "closed", exitTime: { not: null } },
+    select: { pnlPct: true },
+    orderBy: { exitTime: "desc" },
+    take,
+  });
+  if (rows.length === 0) return null;
+  return aggStats("__recent__", rows.map((r) => r.pnlPct ?? 0));
+}
+
 async function logEvent(
   kind: string,
   methodId: string,
@@ -175,35 +237,57 @@ async function logEvent(
  * tick. Entry tuning moves `minScore/minAcc/riskPct`; flip tuning moves
  * `flipCooldownMin`. When both need action, the returned patch carries both.
  *
- * Entry:
- *  - expectancy < 0 and n ≥ MIN_N_TIGHTEN → tighten gates, cut risk
- *  - expectancy ≥ 0.3 and n ≥ MIN_N_PROMOTE and WR ≥ 48 → mild risk restore (10→25)
+ * Entry — TWO voters, priority order:
+ *  1. method-pure `stats` (trades closed under the EXACT current policy):
+ *     - expectancy < 0 and n ≥ MIN_N_TIGHTEN → tighten gates, cut risk
+ *     - expectancy ≥ 0.3 and n ≥ MIN_N_PROMOTE and WR ≥ 48 → mild risk restore (10→25)
+ *  2. FALLBACK `recentStats` (last AGENT_RECENT_WINDOW closed, ANY methodId)
+ *     when the active methodId is too young to vote (n < MIN_N_MEASURE — every
+ *     knob change mints a new id): exp < 0 and n ≥ AGENT_FALLBACK_N → the SAME
+ *     tighten patch. TIGHTEN ONLY — the fallback never restores risk.
  * Flip:
  *  - expectancy < 0 and n ≥ MIN_N_FLIP → raise flipCooldownMin one step
  *  - expectancy ≥ 0.3 and WR ≥ 48 and n ≥ MIN_N_FLIP → lower flipCooldownMin one step
+ *  - (0.2.75: also runs when the active method is starved — flipStats is
+ *    measured cross-method anyway.)
  * Otherwise measure-only.
  *
- * `flipStats` is optional; when absent the flip-cooldown is left untouched.
+ * `flipStats` and `recentStats` are optional; when absent the corresponding
+ * tuning is left untouched.
  */
 export function decidePatch(
   stats: MethodStats | undefined,
   cfg: AutoConfig,
   flipStats?: MethodStats | null,
+  recentStats?: MethodStats | null,
 ): { patch: Partial<AutoConfig> | null; kind: string; note: string } {
-  if (!stats || stats.n < MIN_N_MEASURE) {
-    return {
-      patch: null,
-      kind: "skip",
-      note: `need ≥${MIN_N_MEASURE} closed on active method (have ${stats?.n ?? 0})`,
-    };
-  }
-
   const patch: Partial<AutoConfig> = {};
   const notes: string[] = [];
   let kind = "measure";
+  const starved = !stats || stats.n < MIN_N_MEASURE;
 
   // ── entry tuning ──────────────────────────────────────────────────────────
-  if (stats.n >= MIN_N_TIGHTEN && stats.expectancy < 0) {
+  if (starved) {
+    // Fallback voter (0.2.75, params.ts §4d): recent cross-method window may
+    // vote TIGHTEN-ONLY while the active methodId rebuilds its sample.
+    const fbMin = pval("AGENT_FALLBACK_N", AGENT_FALLBACK_N);
+    if (recentStats && fbMin > 0 && recentStats.n >= fbMin && recentStats.expectancy < 0) {
+      const nextScore = Math.min(85, Math.round(cfg.minScore + 2));
+      const nextAcc = Math.min(85, Math.round(cfg.minAcc + 1));
+      const nextRisk = Math.max(10, cfg.riskPct <= 10 ? 10 : cfg.riskPct === 25 ? 10 : cfg.riskPct === 50 ? 25 : 10);
+      if (nextScore !== cfg.minScore || nextAcc !== cfg.minAcc || nextRisk !== cfg.riskPct) {
+        patch.minScore = nextScore;
+        patch.minAcc = nextAcc;
+        patch.riskPct = nextRisk as AutoConfig["riskPct"];
+        notes.push(
+          `fallback tighten (recent ${recentStats.n} closed, cross-method): exp ${recentStats.expectancy}% WR ${recentStats.winRate.toFixed(0)}% · active method only ${stats?.n ?? 0} → minScore ${nextScore} minAcc ${nextAcc} risk ${nextRisk}%`,
+        );
+        kind = "promote";
+      } else {
+        notes.push(`fallback nothing left to tighten (minScore ${cfg.minScore} · risk ${cfg.riskPct}%)`);
+      }
+    }
+  } else if (stats.n >= MIN_N_TIGHTEN && stats.expectancy < 0) {
     const nextScore = Math.min(85, Math.round(cfg.minScore + 2));
     const nextAcc = Math.min(85, Math.round(cfg.minAcc + 1));
     const nextRisk = Math.max(10, cfg.riskPct <= 10 ? 10 : cfg.riskPct === 25 ? 10 : cfg.riskPct === 50 ? 25 : 10);
@@ -244,9 +328,13 @@ export function decidePatch(
   }
 
   if (Object.keys(patch).length === 0) {
+    if (starved) {
+      const base = `need ≥${MIN_N_MEASURE} closed on active method (have ${stats?.n ?? 0})`;
+      return { patch: null, kind: "skip", note: notes.length ? `${base} · ${notes.join(" · ")}` : base };
+    }
     return {
       patch: null,
-      kind: "measure",
+      kind,
       note: `tracking exp ${stats.expectancy}% WR ${stats.winRate.toFixed(0)}% n=${stats.n}`,
     };
   }
@@ -279,7 +367,8 @@ export async function runAgentTick(
   const methods = await measureMethods();
   const active = methods.find((m) => m.methodId === mid);
   const flipStats = await measureFlips();
-  const decision = decidePatch(active, cfg, flipStats);
+  const recent = await measureRecent();
+  const decision = decidePatch(active, cfg, flipStats, recent);
 
   // P2 discover: rank scored StrategyVariants (already in DB from lab) — log only
   let discoverNote = "";
@@ -318,13 +407,13 @@ export async function runAgentTick(
     applyCfg(decision.patch);
     cfgPatch = decision.patch;
     state.lastPromoteAt = now;
-    await logEvent(decision.kind, mid, { patch: decision.patch, active, snap }, decision.note);
+    await logEvent(decision.kind, mid, { patch: decision.patch, active, snap, recent }, decision.note);
   } else if (decision.patch) {
     decision.kind = "skip";
     decision.note = `promote cooldown · ${decision.note}`;
-    await logEvent("skip", mid, { active }, decision.note);
+    await logEvent("skip", mid, { active, recent }, decision.note);
   } else {
-    await logEvent(decision.kind, mid, { active, methods: methods.slice(0, 5) }, decision.note);
+    await logEvent(decision.kind, mid, { active, methods: methods.slice(0, 5), recent }, decision.note);
   }
 
   state.lastTickAt = now;
@@ -344,6 +433,7 @@ export async function runAgentTick(
 export async function agentSnapshot(cfg: AutoConfig, leverage: number) {
   const state = loadAgentState();
   const methods = await measureMethods();
+  const recent = await measureRecent();
   const snap = methodSnapshot(cfg, leverage);
   const mid = methodIdOf(snap);
   let events: { id: string; kind: string; methodId: string; note: string; createdAt: string }[] = [];
@@ -364,6 +454,7 @@ export async function agentSnapshot(cfg: AutoConfig, leverage: number) {
     activeLabel: methodLabel(snap),
     state,
     methods,
+    recent,
     events,
     cadenceHours: AGENT_EVERY_MS / 3_600_000,
   };

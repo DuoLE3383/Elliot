@@ -55,6 +55,7 @@ import {
   TP_LIQ_SAFE,
   FLIP_PROB_MIN,
   FLIP_SCORE_EXTRA,
+  AGENT_FALLBACK_N,
   CALIBRATE,
   TUNE_GRID,
   UNIVERSE_TOP,
@@ -135,6 +136,9 @@ export const EDITABLE: ParamMeta[] = [
   { key: "XGB_COLSUB", group: "Champion–challenger", type: "number", def: XGB_BASE.colSub, min: 0.3, max: 1, step: 0.05, note: "Column (feature) subsample per tree." },
   { key: "XGB_MINCHILD", group: "Champion–challenger", type: "number", def: XGB_BASE.minChild, min: 1, max: 64, step: 1, int: true, note: "Min samples per leaf. Higher = fewer, safer leaves." },
   { key: "XGB_BINS", group: "Champion–challenger", type: "number", def: XGB_BASE.bins, min: 8, max: 256, step: 8, int: true, note: "Histogram bins for feature quantisation. 32 is fine — touch only with a reason." },
+  // Self-improve fallback (0.2.75) — cùng nhóm champion–challenger ở tầng CHÍNH SÁCH:
+  // measure methods → promote/rollback config, đúng triết lý nhóm này.
+  { key: "AGENT_FALLBACK_N", group: "Champion–challenger", type: "number", def: AGENT_FALLBACK_N, min: 0, max: 30, step: 1, int: true, unit: "trades", note: "Self-improve fallback: when the active methodId is too young to vote (every knob change mints a new id and restarts its sample), the last-30-closed-trades window (any method) may tighten gates/cut risk if it holds ≥ this many trades with negative expectancy. Tighten-only — it NEVER restores risk. 0 = method-pure only (pre-0.2.75 behavior)." },
   // LLM Risk Officer — AUTOPSY_ON + LLM_TIMEOUT_MS là runtime-được: timeout
   // được đọc pval tại MỌI chỗ gọi (autopsy, review/test/stats-dive route,
   // llm.ts default args). Fail-closed sống trong cfg.llmFailClosed (Auto

@@ -163,6 +163,22 @@ export const TP_LEV_REF = 10;
  *  giữ nguyên R:R. */
 export const TP_LIQ_SAFE = 60;
 
+// ── 4d · SELF-IMPROVE FALLBACK — bù chốt methodId reset (0.2.75) ───────────
+// methodId là hash của TOÀN BỘ chính sách (sc|auc|acc|r|x|tp|sl|tpct|atr|tf|fl|wh)
+// → MỌI thay đổi knob (user chỉnh tay, agent tự +2 minScore, đổi tpMode 0.2.74)
+// đúc methodId MỚI, bộ đếm mẫu của method active về 0 và agent 6h ngủ đúng lúc
+// vốn đang chảy máu — LLM stats-dive phải "đề xuất thủ công" việc chính agent
+// sinh ra để làm. Cửa sổ gần (30 lệnh đóng mới nhất, qua mọi methodId) được
+// quyền BÒ CHỈ ĐỂ SIẾT (minScore +2 / minAcc +1 / hạ risk bậc thang) khi đủ n
+// và expectancy < 0. KHÔNG BAO GIỜ restore risk qua fallback — nới lỏng phải
+// chứng minh dưới CHÍNH method đang chạy (method-pure).
+
+/** Ngưỡng n tối thiểu của cửa sổ gần để fallback có hiệu lực. 0 = tắt (chỉ
+ *  method-pure như trước 0.2.75). Mặc định 15 = đúng MIN_N_TIGHTEN — cùng độ
+ *  chắc chắn tối thiểu agent vẫn yêu cầu khi đo method-pure. Chỉnh runtime
+ *  nhóm "Champion–challenger" trên /ai. */
+export const AGENT_FALLBACK_N = 15;
+
 // ── 5 · ENGINE CADENCE — nhịp quét của vòng auto ────────────────────────────
 
 /** Metronome 5 phút tái dùng snapshot scan mới hơn 4.5 phút (không quét lại). */
