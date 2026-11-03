@@ -658,7 +658,7 @@ export function PriceChart({
             opacity={0.75}
           />
 
-          {/* ── Wyckoff EMA 50/200 ─────────────────────────────────────── */}
+          {/* ── Wyckoff EMA 89/200 ─────────────────────────────────────── */}
           {wyOn && (
             <g clipPath="url(#wy-plot-clip)">
               <path d={linePath(wyckoff!.emaS)} fill="none" stroke={WY_EMA_S} strokeWidth={1} opacity={0.5} />
