@@ -6,7 +6,7 @@
 // phần lớn thời gian trả NEUTRAL vì mỗi tín hiệu đứng một mình, cửa sổ 1h
 // ngắn (~40 ngày) và không có yếu tố ngữ cảnh nào khác.
 //
-// v2 gộp 9 phiếu bầu có trọng số thành MỘT điểm composite −100..+100:
+// v2 gộp 10 phiếu bầu có trọng số thành MỘT điểm composite −100..+100:
 //   1. sessionBull  (w=2.0) — Bull% phiên tới, tin cậy theo n mẫu
 //   2. sessionDrift (w=1.0) — drift trung bình mỗi nến của phiên
 //   3. regime       (w=2.0) — giá vs SMA200 khung đang xem (lọc hướng TT)
@@ -16,6 +16,10 @@
 //   7. whale        (w=1.5) — taker delta 20 nến / tổng volume cửa sổ
 //   8. fearGreed    (w=1.0) — contrarian tại cực trị (mua sợ / bán tham)
 //   9. derivatives  (w=1.0) — funding cao + long chật chội → lean ngược
+//  10. liquidation  (w=SESS_LIQ_WEIGHT, mặc định 2.5 — 0.2.69) — radar
+//      squeeze (OI + L/S + taker + funding): dump → lean âm, short-squeeze
+//      → lean dương. Trước 0.2.69 radar chỉ là dòng ⛓ thông báo (weight 0
+//      trong verdict); giờ là phiếu đơn lớn nhất, chỉnh được trên panel /ai.
 //
 // Mỗi phiếu có "reliability" theo số mẫu: mẫu mỏng tự mờ đi (n/đủ). Mọi phiếu
 // kèm chữ giải thích trả về trong payload → panel liệt kê từng yếu tố, hết
@@ -27,7 +31,8 @@ import type { Kline } from "./types";
 import { fmtCompact, nextSessionOpen, type SessionKey, type SessionStat, type WhaleDelta } from "./market";
 import { cycleForecast, cycleStats, type CycleStats } from "./cycles";
 import { getMarketPulse, type MarketPulse } from "./market-pulse";
-import { pval, CYCLE_DAYS, SESS_CALL_BAND } from "./params";
+import { getSqueezeReport, type SqueezeReport } from "./squeeze";
+import { pval, CYCLE_DAYS, SESS_CALL_BAND, SESS_LIQ_WEIGHT } from "./params";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -120,6 +125,10 @@ export interface VerdictInputs {
   whale: WhaleDelta | null;
   daily: Kline[];
   pulse: MarketPulse | null;
+  /** radar squeeze (OI + L/S + taker + funding) — null/undefined = chưa có
+   *  → phiếu liquidation hiện dòng "unavailable" (lean null, như mọi phiếu
+   *  thiếu dữ liệu). Caller đã fetch sẵn (session-bcast) thì truyền lại. */
+  squeeze?: SqueezeReport | null;
 }
 
 /** HÀM THUẦN — mọi phiếu tính từ đầu vào; test được với dữ liệu tổng hợp. */
@@ -247,6 +256,33 @@ export function sessionVerdict(inp: VerdictInputs): SessionVerdict {
     push("derivs", 1, null, "derivatives unavailable");
   }
 
+  // 10 — liquidation cascade (0.2.69): radar squeeze lên thành phiếu bầu.
+  // DUMP → lean âm (đám đông long kẹt, cascade bán ép), PUMP → lean dương
+  // (short squeeze đốt shorts đẩy giá lên), CALM → lean 0 (có dữ liệu, không
+  // có nhiên liệu — pha loãng phiếu còn lại về neutral là đúng nghĩa).
+  // Trọng số SESS_LIQ_WEIGHT (mặc định 2.5 = phiếu đơn lớn nhất) đọc pval
+  // mỗi lần tính → chỉnh trên panel /ai có hiệu lực tin session kế tiếp.
+  const sqz = inp.squeeze ?? null;
+  const liqW = pval("SESS_LIQ_WEIGHT", SESS_LIQ_WEIGHT);
+  if (sqz) {
+    const r = sqz.risk;
+    const dir = r.lean === "dump" ? -1 : r.lean === "pump" ? 1 : 0;
+    const parts = [
+      sqz.lsRatio != null ? `LS ${sqz.lsRatio.toFixed(2)}` : null,
+      sqz.takerBuySell != null ? `taker ${sqz.takerBuySell.toFixed(2)}` : null,
+      sqz.oiChgPct.h4 != null ? `OI 4h ${sqz.oiChgPct.h4 >= 0 ? "+" : ""}${sqz.oiChgPct.h4.toFixed(1)}%` : null,
+      sqz.fundingRatePct != null ? `funding ${sqz.fundingRatePct >= 0 ? "+" : ""}${sqz.fundingRatePct.toFixed(3)}%/8h` : null,
+    ].filter((x): x is string => x != null);
+    push(
+      "liquidation",
+      liqW,
+      (dir * r.score) / 100,
+      `radar ${r.score}/100 ${r.lean.toUpperCase()}${parts.length > 0 ? ` — ${parts.join(" · ")}` : ""}`,
+    );
+  } else {
+    push("liquidation", liqW, null, "squeeze radar unavailable");
+  }
+
   // ── tổng phiếu ──
   let ws = 0;
   let acc = 0;
@@ -269,20 +305,25 @@ export function sessionVerdict(inp: VerdictInputs): SessionVerdict {
   };
 }
 
-/** Bề mặt cho /api/view + session-broadcast: tự nạp daily sâu + market pulse. */
+/** Bề mặt cho /api/view + session-broadcast: tự nạp daily sâu + market pulse
+ *  + radar squeeze (khi caller chưa truyền). Mọi nguồn fail-soft riêng. */
 export async function buildSessionVerdict(inp: {
   symbol: string;
   klines: Kline[];
   sessStats: SessionStat[];
   whale: WhaleDelta | null;
   daily?: Kline[] | null;
+  /** caller đã fetch radar (session-bcast dùng chung cho dòng ⛓) — không
+   *  truyền thì tự fetch theo inp.symbol (cache 3 phút của squeeze.ts). */
+  squeeze?: SqueezeReport | null;
 }): Promise<SessionVerdict | null> {
   try {
-    const [daily, pulse] = await Promise.all([
+    const [daily, pulse, sq] = await Promise.all([
       inp.daily && inp.daily.length >= 60 ? Promise.resolve(inp.daily) : deepDaily("BTCUSDT"),
       getMarketPulse().catch(() => null),
+      inp.squeeze !== undefined ? Promise.resolve(inp.squeeze) : getSqueezeReport(inp.symbol).catch(() => null),
     ]);
-    return sessionVerdict({ now: Date.now(), klines: inp.klines, sessStats: inp.sessStats, whale: inp.whale, daily, pulse });
+    return sessionVerdict({ now: Date.now(), klines: inp.klines, sessStats: inp.sessStats, whale: inp.whale, daily, pulse, squeeze: sq });
   } catch {
     return null; // fail-soft — panel vẫn hiển thị thống kê đơn như cũ
   }

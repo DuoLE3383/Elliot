@@ -98,6 +98,12 @@ export const SESS_BULL_SHORT_MAX = 40; // Bull% ≤ 40 → SHORT
 /** Ngưỡng composite verdict (session-forecast.ts): |điểm| ≥ band → BULL/BEAR,
  *  còn lại NEUTRAL. Panel /ai chỉnh được (0.2.60). */
 export const SESS_CALL_BAND = 25;
+/** Trọng số phiếu "liquidation" trong composite verdict (0.2.69) — radar
+ *  squeeze (OI + L/S + taker + funding) lên thành phiếu thứ 10. Mặc định 2.5
+ *  = phiếu đơn LỚN NHẤT (vượt session/regime 2.0): cascade thanh khoản mặc
+ *  giá phiên mạnh hơn thống kê lịch. 0 = tắt (chỉ còn dòng ⛓ thông báo);
+ *  chỉnh runtime trên panel /ai, tối đa 4 (~25% tổng phiếu). */
+export const SESS_LIQ_WEIGHT = 2.5;
 /** Số nến 1d nạp cho thống kê chu kỳ lịch (session-forecast deepDaily).
  *  2000 ≈ 5,5 năm — tối đa hữu ích trên Binance futures (~7 năm có thật).
  *  Cặp mới listing tự ngắn lại theo dữ liệu có. */

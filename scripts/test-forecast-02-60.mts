@@ -1,4 +1,7 @@
-// QA 0.2.60 — session forecast v2: composite verdict 9 yếu tố
+// QA 0.2.60 — session forecast v2: composite verdict (9 yếu tố lúc 0.2.60;
+// 0.2.69 thêm phiếu thứ 10 "liquidation" — mặc định lean null khi test không
+// truyền squeeze, nên mọi phép tính 0.2.60 giữ nguyên, chỉ đếm factors = 10).
+// Hành vi riêng của phiếu liquidation nằm ở test-sess-liq.mts.
 import { sessionVerdict, type VerdictInputs } from "../src/lib/session-forecast.ts";
 import { setOverride } from "../src/lib/params-store.ts";
 import type { Kline } from "../src/lib/types.ts";
@@ -72,7 +75,7 @@ const bullCase = inp({ closes: (i) => 100 * Math.pow(1.001, i), bull: 70, drift:
 const bull = sessionVerdict(bullCase);
 check("bull: call = BULL", bull.call === "BULL");
 check(`bull: score >= 30 (${bull.score})`, bull.score >= 30);
-check("bull: 9 factors", bull.factors.length === 9);
+check("bull: 10 factors (9 gốc + liquidation 0.2.69)", bull.factors.length === 10);
 check("bull: confidence = |score|", bull.confidence === Math.abs(bull.score));
 const fBull = bull.factors.filter((f) => (f.lean ?? 0) > 0).length;
 check(`bull: đa số yếu tố dương (${fBull})`, fBull >= 6);

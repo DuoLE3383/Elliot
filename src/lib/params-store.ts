@@ -44,6 +44,7 @@ import {
   SESS_BULL_LONG_MIN,
   SESS_BULL_SHORT_MAX,
   SESS_CALL_BAND,
+  SESS_LIQ_WEIGHT,
   SESS_SYMBOL,
   SIBLING_DISCOUNT,
   CALIBRATE,
@@ -140,6 +141,7 @@ export const EDITABLE: ParamMeta[] = [
   { key: "SESS_BULL_LONG_MIN", group: "Universe / sessions", type: "number", def: SESS_BULL_LONG_MIN, min: 51, max: 90, step: 1, int: true, unit: "%", note: "Telegram session bias: Bull% ≥ this → LONG. Legacy single-rule threshold, composite verdict uses SESS_CALL_BAND instead." },
   { key: "SESS_BULL_SHORT_MAX", group: "Universe / sessions", type: "number", def: SESS_BULL_SHORT_MAX, min: 10, max: 49, step: 1, int: true, unit: "%", note: "Telegram session bias: Bull% ≤ this → SHORT." },
   { key: "SESS_CALL_BAND", group: "Universe / sessions", type: "number", def: SESS_CALL_BAND, min: 10, max: 45, step: 1, int: true, note: "Composite session verdict: |score| ≥ band → BULL/BEAR, else NEUTRAL. Lower = more decisive calls (and more noise)." },
+  { key: "SESS_LIQ_WEIGHT", group: "Universe / sessions", type: "number", def: SESS_LIQ_WEIGHT, min: 0, max: 4, step: 0.1, note: "Weight of the liquidation-cascade ballot (squeeze radar: OI + L/S + taker + funding) in the composite session verdict. Default 2.5 = the largest single ballot. 0 = disable (the ⛓ Telegram line still shows); 4 ≈ 25% of the total vote." },
   { key: "CYCLE_DAYS", group: "Universe / sessions", type: "number", def: CYCLE_DAYS, min: 100, max: 2000, step: 50, int: true, unit: "d", note: "Daily candles fetched for calendar-cycle stats (weekday / month / quarter). 2000 ≈ 5.5 years; Binance futures history starts ~Sep 2019." },
 ];
 

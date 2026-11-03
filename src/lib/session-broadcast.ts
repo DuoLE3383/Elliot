@@ -260,12 +260,14 @@ export async function tickSessionBroadcast(now = Date.now()): Promise<TickResult
   }
   // radar đòn bẩy chạy song song kiến thức phiên — fail thì bỏ khối ⛓
   const sq = await getSqueezeReport(BCAST_SYMBOL).catch(() => null);
-  // composite verdict 9 yếu tố (0.2.60) — fail-soft, thiếu thì tin vẫn đi không dòng 🧭
+  // composite verdict 10 yếu tố (0.2.69: radar liquidation lên thành phiếu bầu
+  // w=SESS_LIQ_WEIGHT) — fail-soft, thiếu thì tin vẫn đi không dòng 🧭
   const verdict = await buildSessionVerdict({
     symbol: pval("SESS_SYMBOL", SESS_SYMBOL),
     klines,
     sessStats: sessionStats(klines),
     whale: whaleDelta(klines),
+    squeeze: sq, // dùng lại radar vừa fetch cho dòng ⛓ — không fetch 2 lần
   }).catch(() => null);
 
   const sent: SessionKey[] = [];
@@ -309,6 +311,7 @@ export async function sendSessionPreview(): Promise<{ ok: boolean; detail?: stri
       klines,
       sessStats: sessionStats(klines),
       whale: whaleDelta(klines),
+      squeeze: sq,
     }).catch(() => null);
     const text = `🧪 <b> — session broadcast preview</b>\n\n${buildSessionOpenMessage(opened, now, klines, now, sq, verdict)}`;
     return await tgSendMessage(text, "HTML");
