@@ -258,6 +258,32 @@ export function lastSlExit(
 }
 
 /**
+ * FLIP cooldown — phút còn lại trước khi cho phép lật chiều lại trên cùng combo.
+ * Anti-churn: model đảo chiều liên tục trong thị trường nhiễu có thể lật lệnh
+ * mỗi 5 phút (mỗi cycle), mỗi lần trả spread + reset SL/TP. Cooldown chặn nhịp
+ * lật dày quá — flip là luận điểm MỚI nên phải đợi đủ thời gian để luận điểm cũ
+ * thực sự thanh lý. 0 = tắt (giữ hành vi cũ). trades phải newest-first.
+ *
+ * Pha 1 (control-plane fix): knob tĩnh + self-improve agent (src/lib/self-improve)
+ * sẽ nắn `flipCooldownMin` theo flip-expectancy thật sau đủ mẫu.
+ */
+export function flipCooldownLeft(
+  trades: AutoTradeRow[],
+  symbol: string,
+  interval: string,
+  cooldownMin: number,
+  now = Date.now(),
+): number {
+  if (cooldownMin <= 0) return 0;
+  const last = trades.find(
+    (t) => t.status === "closed" && t.exitKind === "flip" && t.symbol === symbol && t.interval === interval,
+  );
+  if (!last?.exitTime) return 0;
+  const end = new Date(last.exitTime).getTime() + cooldownMin * 60_000;
+  return Math.max(0, Math.ceil((end - now) / 60_000));
+}
+
+/**
  * Chase guard — the "SL xong vào lại giá cao hơn" blocker.
  * After an SL exit on the SAME combo, a same-side re-entry is only allowed
  * once the price has reversed back through the exit level (SHORT: price is
@@ -884,6 +910,12 @@ export interface AutoConfig {
    *  ngược chiều NGAY trong chu kỳ đó. Thị trường luôn biến động — dự báo chỉ
    *  là dự báo; flip là cách bot theo kịch. false = giữ lệnh tới TP/SL. */
   autoFlip: boolean;
+  /** FLIP COOLDOWN — phút chặn lật chiều lại trên cùng combo sau lần flip gần
+   *  nhất (exitKind="flip"). Anti-churn: model đảo chiều liên tục trong thị
+   *  trường nhiễu có thể lật mỗi cycle (5 phút), mỗi lần trả spread + reset
+   *  SL/TP. 0 = tắt (giữ hành vi cũ). Self-improve agent tự nắn theo flip-
+   *  expectancy thật. */
+  flipCooldownMin: number;
   /** TRAILING STOP — dừng lệnh di động bảo vệ lợi nhuận: khi lời (theo % di
    *  chuyển giá, chưa nhân đòn bẩy) đạt trailActPct thì stop bám theo đỉnh
    *  (LONG) / đáy (SHORT) cách trailDistPct%; giá lùi đủ khoảng cách là chốt
@@ -928,6 +960,9 @@ export const AUTO_DEFAULTS: AutoConfig = {
   whaleFilter: true,
   broadcast: true,
   autoFlip: true,
+  // flip cooldown — tắt mặc định (0) để giữ hành vi cũ; self-improve agent sẽ
+  // bật khi flip-expectancy thật âm (xem decidePatch @ self-improve.ts).
+  flipCooldownMin: 0,
   // trailing stop — tắt mặc định; bật = bảo vệ lời tự động. trailAuto mặc định
   // BẬT: mỗi lệnh tự đề xuất act/dist theo ATR(cặp×khung)×đòn bẩy (0.2.63);
   // 2 số dưới chỉ còn là phương án thủ công khi trailAuto=false và fallback
@@ -938,6 +973,8 @@ export const AUTO_DEFAULTS: AutoConfig = {
   trailDistPct: 0.8,
 };
 export const COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
+/** FLIP cooldown choices — đồng bộ với COOLDOWN_CHOICES. 0 = tắt. */
+export const FLIP_COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
 /** DCA adds allowed into a losing position (model still confirming) */
 export const DCA_CHOICES = [0, 1, 2] as const;
 export const RISK_CHOICES = [10, 25, 50, 100] as const;
@@ -1020,6 +1057,9 @@ export function loadAutoConfig(): AutoConfig {
       whaleFilter: p.whaleFilter !== false,
       broadcast: p.broadcast !== false,
       autoFlip: p.autoFlip !== false,
+      flipCooldownMin: FLIP_COOLDOWN_CHOICES.includes(p.flipCooldownMin as 0 | 15 | 30 | 60)
+        ? (p.flipCooldownMin as number)
+        : AUTO_DEFAULTS.flipCooldownMin,
       trailOn: p.trailOn === true,
       trailAuto: p.trailAuto !== false,
       trailActPct:

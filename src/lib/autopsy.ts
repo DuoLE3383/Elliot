@@ -467,3 +467,45 @@ export async function recentAutopsyLessons(symbol: string, take = 5): Promise<st
     return [];
   }
 }
+
+/**
+ * Tối đa `take` bài học giải phẫu của các lệnh ĐÃ ĐÓNG BẰNG FLIP (exitKind="flip")
+ * của CHÍNH cặp này — vòng học RIÊNG cho flip gate. Bài học chung (recentAutopsy
+ * Lessons) trộn mọi exitKind nên tín hiệu flip bị pha loãng bởi entry wins/losses;
+ * hàm này chỉ giữ flip outcomes → Risk Officer phán flip trên bằng chứng flip.
+ * Mới nhất trước, mỗi bài ≤ 220 ký tự kèm kết quả thật. Lỗi DB trả [].
+ *
+ * Pha 1 (LLM-side fix): tách nguồn bài học flip khỏi entry. Pha 2 sẽ thêm label
+ * counterfactual cho XGBoost (xem TODO @ xgb.ts:tradeLessonsToSamples).
+ */
+export async function recentFlipLessons(symbol: string, take = 5): Promise<string[]> {
+  try {
+    const rows = await db.autoTrade.findMany({
+      where: {
+        symbol: symbol.toUpperCase(),
+        status: "closed",
+        exitKind: "flip",
+        autopsy: { not: null },
+      },
+      orderBy: { exitTime: "desc" },
+      take,
+      select: { interval: true, side: true, pnlPct: true, autopsy: true },
+    });
+    const out: string[] = [];
+    for (const r of rows) {
+      if (!r.autopsy) continue;
+      try {
+        const a = JSON.parse(r.autopsy) as Partial<AutopsyJson>;
+        if (!a.lesson) continue;
+        const pnl = r.pnlPct ?? 0;
+        const head = `[${r.interval} ${r.side} FLIP ${pnl >= 0 ? "+" : ""}${pnl.toFixed(1)}% ROE · tag=${a.tag ?? "?"}]`;
+        out.push(`${head} ${a.lesson}`.slice(0, 220));
+      } catch {
+        // JSON hỏng — bỏ bài này
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}

@@ -48,6 +48,12 @@ export interface LlmSetup {
    *  Đây là vòng "hiểu tại sao thua/tại sao thắng → phán đoán tốt hơn": prompt
    *  duyệt lệnh mới không chỉ nhìn metrics train mà còn nhìn hậu quả thật. */
   lessons?: string[];
+  /** Bài học giải phẫu RIÊNG cho các lệnh ĐÃ ĐÓNG BẰNG FLIP (exitKind="flip")
+   *  của chính cặp này — chỉ có khi đang duyệt lật chiều (tryFlip). Tách khỏi
+   *  `lessons` để LLM thấy rõ hậu quả của FLIP cụ thể (vd "4/5 flip gần đây thua
+   *  vì whipsaw 1h") thay vì bị pha loãng bởi entry wins/losses. Vắng mặt = đây
+   *  là review entry thường, không phải review flip. */
+  flipLessons?: string[];
   /** champion–challenger: best-ever val AUC của cặp symbol×interval này qua
    *  toàn bộ lịch sử train (DB). Cho LLM thấy model HIỆN TẠI đang đứng gần hay
    *  xa đỉnh tốt nhất từng đạt — model thoái hoá dù chưa chạm ngưỡng regressed
@@ -334,6 +340,15 @@ export function setupPrompt(s: LlmSetup): string {
       ? [
           "recent_lessons (post-mortems of the bot's own closed trades on this pair — operational evidence, weigh them):",
           ...s.lessons.map((l) => `- ${l}`),
+        ]
+      : []),
+    // bài học RIÊNG cho flip — chỉ có khi đang duyệt lật chiều (tryFlip). Tách
+    // block để LLM thấy đây là review flip và hậu quả flip cụ thể của cặp này.
+    // Vắng mặt = review entry thường, không phán về flip.
+    ...(s.flipLessons && s.flipLessons.length > 0
+      ? [
+          "flip_lessons (post-mortems of THIS PAIR's own FLIP exits — the bot has reversed here before; weigh these heavily when deciding whether flipping again is wise):",
+          ...s.flipLessons.map((l) => `- ${l}`),
         ]
       : []),
   ].join("\n");

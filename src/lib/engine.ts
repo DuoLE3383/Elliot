@@ -41,6 +41,7 @@ import {
   rowOf,
   scoreOf,
   slCooldownLeft,
+  flipCooldownLeft,
   slTpHit,
   trailNextPeak,
   trailStopPrice,
@@ -54,7 +55,7 @@ import {
   type ScanRow,
 } from "./autotrade";
 import { readAutoState, serialize } from "./autostate";
-import { autopsyBackfill, autopsyClosedTrade, recentAutopsyLessons } from "./autopsy";
+import { autopsyBackfill, autopsyClosedTrade, recentAutopsyLessons, recentFlipLessons } from "./autopsy";
 import { aliasFuturesSymbol, type EngineSettings, type Ticker } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 import { atrLevelsAtEntry } from "./indicators";
@@ -1072,6 +1073,10 @@ async function llmGate(
   slPct: number,
   tpPct: number,
   track?: string,
+  /** isFlip=true khi duyệt LẬT CHIỀU (tryFlip) — lúc này engine nạp thêm
+   *  recentFlipLessons (exitKind="flip" của cặp này) và truyền vào LlmSetup.
+   *  flipLessons để LLM thấy hậu quả flip cụ thể thay vì chỉ entry lessons chung. */
+  opts?: { isFlip?: boolean },
 ): Promise<{ verdict: LlmVerdict | null; vetoed: boolean }> {
   const { p, v } = eng();
   const c = p.cfg;
@@ -1081,7 +1086,15 @@ async function llmGate(
     // vòng học: bài giải phẫu các lệnh đã đóng của CHÍNH cặp này (mới nhất
     // trước, ≤5 bài) đi kèm setup — Risk Officer phán trên hậu quả thật.
     const lessons = pval("AUTOPSY_ON", AUTOPSY_ON) ? await recentAutopsyLessons(row.symbol).catch(() => []) : [];
-    if (lessons.length > 0) console.log(`[engine] LLM review ${row.symbol} ${row.interval} — nạp ${lessons.length} bài học autopsy`);
+    // vòng học FLIP — chỉ nạp khi duyệt lật chiều: bài giải phẫu RIÊNG của các
+    // lệnh exitKind="flip" cùng cặp. Tách khỏi entry lessons để LLM phán flip
+    // trên bằng chứng flip (vd "4/5 flip gần đây thua vì whipsaw 1h").
+    const flipLessons =
+      opts?.isFlip && pval("AUTOPSY_ON", AUTOPSY_ON) ? await recentFlipLessons(row.symbol).catch(() => []) : [];
+    if (lessons.length > 0 || flipLessons.length > 0)
+      console.log(
+        `[engine] LLM review ${row.symbol} ${row.interval}${opts?.isFlip ? " (FLIP)" : ""} — nạp ${lessons.length} bài autopsy + ${flipLessons.length} bài flip`,
+      );
     const failClosed = c.llmFailClosed === true;
     // Cap at 90s by default — user reports reviews finish in ~1 min; 300s only
     // masked hangs from json_schema / wrong model id.
@@ -1110,6 +1123,7 @@ async function llmGate(
         track,
         ...(row.champAuc ? { champAuc: row.champAuc, champAcc: row.champAcc } : {}),
         lessons: lessons.length > 0 ? lessons : undefined,
+        flipLessons: flipLessons.length > 0 ? flipLessons : undefined,
       },
       timeoutMs,
     );
@@ -1211,6 +1225,13 @@ async function cycleTick(): Promise<void> {
         }
         const scan = v.scan && Date.now() - v.scan.at <= SCAN_TTL ? v.scan : null;
         const row = scan?.rows.find((r) => r.symbol === open.symbol && r.interval === open.interval);
+        // flip cooldown — anti-churn: nếu combo vừa bị lật, đợi flipCooldownMin
+        // phút mới cho lật lại. 0 = tắt (giữ hành vi cũ). Trade list newest-first.
+        const flipCd = flipCooldownLeft(st.trades, open.symbol, open.interval, c.flipCooldownMin);
+        if (flipCd > 0) {
+          v.lastCycleStatus = `${base} · flip chờ ${flipCd}ph (cooldown)`;
+          return;
+        }
         const d = flipDecision(open, row, c);
         if (d.ok && row) {
           // tryFlip tự ghi status mọi nhánh (lật xong / LLM chặn / lỗi) —
@@ -1420,7 +1441,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
     st.stats.closed > 0
       ? `${st.stats.wins}W/${st.stats.closed - st.stats.wins}L · win rate ${st.stats.winRate.toFixed(0)}% · net ${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(1)}% ROE (${st.stats.closed} paper trades)`
       : undefined;
-  const { verdict: lastVerdict, vetoed } = await llmGate(row, to, slPct, tpPct, track);
+  const { verdict: lastVerdict, vetoed } = await llmGate(row, to, slPct, tpPct, track, { isFlip: true });
   if (vetoed) {
     v.lastCycleStatus = `flip ${from}→${to} bị chặn — đứng ngoài, chu kỳ sau xét lại`;
     return true; // lệnh cũ ĐÃ đóng — không ôm chiều cũ, cũng không mở mới

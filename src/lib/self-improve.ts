@@ -8,6 +8,7 @@ import path from "path";
 import { db } from "./db";
 import { dataFile } from "./data-dir";
 import type { AutoConfig } from "./autotrade";
+import { FLIP_COOLDOWN_CHOICES } from "./autotrade";
 import { methodIdOf, methodLabel, methodSnapshot, type MethodSnapshot } from "./method";
 
 const STATE_FILE = dataFile("self-improve.json");
@@ -15,6 +16,7 @@ const AGENT_EVERY_MS = 6 * 60 * 60_000; // 6h
 const MIN_N_MEASURE = 10;
 const MIN_N_PROMOTE = 20;
 const MIN_N_TIGHTEN = 15;
+const MIN_N_FLIP = 8; // need ≥8 closed flips before judging flip-expectancy
 
 export interface MethodStats {
   methodId: string;
@@ -106,6 +108,46 @@ export async function measureMethods(): Promise<MethodStats[]> {
   return out.sort((a, b) => b.n - a.n || b.expectancy - a.expectancy);
 }
 
+/**
+ * Measure ONLY closed trades whose exit was a FLIP (exitKind="flip"), regardless
+ * of methodId. Used by decidePatch to tune `flipCooldownMin` — the flip-specific
+ * knob. Returns null when there are no flip trades (engine never flipped, or
+ * flipCooldownMin was 0 and the model was decisive enough to churn).
+ */
+export async function measureFlips(): Promise<MethodStats | null> {
+  const rows = await db.autoTrade.findMany({
+    where: { status: "closed", exitKind: "flip" },
+    select: { pnlPct: true },
+  });
+  if (rows.length === 0) return null;
+  let n = 0;
+  let wins = 0;
+  let net = 0;
+  let winSum = 0;
+  let lossSum = 0;
+  for (const r of rows) {
+    const pnl = r.pnlPct ?? 0;
+    n += 1;
+    net += pnl;
+    if (pnl > 0) {
+      wins += 1;
+      winSum += pnl;
+    } else if (pnl < 0) {
+      lossSum += pnl;
+    }
+  }
+  return {
+    methodId: "__flip__",
+    n,
+    wins,
+    winRate: n ? (wins / n) * 100 : 0,
+    netRoe: Math.round(net * 100) / 100,
+    expectancy: n ? Math.round((net / n) * 100) / 100 : 0,
+    avgWin: wins ? winSum / wins : 0,
+    avgLoss: n - wins ? lossSum / (n - wins) : 0,
+  };
+}
+
 async function logEvent(
   kind: string,
   methodId: string,
@@ -128,13 +170,25 @@ async function logEvent(
 
 /**
  * Numeric policy (P3/P4) — no LLM in the decision path.
- * - expectancy < 0 and n ≥ MIN_N_TIGHTEN → tighten gates, cut risk
- * - expectancy ≥ 0.3 and n ≥ MIN_N_PROMOTE and WR ≥ 48 → slight risk restore (cap)
- * - otherwise measure-only
+ *
+ * Entry and flip tuning are INDEPENDENT and ADDITIVE — both can fire in one
+ * tick. Entry tuning moves `minScore/minAcc/riskPct`; flip tuning moves
+ * `flipCooldownMin`. When both need action, the returned patch carries both.
+ *
+ * Entry:
+ *  - expectancy < 0 and n ≥ MIN_N_TIGHTEN → tighten gates, cut risk
+ *  - expectancy ≥ 0.3 and n ≥ MIN_N_PROMOTE and WR ≥ 48 → mild risk restore (10→25)
+ * Flip:
+ *  - expectancy < 0 and n ≥ MIN_N_FLIP → raise flipCooldownMin one step
+ *  - expectancy ≥ 0.3 and WR ≥ 48 and n ≥ MIN_N_FLIP → lower flipCooldownMin one step
+ * Otherwise measure-only.
+ *
+ * `flipStats` is optional; when absent the flip-cooldown is left untouched.
  */
 export function decidePatch(
   stats: MethodStats | undefined,
   cfg: AutoConfig,
+  flipStats?: MethodStats | null,
 ): { patch: Partial<AutoConfig> | null; kind: string; note: string } {
   if (!stats || stats.n < MIN_N_MEASURE) {
     return {
@@ -144,45 +198,59 @@ export function decidePatch(
     };
   }
 
+  const patch: Partial<AutoConfig> = {};
+  const notes: string[] = [];
+  let kind = "measure";
+
+  // ── entry tuning ──────────────────────────────────────────────────────────
   if (stats.n >= MIN_N_TIGHTEN && stats.expectancy < 0) {
     const nextScore = Math.min(85, Math.round(cfg.minScore + 2));
     const nextAcc = Math.min(85, Math.round(cfg.minAcc + 1));
     const nextRisk = Math.max(10, cfg.riskPct <= 10 ? 10 : cfg.riskPct === 25 ? 10 : cfg.riskPct === 50 ? 25 : 10);
-    if (nextScore === cfg.minScore && nextAcc === cfg.minAcc && nextRisk === cfg.riskPct) {
-      return {
-        patch: null,
-        kind: "skip",
-        note: `already at tight bounds · exp ${stats.expectancy}% on n=${stats.n}`,
-      };
+    if (nextScore !== cfg.minScore || nextAcc !== cfg.minAcc || nextRisk !== cfg.riskPct) {
+      patch.minScore = nextScore;
+      patch.minAcc = nextAcc;
+      patch.riskPct = nextRisk as AutoConfig["riskPct"];
+      notes.push(`tighten entry: exp ${stats.expectancy}% WR ${stats.winRate.toFixed(0)}% n=${stats.n} → minScore ${nextScore} minAcc ${nextAcc} risk ${nextRisk}%`);
+      kind = "promote";
     }
-    return {
-      patch: { minScore: nextScore, minAcc: nextAcc, riskPct: nextRisk as AutoConfig["riskPct"] },
-      kind: "promote",
-      note: `tighten: exp ${stats.expectancy}% WR ${stats.winRate.toFixed(0)}% n=${stats.n} → minScore ${nextScore} minAcc ${nextAcc} risk ${nextRisk}%`,
-    };
-  }
-
-  if (stats.n >= MIN_N_PROMOTE && stats.expectancy >= 0.3 && stats.winRate >= 48) {
+  } else if (stats.n >= MIN_N_PROMOTE && stats.expectancy >= 0.3 && stats.winRate >= 48) {
     // mild restore only from 10 → 25, never jump to 50/100 automatically
     if (cfg.riskPct === 10) {
-      return {
-        patch: { riskPct: 25 },
-        kind: "promote",
-        note: `restore risk 10→25 · exp ${stats.expectancy}% WR ${stats.winRate.toFixed(0)}% n=${stats.n}`,
-      };
+      patch.riskPct = 25;
+      notes.push(`restore risk 10→25 · exp ${stats.expectancy}% WR ${stats.winRate.toFixed(0)}% n=${stats.n}`);
+      kind = "promote";
     }
-    return {
-      patch: null,
-      kind: "skip",
-      note: `method healthy exp ${stats.expectancy}% — no cfg change`,
-    };
   }
 
-  return {
-    patch: null,
-    kind: "measure",
-    note: `tracking exp ${stats?.expectancy ?? 0}% WR ${stats?.winRate.toFixed(0) ?? 0}% n=${stats?.n ?? 0}`,
-  };
+  // ── flip-cooldown tuning — independent of entry, can fire alongside ───────
+  // Flip has its own expectancy over its own sample. When flips lose on average
+  // AND we have enough of them, raise flipCooldownMin one step (0→15→30→60).
+  // When flips are healthy, lower one step toward 0. Stay within FLIP_COOLDOWN_CHOICES.
+  if (flipStats && flipStats.n >= MIN_N_FLIP) {
+    const idx = FLIP_COOLDOWN_CHOICES.indexOf(cfg.flipCooldownMin as (typeof FLIP_COOLDOWN_CHOICES)[number]);
+    const cur = idx < 0 ? 0 : idx;
+    if (flipStats.expectancy < 0 && cur < FLIP_COOLDOWN_CHOICES.length - 1) {
+      const next = FLIP_COOLDOWN_CHOICES[cur + 1];
+      patch.flipCooldownMin = next;
+      notes.push(`flip churn bleed: exp ${flipStats.expectancy}% WR ${flipStats.winRate.toFixed(0)}% n=${flipStats.n} → flipCooldownMin ${cfg.flipCooldownMin}→${next}`);
+      kind = "promote";
+    } else if (flipStats.expectancy >= 0.3 && flipStats.winRate >= 48 && cur > 0) {
+      const next = FLIP_COOLDOWN_CHOICES[cur - 1];
+      patch.flipCooldownMin = next;
+      notes.push(`flip edge healthy: exp ${flipStats.expectancy}% WR ${flipStats.winRate.toFixed(0)}% n=${flipStats.n} → flipCooldownMin ${cfg.flipCooldownMin}→${next}`);
+      kind = "promote";
+    }
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return {
+      patch: null,
+      kind: "measure",
+      note: `tracking exp ${stats.expectancy}% WR ${stats.winRate.toFixed(0)}% n=${stats.n}`,
+    };
+  }
+  return { patch, kind, note: notes.join(" · ") };
 }
 
 export async function runAgentTick(
@@ -210,7 +278,8 @@ export async function runAgentTick(
 
   const methods = await measureMethods();
   const active = methods.find((m) => m.methodId === mid);
-  const decision = decidePatch(active, cfg);
+  const flipStats = await measureFlips();
+  const decision = decidePatch(active, cfg, flipStats);
 
   // P2 discover: rank scored StrategyVariants (already in DB from lab) — log only
   let discoverNote = "";
