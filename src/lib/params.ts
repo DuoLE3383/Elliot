@@ -196,6 +196,46 @@ export function feeRoe(lev: number, sides = 2): number {
   return f > 0 && lev > 0 ? f * lev * sides : 0;
 }
 
+// ── 4e · RISK ENVELOPE — trần exposure tuyệt đối (0.2.79) ────────────────────
+// Audit 04/11: leverage ×10 + stake 10% + dcaMax 2 ⇒ 1 lệnh ~100% vốn notional,
+// DCA đầy ~300% — margin của vị thế bị quét chỉ sau ~3% giá ngược chiều, và
+// cứ 4% ngược chiều ở ×10 là −40% ROE: biên mỏng biến thành swing lớn. Hai tham
+// số dưới là LỚP VỎ BẢO HIỂM cấu hình (không phải mục tiêu giao dịch): engine
+// vốn ĐƠN VỊ THỂ — findFirst status "open" trước khi mở, không bao giờ chồng
+// vị thế chéo — nên exposure tổng = stake × (1 + số bù DCA) × leverage của
+// MỘT vị thế duy nhất; trần kẹp cả ba nhân tử đó bất kể Auto panel đặt gì.
+
+/** TRẦN ĐÒN BẨY — leverage hiệu dụng của engine không bao giờ vượt mức này.
+ *  Kẹp tại load engine.json + mỗi lần browser sync; vị thế ĐANG MỞ giữ nguyên
+ *  leverage lúc mở (không đổi thân phận lệnh giữa chừng). 0 = tắt. Mặc định 5
+ *  (audit khuyến nghị ×3-5: sống sót nhiễu bình thường, phí bớt nặng — ở ×10
+ *  round-trip taker ăn ~1% ROE/lệnh chỉ để đi vòng). Chỉnh runtime nhóm
+ *  Flip / SL-TP trên /ai. */
+export const RISK_MAX_LEV = 5;
+/** TRẦN STAKE TỔNG — % vốn tối đa MỘT vị thế được CAM (vào lệnh + mọi bù DCA
+ *  cộng dồn): entry bị kẹp xuống trần, lệnh DCA làm tổng vượt trần bị TỪ CHỐI
+ *  (SL làm việc — bù averaging-down ở stake đầy là martingale). 0 = tắt.
+ *  Mặc định 3 (audit: stake 2-3%/lệnh — thanh lý MỘT vị thế mất tối đa 3% vốn).
+ *  Muốn chạy dcaMax ≥ 1 thoải mái: hạ stake về ≤ trần/2 hoặc nới trần này. */
+export const RISK_MAX_STAKE = 3;
+
+/** Leverage hiệu dụng = min(lev, RISK_MAX_LEV); cap 0/tắt → nguyên giá trị. */
+export function clampLev(lev: number): number {
+  const cap = pval("RISK_MAX_LEV", RISK_MAX_LEV);
+  return cap > 0 && lev > cap ? cap : lev;
+}
+/** Stake hiệu dụng MỘT lần vào/lật = min(pct, RISK_MAX_STAKE); 0/tắt → nguyên. */
+export function clampStake(pct: number): number {
+  const cap = pval("RISK_MAX_STAKE", RISK_MAX_STAKE);
+  return cap > 0 && pct > cap ? cap : pct;
+}
+/** Bù DCA có được phép không — tổng stake (đã cam + bù mới) phải nằm trong
+ *  trần RISK_MAX_STAKE. eps chống sai số dấu phẩy động khi tổng == trần. */
+export function allowDcaAdd(curStake: number, addStake: number): boolean {
+  const cap = pval("RISK_MAX_STAKE", RISK_MAX_STAKE);
+  return !(cap > 0 && curStake + addStake > cap + 1e-9);
+}
+
 // ── 4d · SELF-IMPROVE FALLBACK — bù chốt methodId reset (0.2.75) ───────────
 // methodId là hash của TOÀN BỘ chính sách (sc|auc|acc|r|x|tp|sl|tpct|atr|tf|fl|wh)
 // → MỌI thay đổi knob (user chỉnh tay, agent tự +2 minScore, đổi tpMode 0.2.74)

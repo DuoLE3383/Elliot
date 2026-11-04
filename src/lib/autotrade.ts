@@ -27,6 +27,7 @@ import {
   TP_LEV_MODE,
   TP_LEV_REF,
   TP_LIQ_SAFE,
+  clampStake,
   pval,
 } from "./params";
 
@@ -147,7 +148,9 @@ export function llmTestSetup(
     slPct: cfg.tpMode === "manual" ? cfg.slPct : pick.slPct,
     tpPct: cfg.tpMode === "manual" ? cfg.tpPct : pick.tpPct,
     leverage,
-    stakePct: cfg.riskPct,
+    // RISK ENVELOPE — “Duyệt thử” thấy stake engine THỰC SỰ sẽ cam (sau kẹp
+    // trần RISK_MAX_STAKE), cùng con số prompt Risk Officer đang duyệt.
+    stakePct: clampStake(cfg.riskPct),
     horizon: pick.horizon,
     samples: pick.samples,
     score: pick.score,
@@ -960,7 +963,11 @@ export interface AutoConfig {
   on: boolean;
   /** dry-run starting equity, USDT */
   capital: number;
-  /** share of equity staked per trade, % (100 = all-in) */
+  /** share of equity staked per trade, % (100 = all-in) — ĐÂY CHÍNH LÀ
+   *  stakePct ghi vào mỗi trade row (MỘT núm, hai tên gọi: riskPct trên
+   *  panel = stakePct trong DB/prompt LLM). Engine kẹp bằng trần runtime
+   *  RISK_MAX_STAKE (params.ts §4e) lúc vào lệnh/lật chiều; lệnh ghi số đã
+   *  kẹp, mọi thống kê sau đó đúng theo số thực cam. */
   riskPct: number;
   /** TP/SL source: "dyn" = dynamic calculator pair × time × volume measured
    *  at entry time (default, 0.2.74 — ATR% × heat(TR 5 nến gần vs ATR) × vol(20
@@ -1042,7 +1049,10 @@ export interface AutoConfig {
 export const AUTO_DEFAULTS: AutoConfig = {
   on: false,
   capital: 1000,
-  riskPct: 25,
+  // audit 04/11: 25% vốn/lệnh là nguyên nhân −40% net ROE hoá nhỏ thành
+  // swing vốn lớn; khuyến nghị 2-3%/lệnh — mặc định 3, trần RISK_MAX_STAKE
+  // (params §4e) kẹp bất kể panel đặt gì. Thêm lựa chọn 2/3/5% ở RISK_CHOICES.
+  riskPct: 3,
   tpMode: "dyn",
   slPct: 1,
   tpPct: 1.5,
@@ -1083,7 +1093,9 @@ export const COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
 export const FLIP_COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
 /** DCA adds allowed into a losing position (model still confirming) */
 export const DCA_CHOICES = [0, 1, 2] as const;
-export const RISK_CHOICES = [10, 25, 50, 100] as const;
+/** Stake/lệnh chọn trên panel — thêm 2/3/5% (audit khuyến nghị) giữ nguyên
+ *  các mức cũ; engine vẫn kẹp bằng RISK_MAX_STAKE cho dù chọn mức nào. */
+export const RISK_CHOICES = [2, 3, 5, 10, 25, 50, 100] as const;
 export const TP_MODES = ["dyn", "auto", "manual"] as const;
 
 /** Chuẩn hoá tpMode — MỘT nguồn cho localStorage (loadAutoConfig), engine.json

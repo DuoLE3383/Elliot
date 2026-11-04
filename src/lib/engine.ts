@@ -102,6 +102,10 @@ import {
   TICKERS_TTL,
   TP_LIQ_SAFE,
   UNIVERSE_MIN_CANDLES,
+  RISK_MAX_STAKE,
+  allowDcaAdd,
+  clampLev,
+  clampStake,
   pval,
 } from "./params";
 import { hydrateParams } from "./params-store";
@@ -217,7 +221,9 @@ function loadEngine(): void {
       }
       if (raw.settings) p.settings = { ...DEFAULT_SETTINGS, ...raw.settings };
       if (Array.isArray(raw.pairs)) p.pairs = raw.pairs.filter((x) => typeof x === "string").slice(0, 200);
-      if (typeof raw.leverage === "number" && raw.leverage >= 1) p.leverage = raw.leverage;
+      // RISK ENVELOPE (0.2.79) — trần đòn bẩy: kẹp TẠI ĐỌC nên p.leverage luôn
+      // nằm trong trần bất kể engine.json/browser đẩy gì lên (0 = tắt).
+      if (typeof raw.leverage === "number" && raw.leverage >= 1) p.leverage = clampLev(raw.leverage);
       if (typeof raw.syncedAt === "number") p.syncedAt = raw.syncedAt;
       if (typeof raw.nextCycleAt === "number") p.nextCycleAt = raw.nextCycleAt;
       if (raw.warned && typeof raw.warned === "object") p.warned = raw.warned;
@@ -1133,7 +1139,9 @@ async function llmGate(
         slPct,
         tpPct,
         leverage: p.leverage,
-        stakePct: c.riskPct,
+        // RISK ENVELOPE — Risk Officer thấy ĐÚNG stake engine sẽ cam (sau kẹp
+        // trần), không phải số trên panel; prompt dòng risk phản ánh số thật.
+        stakePct: clampStake(c.riskPct),
         horizon: row.horizon,
         samples: row.samples,
         score: row.score,
@@ -1378,6 +1386,13 @@ async function cycleTick(): Promise<void> {
     if (existing) return; // a watcher/other tab won the race
     const stNow = await readAutoState();
     const capitalNow = stNow.capital ?? c.capital;
+    // RISK ENVELOPE (0.2.79) — stake cam = min(cfg.riskPct, RISK_MAX_STAKE):
+    // lệnh ghi số ĐÃ KẸP (equity impact của lệnh = capitalBefore × stakePct ×
+    // pnlPct), kẹp bị ghi rõ log + status + note Telegram — không âm thầm.
+    const stakeUsed = clampStake(c.riskPct);
+    if (stakeUsed < c.riskPct) {
+      console.log(`[engine] stake ${c.riskPct}% → ${stakeUsed}% (trần RISK_MAX_STAKE ${pval("RISK_MAX_STAKE", RISK_MAX_STAKE)}%)`);
+    }
     const created = await db.autoTrade.create({
       data: {
         symbol: best.symbol,
@@ -1387,7 +1402,7 @@ async function cycleTick(): Promise<void> {
         slPct: finalSl,
         tpPct: finalTp,
         leverage: p.leverage,
-        stakePct: c.riskPct,
+        stakePct: stakeUsed,
         prob: best.prob,
         acc: best.acc,
         auc: best.auc,
@@ -1402,20 +1417,25 @@ async function cycleTick(): Promise<void> {
       },
     });
     const trade = serialize(created);
-    v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice}`;
+    v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice}${stakeUsed < c.riskPct ? ` · stake ${stakeUsed}% (trần ${stakeUsed}<${c.riskPct}%)` : ""}`;
     p.warned = { id: trade.id, tp: false, sl: false };
-    p.dca = { id: trade.id, count: 0, stake0: trade.stakePct ?? c.riskPct, prices: [trade.entryPrice] };
+    p.dca = { id: trade.id, count: 0, stake0: stakeUsed, prices: [trade.entryPrice] };
     persistEngine();
     if (tgReady()) {
+      // note kẹp stake (envelope) nối đuôi note SL/TP — 1 dòng, mọi nguồn thấy
+      const capNote = stakeUsed < c.riskPct ? `🛡 stake ${c.riskPct}% → ${stakeUsed}% (trần RISK_MAX_STAKE)` : "";
+      const baseNote =
+        c.tpMode === "dyn" && live
+          ? `📏 SL/TP động = ATR ${live.atrPct.toFixed(2)}% × ${coef} · time ×${live.heatMul.toFixed(2)} · vol ×${live.volMul.toFixed(2)}${levScale < 1 ? ` · lev-norm ×${levScale.toFixed(2)} @ ×${p.leverage}` : ""} → SL ${finalSl}% · TP ${finalTp}% — pair/time/volume đo tại entry`
+          : finalSl !== entrySl || finalTp !== entryTp
+            ? `📏 SL/TP liq-capped @ ×${p.leverage}: ${entrySl}/${entryTp}% → ${finalSl}/${finalTp}% (max ${pval("TP_LIQ_SAFE", TP_LIQ_SAFE)}% of the liquidation distance)`
+            : "";
+      const note = [baseNote, capNote].filter(Boolean).join(" · ") || undefined;
       void tgSendMessage(
         msgOpen(
           trade,
           capitalNow,
-          c.tpMode === "dyn" && live
-            ? `📏 SL/TP động = ATR ${live.atrPct.toFixed(2)}% × ${coef} · time ×${live.heatMul.toFixed(2)} · vol ×${live.volMul.toFixed(2)}${levScale < 1 ? ` · lev-norm ×${levScale.toFixed(2)} @ ×${p.leverage}` : ""} → SL ${finalSl}% · TP ${finalTp}% — pair/time/volume đo tại entry`
-            : finalSl !== entrySl || finalTp !== entryTp
-              ? `📏 SL/TP liq-capped @ ×${p.leverage}: ${entrySl}/${entryTp}% → ${finalSl}/${finalTp}% (max ${pval("TP_LIQ_SAFE", TP_LIQ_SAFE)}% of the liquidation distance)`
-              : undefined,
+          note,
         ),
         "HTML",
       );
@@ -1498,6 +1518,11 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
   if (existing) return true; // watcher/luồng khác vừa mở — đừng đụng vào
   const stNow = await readAutoState();
   const capitalNow = stNow.capital ?? c.capital;
+  // RISK ENVELOPE — flip cam stake ĐÃ KẸP trần như lệnh thường (một nguồn)
+  const stakeUsed = clampStake(c.riskPct);
+  if (stakeUsed < c.riskPct) {
+    console.log(`[engine] stake (flip) ${c.riskPct}% → ${stakeUsed}% (trần RISK_MAX_STAKE ${pval("RISK_MAX_STAKE", RISK_MAX_STAKE)}%)`);
+  }
   const created = await db.autoTrade.create({
     data: {
       symbol: row.symbol,
@@ -1507,7 +1532,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
       slPct: finalSl,
       tpPct: finalTp,
       leverage: p.leverage,
-      stakePct: c.riskPct,
+      stakePct: stakeUsed,
       prob: row.prob,
       acc: row.acc,
       auc: row.auc,
@@ -1520,20 +1545,24 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
     },
   });
   const trade = serialize(created);
-  v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice} (lật từ ${from})`;
+  v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice} (lật từ ${from})${stakeUsed < c.riskPct ? ` · stake ${stakeUsed}% (trần ${stakeUsed}<${c.riskPct}%)` : ""}`;
   p.warned = { id: trade.id, tp: false, sl: false };
-  p.dca = { id: trade.id, count: 0, stake0: trade.stakePct ?? c.riskPct, prices: [trade.entryPrice] };
+  p.dca = { id: trade.id, count: 0, stake0: stakeUsed, prices: [trade.entryPrice] };
   persistEngine();
   if (tgReady()) {
+    const capNote = stakeUsed < c.riskPct ? `🛡 stake ${c.riskPct}% → ${stakeUsed}% (trần RISK_MAX_STAKE)` : "";
+    const baseNote =
+      c.tpMode === "dyn" && live
+        ? `📏 SL/TP động = ATR ${live.atrPct.toFixed(2)}% × ${coef} · time ×${live.heatMul.toFixed(2)} · vol ×${live.volMul.toFixed(2)}${levScale < 1 ? ` · lev-norm ×${levScale.toFixed(2)} @ ×${p.leverage}` : ""} → SL ${finalSl}% · TP ${finalTp}% — pair/time/volume đo lúc LẬT CHIỀU 🔄`
+        : finalSl !== slPct || finalTp !== tpPct
+          ? `📏 SL/TP liq-capped @ ×${p.leverage}: ${slPct}/${tpPct}% → ${finalSl}/${finalTp}% (max ${pval("TP_LIQ_SAFE", TP_LIQ_SAFE)}% of the liquidation distance)`
+          : "";
+    const note = [baseNote, capNote].filter(Boolean).join(" · ") || undefined;
     void tgSendMessage(
       msgOpen(
         trade,
         capitalNow,
-        c.tpMode === "dyn" && live
-          ? `📏 SL/TP động = ATR ${live.atrPct.toFixed(2)}% × ${coef} · time ×${live.heatMul.toFixed(2)} · vol ×${live.volMul.toFixed(2)}${levScale < 1 ? ` · lev-norm ×${levScale.toFixed(2)} @ ×${p.leverage}` : ""} → SL ${finalSl}% · TP ${finalTp}% — pair/time/volume đo lúc LẬT CHIỀU 🔄`
-          : finalSl !== slPct || finalTp !== tpPct
-            ? `📏 SL/TP liq-capped @ ×${p.leverage}: ${slPct}/${tpPct}% → ${finalSl}/${finalTp}% (max ${pval("TP_LIQ_SAFE", TP_LIQ_SAFE)}% of the liquidation distance)`
-            : undefined,
+        note,
       ),
       "HTML",
     );
@@ -1554,7 +1583,10 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
 // the coin-flip band or below the DCA quality floor (AUC 0.6 · ACC 70,
 // never looser than the panel's entry floors) → fail-safe: no DCA, the stop
 // does its job. Hard caps:
-// cfg.dcaMax adds per position; liquidation is never rescued.
+// cfg.dcaMax adds per position; the RISK ENVELOPE total-stake ceiling
+// (RISK_MAX_STAKE — 0.2.79) rejects adds that would push the committed
+// stake past the roof (averaging down at full size is martingale);
+// liquidation is never rescued.
 
 async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "cross"): Promise<boolean> {
   const { p, v } = eng();
@@ -1566,6 +1598,16 @@ async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "c
     persistEngine();
   }
   if (p.dca.count >= c.dcaMax) return false;
+  // RISK ENVELOPE (0.2.79) — tổng stake (đã cam + bù) không vượt trần: bù
+  // averaging-down khi stake đã đầy là martingale, SL phải được làm việc.
+  // Đặt TRƯỚC mọi check scan/model — phép toán rẻ nhất và là hard cap.
+  const stake0Env = p.dca.stake0 || open.stakePct || c.riskPct;
+  if (!allowDcaAdd(open.stakePct ?? c.riskPct, stake0Env)) {
+    console.info(
+      `[engine] DCA ${open.symbol} ${open.interval} bỏ: tổng stake ${((open.stakePct ?? c.riskPct) + stake0Env).toFixed(2)}% vượt trần RISK_MAX_STAKE ${pval("RISK_MAX_STAKE", RISK_MAX_STAKE)}% — để SL làm việc`,
+    );
+    return false;
+  }
   // fail-safe: a FRESH scan must still confirm the original side decisively
   const scan = v.scan;
   if (!scan || Date.now() - scan.at > SCAN_TTL) return false;
@@ -1773,7 +1815,9 @@ export function syncEngine(input: {
       .filter((s, i, arr) => arr.indexOf(s) === i)
       .slice(0, 200);
   }
-  if (typeof input.leverage === "number" && input.leverage >= 1 && input.leverage <= 125) p.leverage = input.leverage;
+  // RISK ENVELOPE (0.2.79) — browser đẩy gì cũng bị trần RISK_MAX_LEV kẹp lại
+  // (một nguồn với loadEngine; 0 = tắt). Vị thế đang mở giữ leverage lúc mở.
+  if (typeof input.leverage === "number" && input.leverage >= 1 && input.leverage <= 125) p.leverage = clampLev(input.leverage);
   p.syncedAt = Date.now();
   // Auto just turned ON (or first sync with Auto already on) → fire the first
   // cycle shortly (mirrors the client's "immediate tick on enable")

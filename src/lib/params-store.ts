@@ -53,6 +53,8 @@ import {
   TP_LEV_MODE,
   TP_LEV_REF,
   TP_LIQ_SAFE,
+  RISK_MAX_LEV,
+  RISK_MAX_STAKE,
   FEE_PCT,
   FLIP_PROB_MIN,
   FLIP_SCORE_EXTRA,
@@ -174,6 +176,10 @@ export const EDITABLE: ParamMeta[] = [
   // 0.2.78: cùng tham số này cũng cấp số liệu cho prompt LLM (fee_check +
   // ROE tại SL/TP sau phí) — một nguồn, đổi một chỗ ăn cả settlement lẫn review.
   { key: "FEE_PCT", group: "Flip / SL-TP", type: "number", def: FEE_PCT, min: 0, max: 0.5, step: 0.01, unit: "%/side", note: "Trading fee per side, % of notional (Binance USDT-M taker = 0.05, maker 0.02). Every settled trade subtracts a round trip: fee drag = 2 × FEE_PCT × leverage in ROE % — at ×10 that is −1.0% per trade even if price never moves. Realized ROE / net ROE / WR / equity chain are all net of fees, and the LLM Risk Officer prompt carries the same drag (fee_check + fee-net ROE at SL/TP). 0 = off (gross, pre-0.2.77)." },
+  // Risk envelope (0.2.79) — cùng nhóm position-math: hai trần này kẹp exposure
+  // của MỘT vị thế (engine đơn vị thể) bất kể Auto panel đặt gì.
+  { key: "RISK_MAX_LEV", group: "Flip / SL-TP", type: "number", def: RISK_MAX_LEV, min: 0, max: 125, step: 1, int: true, unit: "×", note: "Leverage ceiling: the engine clamps its effective leverage to this at load and on every browser sync (audit 04/11 recommended ×3-5 — at ×10 a 4% adverse move is −40% ROE and round-trip taker fees eat ~1% per trade). Open positions keep the leverage they were opened with. 0 = off." },
+  { key: "RISK_MAX_STAKE", group: "Flip / SL-TP", type: "number", def: RISK_MAX_STAKE, min: 0, max: 100, step: 0.5, unit: "%", note: "Total-stake ceiling for the single open position: entries are clamped to this share of equity, and DCA adds that would push the committed stake past the roof are rejected (averaging down at full size is martingale). Audit 04/11: stake 10% × lev 10 × dcaMax 2 ≈ 300% notional — now stake ≤ 3% by default means liquidation costs at most 3% of equity. 0 = off." },
 ];
 
 const GROUPS: ParamMeta["group"][] = ["Quality gate", "5-minute broadcast", "Scan digest", "Train / Prob", "Champion–challenger", "LLM Risk Officer", "Universe / sessions", "Telegram notify", "Flip / SL-TP"];
