@@ -4,7 +4,7 @@
 // no matter who fires them. Pure string builders — no fetch, no storage.
 
 import { fmtPrice } from "./i18n";
-import { roeOf, type AutoTradeRow, type ScanRow } from "./autotrade";
+import { feeRoe, roeOf, type AutoTradeRow, type ScanRow } from "./autotrade";
 import type { LlmVerdict } from "./llm";
 
 const HR = "━━━━━━━━━━━━━━━━━━";
@@ -38,6 +38,11 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string): stri
   const rr = r.slPct > 0 ? r.tpPct / r.slPct : 0;
   const slRoe = -(r.slPct * r.leverage);
   const tpRoe = r.tpPct * r.leverage;
+  // Phí round-trip (0.2.77) — ROE ở SL/TP trên là hình học giá; lệnh chốt còn
+  // gánh thêm đúng chừng này (2 × FEE_PCT × lev % ROE). In rõ để nhìn msg là
+  // biết ngay VÌ SAO ROE realised thấp hơn mức bảng SL/TP.
+  const feeRt = feeRoe(r.leverage, 2);
+  const feeSide = feeRoe(r.leverage, 1);
   const lines = [
     `🤖 <b>AUTO OPEN (dry-run) · ${r.side === "LONG" ? "LONG 🟢" : "SHORT 🔴"}</b>`,
     `📌 <b>#${r.symbol}</b> · ${r.interval}`,
@@ -46,6 +51,9 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string): stri
     `🛑 SL: <b>${fmtPrice(slPrice(r.side, r.entryPrice, r.slPct))}</b> · −${r.slPct.toFixed(1)}% price (ROE ${slRoe.toFixed(1)}% @ ${levTxt(r.leverage)})`,
     `🏁 TP: <b>${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(1)}% price (ROE +${tpRoe.toFixed(1)}% @ ${levTxt(r.leverage)})`,
   ];
+  if (feeRt > 0) {
+    lines.push(`🧾 Fees round-trip: <b>−${feeRt.toFixed(2)}% ROE</b> (2 × ${feeSide.toFixed(2)}%/side @ ${levTxt(r.leverage)}) — realized ROE is net of fees`);
+  }
   if (atrNote) lines.push(atrNote);
   lines.push(
     `⚖️ Leverage ${levTxt(r.leverage)} · R:R 1:${rr.toFixed(2)}`,
@@ -66,16 +74,20 @@ const kindTag = (k: string | null): string =>
           ? "FLIP 🔄"
           : "MANUAL CLOSE ✋";
 
-export const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPnlPct: number): string =>
-  [
+export const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPnlPct: number): string => {
+  // pnlPct từ settlement đã SAU PHÍ (0.2.77) — dòng phụ cho thấy phí đã trừ
+  // bao nhiêu để đọc msg không thắc mắc "ROE thấp hơn bảng SL/TP".
+  const feeRt = feeRoe(r.leverage, 2);
+  return [
     `🤖 <b>AUTO CLOSE · ${kindTag(r.exitKind)}</b>`,
     `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
     HR,
     `🎯 Entry ${fmtPrice(r.entryPrice)} → 🚪 Exit <b>${fmtPrice(r.exitPrice ?? 0)}</b>`,
-    `💵 PnL (ROE): <b>${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}%</b>`,
+    `💵 PnL (ROE): <b>${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}%</b>${feeRt > 0 ? ` · fees −${feeRt.toFixed(2)}%` : ""}`,
     `💰 Equity: ${(r.capitalBefore ?? 0).toFixed(2)} → <b>${(r.capitalAfter ?? 0).toFixed(2)}</b> USDT`,
     `📈 Track record: ${closed} trades · Win rate ${winRate.toFixed(0)}% · Net ROE ${netPnlPct >= 0 ? "+" : ""}${netPnlPct.toFixed(1)}%`,
   ].join("\n");
+}
 
 export const msgNear = (r: AutoTradeRow, price: number, kind: "tp" | "sl"): string => {
   const target = kind === "tp" ? tpPrice(r.side, r.entryPrice, r.tpPct) : slPrice(r.side, r.entryPrice, r.slPct);

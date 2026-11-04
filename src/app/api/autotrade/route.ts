@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { readAutoState, readOpenPosition, serialize } from "@/lib/autostate";
+import { feeRoe } from "@/lib/autotrade";
 import { autopsyClosedTrade } from "@/lib/autopsy";
 
 export const dynamic = "force-dynamic";
@@ -106,10 +107,14 @@ export async function PATCH(req: NextRequest) {
   // signed % price move in the position's direction, then ROE = move × leverage
   const movePct =
     row.side === "SHORT" ? ((row.entryPrice - exitPrice) / row.entryPrice) * 100 : ((exitPrice - row.entryPrice) / row.entryPrice) * 100;
-  let pnlPct = Math.round(movePct * row.leverage * 100) / 100;
+  // ROE SAU PHÍ (0.2.77) — giữ nguyên bit công thức với closeTradeDirect của
+  // engine.ts (một settlement, hai cửa vào): trừ round-trip 2 bên phí giao
+  // dịch, thanh lý vẫn −100, phí không kéo ROE xuống dưới đáy −100.
+  let pnlPct = Math.round((movePct * row.leverage - feeRoe(row.leverage)) * 100) / 100;
   // liquidation guard: an adverse move of 100/leverage % wipes the margin
   const adverse = row.side === "SHORT" ? -movePct : movePct;
   if (row.leverage > 1 && adverse <= -(100 / row.leverage)) pnlPct = -100;
+  else if (pnlPct < -100) pnlPct = -100;
 
   const capitalBefore = row.capitalBefore ?? 1000;
   // only the STAKED share of equity takes risk: delta = stake × ROE

@@ -53,6 +53,7 @@ import {
   TP_LEV_MODE,
   TP_LEV_REF,
   TP_LIQ_SAFE,
+  FEE_PCT,
   FLIP_PROB_MIN,
   FLIP_SCORE_EXTRA,
   AGENT_FALLBACK_N,
@@ -168,6 +169,9 @@ export const EDITABLE: ParamMeta[] = [
   { key: "TP_LEV_MODE", group: "Flip / SL-TP", type: "string", def: TP_LEV_MODE, maxLen: 4, pattern: "^(off|sqrt|lin)$", note: "Leverage-independent SL/TP: shrink price distance as leverage grows so ROE-at-SL stops scaling with lev. off = legacy · sqrt = √(ref/lev) (matches trailing 0.2.63) · lin = ref/lev (fully independent). Only shrinks when lev > ref. Manual tpMode skips the scale (still liq-capped)." },
   { key: "TP_LEV_REF", group: "Flip / SL-TP", type: "number", def: TP_LEV_REF, min: 1, max: 50, step: 1, int: true, unit: "×", note: "Reference leverage where the scale = 1 (set to the leverage you actually run). lin at lev 20 / ref 10 → SL/TP × 0.5." },
   { key: "TP_LIQ_SAFE", group: "Flip / SL-TP", type: "number", def: TP_LIQ_SAFE, min: 10, max: 90, step: 5, int: true, unit: "%", note: "Liquidation safety roof: SL never sits further than this % of the way to the liquidation price (100/lev %). Applies to EVERY tpMode incl. manual; TP follows to keep R:R." },
+  // Phí giao dịch trong ROE (0.2.77) — cùng nhóm position-math vì nó chỉnh
+  // mức ROE realised của MỌI lệnh chốt, cùng tầng với SL/TP × leverage.
+  { key: "FEE_PCT", group: "Flip / SL-TP", type: "number", def: FEE_PCT, min: 0, max: 0.5, step: 0.01, unit: "%/side", note: "Trading fee per side, % of notional (Binance USDT-M taker = 0.05, maker 0.02). Every settled trade subtracts a round trip: fee drag = 2 × FEE_PCT × leverage in ROE % — at ×10 that is −1.0% per trade even if price never moves. Realized ROE / net ROE / WR / equity chain are all net of fees. 0 = off (gross, pre-0.2.77)." },
 ];
 
 const GROUPS: ParamMeta["group"][] = ["Quality gate", "5-minute broadcast", "Scan digest", "Train / Prob", "Champion–challenger", "LLM Risk Officer", "Universe / sessions", "Telegram notify", "Flip / SL-TP"];

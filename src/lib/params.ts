@@ -163,6 +163,22 @@ export const TP_LEV_REF = 10;
  *  giữ nguyên R:R. */
 export const TP_LIQ_SAFE = 60;
 
+// ── 4c2 · PHÍ GIAO DỊCH TRONG ROE (0.2.77) ──────────────────────────────────
+// "add fees in trade for calculator ROE" — ROE của lệnh dry-run trước nay là
+// GROSS (biến động giá × đòn bẩy) nên mọi thống kê tự hoa mắt: flip −1.4%/lệnh
+// nhìn như "gần hoà" nhưng thực tế mỗi lệnh còn ăn thêm phí round-trip. Binance
+// USDT-M thu phí trên NOTIONAL mỗi lần vào/thoát → mức ăn vào ROE mỗi bên
+// = FEE_PCT × leverage (margin = notional/lev). Data 0.2.71: ~75 flip @ ×10
+// tốn ~1% ROE phí MỖI lệnh chỉ để đi vòng.
+
+/** Phí giao dịch MỖI BÊN (% notional) — taker chuẩn Binance USDT-M 0.05%
+ *  (maker 0.02%; trả phí bằng BNB −10%). Lệnh chốt (tp/sl/trail/flip/manual)
+ *  trừ đúng round-trip 2 bên: ×10 → 2 × 0.05 × 10 = −1.0% ROE/lệnh kể cả khi
+ *  giá đứng im. ROE realised, net ROE, WR, equity chain, autopsy R, bài học
+ *  xgb — tất cả thành số SAU PHÍ. 0 = tắt (về gross như trước 0.2.77).
+ *  Chỉnh runtime nhóm Flip / SL-TP trên /ai. */
+export const FEE_PCT = 0.05;
+
 // ── 4d · SELF-IMPROVE FALLBACK — bù chốt methodId reset (0.2.75) ───────────
 // methodId là hash của TOÀN BỘ chính sách (sc|auc|acc|r|x|tp|sl|tpct|atr|tf|fl|wh)
 // → MỌI thay đổi knob (user chỉnh tay, agent tự +2 minScore, đổi tpMode 0.2.74)

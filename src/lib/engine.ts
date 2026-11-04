@@ -33,6 +33,7 @@ import {
   AUTO_DEFAULTS,
   bestTradeableAvoid,
   flipDecision,
+  feeRoe,
   levAdjSlTp,
   levNormScale,
   liquidationHit,
@@ -365,9 +366,14 @@ async function closeTradeDirect(
   if (!row || row.status !== "open") return null;
   const movePct =
     row.side === "SHORT" ? ((row.entryPrice - exitPrice) / row.entryPrice) * 100 : ((exitPrice - row.entryPrice) / row.entryPrice) * 100;
-  let pnlPct = Math.round(movePct * row.leverage * 100) / 100;
+  // ROE SAU PHÍ (0.2.77) — phí mỗi bên tính trên notional nên mức ăn vào ROE
+  // = FEE_PCT × lev mỗi bên; lệnh chốt trừ đúng round-trip 2 bên (entry đã
+  // trả lúc mở + exit trả ngay lúc này). Thanh lý vẫn −100 (margin đã sạch —
+  // phí chẳng còn gì để trừ); phí cũng không kéo ROE xuống dưới đáy −100.
+  let pnlPct = Math.round((movePct * row.leverage - feeRoe(row.leverage)) * 100) / 100;
   const adverse = row.side === "SHORT" ? -movePct : movePct;
   if (row.leverage > 1 && adverse <= -(100 / row.leverage)) pnlPct = -100;
+  else if (pnlPct < -100) pnlPct = -100;
   const capitalBefore = row.capitalBefore ?? 1000;
   const stakePct = row.stakePct ?? 100;
   const delta = Math.round(capitalBefore * (stakePct / 100) * (pnlPct / 100) * 100) / 100;
