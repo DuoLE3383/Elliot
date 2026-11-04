@@ -14,9 +14,9 @@ Cryptocurrency paper-trading application built with Next.js. It simulates trades
 - **XGBoost suggestions** — pure-TypeScript XGB model trained in the browser or on the server; each train produces a bias (LONG / SHORT / NEUTRAL), probability, SL/TP and horizon; results are scored win/loss after the horizon.
 - **Finetune & history** — track accuracy / AUC across finetune runs and compare model performance.
 - **Auto-trade (dry-run)** — state machine that opens/closes positions from signals, respects session time windows, risk controls, and pushes digests + trade alerts via Telegram.
-- **Trade journal + Equity curve + KPI** — win rate, PnL, strategy allocation pies, session breakdown.
+- **Trade journal + Equity curve + KPI** — win rate, PnL, strategy allocation pies, session breakdown (interactive journal table with filters + CSV export lives on the stats page, sharing the same `/api/journal` source as the KPI tiles).
 - **Flexible settings** — global settings dialog, show/hide panels via the rail, responsive mobile layout.
-- **Stats page** — consistency checks, per-pair / all-pairs journal aggregation, deep analysis, session and universe scan summaries.
+- **Stats page (full width)** — consistency checks, per-pair / all-pairs journal aggregation with the interactive trade journal (filters + CSV) merged into the journal card, deep analysis, session and universe scan summaries.
 - **Open-position strip** — live dry-run position shown at the top of the home page with real-time ROE, SL→TP progress and one-click jump to the chart.
 
 ## Tech stack

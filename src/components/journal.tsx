@@ -18,6 +18,12 @@ interface Props {
   interval: string;
   /** Tailwind max-height class for the scrollable list (terminal tabs use a smaller one) */
   maxListClass?: string;
+  /** 0.2.80 — chế độ “trần”: bỏ wrapper Card, chỉ render hàng filter + bảng —
+   *  dùng khi nhúng VÀO một card có sẵn (card Trade journal trên /stats) */
+  bare?: boolean;
+  /** 0.2.80 — thêm cột SYMBOL (chế độ ALL trên /stats: nhiều cặp trộn trong
+   *  một bảng); CSV đã có cột Symbol từ trước nên không đổi */
+  showSymbol?: boolean;
 }
 
 const resultBadge = (p: Paper, lang: Lang) => {
@@ -56,7 +62,7 @@ const resultBadge = (p: Paper, lang: Lang) => {
   );
 };
 
-export function Journal({ lang, papers, symbol, interval, maxListClass = "max-h-96" }: Props) {
+export function Journal({ lang, papers, symbol, interval, maxListClass = "max-h-96", bare = false, showSymbol = false }: Props) {
   const [filter, setFilter] = useState<Filter>("all");
 
   const filtered = useMemo(() => {
@@ -108,132 +114,163 @@ export function Journal({ lang, papers, symbol, interval, maxListClass = "max-h-
     { key: "open", label: t(lang, "journal.openF") },
   ];
 
+  // hàng tiêu đề: đếm lệnh (đổi theo filter) + chip lọc + xuất CSV — dùng chung
+  // cho cả 2 chế độ (bare lược tiêu đề lớn vì card cha đã có tiêu đề riêng)
+  const toolbar = (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      {bare ? (
+        <span className="text-xs font-semibold text-zinc-300">
+          {t(lang, "journal.count", { n: filtered.length })}
+        </span>
+      ) : (
+        <CardTitle className="text-base font-semibold text-zinc-100">
+          {t(lang, "journal.title")}{" "}
+          <span className="ml-1 text-xs font-normal text-zinc-500">
+            {t(lang, "journal.count", { n: filtered.length })}
+          </span>
+        </CardTitle>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {chips.map((c) => (
+          <Button
+            key={c.key}
+            size="sm"
+            variant={filter === c.key ? "default" : "outline"}
+            className={
+              filter === c.key
+                ? "h-7 rounded-full border-zinc-700 bg-zinc-100 px-3 text-xs text-zinc-900 hover:bg-zinc-200"
+                : "h-7 rounded-full border-zinc-700 bg-transparent px-3 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+            }
+            onClick={() => setFilter(c.key)}
+          >
+            {c.label}
+          </Button>
+        ))}
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 gap-1.5 rounded-full border-zinc-700 px-3 text-xs text-zinc-300 hover:bg-zinc-800"
+          onClick={exportCsv}
+        >
+          <Download className="h-3.5 w-3.5" />
+          {t(lang, "journal.csv")}
+        </Button>
+      </div>
+    </div>
+  );
+
+  const table = (
+    <>
+      {/* Desktop table */}
+      <div className={`hidden overflow-y-auto rounded-lg border border-zinc-800 md:block ${maxListClass}`}>
+        <table className="w-full text-left text-xs">
+          <thead className="sticky top-0 bg-zinc-900 text-[11px] uppercase tracking-wide text-zinc-500">
+            <tr>
+              {showSymbol && <th className="px-3 py-2 font-medium">{t(lang, "journal.col.symbol")}</th>}
+              <th className="px-3 py-2 font-medium">{t(lang, "journal.col.side")}</th>
+              <th className="px-3 py-2 text-right font-medium">{t(lang, "journal.col.entry")}</th>
+              <th className="px-3 py-2 text-right font-medium">{t(lang, "journal.col.exit")}</th>
+              <th className="px-3 py-2 font-medium">{t(lang, "journal.col.exitAt")}</th>
+              <th className="px-3 py-2 text-right font-medium">{t(lang, "journal.col.pnl")}</th>
+              <th className="px-3 py-2 text-right font-medium">{t(lang, "journal.col.result")}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-800/80">
+            {filtered.map((p) => (
+              <tr key={p.id} className="text-zinc-300 hover:bg-zinc-900/70">
+                {showSymbol && (
+                  <td className="whitespace-nowrap px-3 py-2 font-mono text-zinc-400">{p.symbol.replace("USDT", "")}</td>
+                )}
+                <td className={`px-3 py-2 font-mono font-semibold ${SIDE_COLOR(p.side)}`}>
+                  {p.side}
+                  {p.leverage > 1 && <span className="ml-1 text-[10px] text-amber-500">×{p.leverage}</span>}
+                </td>
+                <td className="px-3 py-2 text-right font-mono">
+                  {fmtPrice(p.entry)}
+                  {p.flippedFrom && <span className="ml-1 text-zinc-500" title={p.flippedFrom}>⇄</span>}
+                </td>
+                <td className="px-3 py-2 text-right font-mono">
+                  {p.exit != null ? fmtPrice(p.exit) : <span className="text-zinc-600">—</span>}
+                </td>
+                <td className="px-3 py-2 text-zinc-500">
+                  {p.exitTime ? fmtTime(p.exitTime, lang) : "—"}
+                </td>
+                <td
+                  className={`px-3 py-2 text-right font-mono font-semibold ${
+                    p.status === "open" ? "text-zinc-500" : p.pnlPct! >= 0 ? "text-emerald-400" : "text-rose-400"
+                  }`}
+                >
+                  {p.status === "open" ? "—" : fmtPct(p.pnlPct!)}
+                </td>
+                <td className="px-3 py-2 text-right">{resultBadge(p, lang)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Mobile cards */}
+      <div className={`space-y-2 overflow-y-auto md:hidden ${maxListClass}`}>
+        {filtered.map((p) => (
+          <div key={p.id} className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                {showSymbol && (
+                  <span className="font-mono text-[11px] font-semibold text-zinc-400">{p.symbol.replace("USDT", "")}</span>
+                )}
+                <span className={`font-mono text-sm font-bold ${SIDE_COLOR(p.side)}`}>
+                  {p.side}
+                  {p.leverage > 1 && <span className="ml-1 text-[10px] text-amber-500">×{p.leverage}</span>}
+                </span>
+              </span>
+              {resultBadge(p, lang)}
+            </div>
+            <p className="mt-1 text-[11px] text-zinc-400">
+              {p.status === "open"
+                ? t(lang, "journal.mobileOpen", { entry: fmtPrice(p.entry) })
+                : t(lang, "journal.mobileEntry", {
+                    entry: fmtPrice(p.entry),
+                    exit: fmtPrice(p.exit ?? 0),
+                  })}
+              <span className="text-zinc-600"> · {fmtTime(p.exitTime ?? p.entryTime, lang)}</span>
+            </p>
+            {p.status === "closed" && (
+              <p
+                className={`mt-0.5 font-mono text-xs font-bold ${
+                  p.pnlPct! >= 0 ? "text-emerald-400" : "text-rose-400"
+                }`}
+              >
+                {fmtPct(p.pnlPct!)}
+                {p.liquidated && <span className="ml-1.5 text-rose-400">· {t(lang, "result.liq")}</span>}
+                {p.flippedFrom && <span className="ml-1.5 text-zinc-500">⇄ {t(lang, "result.flip")}</span>}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    </>
+  );
+
+  const emptyList = (
+    <p className="rounded-lg border border-dashed border-zinc-800 p-6 text-center text-xs text-zinc-500">
+      {t(lang, "journal.empty")}
+    </p>
+  );
+
+  // bare — nhúng trong card cha (/stats): không Card wrapper, không tiêu đề lớn
+  if (bare) {
+    return (
+      <div className="space-y-2.5">
+        {toolbar}
+        {filtered.length === 0 ? emptyList : table}
+      </div>
+    );
+  }
+
   return (
     <Card className="border-zinc-800 bg-zinc-900/60">
-      <CardHeader className="pb-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-base font-semibold text-zinc-100">
-            {t(lang, "journal.title")}{" "}
-            <span className="ml-1 text-xs font-normal text-zinc-500">
-              {t(lang, "journal.count", { n: filtered.length })}
-            </span>
-          </CardTitle>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {chips.map((c) => (
-              <Button
-                key={c.key}
-                size="sm"
-                variant={filter === c.key ? "default" : "outline"}
-                className={
-                  filter === c.key
-                    ? "h-7 rounded-full border-zinc-700 bg-zinc-100 px-3 text-xs text-zinc-900 hover:bg-zinc-200"
-                    : "h-7 rounded-full border-zinc-700 bg-transparent px-3 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-                }
-                onClick={() => setFilter(c.key)}
-              >
-                {c.label}
-              </Button>
-            ))}
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 gap-1.5 rounded-full border-zinc-700 px-3 text-xs text-zinc-300 hover:bg-zinc-800"
-              onClick={exportCsv}
-            >
-              <Download className="h-3.5 w-3.5" />
-              {t(lang, "journal.csv")}
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0">
-        {filtered.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-zinc-800 p-6 text-center text-xs text-zinc-500">
-            {t(lang, "journal.empty")}
-          </p>
-        ) : (
-          <>
-            {/* Desktop table */}
-            <div className={`hidden overflow-y-auto rounded-lg border border-zinc-800 md:block ${maxListClass}`}>
-              <table className="w-full text-left text-xs">
-                <thead className="sticky top-0 bg-zinc-900 text-[11px] uppercase tracking-wide text-zinc-500">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">{t(lang, "journal.col.side")}</th>
-                    <th className="px-3 py-2 text-right font-medium">{t(lang, "journal.col.entry")}</th>
-                    <th className="px-3 py-2 text-right font-medium">{t(lang, "journal.col.exit")}</th>
-                    <th className="px-3 py-2 font-medium">{t(lang, "journal.col.exitAt")}</th>
-                    <th className="px-3 py-2 text-right font-medium">{t(lang, "journal.col.pnl")}</th>
-                    <th className="px-3 py-2 text-right font-medium">{t(lang, "journal.col.result")}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800/80">
-                  {filtered.map((p) => (
-                    <tr key={p.id} className="text-zinc-300 hover:bg-zinc-900/70">
-                      <td className={`px-3 py-2 font-mono font-semibold ${SIDE_COLOR(p.side)}`}>
-                        {p.side}
-                        {p.leverage > 1 && <span className="ml-1 text-[10px] text-amber-500">×{p.leverage}</span>}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono">
-                        {fmtPrice(p.entry)}
-                        {p.flippedFrom && <span className="ml-1 text-zinc-500" title={p.flippedFrom}>⇄</span>}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono">
-                        {p.exit != null ? fmtPrice(p.exit) : <span className="text-zinc-600">—</span>}
-                      </td>
-                      <td className="px-3 py-2 text-zinc-500">
-                        {p.exitTime ? fmtTime(p.exitTime, lang) : "—"}
-                      </td>
-                      <td
-                        className={`px-3 py-2 text-right font-mono font-semibold ${
-                          p.status === "open" ? "text-zinc-500" : p.pnlPct! >= 0 ? "text-emerald-400" : "text-rose-400"
-                        }`}
-                      >
-                        {p.status === "open" ? "—" : fmtPct(p.pnlPct!)}
-                      </td>
-                      <td className="px-3 py-2 text-right">{resultBadge(p, lang)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Mobile cards */}
-            <div className={`space-y-2 overflow-y-auto md:hidden ${maxListClass}`}>
-              {filtered.map((p) => (
-                <div key={p.id} className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
-                  <div className="flex items-center justify-between">
-                    <span className={`font-mono text-sm font-bold ${SIDE_COLOR(p.side)}`}>
-                      {p.side}
-                      {p.leverage > 1 && <span className="ml-1 text-[10px] text-amber-500">×{p.leverage}</span>}
-                    </span>
-                    {resultBadge(p, lang)}
-                  </div>
-                  <p className="mt-1 text-[11px] text-zinc-400">
-                    {p.status === "open"
-                      ? t(lang, "journal.mobileOpen", { entry: fmtPrice(p.entry) })
-                      : t(lang, "journal.mobileEntry", {
-                          entry: fmtPrice(p.entry),
-                          exit: fmtPrice(p.exit ?? 0),
-                        })}
-                    <span className="text-zinc-600"> · {fmtTime(p.exitTime ?? p.entryTime, lang)}</span>
-                  </p>
-                  {p.status === "closed" && (
-                    <p
-                      className={`mt-0.5 font-mono text-xs font-bold ${
-                        p.pnlPct! >= 0 ? "text-emerald-400" : "text-rose-400"
-                      }`}
-                    >
-                      {fmtPct(p.pnlPct!)}
-                      {p.liquidated && <span className="ml-1.5 text-rose-400">· {t(lang, "result.liq")}</span>}
-                      {p.flippedFrom && <span className="ml-1.5 text-zinc-500">⇄ {t(lang, "result.flip")}</span>}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </CardContent>
+      <CardHeader className="pb-2">{toolbar}</CardHeader>
+      <CardContent className="pt-0">{filtered.length === 0 ? emptyList : table}</CardContent>
     </Card>
   );
 }

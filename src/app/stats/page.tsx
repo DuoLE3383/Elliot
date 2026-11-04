@@ -14,15 +14,21 @@
 // accent theo luồng (market→model→scan→trade→history) + FLOW CHIPS cho biết
 // section nối vào giai đoạn nào, và MỌI FIELD/BIỂU ĐỒ có tooltip hover (hint
 // EN + VI do server gắn) giải thích công thức/nguồn số liệu.
+// 0.2.80 — (1) MERGE: bảng journal tương tác (filter All/TP/SL/Flip/Open +
+// Export CSV, từ tab Journal của trang chủ) nhập VÀO card Trade journal — cùng
+// nguồn /api/journal với các ô KPI nên khớp 1:1; ALL trộn mọi cặp + cột Symbol.
+// (2) FULL WIDTH: bỏ max-w-6xl; grid section 3 cột trên 2xl, KPI 3 cột trên xl.
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChartBox } from "@/components/stat-charts";
+import { Journal } from "@/components/journal";
 import { fmtPct, fmtPrice, t, type Lang } from "@/lib/i18n";
 import type { Analysis } from "@/lib/analysis";
 import type { KpiStats } from "@/lib/papers";
+import type { Paper } from "@/lib/types";
 // 0.2.67 — chỉ import TYPE (erased lúc build) nên bundle trình duyệt không kéo
 // db/engine của stats.ts vào; màu do SERVER gắn qua field tone, client chỉ tô.
 import type { StatAccent, StatChart, StatTone } from "@/lib/stats";
@@ -139,9 +145,12 @@ interface JournalAllResp {
   basis: number;
   per: PerPair[] | null;
   failed: string[];
+  /** 0.2.80 — papers nối liền mọi cặp cho bảng tương tác */
+  papers: Paper[];
 }
-/** 0.2.52 — response 1 cặp của /api/journal (chỉ cần kpi + basis) */
-type JournalOneResp = { kpi: KpiStats; basis: number };
+/** 0.2.52 — response 1 cặp của /api/journal (chỉ cần kpi + basis)
+ *  0.2.80 — thêm papers: bảng journal tương tác cùng nguồn với KPI */
+type JournalOneResp = { kpi: KpiStats; basis: number; papers: Paper[] };
 
 export default function StatsPage() {
   const [lang, setLang] = useState<Lang>("en");
@@ -155,6 +164,8 @@ export default function StatsPage() {
   const [pickTf, setPickTf] = useState("15m");
   const [journal, setJournal] = useState<(KpiStats & { basis: string }) | null>(null);
   const [journalPer, setJournalPer] = useState<{ per: PerPair[]; failed: string[] } | null>(null);
+  /** 0.2.80 — danh sách lệnh giấy của card journal (bảng tương tác + CSV) */
+  const [journalPapers, setJournalPapers] = useState<Paper[] | null>(null);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [clientBusy, setClientBusy] = useState(false);
 
@@ -196,11 +207,13 @@ export default function StatsPage() {
           if (!alive) return;
           setJournal({ ...j.kpi, basis: String(j.basis) });
           setJournalPer({ per: j.per ?? [], failed: j.failed ?? [] });
+          setJournalPapers(j.papers ?? []);
           setAnalysis(null);
         } catch {
           if (alive) {
             setJournal(null);
             setJournalPer(null);
+            setJournalPapers(null);
             setAnalysis(null);
           }
         }
@@ -227,6 +240,7 @@ export default function StatsPage() {
       })]);
       if (!alive) return;
       setJournal(j ? { ...j.kpi, basis: String(j.basis) } : null);
+      setJournalPapers(j ? j.papers : null);
       setAnalysis(v ? v.analysis : null);
       setClientBusy(false);
     })();
@@ -346,7 +360,9 @@ export default function StatsPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-200">
-      <div className="mx-auto max-w-6xl space-y-4 p-3 sm:p-5">
+      {/* 0.2.80 — FULL WIDTH: bỏ max-w-6xl (journal table rộng + KPI 3 cột dùng
+          được không gian màn lớn); giữ padding responsive như cũ */}
+      <div className="space-y-4 p-3 sm:p-5">
         <header className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant="outline" className="h-8 gap-1.5 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800" asChild>
             <Link href="/">
@@ -394,7 +410,7 @@ export default function StatsPage() {
         )}
 
         {!snap && !err && (
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
             {[0, 1, 2, 3, 4, 5].map((i) => (
               <Skeleton key={i} className="h-40 rounded-lg border border-zinc-800 bg-zinc-900" />
             ))}
@@ -403,7 +419,7 @@ export default function StatsPage() {
 
         {snap && (
           <>
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
               {snap.sections.map((s) => (
                 <SectionCard key={s.key} s={s} />
               ))}
@@ -457,7 +473,7 @@ export default function StatsPage() {
               </CardHeader>
               <CardContent className="space-y-2.5 pt-0">
                 {journal ? (
-                  <div className="grid gap-1.5 sm:grid-cols-2">
+                  <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
                     <Metric
                       lang={lang}
                       k={t(lang, "stats.j.trades")}
@@ -530,6 +546,27 @@ export default function StatsPage() {
                   />
                 )}
 
+                {/* 0.2.80 — MERGE: bảng journal tương tác (từ tab Journal của
+                    trang chủ) nhập vào card này — CÙNG nguồn /api/journal với
+                    các ô KPI phía trên nên số liệu khớp 1:1 (cùng cửa sổ 200
+                    nến, cùng default settings). ALL: trộn mọi cặp + cột Symbol
+                    + bảng con theo cặp phía dưới vẫn giữ nguyên. */}
+                {journal && (
+                  <div className="space-y-2.5">
+                    <div className="border-t border-zinc-800/70 pt-2.5">
+                      <Journal
+                        lang={lang}
+                        papers={journalPapers ?? []}
+                        symbol={pickSym}
+                        interval={pickTf}
+                        bare
+                        showSymbol={pickSym === PICK_ALL}
+                        maxListClass="max-h-[26rem]"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 {/* bảng con theo cặp — chỉ khi chọn “Tất cả cặp” */}
                 {journalPer && journalPer.per.length > 0 && (
                   <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 p-2.5">
@@ -597,7 +634,7 @@ export default function StatsPage() {
                 {pickSym === PICK_ALL ? (
                   <p className="text-xs leading-relaxed text-zinc-500">— {t(lang, "stats.analysisAll")}</p>
                 ) : analysis ? (
-                  <div className="grid gap-1.5 sm:grid-cols-2">
+                  <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
                     <Metric
                       lang={lang}
                       k="Trend (EMA89/200)"

@@ -6,6 +6,9 @@
 // TP 3.2% / 1× / gate off) — but over its OWN window: JOURNAL_KLINES = 200 candles
 // (0.2.52, was the shared 500) so the card reflects the recent regime without
 // touching the engine's train/scan window. The browser only renders.
+// 0.2.80: payload cũng trả `papers` — danh sách lệnh giấy đầy đủ của CHÍNH cửa sổ
+// 200 nến đó, để /stats render bảng journal tương tác (filter + CSV) cùng một
+// nguồn sự thật với các ô KPI phía trên (KPI và bảng khớp 1:1 theo cấu trúc).
 // "All pairs" = the standard SYMBOLS list (staples). Custom watchlist pairs are
 // intentionally excluded so numbers stay stable and comparable across views.
 // ALL results are cached in-memory for 60 s (11× papersFrom on every call would be wasteful);
@@ -20,6 +23,7 @@ import {
 import { fetchKlinesDirectResolved } from "@/lib/klines-direct";
 import { signalsFrom } from "@/lib/signals";
 import { kpiFrom, papersFrom, type KpiStats } from "@/lib/papers";
+import type { Paper } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -42,11 +46,18 @@ export interface JournalPayload {
   per: JournalPerPair[] | null;
   /** cặp tính lỗi (nến lỗi/mạng) — bị loại khỏi tổng hợp */
   failed: string[];
+  /** 0.2.80 — danh sách lệnh giấy của cửa sổ (ALL = nối liền mọi cặp, mỗi paper
+   *  tự mang symbol) — nguồn cho bảng journal tương tác trên /stats */
+  papers: Paper[];
 }
 
 /** Journal MỘT cặp — cùng engine papersFrom với /api/view, nhưng cửa sổ RIÊNG
- *  200 nến (JOURNAL_KLINES, 0.2.52) — khác 500 nến của view. */
-async function journalOne(symbol: string, interval: string): Promise<{ kpi: KpiStats; basis: number } | null> {
+ *  200 nến (JOURNAL_KLINES, 0.2.52) — khác 500 nến của view.
+ *  0.2.80: trả cả papers để /stats render bảng tương tác cùng nguồn với KPI. */
+async function journalOne(
+  symbol: string,
+  interval: string,
+): Promise<{ kpi: KpiStats; basis: number; papers: Paper[] } | null> {
   try {
     const { klines } = await fetchKlinesDirectResolved(symbol, interval, JOURNAL_KLINES, { revalidate: 10 });
     if (klines.length < 10) return null;
@@ -68,7 +79,7 @@ async function journalOne(symbol: string, interval: string): Promise<{ kpi: KpiS
       s.leverage,
       s.smaFilter,
     );
-    return { kpi: kpiFrom(res.papers), basis: signals.length };
+    return { kpi: kpiFrom(res.papers), basis: signals.length, papers: res.papers };
   } catch {
     return null;
   }
@@ -76,7 +87,10 @@ async function journalOne(symbol: string, interval: string): Promise<{ kpi: KpiS
 
 /** 11 cặp bắn song song dễ chạm rate-limit/đứt gói (mạng VPS từng thấy
  * "Unexpected end of JSON input") — thử lại MỘT lần sau 500ms trước khi bỏ. */
-async function journalOneRetry(symbol: string, interval: string): Promise<{ kpi: KpiStats; basis: number } | null> {
+async function journalOneRetry(
+  symbol: string,
+  interval: string,
+): Promise<{ kpi: KpiStats; basis: number; papers: Paper[] } | null> {
   const first = await journalOne(symbol, interval);
   if (first) return first;
   await new Promise((r) => setTimeout(r, 500));
@@ -98,12 +112,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(allCache.payload, { headers: { "Cache-Control": "no-store" } });
     }
     const rows = await Promise.all(
-      SYMBOLS.map(async (sym): Promise<JournalPerPair | null> => {
+      SYMBOLS.map(async (sym): Promise<JournalPerPair & { papers: Paper[] } | null> => {
         const r = await journalOneRetry(sym, interval);
-        return r ? { symbol: sym, kpi: r.kpi, signals: r.basis } : null;
+        return r ? { symbol: sym, kpi: r.kpi, signals: r.basis, papers: r.papers } : null;
       }),
     );
-    const per: JournalPerPair[] = rows.filter((x): x is JournalPerPair => x != null);
+    // per giữ nguyên type mở rộng (kèm papers) — dùng cho flatMap bảng tương tác
+    const per = rows.filter((x): x is JournalPerPair & { papers: Paper[] } => x != null);
     const failed = SYMBOLS.filter((sym) => !per.some((p) => p.symbol === sym));
     // gộp: cộng từng trường cộng được rồi tính lại winRate trên tổng lệnh đóng
     // (cách gộp này khớp kpiFrom trên mảng papers nối liền của mọi cặp)
@@ -127,6 +142,11 @@ export async function GET(req: NextRequest) {
     };
     // bảng con: nhiều lệnh đóng trước, rồi net ROE giảm dần
     per.sort((a, b) => b.kpi.closed - a.kpi.closed || b.kpi.netPnl - a.kpi.netPnl);
+    // 0.2.80 — bảng tương tác trên /stats: nối liền papers mọi cặp (mỗi paper tự
+    // mang symbol); sort để bảng /stats và CSV ổn định bất kể thứ tự Promise.all
+    const papers = per
+      .flatMap((p) => p.papers)
+      .sort((a, b) => (b.exitTime ?? b.entryTime) - (a.exitTime ?? a.entryTime));
     const payload: JournalPayload = {
       at: Date.now(),
       symbol: "ALL",
@@ -135,6 +155,7 @@ export async function GET(req: NextRequest) {
       basis: per.reduce((acc, p) => acc + p.signals, 0), // tổng tín hiệu mọi cặp
       per,
       failed,
+      papers,
     };
     allCache = { at: Date.now(), interval, payload };
     return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
@@ -155,6 +176,7 @@ export async function GET(req: NextRequest) {
     basis: r.basis,
     per: null,
     failed: [],
+    papers: r.papers,
   };
   return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
 }

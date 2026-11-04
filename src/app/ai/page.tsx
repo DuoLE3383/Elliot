@@ -500,7 +500,8 @@ export default function AiPage() {
     <div className="min-h-screen bg-[#0a100f] text-zinc-200 [background-image:radial-gradient(ellipse_75%_45%_at_50%_-8%,rgba(45,212,191,0.07),transparent)]">
       {/* sticky header — Settings / Refresh / lang luôn trong tầm tay trên trang dài */}
       <header className="sticky top-0 z-30 border-b border-zinc-800/60 bg-[#0a100f]/90 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-2 px-3 py-2.5 sm:px-5">
+        {/* 0.2.80 — FULL WIDTH: bỏ mx-auto max-w-6xl cho khớp body bên dưới */}
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 sm:px-5">
           <Button size="sm" variant="outline" className="h-8 gap-1.5 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800" asChild>
             <Link href="/">
               <ArrowLeft className="h-3.5 w-3.5" />
@@ -552,7 +553,9 @@ export default function AiPage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-6xl space-y-4 p-3 sm:p-5">
+      {/* 0.2.80 — FULL WIDTH: bỏ max-w-6xl — trang dài nhiều card, màn lớn
+          hiển thị được trọn vẹn các cặp card trạng thái mà không phải cuộn */}
+      <div className="space-y-4 p-3 sm:p-5">
         {/* 1 — trạng thái vận hành: engine + LLM Risk Officer (2 cột trên xl) */}
         <div className="grid gap-4 xl:grid-cols-2">
           {/* 1a — engine hiện hành */}

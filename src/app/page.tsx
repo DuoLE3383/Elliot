@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { DeepAnalysis } from "@/components/analysis";
 import { StrategyPies } from "@/components/strategy-pies";
 import { AutoPanel } from "@/components/auto-panel";
-import { Journal } from "@/components/journal";
 import { KpiCards } from "@/components/kpi";
 import { SessionsPanel } from "@/components/sessions";
 import { SignalDock } from "@/components/panels";
@@ -1423,14 +1422,11 @@ export default function Home() {
                 </CardContent>
               </Card>
 
-              <Tabs defaultValue="journal" className="shrink-0">
+              {/* 0.2.80 — tab Journal DỜI HẲN sang /stats (nhập vào card Trade
+                  journal của trang đó, cùng nguồn /api/journal) — terminal chỉ
+                  còn Suggestions / Lab / Analysis */}
+              <Tabs defaultValue="suggest" className="shrink-0">
                 <TabsList className="h-8 justify-start rounded-lg border border-zinc-800 bg-zinc-900 p-0.5">
-                  <TabsTrigger
-                    value="journal"
-                    className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
-                  >
-                    {t(lang, "tabs.journal")}
-                  </TabsTrigger>
                   <TabsTrigger
                     value="suggest"
                     className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
@@ -1450,9 +1446,6 @@ export default function Home() {
                     {t(lang, "tabs.analysis")}
                   </TabsTrigger>
                 </TabsList>
-                <TabsContent value="journal" className="mt-2 lg:h-[200px] lg:overflow-y-auto rail-scroll">
-                  <Journal lang={lang} papers={view.papers} symbol={symbol} interval={interval} maxListClass="max-h-36" />
-                </TabsContent>
                 <TabsContent value="suggest" className="mt-2 lg:h-[200px] lg:overflow-y-auto rail-scroll">
                   <SuggestionHistory lang={lang} symbol={symbol} interval={interval} refreshKey={histRefresh} />
                 </TabsContent>
