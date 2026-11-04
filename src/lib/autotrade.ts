@@ -17,7 +17,6 @@ import { biasFrom, runXgb, type WhaleReadout, type WhaleTag, type XgbBias, type 
 import { LLM_MODEL_DEFAULT, LLM_URL_DEFAULT, type LlmSetup } from "./llm";
 import {
   CONF_W,
-  FEE_PCT,
   FLIP_PROB_MIN,
   FLIP_SCORE_EXTRA,
   NEAR_FRAC,
@@ -32,7 +31,10 @@ import {
 } from "./params";
 
 // Knob sống ở ./params — MỘT nguồn config; re-export cho chỗ cũ không đổi path.
-export { CONF_W, NEAR_FRAC, REGRESS_EPS } from "./params";
+// feeRoe định nghĩa ở ./params từ 0.2.78 (llm.ts cần chính công thức đó mà không
+// được import autotrade — autotrade đã import llm → vòng); re-export để
+// engine/tg-msgs/route giữ nguyên import cũ.
+export { CONF_W, NEAR_FRAC, REGRESS_EPS, feeRoe } from "./params";
 import { fmtPrice } from "./i18n";
 
 // ─── Scan rows ────────────────────────────────────────────────────────────────
@@ -479,20 +481,6 @@ export function roeOf(side: string, entry: number, price: number, leverage: numb
   if (!entry || !price) return 0;
   const move = side === "SHORT" ? ((entry - price) / entry) * 100 : ((price - entry) / entry) * 100;
   return Math.round(move * leverage * 100) / 100;
-}
-
-/**
- * ROE % mà PHÍ GIAO DỊCH ăn vào (0.2.77) — sàn thu phí trên NOTIONAL mỗi lần
- * vào/thoát, margin = notional / leverage → mỗi bên tốn FEE_PCT% × lev (%
- * ROE). sides: 1 = chỉ phí entry (đã trả lúc mở), 2 = round-trip entry+exit
- * (đúng mức một lệnh CHỐT phải gánh). Ví dụ FEE_PCT 0.05 (taker USDT-M):
- *   ×10 → mỗi bên −0.5% ROE, round-trip −1.0% — kể cả khi giá đứng im.
- * FEE_PCT đọc runtime (pval) nên chỉnh /ai ăn hiệu lực lệnh chốt kế tiếp;
- * 0 hoặc lev ≤ 0 → 0 (off). Pure theo (lev, sides) — không đụng giá/entry.
- */
-export function feeRoe(lev: number, sides = 2): number {
-  const f = Number(pval("FEE_PCT", FEE_PCT));
-  return f > 0 && lev > 0 ? f * lev * sides : 0;
 }
 
 /** "sl" | "tp" | null — has the LIVE price crossed the SL/TP of the position? */

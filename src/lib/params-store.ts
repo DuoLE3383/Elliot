@@ -171,7 +171,9 @@ export const EDITABLE: ParamMeta[] = [
   { key: "TP_LIQ_SAFE", group: "Flip / SL-TP", type: "number", def: TP_LIQ_SAFE, min: 10, max: 90, step: 5, int: true, unit: "%", note: "Liquidation safety roof: SL never sits further than this % of the way to the liquidation price (100/lev %). Applies to EVERY tpMode incl. manual; TP follows to keep R:R." },
   // Phí giao dịch trong ROE (0.2.77) — cùng nhóm position-math vì nó chỉnh
   // mức ROE realised của MỌI lệnh chốt, cùng tầng với SL/TP × leverage.
-  { key: "FEE_PCT", group: "Flip / SL-TP", type: "number", def: FEE_PCT, min: 0, max: 0.5, step: 0.01, unit: "%/side", note: "Trading fee per side, % of notional (Binance USDT-M taker = 0.05, maker 0.02). Every settled trade subtracts a round trip: fee drag = 2 × FEE_PCT × leverage in ROE % — at ×10 that is −1.0% per trade even if price never moves. Realized ROE / net ROE / WR / equity chain are all net of fees. 0 = off (gross, pre-0.2.77)." },
+  // 0.2.78: cùng tham số này cũng cấp số liệu cho prompt LLM (fee_check +
+  // ROE tại SL/TP sau phí) — một nguồn, đổi một chỗ ăn cả settlement lẫn review.
+  { key: "FEE_PCT", group: "Flip / SL-TP", type: "number", def: FEE_PCT, min: 0, max: 0.5, step: 0.01, unit: "%/side", note: "Trading fee per side, % of notional (Binance USDT-M taker = 0.05, maker 0.02). Every settled trade subtracts a round trip: fee drag = 2 × FEE_PCT × leverage in ROE % — at ×10 that is −1.0% per trade even if price never moves. Realized ROE / net ROE / WR / equity chain are all net of fees, and the LLM Risk Officer prompt carries the same drag (fee_check + fee-net ROE at SL/TP). 0 = off (gross, pre-0.2.77)." },
 ];
 
 const GROUPS: ParamMeta["group"][] = ["Quality gate", "5-minute broadcast", "Scan digest", "Train / Prob", "Champion–challenger", "LLM Risk Officer", "Universe / sessions", "Telegram notify", "Flip / SL-TP"];

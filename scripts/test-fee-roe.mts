@@ -71,7 +71,12 @@ check("route: PATCH close CÙNG công thức (một settlement, hai cửa)", rt.
 check("cả hai import feeRoe từ autotrade", eng.includes("feeRoe,") && (rt.match(/import \{ feeRoe \} from "@\/lib\/autotrade";/) ?? []).length === 1);
 check("thanh lý vẫn −100 (margin sạch — phí chẳng còn gì để trừ)", (eng.match(/pnlPct = -100;/g) ?? []).length >= 1 && rt.includes("pnlPct = -100;"));
 check("phí không kéo ROE dưới đáy −100 (clamp)", eng.includes("else if (pnlPct < -100) pnlPct = -100;") && rt.includes("else if (pnlPct < -100) pnlPct = -100;"));
-check("autotrade.ts: feeRoe đọc FEE_PCT runtime (pval)", at.includes('pval("FEE_PCT", FEE_PCT)'));
+// 0.2.78: feeRoe chuyển nhà từ autotrade.ts sang ./params (llm.ts cần chính công
+// thức đó cho prompt fee_check mà không được import autotrade → vòng); autotrade
+// re-export nên engine/tg-msgs/route giữ nguyên import — vẫn một thuật toán.
+const pm = readFileSync("src/lib/params.ts", "utf8");
+check("feeRoe đọc FEE_PCT runtime (pval) — định nghĩa ở params.ts từ 0.2.78", pm.includes('pval("FEE_PCT", FEE_PCT)') && !at.includes('pval("FEE_PCT", FEE_PCT)'));
+check("autotrade re-export feeRoe từ ./params (engine/tg-msgs/route không đổi import)", at.includes('export { CONF_W, NEAR_FRAC, REGRESS_EPS, feeRoe } from "./params";'));
 
 // ── C · Telegram — phí nhìn thấy được ────────────────────────────────────────
 console.log("5. msgOpen / msgClose — dòng phí");

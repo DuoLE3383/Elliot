@@ -175,9 +175,26 @@ export const TP_LIQ_SAFE = 60;
  *  (maker 0.02%; trả phí bằng BNB −10%). Lệnh chốt (tp/sl/trail/flip/manual)
  *  trừ đúng round-trip 2 bên: ×10 → 2 × 0.05 × 10 = −1.0% ROE/lệnh kể cả khi
  *  giá đứng im. ROE realised, net ROE, WR, equity chain, autopsy R, bài học
- *  xgb — tất cả thành số SAU PHÍ. 0 = tắt (về gross như trước 0.2.77).
- *  Chỉnh runtime nhóm Flip / SL-TP trên /ai. */
+ *  xgb — tất cả thành số SAU PHÍ; prompt LLM Risk Officer cũng kèm mức phí
+ *  (fee_check + ROE tại SL/TP sau phí, 0.2.78). 0 = tắt (về gross như trước
+ *  0.2.77). Chỉnh runtime nhóm Flip / SL-TP trên /ai. */
 export const FEE_PCT = 0.05;
+
+/** ROE % mà PHÍ GIAO DỊCH ăn vào (0.2.77) — sàn thu phí trên NOTIONAL mỗi lần
+ *  vào/thoát, margin = notional / leverage → mỗi bên tốn FEE_PCT% × lev (%
+ *  ROE). sides: 1 = chỉ phí entry (đã trả lúc mở), 2 = round-trip entry+exit
+ *  (đúng mức một lệnh CHỐT phải gánh). Ví dụ FEE_PCT 0.05 (taker USDT-M):
+ *    ×10 → mỗi bên −0.5% ROE, round-trip −1.0% — kể cả khi giá đứng im.
+ *  FEE_PCT đọc runtime (pval) nên chỉnh /ai ăn hiệu lực lệnh chốt kế tiếp;
+ *  0 hoặc lev ≤ 0 → 0 (off). Pure theo (lev, sides) — không đụng giá/entry.
+ *  Sống ở ./params từ 0.2.78 (trước đó định nghĩa trong autotrade.ts): llm.ts
+ *  cần CHÍNH công thức này cho prompt fee_check mà không được import
+ *  autotrade (autotrade đã import llm → vòng); autotrade re-export để
+ *  engine/tg-msgs/route giữ nguyên import — vẫn "một thuật toán, một nguồn". */
+export function feeRoe(lev: number, sides = 2): number {
+  const f = Number(pval("FEE_PCT", FEE_PCT));
+  return f > 0 && lev > 0 ? f * lev * sides : 0;
+}
 
 // ── 4d · SELF-IMPROVE FALLBACK — bù chốt methodId reset (0.2.75) ───────────
 // methodId là hash của TOÀN BỘ chính sách (sc|auc|acc|r|x|tp|sl|tpct|atr|tf|fl|wh)
