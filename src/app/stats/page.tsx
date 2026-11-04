@@ -18,6 +18,11 @@
 // Export CSV, từ tab Journal của trang chủ) nhập VÀO card Trade journal — cùng
 // nguồn /api/journal với các ô KPI nên khớp 1:1; ALL trộn mọi cặp + cột Symbol.
 // (2) FULL WIDTH: bỏ max-w-6xl; grid section 3 cột trên 2xl, KPI 3 cột trên xl.
+// 0.2.82 — DỜI NỐI 3 TAB CÒN LẠI CỦA TERMINAL (Suggestions / Lab / Analysis)
+// sang đây (nối tiếp Journal 0.2.80 — trang chủ thuần chart): cùng bộ chọn
+// pickSym/pickTf điều khiển; Analysis thay card Deep analysis cũ (cùng nguồn
+// /api/view + DEFAULT_SETTINGS — DeepAnalysis + pies là bộ siêu tập, giữ basis
+// note); Lab Apply ghi utp.settings (localStorage) — trang chủ đọc ở lần tải kế.
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,23 +30,26 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChartBox } from "@/components/stat-charts";
 import { Journal } from "@/components/journal";
-import { fmtPct, fmtPrice, t, type Lang } from "@/lib/i18n";
-import type { Analysis } from "@/lib/analysis";
+import { DeepAnalysis } from "@/components/analysis";
+import { StrategyPies } from "@/components/strategy-pies";
+import { StrategyLab } from "@/components/strategy-lab";
+import { SuggestionHistory } from "@/components/suggestions";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { fmtPct, t, type Lang } from "@/lib/i18n";
+import type { VariantRow } from "@/lib/history";
 import type { KpiStats } from "@/lib/papers";
 import type { Paper } from "@/lib/types";
 // 0.2.67 — chỉ import TYPE (erased lúc build) nên bundle trình duyệt không kéo
 // db/engine của stats.ts vào; màu do SERVER gắn qua field tone, client chỉ tô.
 import type { StatAccent, StatChart, StatTone } from "@/lib/stats";
-import { fetchView } from "@/lib/view";
-import { DEFAULT_SETTINGS, DEFAULT_WYCKOFF, SYMBOLS } from "@/lib/types";
+import { fetchView, type ViewPayload } from "@/lib/view";
+import { DEFAULT_SETTINGS, DEFAULT_WYCKOFF, SYMBOLS, type EngineSettings } from "@/lib/types";
 import {
   ArrowLeft,
   CheckCircle2,
-  FlaskConical,
   HelpCircle,
   RefreshCw,
   ScrollText,
-  Search,
   TriangleAlert,
 } from "lucide-react";
 import Link from "next/link";
@@ -166,8 +174,14 @@ export default function StatsPage() {
   const [journalPer, setJournalPer] = useState<{ per: PerPair[]; failed: string[] } | null>(null);
   /** 0.2.80 — danh sách lệnh giấy của card journal (bảng tương tác + CSV) */
   const [journalPapers, setJournalPapers] = useState<Paper[] | null>(null);
-  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  /** 0.2.82 — toàn bộ /api/view của combo đang chọn (pies/n/gate cho tab
+   *  Analysis; trước đây chỉ giữ view.analysis cho card Deep analysis cũ) */
+  const [view, setView] = useState<ViewPayload | null>(null);
   const [clientBusy, setClientBusy] = useState(false);
+  /** 0.2.82 — biến thể Lab áp dụng gần nhất (note xác nhận trong tab) */
+  const [labApplied, setLabApplied] = useState<{ name: string; sl: number; tp: number; key: number; period: number } | null>(null);
+  /** 0.2.82 — bumped khi bấm Refresh → tab Suggestions/Lab tải lại theo combo */
+  const [tabsRefresh, setTabsRefresh] = useState(0);
 
   useEffect(() => {
     // English is the app's main language (0.2.58): boot EN every visit — the
@@ -208,13 +222,13 @@ export default function StatsPage() {
           setJournal({ ...j.kpi, basis: String(j.basis) });
           setJournalPer({ per: j.per ?? [], failed: j.failed ?? [] });
           setJournalPapers(j.papers ?? []);
-          setAnalysis(null);
+          setView(null);
         } catch {
           if (alive) {
             setJournal(null);
             setJournalPer(null);
             setJournalPapers(null);
-            setAnalysis(null);
+            setView(null);
           }
         }
         setClientBusy(false);
@@ -241,7 +255,7 @@ export default function StatsPage() {
       if (!alive) return;
       setJournal(j ? { ...j.kpi, basis: String(j.basis) } : null);
       setJournalPapers(j ? j.papers : null);
-      setAnalysis(v ? v.analysis : null);
+      setView(v);
       setClientBusy(false);
     })();
     return () => {
@@ -261,10 +275,41 @@ export default function StatsPage() {
     localStorage.setItem("utp.lang", next);
   };
 
+  /** 0.2.82 — Lab (dời từ terminal): nạp config biến thể vào utp.settings
+   *  (localStorage, merge qua cấu hình ĐÃ LƯU — giữ leverage/utOn của người
+   *  dùng). StrategyLab đã markVariantApplied ở DB trước khi onApply chạy;
+   *  trang chủ đọc lại cấu hình này ở lần tải kế tiếp (note trong tab nói rõ). */
+  const applyVariantStats = useCallback((v: VariantRow) => {
+    try {
+      const raw = localStorage.getItem("utp.settings");
+      const prev: Partial<EngineSettings> = raw ? (JSON.parse(raw) as Partial<EngineSettings>) : {};
+      const next: EngineSettings = {
+        ...DEFAULT_SETTINGS,
+        ...prev,
+        slPct: v.config.slPct,
+        tpPct: v.config.tpPct,
+        atrKey: v.config.atrKey,
+        atrPeriod: v.config.atrPeriod,
+        smaFilter: v.config.smaFilter,
+        smaPeriod: v.config.smaPeriod,
+      };
+      localStorage.setItem("utp.settings", JSON.stringify(next));
+    } catch {
+      // storage blocked — biến thể vẫn được đánh dấu applied ở DB
+    }
+    setLabApplied({
+      name: v.name,
+      sl: v.config.slPct,
+      tp: v.config.tpPct,
+      key: v.config.atrKey,
+      period: v.config.atrPeriod,
+    });
+  }, []);
+
   const counts = { ok: 0, warn: 0, na: 0 };
   for (const s of snap?.sections ?? []) counts[s.state] += 1;
   if (journal) counts[journal.closed > 0 && journal.winRate >= 50 ? "ok" : "warn"] += 1;
-  if (analysis) counts.ok += 1;
+  if (view?.analysis) counts.ok += 1;
 
   const stateBadge = (state: "ok" | "warn" | "na") =>
     state === "ok" ? (
@@ -380,7 +425,7 @@ export default function StatsPage() {
           <Button size="sm" variant="outline" className="h-8 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800" onClick={switchLang}>
             {lang === "vi" ? "EN" : "VI"}
           </Button>
-          <Button size="sm" className="h-8 gap-1.5 bg-zinc-100 px-2.5 text-xs text-zinc-900 hover:bg-zinc-200" disabled={loading} onClick={() => void load()}>
+          <Button size="sm" className="h-8 gap-1.5 bg-zinc-100 px-2.5 text-xs text-zinc-900 hover:bg-zinc-200" disabled={loading} onClick={() => { setTabsRefresh((k) => k + 1); void load(); }}>
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             <span className="hidden sm:inline">{t(lang, "stats.refresh")}</span>
           </Button>
@@ -457,6 +502,108 @@ export default function StatsPage() {
                 {clientBusy && <RefreshCw className="h-3.5 w-3.5 animate-spin text-zinc-500" />}
               </CardContent>
             </Card>
+
+            {/* ── 0.2.82 — TERMINAL TABS (dời từ trang chủ): Suggestions / Lab /
+                Analysis — nối tiếp Journal 0.2.80. Cùng bộ chọn pickSym/pickTf
+                phía trên điều khiển; ALL: Suggestions khoá scope "all"
+                (forceAll), Lab + Analysis yêu cầu cặp cụ thể (biến thể + pies
+                tính theo từng cặp). Lab Apply ghi utp.settings → trang chủ đọc
+                ở lần tải kế tiếp (note xác nhận ngay trong tab). ─────────── */}
+            <Tabs defaultValue="suggest">
+              <TabsList className="h-8 w-full justify-start overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <TabsTrigger
+                  value="suggest"
+                  className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+                >
+                  {t(lang, "tabs.suggest")}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="lab"
+                  className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+                >
+                  {t(lang, "tabs.lab")}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="analysis"
+                  className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+                >
+                  {t(lang, "tabs.analysis")}
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="suggest" className="mt-2.5">
+                <SuggestionHistory
+                  lang={lang}
+                  symbol={pickSym}
+                  interval={pickTf}
+                  refreshKey={tabsRefresh}
+                  forceAll={pickSym === PICK_ALL}
+                />
+              </TabsContent>
+              <TabsContent value="lab" className="mt-2.5">
+                {pickSym === PICK_ALL ? (
+                  <p className="rounded-lg border border-dashed border-zinc-800 p-6 text-center text-xs text-zinc-500">
+                    {t(lang, "stats.labAll")}
+                  </p>
+                ) : (
+                  <>
+                    {labApplied && (
+                      <p className="mb-2.5 rounded-lg border border-teal-800/60 bg-teal-950/30 px-3 py-2 text-[11px] leading-relaxed text-teal-300">
+                        {t(lang, "sl.applyToast", {
+                          name: labApplied.name,
+                          sl: labApplied.sl.toFixed(1),
+                          tp: labApplied.tp.toFixed(1),
+                          key: String(labApplied.key),
+                          period: String(labApplied.period),
+                        })}{" "}
+                        · {t(lang, "stats.labApplied")}
+                      </p>
+                    )}
+                    <StrategyLab
+                      lang={lang}
+                      symbol={pickSym}
+                      interval={pickTf}
+                      refreshKey={tabsRefresh}
+                      onApply={applyVariantStats}
+                    />
+                  </>
+                )}
+              </TabsContent>
+              <TabsContent value="analysis" className="mt-2.5">
+                {pickSym === PICK_ALL ? (
+                  <p className="text-xs leading-relaxed text-zinc-500">— {t(lang, "stats.analysisAll")}</p>
+                ) : view ? (
+                  <div className="space-y-2.5">
+                    {/* 0.2.82 — DeepAnalysis + pies thay card Deep analysis cũ:
+                        cùng /api/view + DEFAULT_SETTINGS (một nguồn sự thật với
+                        cửa sổ journal), thêm ô cổng SMA + 3 donut preset —
+                        giữ basis note của card cũ. */}
+                    <DeepAnalysis
+                      lang={lang}
+                      a={view.analysis}
+                      smaFilter={DEFAULT_SETTINGS.smaFilter}
+                      smaPeriod={DEFAULT_SETTINGS.smaPeriod}
+                      gateLong={view.gate.long}
+                      gateShort={view.gate.short}
+                      smaValue={view.gate.sma}
+                    />
+                    <StrategyPies
+                      lang={lang}
+                      pies={view.pies}
+                      n={view.n}
+                      leverage={DEFAULT_SETTINGS.leverage}
+                    />
+                    <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 p-2.5">
+                      <p className="text-[11px] leading-relaxed text-zinc-400">
+                        <span className="font-semibold text-zinc-300">📌 {t(lang, "stats.basis")}: </span>
+                        {t(lang, "stats.basis.analysis")}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-zinc-500">— {clientBusy ? "…" : "failed to load candles"}</p>
+                )}
+              </TabsContent>
+            </Tabs>
 
             {/* ── Trade journal — tính Ở SERVER, luôn qua /api/journal (200 nến, 0.2.52) ── */}
             <Card className="border-t-2 border-fuchsia-500/70 border-zinc-800 bg-zinc-900/60">
@@ -616,95 +763,11 @@ export default function StatsPage() {
               </CardContent>
             </Card>
 
-            {/* ── Deep analysis — tính Ở SERVER, theo từng cặp ───────────── */}
-            <Card className="border-t-2 border-blue-500/70 border-zinc-800 bg-zinc-900/60">
-              <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
-                <div className="min-w-0">
-                  <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-blue-300">
-                    <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-blue-400" />
-                    <Search className="h-4 w-4" />
-                    {t(lang, "stats.section.analysis")} ·{" "}
-                    {pickSym === PICK_ALL ? t(lang, "stats.pick.all") : pickSym.replace("USDT", "")} {pickTf}
-                  </CardTitle>
-                  {flowChips("analysis")}
-                </div>
-                {analysis && accBadge(100, "descriptive metrics from closed candles — 100% formula-true")}
-              </CardHeader>
-              <CardContent className="space-y-2.5 pt-0">
-                {pickSym === PICK_ALL ? (
-                  <p className="text-xs leading-relaxed text-zinc-500">— {t(lang, "stats.analysisAll")}</p>
-                ) : analysis ? (
-                  <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
-                    <Metric
-                      lang={lang}
-                      k="Trend (EMA89/200)"
-                      v={analysis.trend}
-                      sub={analysis.ema89 != null ? `EMA89 ${fmtPrice(analysis.ema89)}` : undefined}
-                      tone={analysis.trend === "up" ? "ok" : analysis.trend === "down" ? "bad" : "dim"}
-                      hint="EMA stack of the last closed candle: up = close > EMA89 > EMA200 (green), down = close < EMA89 < EMA200 (red)."
-                      hintVi="Ngăn xếp EMA của nến đóng cuối: up = giá > EMA89 > EMA200 (xanh), down = giá < EMA89 < EMA200 (đỏ)."
-                    />
-                    <Metric
-                      lang={lang}
-                      k="RSI(14)"
-                      v={analysis.rsi14 != null ? analysis.rsi14.toFixed(1) : "—"}
-                      tone={analysis.rsi14 == null ? "dim" : analysis.rsi14 > 70 || analysis.rsi14 < 30 ? "warn" : "info"}
-                      hint="Wilder RSI(14) on closed candles; >70 overbought, <30 oversold — either extreme shows amber."
-                      hintVi="RSI(14) Wilder trên nến đóng; >70 quá mua, <30 quá bán — đạt cực trị nào cũng hiện vàng."
-                    />
-                    <Metric
-                      lang={lang}
-                      k="Volume vs TB20"
-                      v={analysis.volRatio != null ? `${analysis.volRatio.toFixed(2)}×` : "—"}
-                      tone={analysis.volRatio == null ? "dim" : analysis.volRatio > 2 ? "warn" : "info"}
-                      hint="Last closed candle volume ÷ mean volume of the prior 20 closed candles; >2× = unusual activity (amber)."
-                      hintVi="Volume nến đóng cuối ÷ volume TB 20 nến đóng trước; >2× = bất thường (vàng)."
-                    />
-                    <Metric
-                      lang={lang}
-                      k="ATR% (vs TB50)"
-                      v={analysis.atrPct != null ? `${analysis.atrPct.toFixed(2)}%` : "—"}
-                      sub={analysis.atrRel != null ? `${analysis.atrRel.toFixed(2)}× average` : undefined}
-                      tone={analysis.atrPct == null ? "dim" : analysis.atrPct > 3 ? "warn" : "info"}
-                      hint="ATR(14) as % of price — volatility. >3% = hot market (amber); sub = vs the 50-bar ATR% mean (>1 = stretched)."
-                      hintVi="ATR(14) theo % giá — độ biến động. >3% = thị trường nóng (vàng); dòng dưới = so với TB 50 nến (>1 = đang căng)."
-                    />
-                    <Metric
-                      lang={lang}
-                      k="Structure"
-                      v={analysis.structure ?? "—"}
-                      sub={analysis.rangePos != null ? `range position ${analysis.rangePos.toFixed(0)}%` : undefined}
-                      tone={analysis.structure === "breakout" ? "ok" : analysis.structure === "breakdown" ? "bad" : "info"}
-                      hint="Position vs the pivot-5 swing range: breakout above the range (green), breakdown below (red), inside (teal). <0% or >100% = a fresh break."
-                      hintVi="Vị trí so với vùng swing pivot-5: breakout vượt đỉnh (xanh), breakdown thủng đáy (đỏ), trong vùng (teal). <0% hoặc >100% = vừa thủng."
-                    />
-                    <Metric
-                      lang={lang}
-                      k="Swing range"
-                      v={analysis.rangeLow != null && analysis.rangeHigh != null ? `${fmtPrice(analysis.rangeLow)} – ${fmtPrice(analysis.rangeHigh)}` : "—"}
-                      tone="info"
-                      hint="The most recent confirmed swing low → high (5 bars each side) — the range Structure is measured against."
-                      hintVi="Đáy → đỉnh swing gần nhất đã xác nhận (5 nến mỗi bên) — vùng mà Structure đối chiếu."
-                    />
-                  </div>
-                ) : (
-                  <p className="text-xs text-zinc-500">— {clientBusy ? "…" : "failed to load candles"}</p>
-                )}
-                <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 p-2.5">
-                  <p className="text-[11px] leading-relaxed text-zinc-400">
-                    <span className="font-semibold text-zinc-300">📌 {t(lang, "stats.basis")}: </span>
-                    {t(lang, "stats.basis.analysis")}
-                  </p>
-                  <p className="text-[11px] leading-relaxed text-zinc-400">
-                    <span className="font-semibold text-zinc-300">⚖️ {t(lang, "stats.consist")}: </span>
-                    <FlaskConical className="mr-1 inline h-3 w-3" />
-                    {lang === "vi"
-                      ? "Same analyze() used on the main Deep analysis panel — identical candle source and formulas."
-                      : "The same analyze() powering the main page's Deep analysis panel — consistent by construction (same candles, same formulas)."}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+            {/* 0.2.82 — card Deep analysis (blue) XOÁ: nội dung của nó hợp nhất
+                vào tab Analysis phía trên (DeepAnalysis + pies — cùng nguồn
+                /api/view + DEFAULT_SETTINGS, thêm ô cổng SMA + 3 donut preset,
+                giữ basis note). Một nguồn sự thật, không lặp Trend/RSI/Vol/ATR/
+                Structure hai lần trên cùng trang. */}
           </>
         )}
       </div>

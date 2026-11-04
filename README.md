@@ -9,14 +9,14 @@ Cryptocurrency paper-trading application built with Next.js. It simulates trades
 - **Interactive price chart** — candles, SMA/EMA, BUY/SELL markers, ENTRY / FLIP / SL / TP levels, pin signals for inspection.
 - **Multi-pair watchlist** — add/remove pairs (defaults to major USDT-M symbols), live ticker strip, periodic refresh.
 - **UT Bot + SMA gate** — every signal shows why it was allowed or blocked by the directional SMA filter.
-- **Deep Analysis panel** — breakout / inside / breakdown structure, RSI(14), EMA89/200, volume ratio, ATR% vs 50-candle average (calculated on closed candles only).
+- **Deep Analysis panel** — breakout / inside / breakdown structure, RSI(14), EMA89/200, volume ratio, ATR% vs 50-candle average (calculated on closed candles only; lives on the stats page's Analysis tab alongside the strategy-potential pies).
 - **Wyckoff panel** — phase detection (accumulation / distribution), swing pivots, events and trend stages.
 - **XGBoost suggestions** — pure-TypeScript XGB model trained in the browser or on the server; each train produces a bias (LONG / SHORT / NEUTRAL), probability, SL/TP and horizon; results are scored win/loss after the horizon.
 - **Finetune & history** — track accuracy / AUC across finetune runs and compare model performance.
 - **Auto-trade (dry-run)** — state machine that opens/closes positions from signals, respects session time windows, risk controls, and pushes digests + trade alerts via Telegram.
 - **Trade journal + Equity curve + KPI** — win rate, PnL, strategy allocation pies, session breakdown (interactive journal table with filters + CSV export lives on the stats page, sharing the same `/api/journal` source as the KPI tiles).
 - **Flexible settings** — global settings dialog, show/hide panels via the rail, responsive mobile layout.
-- **Stats page (full width)** — consistency checks, per-pair / all-pairs journal aggregation with the interactive trade journal (filters + CSV) merged into the journal card, deep analysis, session and universe scan summaries.
+- **Stats page (full width)** — consistency checks, per-pair / all-pairs journal aggregation with the interactive trade journal (filters + CSV) merged into the journal card, plus the terminal tabs (Suggestions / Lab / Analysis) moved from the home page: suggestion history with scope + filters + CSV, the Strategy Lab A/B variants, and Deep Analysis + strategy pies — all driven by the same pair/TF picker; session and universe scan summaries.
 - **Open-position strip** — live dry-run position shown at the top of the home page with real-time ROE, SL→TP progress and one-click jump to the chart.
 
 ## Tech stack

@@ -1,8 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { DeepAnalysis } from "@/components/analysis";
-import { StrategyPies } from "@/components/strategy-pies";
 import { AutoPanel } from "@/components/auto-panel";
 import { KpiCards } from "@/components/kpi";
 import { SessionsPanel } from "@/components/sessions";
@@ -10,8 +8,6 @@ import { SignalDock } from "@/components/panels";
 import { PriceChart } from "@/components/price-chart";
 import { RailContext } from "@/components/rail-context";
 import { SettingsDialog } from "@/components/settings-dialog";
-import { SuggestionHistory } from "@/components/suggestions";
-import { StrategyLab } from "@/components/strategy-lab";
 import { TickerStrip } from "@/components/ticker-strip";
 import { Watchlist } from "@/components/watchlist";
 import { WyckoffPanel } from "@/components/wyckoff-panel";
@@ -23,7 +19,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtCompact } from "@/lib/market";
-import { applyBestSuggestion, fetchChampionRun, fetchRuns, fetchSuggestions, markApplied, markVariantApplied, type RunRow, type SuggestionRow, type VariantRow } from "@/lib/history";
+import { applyBestSuggestion, fetchChampionRun, fetchRuns, fetchSuggestions, markApplied, type RunRow, type SuggestionRow } from "@/lib/history";
 import { fmtPct, fmtPrice, fmtTime, symbolLabel, t, type Lang } from "@/lib/i18n";
 import type { AutoTradeRow } from "@/lib/autotrade";
 import { LIVE_REPAIR_MS } from "@/lib/params";
@@ -774,43 +770,6 @@ export default function Home() {
 
   const xgbStale = xgb != null && xgb.key !== key;
 
-  /** Strategy Lab — nạp config của một biến thể đã thắng A/B vào settings engine. */
-  const applyVariantLab = useCallback(
-    async (v: VariantRow) => {
-      await markVariantApplied(v.id).catch(() => undefined);
-      setSettings((prev) => {
-        const next = {
-          ...prev,
-          slPct: v.config.slPct,
-          tpPct: v.config.tpPct,
-          atrKey: v.config.atrKey,
-          atrPeriod: v.config.atrPeriod,
-          smaFilter: v.config.smaFilter,
-          smaPeriod: v.config.smaPeriod,
-        };
-        try {
-          localStorage.setItem("utp.settings", JSON.stringify(next));
-        } catch {
-          // storage blocked — the variant still applies for this session
-        }
-        return next;
-      });
-      prevKeyRef.current = "";
-      pushToast({
-        kind: "xgb",
-        text: t(lang, "sl.applyToast", {
-          name: v.name,
-          sl: v.config.slPct.toFixed(1),
-          tp: v.config.tpPct.toFixed(1),
-          key: String(v.config.atrKey),
-          period: String(v.config.atrPeriod),
-        }),
-      });
-      bumpHist();
-    },
-    [lang, pushToast, bumpHist],
-  );
-
   // persisted finetune runs for the current pair+interval — reload on switch/mutation
   const runsKeyRef = useRef(""); // key the loaded runs list belongs to
   useEffect(() => {
@@ -1298,14 +1257,14 @@ export default function Home() {
               {t(lang, showExtra ? "ui.hideExtra" : "ui.showExtra")}
             </button>
 
-            {/* ── CENTER: chart + bottom tabs ────────────────────────── */}
+            {/* ── CENTER: chart — terminal thuần (>0.2.82 tab Suggestions /
+                Lab / Analysis dời hẳn sang /stats, nối tiếp Journal 0.2.80) ── */}
             <div className="rail-scroll order-1 flex min-h-0 flex-col gap-3 lg:order-2 lg:overflow-y-auto lg:pr-0.5">
               {/* gap-3/py-3 override the Card defaults (gap-6/py-6) — reclaims ~72px
                   of chart height; on lg the card fills the WHOLE visible rail height
-                  (h-full + flex-none) so the chart stretches down over the old tabs
-                  area — Sổ lệnh / Phân tích sit below the fold (scroll to reach).
+                  (h-full + flex-none) nên chart chiếm trọn cột terminal.
                   lg:min-h keeps the chart usable on short viewports (the rail scrolls
-                  instead of the card collapsing over the tabs) */}
+                  instead of the card collapsing) */}
               <Card className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden border-zinc-800 bg-zinc-900/60 py-3 lg:h-full lg:min-h-[460px] lg:flex-none">
                 <CardHeader className="shrink-0 border-b border-zinc-800/70 px-3 py-2.5">
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
@@ -1421,52 +1380,6 @@ export default function Home() {
                   </div>
                 </CardContent>
               </Card>
-
-              {/* 0.2.80 — tab Journal DỜI HẲN sang /stats (nhập vào card Trade
-                  journal của trang đó, cùng nguồn /api/journal) — terminal chỉ
-                  còn Suggestions / Lab / Analysis */}
-              <Tabs defaultValue="suggest" className="shrink-0">
-                <TabsList className="h-8 justify-start rounded-lg border border-zinc-800 bg-zinc-900 p-0.5">
-                  <TabsTrigger
-                    value="suggest"
-                    className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
-                  >
-                    {t(lang, "tabs.suggest")}
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="lab"
-                    className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
-                  >
-                    {t(lang, "tabs.lab")}
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="analysis"
-                    className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
-                  >
-                    {t(lang, "tabs.analysis")}
-                  </TabsTrigger>
-                </TabsList>
-                <TabsContent value="suggest" className="mt-2 lg:h-[200px] lg:overflow-y-auto rail-scroll">
-                  <SuggestionHistory lang={lang} symbol={symbol} interval={interval} refreshKey={histRefresh} />
-                </TabsContent>
-                <TabsContent value="lab" className="mt-2 lg:max-h-[420px] lg:overflow-y-auto rail-scroll">
-                  <StrategyLab lang={lang} symbol={symbol} interval={interval} refreshKey={histRefresh} onApply={(v) => void applyVariantLab(v)} />
-                </TabsContent>
-                <TabsContent value="analysis" className="mt-2 lg:h-[200px] lg:overflow-y-auto rail-scroll">
-                  <div className="space-y-2.5">
-                    <DeepAnalysis
-                      lang={lang}
-                      a={view.analysis}
-                      smaFilter={settings.smaFilter}
-                      smaPeriod={settings.smaPeriod}
-                      gateLong={gateInfo.long}
-                      gateShort={gateInfo.short}
-                      smaValue={gateInfo.sma}
-                    />
-                    <StrategyPies lang={lang} pies={view.pies} n={view.n} leverage={settings.leverage} />
-                  </div>
-                </TabsContent>
-              </Tabs>
             </div>
 
             {/* ── RIGHT: controls first, then Auto, analytics in tabs ──── */}

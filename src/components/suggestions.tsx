@@ -18,6 +18,10 @@ interface Props {
   interval: string;
   /** bumped by the parent after save / apply / resolve mutations */
   refreshKey: number;
+  /** 0.2.82 — /stats picker đang ở “Tất cả cặp”: khoá scope "all", ẩn nút
+   *  chuyển pair/all (bộ chọn phía trên đã nói ALL) — trang chủ không truyền
+   *  nên hành vi cũ giữ nguyên byte. */
+  forceAll?: boolean;
 }
 
 const biasClass = (bias: string) =>
@@ -65,8 +69,10 @@ function StatTile({ icon, label, value, valueClass }: { icon: React.ReactNode; l
   );
 }
 
-export function SuggestionHistory({ lang, symbol, interval, refreshKey }: Props) {
+export function SuggestionHistory({ lang, symbol, interval, refreshKey, forceAll = false }: Props) {
   const [scope, setScope] = useState<Scope>("pair");
+  /** scope đang hiệu lực — forceAll luôn thắng (ALL ở /stats) */
+  const effScope: Scope = forceAll ? "all" : scope;
   const [filter, setFilter] = useState<Filter>("all");
   const [rows, setRows] = useState<SuggestionRow[] | null>(null);
 
@@ -77,7 +83,7 @@ export function SuggestionHistory({ lang, symbol, interval, refreshKey }: Props)
     const load = async () => {
       try {
         const list =
-          scope === "pair"
+          effScope === "pair"
             ? await fetchSuggestions({ symbol, interval, limit: 150 })
             : await fetchSuggestions({ limit: 300 });
         if (alive) setRows(list);
@@ -89,7 +95,7 @@ export function SuggestionHistory({ lang, symbol, interval, refreshKey }: Props)
     return () => {
       alive = false;
     };
-  }, [scope, symbol, interval, refreshKey]);
+  }, [effScope, symbol, interval, refreshKey]);
 
   const stats = useMemo(() => {
     const scored = rows?.filter((r) => r.outcome === "win" || r.outcome === "loss") ?? [];
@@ -125,7 +131,7 @@ export function SuggestionHistory({ lang, symbol, interval, refreshKey }: Props)
     const d = new Date();
     const pad = (x: number) => String(x).padStart(2, "0");
     const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
-    const base = scope === "pair" ? `de-xuat-${symbol}-${interval}` : "de-xuat-tat-ca";
+    const base = effScope === "pair" ? `de-xuat-${symbol}-${interval}` : "de-xuat-tat-ca";
     downloadCsv(`${base}-${stamp}.csv`, suggestionsToCsv(filtered));
   };
 
@@ -148,21 +154,23 @@ export function SuggestionHistory({ lang, symbol, interval, refreshKey }: Props)
             <p className="mt-0.5 text-[11px] text-zinc-500">{t(lang, "sg.subtitle")}</p>
           </div>
           <div className="flex items-center gap-1.5">
-            {(["pair", "all"] as Scope[]).map((sc) => (
-              <Button
-                key={sc}
-                size="sm"
-                variant={scope === sc ? "default" : "outline"}
-                className={
-                  scope === sc
-                    ? "h-7 rounded-full border-zinc-700 bg-zinc-100 px-3 text-xs text-zinc-900 hover:bg-zinc-200"
-                    : "h-7 rounded-full border-zinc-700 bg-transparent px-3 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-                }
-                onClick={() => setScope(sc)}
-              >
-                {t(lang, sc === "pair" ? "sg.scope.pair" : "sg.scope.all")}
-              </Button>
-            ))}
+            {/* 0.2.82 — forceAll (/stats ALL): khoá scope "all", ẩn nút chuyển */}
+            {!forceAll &&
+              (["pair", "all"] as Scope[]).map((sc) => (
+                <Button
+                  key={sc}
+                  size="sm"
+                  variant={scope === sc ? "default" : "outline"}
+                  className={
+                    scope === sc
+                      ? "h-7 rounded-full border-zinc-700 bg-zinc-100 px-3 text-xs text-zinc-900 hover:bg-zinc-200"
+                      : "h-7 rounded-full border-zinc-700 bg-transparent px-3 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                  }
+                  onClick={() => setScope(sc)}
+                >
+                  {t(lang, sc === "pair" ? "sg.scope.pair" : "sg.scope.all")}
+                </Button>
+              ))}
             <Button
               size="sm"
               variant="outline"
@@ -199,7 +207,7 @@ export function SuggestionHistory({ lang, symbol, interval, refreshKey }: Props)
           />
           <StatTile
             icon={<Database className="h-3 w-3 text-zinc-400" />}
-            label={scope === "pair" ? `${symbolLabel(symbol)} · ${interval}` : t(lang, "sg.scope.all")}
+            label={effScope === "pair" ? `${symbolLabel(symbol)} · ${interval}` : t(lang, "sg.scope.all")}
             value={rows ? String(rows.length) : "…"}
           />
         </div>
@@ -241,7 +249,7 @@ export function SuggestionHistory({ lang, symbol, interval, refreshKey }: Props)
                 <thead className="sticky top-0 bg-zinc-900 text-[11px] uppercase tracking-wide text-zinc-500">
                   <tr>
                     <th className="px-3 py-2 font-medium">{t(lang, "sg.col.time")}</th>
-                    {scope === "all" && <th className="px-3 py-2 font-medium">{t(lang, "sg.col.pair")}</th>}
+                    {effScope === "all" && <th className="px-3 py-2 font-medium">{t(lang, "sg.col.pair")}</th>}
                     <th className="px-3 py-2 font-medium">{t(lang, "sg.col.bias")}</th>
                     <th className="px-3 py-2 text-right font-medium">{t(lang, "sg.col.prob")}</th>
                     <th className="px-3 py-2 text-right font-medium">{t(lang, "sg.col.sltp")}</th>
@@ -256,7 +264,7 @@ export function SuggestionHistory({ lang, symbol, interval, refreshKey }: Props)
                         {fmtTime(new Date(s.createdAt).getTime(), lang)}
                         {s.applied && <span title={t(lang, "sg.appliedBadge")}><Database className="ml-1.5 inline h-3 w-3 text-teal-500" /></span>}
                       </td>
-                      {scope === "all" && (
+                      {effScope === "all" && (
                         <td className="whitespace-nowrap px-3 py-2 font-mono text-zinc-300">
                           {symbolLabel(s.symbol)}
                           <span className="ml-1 text-[10px] text-zinc-600">{s.interval}</span>
@@ -305,7 +313,7 @@ export function SuggestionHistory({ lang, symbol, interval, refreshKey }: Props)
                   <div className="flex items-center justify-between gap-2">
                     <span className={`font-mono text-sm font-bold ${biasClass(s.bias)}`}>
                       {s.bias}
-                      {scope === "all" && (
+                      {effScope === "all" && (
                         <span className="ml-1.5 text-[11px] font-normal text-zinc-400">
                           {symbolLabel(s.symbol)} · {s.interval}
                         </span>

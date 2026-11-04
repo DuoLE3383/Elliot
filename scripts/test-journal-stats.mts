@@ -17,6 +17,11 @@
 //   6. i18n: journal.col.symbol đủ vi+en; tabs.journal xoá ở cả 2 dict; mọi
 //      key journal.*/stats.* 2 trang dùng đều tồn tại ở CẢ HAI dict.
 //
+// 0.2.82 UPDATE: mục 3 đổi mốc (card Deep analysis cũ XOÁ — Analysis nhập vào
+// khối tabs terminal); mục 4 đảo chiều (3 tab suggest/lab/analysis cũng dời
+// sang /stats theo Journal — trang chủ thuần chart). Chi tiết đầy đủ ở
+// scripts/test-stats-tabs.mts.
+//
 // Run: npx tsx scripts/test-journal-stats.mts
 
 import { readFileSync } from "fs";
@@ -68,25 +73,25 @@ check("state journalPapers + type Paper import", /const \[journalPapers, setJour
 check("đường ALL: setJournalPapers(j.papers ?? [])", /setJournalPapers\(j\.papers \?\? \[\]\);/.test(stats));
 check("đường ALL lỗi: reset journalPapers(null)", /setJournal\(null\);\s*\n\s*setJournalPer\(null\);\s*\n\s*setJournalPapers\(null\);/.test(stats));
 check("đường 1 cặp: setJournalPapers(j ? j.papers : null)", /setJournalPapers\(j \? j\.papers : null\);/.test(stats));
-check("Journal render TRONG card journal (sau ChartBox stack, trước analysis card)", (() => {
+check("Journal render TRONG card journal (sau ChartBox stack — 0.2.82: sau khối tabs terminal, card analysis cũ đã xoá)", (() => {
   const stack = stats.indexOf('kind: "stack"');
   const jr = stats.indexOf("<Journal");
-  const analysisCard = stats.indexOf('t(lang, "stats.section.analysis")');
-  return stack > -1 && jr > stack && jr < analysisCard;
+  const tabs = stats.indexOf('<Tabs defaultValue="suggest">');
+  return stack > -1 && jr > stack && tabs > -1 && jr > tabs;
 })());
 check("Journal bare + papers=journalPapers ?? []", /<Journal\s*\n\s*lang=\{lang\}\s*\n\s*papers=\{journalPapers \?\? \[\]\}/.test(stats) && /bare\s*\n\s*showSymbol=\{pickSym === PICK_ALL\}/.test(stats));
 check("ALL → showSymbol (cột Symbol khi trộn mọi cặp)", /showSymbol=\{pickSym === PICK_ALL\}/.test(stats));
 check("JournalOneResp/JournalAllResp có papers", /type JournalOneResp = \{ kpi: KpiStats; basis: number; papers: Paper\[\] \};/.test(stats) && /papers: Paper\[\];\s*\n\}/.test(stats));
 check("chỉ render khi journal đã tải (không hiện bảng trống lúc loading)", /\{journal && \(\s*\n\s*<div className="space-y-2\.5">\s*\n\s*<div className="border-t border-zinc-800\/70 pt-2\.5">/.test(stats));
 
-console.log("── 4. Trang chủ: tab Journal dời hẳn ──");
+console.log("── 4. Trang chủ: tab Journal dời hẳn (0.2.82: cả 3 tab còn lại cũng dời — chi tiết ở test-stats-tabs.mts) ──");
 check("import Journal đã xoá khỏi trang chủ", !home.includes('from "@/components/journal"') && !home.includes("<Journal"));
-check('defaultValue chuyển sang "suggest"', /<Tabs defaultValue="suggest" className="shrink-0">/.test(home));
 check('không còn TabsTrigger value="journal"', !home.includes('value="journal"'));
 check('không còn TabsContent value="journal"', !home.includes('<TabsContent value="journal"'));
-check("terminal còn đúng 3 tab: suggest + lab + analysis", (() => {
-  const seg = home.slice(home.indexOf('<Tabs defaultValue="suggest"'), home.indexOf("</Tabs>"));
-  return ["suggest", "lab", "analysis"].every((v) => seg.includes(`value="${v}"`)) && !seg.includes('value="journal"');
+check('0.2.82: khối 3 tab terminal XOÁ hẳn (suggest dời sang /stats)', !home.includes('defaultValue="suggest"'));
+check("0.2.82: tab Context/Wyckoff của rail vẫn nguyên", (() => {
+  const seg = home.slice(home.indexOf('<Tabs defaultValue="context"'), home.indexOf("</Tabs>"));
+  return seg.includes('value="context"') && seg.includes('value="wyckoff"');
 })());
 
 console.log("── 5. FULL WIDTH /stats + /ai ──");
@@ -97,7 +102,10 @@ check("/stats: không còn class max-w-6xl", noClassMaxW(stats));
 check("/stats: container bỏ mx-auto (full width, giữ padding)", /<div className="space-y-4 p-3 sm:p-5">/.test(stats));
 check("/stats: grid section 3 cột trên 2xl", /grid gap-3 md:grid-cols-2 2xl:grid-cols-3/.test(stats));
 check("/stats: skeleton khớp grid 3 cột 2xl", stats.split("grid gap-3 md:grid-cols-2 2xl:grid-cols-3").length >= 3);
-check("/stats: KPI journal + analysis 3 cột trên xl", stats.split("grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3").length >= 3);
+// 0.2.82: card analysis cũ XOÁ → chỉ còn KPI grid của card journal (lưới
+// analysis nay nằm trong tab Analysis qua DeepAnalysis — class riêng của
+// component, không phải grid Metric nữa); split 1 lần xuất hiện = 2 phần.
+check("/stats: KPI journal giữ 3 cột trên xl (grid analysis cũ đã xoá theo card)", stats.split("grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3").length === 2);
 check("/ai: không còn class max-w-6xl (header + body)", noClassMaxW(ai));
 check("/ai: header inner full width (flex, không mx-auto)", /<div className="flex flex-wrap items-center gap-2 px-3 py-2\.5 sm:px-5">/.test(ai));
 check("/ai: body full width (space-y-4 p-3 sm:p-5)", /<div className="space-y-4 p-3 sm:p-5">/.test(ai));
