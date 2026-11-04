@@ -4,9 +4,16 @@
 // timeframe, I can tell you which timeframes to keep." + "Compare the live
 // hit rate to predicted probability bucket by bucket (calibration)."
 //
-// Chạy trên MÁY CÓ DB (VPS: cd /opt/elliott && npx tsx scripts/stats-tf.mts;
-// local: bash scripts/sync-db-from-vps.sh trước rồi chạy như trên). Toán thuần
+// Chạy từ GỐC REPO trên máy có DB (VPS: repo nằm ở ~/Elliot — /opt/elliott chỉ
+// là DATA_DIR chứa data/custom.db, KHÔNG có scripts/):
+//   cd ~/Elliot && NODE_ENV=production npx tsx scripts/stats-tf.mts
+// .env đọc theo cwd → đúng DATABASE_URL app đang dùng (VPS: tuyệt đối
+// file:/opt/elliott/data/custom.db). Lần đầu npx hỏi tải tsx — gõ y.
+// NODE_ENV=production chỉ để tắt prisma:query log (dev-mode), không đổi số.
+// Local: bash scripts/sync-db-from-vps.sh trước rồi chạy như trên. Toán thuần
 // nằm ở src/lib/tf-stats.ts (đã test đối chứng tay); script này chỉ nạp DB.
+// LƯU Ý: DATABASE_URL TƯƠNG ĐỐI (file:./db/...) thì prisma engine giải theo
+// thư mục schema (prisma/) chứ không phải cwd — hãy dùng đường dẫn TUYỆT ĐỐI.
 //
 // GROSS/NET tính lại từ GIÁ (đồng nhất mọi phiên bản — lệnh trước 0.2.77 lưu
 // pnlPct gross, sau đó net; DB Σ chỉ in làm đối chiếu chéo). Phí = feeRoe
