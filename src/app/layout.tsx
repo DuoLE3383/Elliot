@@ -41,11 +41,12 @@ export const metadata: Metadata = {
   other: { "elliott-build": BUILD_ID },
 };
 
-// Mobile browser chrome matches the terminal background colour.
+// Mobile browser chrome matches the terminal background colour (0.2.76: /ai
+// moved to a teal-tinted dark #0a100f — imperceptible vs the zinc-950 dashboard).
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#09090b",
+  themeColor: "#0a100f",
 };
 
 export default function RootLayout({
