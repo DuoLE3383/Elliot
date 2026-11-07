@@ -1,0 +1,38 @@
+0.2.84 — GOM NHÓM /stats + /ai THEO LUỒNG SUY DIỄN, THÊM LINE ĐỘNG CHỈ ĐƯỜNG XỬ LÝ
+
+"về nội dung /stats và /ai vẫn dàn trải quá.. hãy gom lại" + "có thể làm
+những line sáng đó chạy về các modal hay chức năng liên kết liên quan và
+sáng lên ở những nơi đang suy diễn xử lý không?"
+
+FLOWMAP (mới — components/flow-map.tsx):
+- Sơ đồ pipeline đặt đầu mỗi trang: node pill nối nhau bằng connector SVG
+  có xung điện chạy liên tục (CSS thuần — cùng ngôn ngữ "dòng điện" với
+  nền circuit 0.2.83, tôn trọng prefers-reduced-motion).
+- Node ĐANG XỬ LÝ sáng lên: viền + glow màu tone + chấm ping nhấp nháy,
+  line VÀO nó chuyển sang xung nhanh (flow-line-hot) — điện đang đổ về đó.
+- Bấm node → trang cuộn mượt tới nhóm liên quan, nhóm phát vòng sáng cyan
+  (chapter-flash 1.5s) rồi tắt — line "chạy về" đúng chỗ nó nói tới.
+
+/STATS — 8 section dàn trải + journal + tabs gom thành 5 CHƯƠNG:
+- CH1 Thị trường & Vũ trụ quét (market + universe)
+- CH2 Cổng chất lượng & Combo (combo + dock)
+- CH3 Auto dry-run & Lệnh đang mở (auto + open)
+- CH4 Lịch sử & Sổ lệnh (hist + sg + journal gộp vào một nhóm)
+- CH5 Lab & Phân tích sâu (bộ chọn combo + 3 tab terminal)
+- Mỗi chương có dòng "↳ Suy diễn: ..." nói rõ nạp từ đâu → cho ra gì.
+- FlowMap: Market→Universe→Gate&Dock→Auto→Đang mở→Lịch sử→Journal→Lab→
+  LLM dive (node cuối nhảy sang /ai). Node sáng khi đang tải snapshot,
+  journal/lab sáng khi đang fetch /api/journal + /api/view.
+
+/AI — 7 card rời gom thành 4 CHƯƠNG:
+- CH1 Engine hiện hành & LLM Risk Officer (2 card cạnh nhau)
+- CH2 Dữ liệu đã học & độ tin cậy (runs + champions + reliability)
+- CH3 Tự học & Giải phẫu lệnh (autopsy + evo, grid 2 cột)
+- CH4 Phân tích nguyên nhân gốc (dive) + About
+- FlowMap: Data→XGB train→Reliability→Engine→LLM Officer→Auto→Autopsy→
+  Evolution→Dive→Settings. Node sáng khi: engine "scanning…", LLM đang
+  test/dive, vòng evo chạy, llmLast mới (<10 phút), đang tải ai-info;
+  node Settings MỞ TRỰC TIẾP popup Settings (line chạy về modal).
+
+i18n: thêm key chapter + node + hint cho VI/EN. Không đổi logic dữ liệu,
+không đổi API — chỉ tổ chức lại layout; màu tone giữ nguyên chuẩn 0.2.67/68.

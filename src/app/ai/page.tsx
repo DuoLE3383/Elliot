@@ -14,6 +14,12 @@
 // background is now the GLOBAL animated TechBackground (circuit-tech navy) —
 // this root is transparent, header tints navy translucent for the blur.
 // Data: GET /api/ai-info — read-only, manual refresh + auto every 60s.
+// 0.2.84 — GOM NHÓM + LINE SUY DIỄN: 7 card rời gom thành 4 CHƯƠNG theo luồng
+// xử lý AI (CH1 engine&LLM → CH2 dữ liệu&độ tin cậy → CH3 tự học&giải phẫu →
+// CH4 dive&about); đầu trang thêm FLOWMAP (components/flow-map.tsx): node
+// pill nối bằng line xung điện, node đang suy diễn (engine scanning / LLM
+// test·dive / evo chạy / llmLast mới <10ph) sáng + ping, line vào nó xung
+// nhanh; bấm node cuộn tới chương + vòng sáng; node Settings MỞ POPUP.
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +27,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ParamsEditor } from "@/components/params-editor";
+import { FlowMap, type FlowNodeDef } from "@/components/flow-map";
 import { t, type Lang } from "@/lib/i18n";
 import { loadAutoConfig, saveAutoConfig } from "@/lib/autotrade";
 import { fetchDiveReports, type DiveReportRow } from "@/lib/history";
@@ -48,7 +55,7 @@ import {
   ScrollText,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 interface RunRow {
   id: string;
@@ -239,6 +246,20 @@ const llmScope = (url: string): string => {
   }
 };
 
+/** 0.2.84 — khung "chương" gom nhóm: tiêu đề + dòng suy diễn + nội dung.
+ *  Đặt ngoài AiPage để không bị tạo lại mỗi render. */
+function Chapter({ title, note, children }: { title: string; note: string; children: ReactNode }) {
+  return (
+    <Card className="border-zinc-800 bg-zinc-900/40">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold text-zinc-100">{title}</CardTitle>
+        <p className="text-[11px] leading-relaxed text-zinc-500">↳ {note}</p>
+      </CardHeader>
+      <CardContent className="pt-0">{children}</CardContent>
+    </Card>
+  );
+}
+
 export default function AiPage() {
   const [lang, setLang] = useState<Lang>("en");
   const [data, setData] = useState<AiInfo | null>(null);
@@ -262,6 +283,23 @@ export default function AiPage() {
   const [settingsTab, setSettingsTab] = useState<"system" | "llm">("system");
   // phần giải thích tĩnh (2 lớp AI + Prob) gấp gọn mặc định — dọn dãy dọc
   const [aboutOpen, setAboutOpen] = useState(false);
+  /** 0.2.84 — chương đang phát vòng sáng (bấm node trên FlowMap) */
+  const [flash, setFlash] = useState<string | null>(null);
+
+  // 0.2.84 — bấm node trên FlowMap: cuộn tới chương + phát vòng sáng; node
+  // "settings" đặc biệt — mở popup Settings tab System
+  const goTo = useCallback((id: string) => {
+    if (id === "settings") {
+      setSettingsTab("system");
+      setSettingsOpen(true);
+      return;
+    }
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    setFlash(id);
+    window.setTimeout(() => setFlash((f) => (f === id ? null : f)), 1600);
+  }, []);
 
   // seed LLM form from localStorage + engine snapshot
   useEffect(() => {
@@ -497,6 +535,25 @@ export default function AiPage() {
   const winRate = data && data.autoStats.closed > 0 ? (data.autoStats.wins / data.autoStats.closed) * 100 : null;
   const unsynced = data?.engine ? !data.engine.synced : false;
 
+  // 0.2.84 — trạng thái "đang suy diễn/xử lý" cho FlowMap: engine đang scan,
+  // LLM vừa ra verdict (<10 phút) hoặc đang test/dive, vòng evo đang chạy
+  const engineBusy = /scanning/i.test(data?.engine?.cycle?.status ?? "");
+  const llmLastFresh = at > 0 && !!data?.engine?.llmLast && at - data.engine.llmLast.at < 10 * 60_000;
+
+  // node FlowMap — id = element id của chương; "settings" = mở popup
+  const aiFlowNodes: FlowNodeDef[] = [
+    { id: "ai-chB", label: t(lang, "ai.node.data.t"), sub: t(lang, "ai.node.data.sub"), tone: "sky", active: loading },
+    { id: "ai-chB", label: t(lang, "ai.node.train.t"), sub: t(lang, "ai.node.train.sub"), tone: "violet", active: loading },
+    { id: "ai-chB", label: t(lang, "ai.node.rel.t"), sub: t(lang, "ai.node.rel.sub"), tone: "blue" },
+    { id: "ai-chA", label: t(lang, "ai.node.engine.t"), sub: t(lang, "ai.node.engine.sub"), tone: "emerald", active: engineBusy },
+    { id: "ai-chA", label: t(lang, "ai.node.llm.t"), sub: t(lang, "ai.node.llm.sub"), tone: "teal", active: llmTestBusy || statsDiveBusy || llmLastFresh },
+    { id: "ai-chA", label: t(lang, "ai.node.auto.t"), sub: t(lang, "ai.node.auto.sub"), tone: "amber" },
+    { id: "ai-chC", label: t(lang, "ai.node.autopsy.t"), sub: t(lang, "ai.node.autopsy.sub"), tone: "rose" },
+    { id: "ai-chC", label: t(lang, "ai.node.evo.t"), sub: t(lang, "ai.node.evo.sub"), tone: "indigo", active: evoBusy || !!evo?.active },
+    { id: "ai-chD", label: t(lang, "ai.node.dive.t"), sub: t(lang, "ai.node.dive.sub"), tone: "fuchsia", active: statsDiveBusy },
+    { id: "settings", label: t(lang, "ai.node.settings.t"), sub: t(lang, "ai.node.settings.sub"), tone: "zinc" },
+  ];
+
   return (
     <div className="min-h-screen bg-transparent text-zinc-200">
       {/* sticky header — Settings / Refresh / lang luôn trong tầm tay trên trang dài */}
@@ -557,633 +614,662 @@ export default function AiPage() {
       {/* 0.2.80 — FULL WIDTH: bỏ max-w-6xl — trang dài nhiều card, màn lớn
           hiển thị được trọn vẹn các cặp card trạng thái mà không phải cuộn */}
       <div className="space-y-4 p-3 sm:p-5">
-        {/* 1 — trạng thái vận hành: engine + LLM Risk Officer (2 cột trên xl) */}
-        <div className="grid gap-4 xl:grid-cols-2">
-          {/* 1a — engine hiện hành */}
-          <Card className="border-zinc-800/80 bg-zinc-900/60">
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
-                <Activity className="h-4 w-4 text-teal-400" />
-                {t(lang, "ai.engine.title")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 pt-0">
-              {data?.engine && unsynced && (
-                <div className="rounded-lg border border-amber-800/60 bg-amber-950/20 p-2.5 text-[11px] leading-relaxed text-amber-200/90">
-                  <p className="flex items-start gap-1.5 font-bold text-amber-300">
-                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    {t(lang, "ai.engine.idle")}
-                  </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <Button
-                      size="sm"
-                      className="h-7 gap-1.5 bg-amber-400 px-2.5 text-[11px] font-bold text-zinc-950 hover:bg-amber-300"
-                      disabled={syncState === "sending"}
-                      onClick={() => void syncNow()}
-                    >
-                      <UploadCloud className={`h-3.5 w-3.5 ${syncState === "sending" ? "animate-pulse" : ""}`} />
-                      {syncState === "sending" ? t(lang, "ai.engine.syncing") : t(lang, "ai.engine.syncbtn")}
-                    </Button>
-                    <span className="text-[10px] text-amber-200/70">
-                      {syncState === "ok" ? t(lang, "ai.engine.syncok") : syncState === "fail" ? t(lang, "ai.engine.syncfail") : ""}
-                    </span>
-                  </div>
-                </div>
-              )}
-              {!cfg || !data?.engine ? (
-                <p className="text-[11px] text-zinc-600">{t(lang, "ai.engine.notsynced")}</p>
-              ) : (
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-3">
-                  {[
-                    ["minScore", cfg.minScore],
-                    ["minAuc", cfg.minAuc],
-                    ["minAcc", `${cfg.minAcc}%`],
-                    ["leverage", `×${data.engine.leverage}`],
-                    ["stakePct", `${cfg.riskPct}%`],
-                    ["dcaMax", cfg.dcaMax],
-                    ["cooldownMin", `${cfg.cooldownMin}m`],
-                    ["runTf", cfg.runTf?.join(" ") || "—"],
-                    ["whaleFilter", cfg.whaleFilter ? "ON" : "OFF"],
-                    ["broadcast", cfg.broadcast ? "ON" : "OFF"],
-                    [t(lang, "ai.workers"), `${data.engine.workers.pool}${data.engine.workers.bundled ? "" : " (inline)"}`],
-                    ["telegram", data.engine.telegram ? "ON" : "OFF"],
-                    ["pairs", data.engine.pairs],
-                  ].map(([k, v]) => (
-                    <div key={String(k)} className="flex items-center justify-between gap-2 border-b border-zinc-800/60 py-0.5">
-                      <span className="shrink-0 truncate text-zinc-500">{k}</span>
-                      {/* min-w-0 + break-words — giá trị dài (runTf "5m 15m … 1w")
-                          từng tràn mép phải trên mobile 390px */}
-                      <span className="min-w-0 break-words text-right font-mono font-bold text-zinc-200">{String(v)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {data?.engine && (
-                <p className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5 text-[11px]">
-                  <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                    <span className="flex items-center gap-1 text-zinc-500">
-                      <Activity className="h-3 w-3" />
-                      {t(lang, "ai.engine.status")}: <span className="font-mono text-zinc-300">{data.engine.cycle?.status || "—"}</span>
-                    </span>
-                    {data.engine.syncedAt ? (
-                      <span className="text-zinc-500">
-                        {t(lang, "ai.engine.syncedAt")}: <span className="font-mono text-zinc-300">{new Date(data.engine.syncedAt).toLocaleString(lang === "vi" ? "vi-VN" : "en-GB")}</span>
-                      </span>
-                    ) : null}
-                  </span>
-                </p>
-              )}
-              <p className="mt-2 text-[10px] text-zinc-600">{data?.engine?.synced ? t(lang, "ai.engine.synced") : t(lang, "ai.engine.notsynced")}</p>
-            </CardContent>
-          </Card>
-
-          {/* 1b — LLM Risk Officer status */}
-          <Card className="border-zinc-800/80 bg-zinc-900/60">
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
-                {data?.llm.ping.ok ? <ShieldCheck className="h-4 w-4 text-emerald-400" /> : <ShieldX className="h-4 w-4 text-rose-400" />}
-                {t(lang, "ai.llm.title")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 pt-0">
-              <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                <Badge variant="outline" className={data?.llm.ping.ok ? "border-emerald-700 bg-emerald-950/40 text-emerald-300" : "border-rose-700 bg-rose-950/40 text-rose-300"}>
-                  {data?.llm.ping.ok ? t(lang, "ai.llm.ok") : t(lang, "ai.llm.down")}
-                  {data ? ` · ${data.llm.ping.ms}ms` : ""}
-                  {!data?.llm.ping.ok && data?.llm.ping.detail ? ` · ${data.llm.ping.detail}` : ""}
-                </Badge>
-                {!data?.llm.ping.ok && data && (
-                  <Badge variant="outline" className="border-amber-700 bg-amber-950/40 text-amber-300">
-                    {data.llm.failClosed ? t(lang, "ai.llm.failclosed") : t(lang, "ai.llm.failopen")}
-                  </Badge>
-                )}
-                <Badge variant="outline" className="border-zinc-700 bg-zinc-950/40 text-zinc-400">
-                  {llmScope(data?.llm.url ?? "")}
-                </Badge>
-                {data?.llm.urlSource && (
-                  <Badge variant="outline" className="border-zinc-800 bg-zinc-950/40 text-zinc-500">
-                    {data.llm.urlSource}
-                  </Badge>
-                )}
-                {cfg?.llmModel && <span className="font-mono text-zinc-500">· {cfg.llmModel}</span>}
-              </div>
-
-              {data?.engine?.llmLast ? (
-                <p className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5 text-[11px]">
-                  {/* 0.2.53 — llmLast được persist sống qua restart: không có mốc thời
-                      gian thì bản ghi cũ 1 ngày trước vẫn đứng im như thể vừa xảy ra */}
-                  <span className="flex flex-wrap items-center gap-x-2">
-                    <span className="font-bold text-zinc-200">{t(lang, "ai.llm.last")}</span>
-                    <span className="ml-auto font-mono text-[10px] text-zinc-500">
-                      {new Date(data.engine.llmLast.at).toLocaleString(lang === "vi" ? "vi-VN" : "en-GB", {
-                        day: "2-digit",
-                        month: "2-digit",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  </span>
-                  <span className="mt-0.5 block font-mono text-zinc-300">
-                    #{data.engine.llmLast.symbol} {data.engine.llmLast.interval} {data.engine.llmLast.side} →{" "}
-                    <span className={verdictCls(data.engine.llmLast.verdict)}>{data.engine.llmLast.verdict}</span>{" "}
-                    ({fmtMs(data.engine.llmLast.ms)})
-                  </span>
-                  <span className="mt-0.5 block truncate text-zinc-500">{data.engine.llmLast.reason}</span>
-                </p>
-              ) : (
-                <p className="text-[11px] text-zinc-600">{t(lang, "ai.llm.none")}</p>
-              )}
-              {/* duyệt thử 1 lệnh giả — test kết nối + xem prompt/phản hồi thô;
-                  chỉnh connection (URL/model/timeout) mở popup Settings tab LLM */}
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 gap-1.5 border-zinc-700 px-2.5 text-[11px] text-zinc-300 hover:bg-zinc-800"
-                  disabled={llmTestBusy}
-                  onClick={() => void runLlmTest()}
-                >
-                  {llmTestBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="h-3.5 w-3.5 text-teal-400" />}
-                  {t(lang, "ai.llm.test")}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 gap-1.5 border-zinc-700 px-2.5 text-[11px] text-zinc-300 hover:bg-zinc-800"
-                  onClick={() => {
-                    setSettingsTab("llm");
-                    setSettingsOpen(true);
-                  }}
-                >
-                  <SlidersHorizontal className="h-3.5 w-3.5 text-teal-400" />
-                  {t(lang, "ai.llm.setup")}
-                </Button>
-                <span className="text-[10px] text-zinc-600">
-                  {llmTestBusy ? t(lang, "ai.llm.test.busy") : t(lang, "ai.llm.test.hint")}
-                </span>
-              </div>
-              {llmTest && (
-                <div className="rail-scroll space-y-1.5 rounded-lg border border-zinc-800 bg-zinc-950/60 p-2.5 font-mono text-[10px]">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className={
-                        llmTest.verdict?.verdict === "go"
-                          ? "border-emerald-700 bg-emerald-950/40 text-emerald-300"
-                          : llmTest.verdict?.verdict === "skip"
-                            ? "border-rose-700 bg-rose-950/40 text-rose-300"
-                            : "border-amber-700 bg-amber-950/40 text-amber-300"
-                      }
-                    >
-                      {llmTest.verdict
-                        ? `${llmTest.verdict.verdict} · ${Math.round(llmTest.verdict.confidence * 100)}%`
-                        : t(lang, "ai.llm.test.fail")}
-                    </Badge>
-                    <span className="text-zinc-400">{llmScope(llmTest.url)}</span>
-                    {llmTest.model && <span className="text-zinc-600">· {llmTest.model}</span>}
-                    <span className="ml-auto text-zinc-500">{llmTest.ms}ms</span>
-                    {llmTest.detail !== "ok" && <span className="text-amber-400">{llmTest.detail}</span>}
-                  </div>
-                  {llmTest.setupSource && <p className="text-zinc-500">{llmTest.setupSource}</p>}
-                  {llmTest.detail === "http-404" && !llmTest.prompt && (
-                    <p className="text-amber-400">{t(lang, "ai.llm.test.h404")}</p>
-                  )}
-                  {llmTest.detail === "http-404" && !!llmTest.prompt && (
-                    <p className="text-amber-400">{t(lang, "ai.llm.test.h404llm")}</p>
-                  )}
-                  {llmTest.detail.startsWith("http-") && llmTest.bodySnippet && (
-                    <p className="text-zinc-500">↳ {llmTest.bodySnippet}</p>
-                  )}
-                  {llmTest.verdict?.reasons.map((rs, i) => (
-                    <p key={i} className="text-zinc-300">
-                      • {rs}
-                    </p>
-                  ))}
-                  {llmTest.prompt && (
-                    <div>
-                      <p className="text-zinc-600">{t(lang, "ai.llm.test.prompt")}</p>
-                      <pre className="mt-0.5 max-h-28 overflow-y-auto whitespace-pre-wrap text-zinc-400">{llmTest.prompt}</pre>
-                    </div>
-                  )}
-                  <div>
-                    <p className="text-zinc-600">{t(lang, "ai.llm.test.raw")}</p>
-                    <pre className="mt-0.5 max-h-28 overflow-y-auto whitespace-pre-wrap text-zinc-300">{llmTest.raw || "—"}</pre>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* 2 — độ tin cậy prob trên dữ liệu THẬT */}
-        <Card className="border-zinc-800/80 bg-zinc-900/60">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
-              <Target className="h-4 w-4 text-teal-400" />
-              {t(lang, "ai.reliab.title")}
-            </CardTitle>
-            <p className="text-[11px] text-zinc-500">{t(lang, "ai.reliab.sub")}</p>
-          </CardHeader>
-          <CardContent className="space-y-3 pt-0">
-            <div className="grid gap-3 md:grid-cols-2">
-              {([
-                [t(lang, "ai.reliab.trades"), data?.reliability?.trades],
-                [t(lang, "ai.reliab.phe"), data?.reliability?.phe],
-              ] as const).map(([name, table], idx) => (
-                <div key={name} className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
-                  <p className="flex items-center justify-between text-xs font-bold text-zinc-200">
-                    <span>{name}</span>
-                    <span className="font-mono text-[10px] font-normal text-zinc-500">n = {table?.n ?? 0}</span>
-                  </p>
-                  {data?.reliability && (idx === 0 ? data.reliability.errors.trades : data.reliability.errors.phe) ? (
-                    <p className="mt-2 text-[11px] text-rose-400">{t(lang, "ai.db.error")}</p>
-                  ) : !table || table.n === 0 ? (
-                    <p className="mt-2 text-[11px] text-zinc-600">{t(lang, "ai.reliab.empty")}</p>
-                  ) : (
-                    <table className="mt-2 w-full text-[11px]">
-                      <thead>
-                        <tr className="text-zinc-500">
-                          <th className="text-left font-normal">{t(lang, "ai.reliab.bucket")}</th>
-                          <th className="text-right font-normal">{t(lang, "ai.reliab.n")}</th>
-                          <th className="text-right font-normal">{t(lang, "ai.reliab.wr")}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {table.buckets.map((b) => (
-                          <tr key={b.label} className="border-t border-zinc-800/60">
-                            <td className="py-0.5 font-mono text-zinc-300">{b.label}</td>
-                            <td className="py-0.5 text-right font-mono text-zinc-500">{b.n}</td>
-                            <td className={`py-0.5 text-right font-mono font-bold ${b.wr >= 50 ? "text-emerald-400" : b.wr >= 0 ? "text-rose-400" : "text-zinc-600"}`}>
-                              {b.wr >= 0 ? `${b.wr.toFixed(1)}%` : "—"}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              ))}
-            </div>
-            <p className="text-[10px] leading-relaxed text-zinc-600">{t(lang, "ai.reliab.note")}</p>
+        {/* ── 0.2.84 — FLOWMAP: sơ đồ suy diễn AI — node đang suy diễn sáng lên,
+            bấm node cuộn tới chương; node Settings mở popup ── */}
+        <Card className="border-zinc-800 bg-zinc-900/60">
+          <CardContent className="py-3">
+            <FlowMap nodes={aiFlowNodes} onNodeClick={goTo} hint={t(lang, "flow.hint")} />
           </CardContent>
         </Card>
-
-        {/* 3 — đã học bao nhiêu dữ liệu */}
-        <Card className="border-zinc-800/80 bg-zinc-900/60">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
-              <Database className="h-4 w-4 text-teal-400" />
-              {t(lang, "ai.data.title")}
-            </CardTitle>
-            <p className="text-[11px] text-zinc-500">{t(lang, "ai.data.sub")}</p>
-          </CardHeader>
-          <CardContent className="space-y-3 pt-0">
-            {data && data.autoStats.closed > 0 && (
-              <p className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5 font-mono text-[11px] text-teal-300">
-                {t(lang, "ai.data.lessons", {
-                  closed: String(data.autoStats.closed),
-                  w: String(data.autoStats.lessonWeight),
-                  n: String(data.autoStats.lessonSamples),
-                  wins: String(data.autoStats.wins),
-                })}
-                {winRate !== null ? ` · WR ${winRate.toFixed(0)}%` : ""}
-              </p>
-            )}
-            {!data || data.runs.length === 0 ? (
-              <p className="text-[11px] text-zinc-600">
-                {data?.db?.runsError ? t(lang, "ai.db.error") : t(lang, "ai.data.empty")}
-              </p>
-            ) : (
-              <div className="rail-scroll max-h-80 space-y-1 overflow-y-auto pr-0.5">
-                {data.runs.slice(0, 80).map((r) => (
-                  <div key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 rounded-md border border-zinc-800/80 bg-zinc-950/40 px-2 py-1.5 text-[11px]">
-                    <Badge variant="outline" className={`shrink-0 px-1.5 text-[9px] uppercase ${r.kind === "finetune" ? "border-teal-800 bg-teal-950/40 text-teal-300" : "border-zinc-700 bg-zinc-900 text-zinc-400"}`}>
-                      {r.kind}
-                    </Badge>
-                    <span className="shrink-0 font-mono font-bold text-zinc-200">#{r.symbol}</span>
-                    <span className="shrink-0 font-mono text-zinc-500">{r.interval}</span>
-                    <span className="shrink-0 font-mono text-zinc-400">{r.samples}/{r.valSamples}</span>
-                    <span className={`shrink-0 font-mono ${r.acc >= 55 ? "text-emerald-400" : "text-zinc-300"}`}>{r.acc.toFixed(1)}%</span>
-                    <span className="shrink-0 font-mono text-zinc-500">AUC {r.auc.toFixed(2)}</span>
-                    <span className="hidden shrink-0 font-mono text-zinc-600 sm:inline">L {r.logloss.toFixed(3)}</span>
-                    <span className="ml-auto max-w-full shrink-0 truncate font-mono text-[10px] text-zinc-500" title={hyper(r.params)}>{hyper(r.params)}</span>
-                    <span className="shrink-0 font-mono text-[10px] text-zinc-600">
-                      {new Date(r.createdAt).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* 4 — giải phẫu lệnh (autopsy): tại sao thắng, tại sao thua */}
-        <Card className="border-zinc-800/80 bg-zinc-900/60">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
-              <FlaskConical className="h-4 w-4 text-teal-400" />
-              {t(lang, "ai.autopsy.title")}
-            </CardTitle>
-            <p className="text-[11px] text-zinc-500">{t(lang, "ai.autopsy.sub")}</p>
-          </CardHeader>
-          <CardContent className="space-y-2 pt-0">
-            {data?.autopsies && data.autopsies.n > 0 ? (
-              <>
-                <p className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5 font-mono text-[11px] text-teal-300">
-                  {t(lang, "ai.autopsy.count", {
-                    n: String(data.autopsies.n),
-                    win: String(data.autopsies.recent.filter((a) => (a.pnlPct ?? 0) > 0).length),
-                    loss: String(data.autopsies.recent.filter((a) => (a.pnlPct ?? 0) <= 0).length),
-                  })}
-                </p>
-                <div className="rail-scroll max-h-96 space-y-1.5 overflow-y-auto pr-0.5">
-                  {data.autopsies.recent.map((a, i) => (
-                    <div key={`${a.symbol}-${a.exitTime ?? i}-${i}`} className="rounded-md border border-zinc-800/80 bg-zinc-950/40 px-2.5 py-2 text-[11px]">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                        <Badge variant="outline" className={`shrink-0 px-1.5 text-[9px] uppercase ${(a.pnlPct ?? 0) > 0 ? "border-emerald-800 bg-emerald-950/40 text-emerald-300" : "border-rose-800 bg-rose-950/40 text-rose-300"}`}>
-                          {(a.pnlPct ?? 0) > 0 ? "win" : "loss"}
-                        </Badge>
-                        <span className="shrink-0 font-mono font-bold text-zinc-200">#{a.symbol}</span>
-                        <span className="shrink-0 font-mono text-zinc-500">{a.interval}</span>
-                        <span className={`shrink-0 font-mono ${a.side === "LONG" ? "text-emerald-400" : "text-rose-400"}`}>{a.side}</span>
-                        <span className={`shrink-0 font-mono font-bold ${(a.pnlPct ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                          {(a.pnlPct ?? 0) >= 0 ? "+" : ""}{(a.pnlPct ?? 0).toFixed(2)}%
-                        </span>
-                        {a.ev?.rMultiple != null && (
-                          <span className="shrink-0 font-mono text-zinc-500">R {a.ev.rMultiple >= 0 ? "+" : ""}{a.ev.rMultiple.toFixed(2)}x</span>
-                        )}
-                        <span className="shrink-0 rounded border border-teal-800/60 bg-teal-950/30 px-1.5 py-0.5 font-mono text-[9px] text-teal-300">{a.tag || "—"}</span>
-                        <span className="ml-auto shrink-0 font-mono text-[10px] text-zinc-600">
-                          {a.exitTime ? new Date(a.exitTime).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}
+        {/* ── 0.2.84 — CH1 · Engine hiện hành & LLM Risk Officer ── */}
+        <section id="ai-chA" className={flash === "ai-chA" ? "chapter-flash" : undefined}>
+          <Chapter title={t(lang, "ai.chA.t")} note={t(lang, "ai.chA.note")}>
+            {/* 1 — trạng thái vận hành: engine + LLM Risk Officer (2 cột trên xl) */}
+            <div className="grid gap-4 xl:grid-cols-2">
+              {/* 1a — engine hiện hành */}
+              <Card className="border-zinc-800/80 bg-zinc-900/60">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
+                    <Activity className="h-4 w-4 text-teal-400" />
+                    {t(lang, "ai.engine.title")}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 pt-0">
+                  {data?.engine && unsynced && (
+                    <div className="rounded-lg border border-amber-800/60 bg-amber-950/20 p-2.5 text-[11px] leading-relaxed text-amber-200/90">
+                      <p className="flex items-start gap-1.5 font-bold text-amber-300">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        {t(lang, "ai.engine.idle")}
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Button
+                          size="sm"
+                          className="h-7 gap-1.5 bg-amber-400 px-2.5 text-[11px] font-bold text-zinc-950 hover:bg-amber-300"
+                          disabled={syncState === "sending"}
+                          onClick={() => void syncNow()}
+                        >
+                          <UploadCloud className={`h-3.5 w-3.5 ${syncState === "sending" ? "animate-pulse" : ""}`} />
+                          {syncState === "sending" ? t(lang, "ai.engine.syncing") : t(lang, "ai.engine.syncbtn")}
+                        </Button>
+                        <span className="text-[10px] text-amber-200/70">
+                          {syncState === "ok" ? t(lang, "ai.engine.syncok") : syncState === "fail" ? t(lang, "ai.engine.syncfail") : ""}
                         </span>
                       </div>
-                      {a.why.length > 0 && (
-                        <ul className="mt-1 space-y-0.5 text-zinc-400">
-                          {a.why.map((w, j) => (
-                            <li key={j} className="leading-relaxed">• {w}</li>
-                          ))}
-                        </ul>
-                      )}
-                      <p className="mt-1 leading-relaxed text-amber-200/90">
-                        💡 {t(lang, "ai.autopsy.lesson")}: {a.lesson}
-                      </p>
                     </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <p className="text-[11px] text-zinc-600">
-                {data?.autopsies?.error ? t(lang, "ai.db.error") : t(lang, "ai.autopsy.empty")}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* 5 — champion mỗi combo */}
-        {data && data.champions.length > 0 && (
-          <Card className="border-zinc-800/80 bg-zinc-900/60">
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
-                <Crown className="h-4 w-4 text-amber-400" />
-                {t(lang, "ai.champ.title")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="grid gap-1.5 sm:grid-cols-2">
-                {/* mặc định top 10 — bấm nút dưới để mở hết (danh sách có thể
-                    dài hơn khung nhìn khi đã train nhiều combo) */}
-                {data.champions.slice(0, champAll ? undefined : 10).map((c) => (
-                  <div key={`${c.symbol}-${c.interval}`} className="flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-amber-800/40 bg-amber-950/10 px-2 py-1.5 text-[11px]">
-                    <Crown className="h-3 w-3 shrink-0 text-amber-400" />
-                    <span className="shrink-0 font-mono font-bold text-zinc-200">#{c.symbol}</span>
-                    <span className="shrink-0 font-mono text-zinc-500">{c.interval}</span>
-                    <span className={`shrink-0 font-mono ${c.acc >= 55 ? "text-emerald-400" : "text-zinc-300"}`}>{c.acc.toFixed(1)}%</span>
-                    <span className="shrink-0 font-mono text-zinc-500">AUC {c.auc.toFixed(2)}</span>
-                    {/* max-w-full + truncate — hyper(params) ~300px từng đẩy row
-                        champion tràn ngang mobile (390px); đủ xem trong title */}
-                    <span className="ml-auto max-w-full shrink-0 truncate font-mono text-[10px] text-zinc-500" title={hyper(c.params)}>{hyper(c.params)}</span>
-                  </div>
-                ))}
-              </div>
-              {data.champions.length > 10 && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="mt-2 h-7 w-full gap-1 text-[11px] text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
-                  onClick={() => setChampAll((v) => !v)}
-                >
-                  {champAll ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                  {champAll ? t(lang, "ai.champ.less") : t(lang, "ai.champ.more", { n: data.champions.length })}
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* 6 — công cụ: Tự tiến hoá + Phân tích nguyên nhân gốc (2 cột trên xl) */}
-        <div className="grid gap-4 xl:grid-cols-2">
-          {/* 6a — Tự tiến hoá (0.2.54): đề xuất → backtest → áp → theo dõi → hoàn tác */}
-          <Card className="border-zinc-800/80 bg-zinc-900/60">
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
-                <Dna className="h-4 w-4 text-emerald-400" />
-                {t(lang, "ai.evo.title")}
-              </CardTitle>
-              <p className="text-[11px] leading-relaxed text-zinc-500">{t(lang, "ai.evo.sub")}</p>
-            </CardHeader>
-            <CardContent className="space-y-2 pt-0">
-              {evo && !evo.on && (
-                <Badge variant="outline" className="border-amber-700 bg-amber-950/40 text-amber-300">
-                  {t(lang, "ai.evo.off")}
-                </Badge>
-              )}
-              {evo?.active && (
-                <p className="rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-2.5 text-[11px]">
-                  <span className="font-bold text-emerald-300">
-                    {t(lang, "ai.evo.active")}: {evo.active.name}
-                  </span>
-                  <span className="mt-0.5 block font-mono text-[10px] text-zinc-400">
-                    {evo.active.combo} · {evoCfg(evo.active.cfgAfter)}
-                    {evo.active.metrics?.best ? ` · exp ${evo.active.metrics.best.expectancy.toFixed(3)}%/lệnh` : ""}
-                  </span>
-                  {evo.watch && (
-                    <span className="mt-0.5 block text-zinc-500">⏳ {t(lang, "ai.evo.watch", { n: evo.watch.n, need: evo.watch.need })}</span>
                   )}
-                </p>
-              )}
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 gap-1.5 border-zinc-700 px-2.5 text-[11px] text-zinc-300 hover:bg-zinc-800"
-                  disabled={evoBusy}
-                  onClick={() => void runEvolve()}
-                >
-                  {evoBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Dna className="h-3.5 w-3.5 text-emerald-400" />}
-                  {evoBusy ? t(lang, "ai.evo.running") : t(lang, "ai.evo.run")}
-                </Button>
-                {evoMsg && <span className="text-[10px] text-zinc-500">{evoMsg}</span>}
-              </div>
-              {evo && evo.history.length > 0 ? (
-                <div className="rail-scroll max-h-60 space-y-1 overflow-y-auto pr-0.5">
-                  {evo.history.slice(0, 10).map((h, i) => (
-                    <div key={`${h.at}-${i}`} className="rounded-md border border-zinc-800/80 bg-zinc-950/40 px-2 py-1.5 text-[10px]">
-                      <span className="flex flex-wrap items-center gap-1.5">
-                        <Badge variant="outline" className={`px-1.5 text-[9px] uppercase ${evoBadge(h.decision)}`}>
-                          {h.decision}
-                        </Badge>
-                        <span className="shrink-0 font-mono text-zinc-600">
-                          {new Date(h.at).toLocaleString(lang === "vi" ? "vi-VN" : "en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                        </span>
-                        <span className="shrink-0 font-mono text-zinc-500">{h.combo}</span>
-                        {h.name && <span className="truncate text-zinc-300">{h.name}</span>}
-                      </span>
-                      {h.detail && (
-                        <span className="mt-0.5 block truncate text-zinc-500" title={h.detail}>
-                          {h.detail}
-                        </span>
-                      )}
+                  {!cfg || !data?.engine ? (
+                    <p className="text-[11px] text-zinc-600">{t(lang, "ai.engine.notsynced")}</p>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-3">
+                      {[
+                        ["minScore", cfg.minScore],
+                        ["minAuc", cfg.minAuc],
+                        ["minAcc", `${cfg.minAcc}%`],
+                        ["leverage", `×${data.engine.leverage}`],
+                        ["stakePct", `${cfg.riskPct}%`],
+                        ["dcaMax", cfg.dcaMax],
+                        ["cooldownMin", `${cfg.cooldownMin}m`],
+                        ["runTf", cfg.runTf?.join(" ") || "—"],
+                        ["whaleFilter", cfg.whaleFilter ? "ON" : "OFF"],
+                        ["broadcast", cfg.broadcast ? "ON" : "OFF"],
+                        [t(lang, "ai.workers"), `${data.engine.workers.pool}${data.engine.workers.bundled ? "" : " (inline)"}`],
+                        ["telegram", data.engine.telegram ? "ON" : "OFF"],
+                        ["pairs", data.engine.pairs],
+                      ].map(([k, v]) => (
+                        <div key={String(k)} className="flex items-center justify-between gap-2 border-b border-zinc-800/60 py-0.5">
+                          <span className="shrink-0 truncate text-zinc-500">{k}</span>
+                          {/* min-w-0 + break-words — giá trị dài (runTf "5m 15m … 1w")
+                              từng tràn mép phải trên mobile 390px */}
+                          <span className="min-w-0 break-words text-right font-mono font-bold text-zinc-200">{String(v)}</span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-[11px] text-zinc-600">{t(lang, "ai.evo.none")}</p>
-              )}
-            </CardContent>
-          </Card>
+                  )}
+                  {data?.engine && (
+                    <p className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5 text-[11px]">
+                      <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                        <span className="flex items-center gap-1 text-zinc-500">
+                          <Activity className="h-3 w-3" />
+                          {t(lang, "ai.engine.status")}: <span className="font-mono text-zinc-300">{data.engine.cycle?.status || "—"}</span>
+                        </span>
+                        {data.engine.syncedAt ? (
+                          <span className="text-zinc-500">
+                            {t(lang, "ai.engine.syncedAt")}: <span className="font-mono text-zinc-300">{new Date(data.engine.syncedAt).toLocaleString(lang === "vi" ? "vi-VN" : "en-GB")}</span>
+                          </span>
+                        ) : null}
+                      </span>
+                    </p>
+                  )}
+                  <p className="mt-2 text-[10px] text-zinc-600">{data?.engine?.synced ? t(lang, "ai.engine.synced") : t(lang, "ai.engine.notsynced")}</p>
+                </CardContent>
+              </Card>
 
-          {/* 6b — Phân tích nguyên nhân gốc: LLM kiểm toán snapshot thống kê (/stats) */}
-          <Card className="border-zinc-800/80 bg-zinc-900/60">
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
-                <ScrollText className="h-4 w-4 text-teal-400" />
-                {t(lang, "ai.dive.title")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 pt-0">
-              <p className="text-[11px] leading-relaxed text-zinc-400">{t(lang, "ai.dive.hint")}</p>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 gap-1.5 border-zinc-700 px-2.5 text-[11px] text-zinc-300 hover:bg-zinc-800"
-                  disabled={statsDiveBusy}
-                  onClick={() => void runStatsDive()}
-                >
-                  {statsDiveBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ScrollText className="h-3.5 w-3.5 text-teal-400" />}
-                  {t(lang, "ai.dive.run")}
-                </Button>
-                <Link href="/stats" className="text-[10px] text-zinc-500 underline decoration-dotted hover:text-zinc-300">
-                  {t(lang, "ai.dive.statsLink")}
-                </Link>
-                <span className="text-[10px] text-zinc-600">{statsDiveBusy ? t(lang, "ai.dive.busy") : t(lang, "ai.dive.hint2")}</span>
-              </div>
-              {statsDive && (
-                <div className="rail-scroll space-y-1.5 rounded-lg border border-zinc-800 bg-zinc-950/60 p-2.5 text-[11px]">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className={statsDive.ok ? "border-emerald-700 bg-emerald-950/40 text-emerald-300" : "border-amber-700 bg-amber-950/40 text-amber-300"}
-                    >
-                      {statsDive.ok ? t(lang, "ai.dive.ok") : t(lang, "ai.dive.fail")}
+              {/* 1b — LLM Risk Officer status */}
+              <Card className="border-zinc-800/80 bg-zinc-900/60">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
+                    {data?.llm.ping.ok ? <ShieldCheck className="h-4 w-4 text-emerald-400" /> : <ShieldX className="h-4 w-4 text-rose-400" />}
+                    {t(lang, "ai.llm.title")}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 pt-0">
+                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                    <Badge variant="outline" className={data?.llm.ping.ok ? "border-emerald-700 bg-emerald-950/40 text-emerald-300" : "border-rose-700 bg-rose-950/40 text-rose-300"}>
+                      {data?.llm.ping.ok ? t(lang, "ai.llm.ok") : t(lang, "ai.llm.down")}
+                      {data ? ` · ${data.llm.ping.ms}ms` : ""}
+                      {!data?.llm.ping.ok && data?.llm.ping.detail ? ` · ${data.llm.ping.detail}` : ""}
                     </Badge>
-                    <span className="ml-auto font-mono text-zinc-500">{statsDive.ms}ms</span>
-                    {!statsDive.ok && <span className="text-amber-400">{statsDive.detail}</span>}
+                    {!data?.llm.ping.ok && data && (
+                      <Badge variant="outline" className="border-amber-700 bg-amber-950/40 text-amber-300">
+                        {data.llm.failClosed ? t(lang, "ai.llm.failclosed") : t(lang, "ai.llm.failopen")}
+                      </Badge>
+                    )}
+                    <Badge variant="outline" className="border-zinc-700 bg-zinc-950/40 text-zinc-400">
+                      {llmScope(data?.llm.url ?? "")}
+                    </Badge>
+                    {data?.llm.urlSource && (
+                      <Badge variant="outline" className="border-zinc-800 bg-zinc-950/40 text-zinc-500">
+                        {data.llm.urlSource}
+                      </Badge>
+                    )}
+                    {cfg?.llmModel && <span className="font-mono text-zinc-500">· {cfg.llmModel}</span>}
                   </div>
-                  <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap text-zinc-300">{statsDive.ok ? statsDive.text : "—"}</pre>
-                </div>
-              )}
 
-              {/* 0.2.36 — lịch sử các lần dive đã lưu trong DB */}
-              <div className="border-t border-zinc-800 pt-2">
-                {diveHistory != null && diveHistory.length > 0 ? (
-                  <>
+                  {data?.engine?.llmLast ? (
+                    <p className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5 text-[11px]">
+                      {/* 0.2.53 — llmLast được persist sống qua restart: không có mốc thời
+                          gian thì bản ghi cũ 1 ngày trước vẫn đứng im như thể vừa xảy ra */}
+                      <span className="flex flex-wrap items-center gap-x-2">
+                        <span className="font-bold text-zinc-200">{t(lang, "ai.llm.last")}</span>
+                        <span className="ml-auto font-mono text-[10px] text-zinc-500">
+                          {new Date(data.engine.llmLast.at).toLocaleString(lang === "vi" ? "vi-VN" : "en-GB", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      </span>
+                      <span className="mt-0.5 block font-mono text-zinc-300">
+                        #{data.engine.llmLast.symbol} {data.engine.llmLast.interval} {data.engine.llmLast.side} →{" "}
+                        <span className={verdictCls(data.engine.llmLast.verdict)}>{data.engine.llmLast.verdict}</span>{" "}
+                        ({fmtMs(data.engine.llmLast.ms)})
+                      </span>
+                      <span className="mt-0.5 block truncate text-zinc-500">{data.engine.llmLast.reason}</span>
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-zinc-600">{t(lang, "ai.llm.none")}</p>
+                  )}
+                  {/* duyệt thử 1 lệnh giả — test kết nối + xem prompt/phản hồi thô;
+                      chỉnh connection (URL/model/timeout) mở popup Settings tab LLM */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 gap-1.5 border-zinc-700 px-2.5 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                      disabled={llmTestBusy}
+                      onClick={() => void runLlmTest()}
+                    >
+                      {llmTestBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="h-3.5 w-3.5 text-teal-400" />}
+                      {t(lang, "ai.llm.test")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 gap-1.5 border-zinc-700 px-2.5 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                      onClick={() => {
+                        setSettingsTab("llm");
+                        setSettingsOpen(true);
+                      }}
+                    >
+                      <SlidersHorizontal className="h-3.5 w-3.5 text-teal-400" />
+                      {t(lang, "ai.llm.setup")}
+                    </Button>
+                    <span className="text-[10px] text-zinc-600">
+                      {llmTestBusy ? t(lang, "ai.llm.test.busy") : t(lang, "ai.llm.test.hint")}
+                    </span>
+                  </div>
+                  {llmTest && (
+                    <div className="rail-scroll space-y-1.5 rounded-lg border border-zinc-800 bg-zinc-950/60 p-2.5 font-mono text-[10px]">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge
+                          variant="outline"
+                          className={
+                            llmTest.verdict?.verdict === "go"
+                              ? "border-emerald-700 bg-emerald-950/40 text-emerald-300"
+                              : llmTest.verdict?.verdict === "skip"
+                                ? "border-rose-700 bg-rose-950/40 text-rose-300"
+                                : "border-amber-700 bg-amber-950/40 text-amber-300"
+                          }
+                        >
+                          {llmTest.verdict
+                            ? `${llmTest.verdict.verdict} · ${Math.round(llmTest.verdict.confidence * 100)}%`
+                            : t(lang, "ai.llm.test.fail")}
+                        </Badge>
+                        <span className="text-zinc-400">{llmScope(llmTest.url)}</span>
+                        {llmTest.model && <span className="text-zinc-600">· {llmTest.model}</span>}
+                        <span className="ml-auto text-zinc-500">{llmTest.ms}ms</span>
+                        {llmTest.detail !== "ok" && <span className="text-amber-400">{llmTest.detail}</span>}
+                      </div>
+                      {llmTest.setupSource && <p className="text-zinc-500">{llmTest.setupSource}</p>}
+                      {llmTest.detail === "http-404" && !llmTest.prompt && (
+                        <p className="text-amber-400">{t(lang, "ai.llm.test.h404")}</p>
+                      )}
+                      {llmTest.detail === "http-404" && !!llmTest.prompt && (
+                        <p className="text-amber-400">{t(lang, "ai.llm.test.h404llm")}</p>
+                      )}
+                      {llmTest.detail.startsWith("http-") && llmTest.bodySnippet && (
+                        <p className="text-zinc-500">↳ {llmTest.bodySnippet}</p>
+                      )}
+                      {llmTest.verdict?.reasons.map((rs, i) => (
+                        <p key={i} className="text-zinc-300">
+                          • {rs}
+                        </p>
+                      ))}
+                      {llmTest.prompt && (
+                        <div>
+                          <p className="text-zinc-600">{t(lang, "ai.llm.test.prompt")}</p>
+                          <pre className="mt-0.5 max-h-28 overflow-y-auto whitespace-pre-wrap text-zinc-400">{llmTest.prompt}</pre>
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-zinc-600">{t(lang, "ai.llm.test.raw")}</p>
+                        <pre className="mt-0.5 max-h-28 overflow-y-auto whitespace-pre-wrap text-zinc-300">{llmTest.raw || "—"}</pre>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+          </Chapter>
+        </section>
+
+        {/* ── 0.2.84 — CH2 · Dữ liệu đã học & độ tin cậy: runs + champions + reliability ── */}
+        <section id="ai-chB" className={flash === "ai-chB" ? "chapter-flash" : undefined}>
+          <Chapter title={t(lang, "ai.chB.t")} note={t(lang, "ai.chB.note")}>
+            {/* 3 — đã học bao nhiêu dữ liệu */}
+            <Card className="border-zinc-800/80 bg-zinc-900/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
+                  <Database className="h-4 w-4 text-teal-400" />
+                  {t(lang, "ai.data.title")}
+                </CardTitle>
+                <p className="text-[11px] text-zinc-500">{t(lang, "ai.data.sub")}</p>
+              </CardHeader>
+              <CardContent className="space-y-3 pt-0">
+                {data && data.autoStats.closed > 0 && (
+                  <p className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5 font-mono text-[11px] text-teal-300">
+                    {t(lang, "ai.data.lessons", {
+                      closed: String(data.autoStats.closed),
+                      w: String(data.autoStats.lessonWeight),
+                      n: String(data.autoStats.lessonSamples),
+                      wins: String(data.autoStats.wins),
+                    })}
+                    {winRate !== null ? ` · WR ${winRate.toFixed(0)}%` : ""}
+                  </p>
+                )}
+                {!data || data.runs.length === 0 ? (
+                  <p className="text-[11px] text-zinc-600">
+                    {data?.db?.runsError ? t(lang, "ai.db.error") : t(lang, "ai.data.empty")}
+                  </p>
+                ) : (
+                  <div className="rail-scroll max-h-80 space-y-1 overflow-y-auto pr-0.5">
+                    {data.runs.slice(0, 80).map((r) => (
+                      <div key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 rounded-md border border-zinc-800/80 bg-zinc-950/40 px-2 py-1.5 text-[11px]">
+                        <Badge variant="outline" className={`shrink-0 px-1.5 text-[9px] uppercase ${r.kind === "finetune" ? "border-teal-800 bg-teal-950/40 text-teal-300" : "border-zinc-700 bg-zinc-900 text-zinc-400"}`}>
+                          {r.kind}
+                        </Badge>
+                        <span className="shrink-0 font-mono font-bold text-zinc-200">#{r.symbol}</span>
+                        <span className="shrink-0 font-mono text-zinc-500">{r.interval}</span>
+                        <span className="shrink-0 font-mono text-zinc-400">{r.samples}/{r.valSamples}</span>
+                        <span className={`shrink-0 font-mono ${r.acc >= 55 ? "text-emerald-400" : "text-zinc-300"}`}>{r.acc.toFixed(1)}%</span>
+                        <span className="shrink-0 font-mono text-zinc-500">AUC {r.auc.toFixed(2)}</span>
+                        <span className="hidden shrink-0 font-mono text-zinc-600 sm:inline">L {r.logloss.toFixed(3)}</span>
+                        <span className="ml-auto max-w-full shrink-0 truncate font-mono text-[10px] text-zinc-500" title={hyper(r.params)}>{hyper(r.params)}</span>
+                        <span className="shrink-0 font-mono text-[10px] text-zinc-600">
+                          {new Date(r.createdAt).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* 5 — champion mỗi combo */}
+            {data && data.champions.length > 0 && (
+              <Card className="border-zinc-800/80 bg-zinc-900/60">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
+                    <Crown className="h-4 w-4 text-amber-400" />
+                    {t(lang, "ai.champ.title")}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="grid gap-1.5 sm:grid-cols-2">
+                    {/* mặc định top 10 — bấm nút dưới để mở hết (danh sách có thể
+                        dài hơn khung nhìn khi đã train nhiều combo) */}
+                    {data.champions.slice(0, champAll ? undefined : 10).map((c) => (
+                      <div key={`${c.symbol}-${c.interval}`} className="flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-amber-800/40 bg-amber-950/10 px-2 py-1.5 text-[11px]">
+                        <Crown className="h-3 w-3 shrink-0 text-amber-400" />
+                        <span className="shrink-0 font-mono font-bold text-zinc-200">#{c.symbol}</span>
+                        <span className="shrink-0 font-mono text-zinc-500">{c.interval}</span>
+                        <span className={`shrink-0 font-mono ${c.acc >= 55 ? "text-emerald-400" : "text-zinc-300"}`}>{c.acc.toFixed(1)}%</span>
+                        <span className="shrink-0 font-mono text-zinc-500">AUC {c.auc.toFixed(2)}</span>
+                        {/* max-w-full + truncate — hyper(params) ~300px từng đẩy row
+                            champion tràn ngang mobile (390px); đủ xem trong title */}
+                        <span className="ml-auto max-w-full shrink-0 truncate font-mono text-[10px] text-zinc-500" title={hyper(c.params)}>{hyper(c.params)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {data.champions.length > 10 && (
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="h-6 gap-1.5 px-1.5 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-                      onClick={() => setDiveHistoryOpen((o) => !o)}
+                      className="mt-2 h-7 w-full gap-1 text-[11px] text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
+                      onClick={() => setChampAll((v) => !v)}
                     >
-                      <History className="h-3 w-3" />
-                      {diveHistoryOpen ? t(lang, "ai.dive.history.hide") : t(lang, "ai.dive.history.show", { n: diveHistory.length })}
-                      {diveHistoryOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                      {champAll ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                      {champAll ? t(lang, "ai.champ.less") : t(lang, "ai.champ.more", { n: data.champions.length })}
                     </Button>
-                    {diveHistoryOpen && (
-                      <div className="rail-scroll mt-1.5 max-h-96 space-y-2 overflow-y-auto">
-                        {diveHistory.map((rep) => (
-                          <details key={rep.id} className="group rounded-lg border border-zinc-800 bg-zinc-950/60 p-2">
-                            <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 text-[11px]">
-                              <Badge
-                                variant="outline"
-                                className={rep.ok ? "border-emerald-800 text-emerald-400" : "border-amber-800 text-amber-400"}
-                              >
-                                {rep.ok ? t(lang, "ai.dive.ok") : t(lang, "ai.dive.history.fail")}
-                              </Badge>
-                              <span className="font-mono text-zinc-500">{rep.ms}ms</span>
-                              <span className="text-zinc-600">{rep.model}</span>
-                              <span className="ml-auto text-zinc-500">
-                                {new Date(rep.createdAt).toLocaleString(lang === "vi" ? "vi-VN" : "en-US")}
-                              </span>
-                            </summary>
-                            <pre className="mt-2 max-h-72 overflow-y-auto whitespace-pre-wrap border-t border-zinc-800 pt-2 text-[11px] text-zinc-300">
-                              {rep.ok ? rep.text : rep.detail || "—"}
-                            </pre>
-                          </details>
-                        ))}
-                      </div>
-                    )}
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 2 — độ tin cậy prob trên dữ liệu THẬT */}
+            <Card className="border-zinc-800/80 bg-zinc-900/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
+                  <Target className="h-4 w-4 text-teal-400" />
+                  {t(lang, "ai.reliab.title")}
+                </CardTitle>
+                <p className="text-[11px] text-zinc-500">{t(lang, "ai.reliab.sub")}</p>
+              </CardHeader>
+              <CardContent className="space-y-3 pt-0">
+                <div className="grid gap-3 md:grid-cols-2">
+                  {([
+                    [t(lang, "ai.reliab.trades"), data?.reliability?.trades],
+                    [t(lang, "ai.reliab.phe"), data?.reliability?.phe],
+                  ] as const).map(([name, table], idx) => (
+                    <div key={name} className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+                      <p className="flex items-center justify-between text-xs font-bold text-zinc-200">
+                        <span>{name}</span>
+                        <span className="font-mono text-[10px] font-normal text-zinc-500">n = {table?.n ?? 0}</span>
+                      </p>
+                      {data?.reliability && (idx === 0 ? data.reliability.errors.trades : data.reliability.errors.phe) ? (
+                        <p className="mt-2 text-[11px] text-rose-400">{t(lang, "ai.db.error")}</p>
+                      ) : !table || table.n === 0 ? (
+                        <p className="mt-2 text-[11px] text-zinc-600">{t(lang, "ai.reliab.empty")}</p>
+                      ) : (
+                        <table className="mt-2 w-full text-[11px]">
+                          <thead>
+                            <tr className="text-zinc-500">
+                              <th className="text-left font-normal">{t(lang, "ai.reliab.bucket")}</th>
+                              <th className="text-right font-normal">{t(lang, "ai.reliab.n")}</th>
+                              <th className="text-right font-normal">{t(lang, "ai.reliab.wr")}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {table.buckets.map((b) => (
+                              <tr key={b.label} className="border-t border-zinc-800/60">
+                                <td className="py-0.5 font-mono text-zinc-300">{b.label}</td>
+                                <td className="py-0.5 text-right font-mono text-zinc-500">{b.n}</td>
+                                <td className={`py-0.5 text-right font-mono font-bold ${b.wr >= 50 ? "text-emerald-400" : b.wr >= 0 ? "text-rose-400" : "text-zinc-600"}`}>
+                                  {b.wr >= 0 ? `${b.wr.toFixed(1)}%` : "—"}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[10px] leading-relaxed text-zinc-600">{t(lang, "ai.reliab.note")}</p>
+              </CardContent>
+            </Card>
+
+          </Chapter>
+        </section>
+
+        {/* ── 0.2.84 — CH3 · Tự học & Giải phẫu lệnh: autopsy + evo ── */}
+        <section id="ai-chC" className={flash === "ai-chC" ? "chapter-flash" : undefined}>
+          <Chapter title={t(lang, "ai.chC.t")} note={t(lang, "ai.chC.note")}>
+            <div className="grid gap-4 xl:grid-cols-2">
+            {/* 4 — giải phẫu lệnh (autopsy): tại sao thắng, tại sao thua */}
+            <Card className="border-zinc-800/80 bg-zinc-900/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
+                  <FlaskConical className="h-4 w-4 text-teal-400" />
+                  {t(lang, "ai.autopsy.title")}
+                </CardTitle>
+                <p className="text-[11px] text-zinc-500">{t(lang, "ai.autopsy.sub")}</p>
+              </CardHeader>
+              <CardContent className="space-y-2 pt-0">
+                {data?.autopsies && data.autopsies.n > 0 ? (
+                  <>
+                    <p className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5 font-mono text-[11px] text-teal-300">
+                      {t(lang, "ai.autopsy.count", {
+                        n: String(data.autopsies.n),
+                        win: String(data.autopsies.recent.filter((a) => (a.pnlPct ?? 0) > 0).length),
+                        loss: String(data.autopsies.recent.filter((a) => (a.pnlPct ?? 0) <= 0).length),
+                      })}
+                    </p>
+                    <div className="rail-scroll max-h-96 space-y-1.5 overflow-y-auto pr-0.5">
+                      {data.autopsies.recent.map((a, i) => (
+                        <div key={`${a.symbol}-${a.exitTime ?? i}-${i}`} className="rounded-md border border-zinc-800/80 bg-zinc-950/40 px-2.5 py-2 text-[11px]">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <Badge variant="outline" className={`shrink-0 px-1.5 text-[9px] uppercase ${(a.pnlPct ?? 0) > 0 ? "border-emerald-800 bg-emerald-950/40 text-emerald-300" : "border-rose-800 bg-rose-950/40 text-rose-300"}`}>
+                              {(a.pnlPct ?? 0) > 0 ? "win" : "loss"}
+                            </Badge>
+                            <span className="shrink-0 font-mono font-bold text-zinc-200">#{a.symbol}</span>
+                            <span className="shrink-0 font-mono text-zinc-500">{a.interval}</span>
+                            <span className={`shrink-0 font-mono ${a.side === "LONG" ? "text-emerald-400" : "text-rose-400"}`}>{a.side}</span>
+                            <span className={`shrink-0 font-mono font-bold ${(a.pnlPct ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                              {(a.pnlPct ?? 0) >= 0 ? "+" : ""}{(a.pnlPct ?? 0).toFixed(2)}%
+                            </span>
+                            {a.ev?.rMultiple != null && (
+                              <span className="shrink-0 font-mono text-zinc-500">R {a.ev.rMultiple >= 0 ? "+" : ""}{a.ev.rMultiple.toFixed(2)}x</span>
+                            )}
+                            <span className="shrink-0 rounded border border-teal-800/60 bg-teal-950/30 px-1.5 py-0.5 font-mono text-[9px] text-teal-300">{a.tag || "—"}</span>
+                            <span className="ml-auto shrink-0 font-mono text-[10px] text-zinc-600">
+                              {a.exitTime ? new Date(a.exitTime).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}
+                            </span>
+                          </div>
+                          {a.why.length > 0 && (
+                            <ul className="mt-1 space-y-0.5 text-zinc-400">
+                              {a.why.map((w, j) => (
+                                <li key={j} className="leading-relaxed">• {w}</li>
+                              ))}
+                            </ul>
+                          )}
+                          <p className="mt-1 leading-relaxed text-amber-200/90">
+                            💡 {t(lang, "ai.autopsy.lesson")}: {a.lesson}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
                   </>
                 ) : (
-                  <p className="text-[10px] leading-relaxed text-zinc-600">{t(lang, "ai.dive.history.empty")}</p>
+                  <p className="text-[11px] text-zinc-600">
+                    {data?.autopsies?.error ? t(lang, "ai.db.error") : t(lang, "ai.autopsy.empty")}
+                  </p>
                 )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              </CardContent>
+            </Card>
 
-        {/* 7 — About: 2 lớp AI + cách đọc Prob — gấp gọn mặc định (0.2.76 dọn
-            trang: giải thích tĩnh xuống đáy, dữ liệu sống lên trên) */}
-        <Card className="border-zinc-800/80 bg-zinc-900/60">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
-              <BookOpen className="h-4 w-4 text-teal-400" />
-              {t(lang, "ai.about.title")}
-            </CardTitle>
-          </CardHeader>
-          {aboutOpen ? (
-            <CardContent className="space-y-3 pt-0">
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-lg border border-teal-800/60 bg-teal-950/20 p-3">
-                  <p className="text-xs font-bold text-teal-300">{t(lang, "ai.layers.xgb.t")}</p>
-                  <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-400">{t(lang, "ai.layers.xgb.d")}</p>
-                </div>
-                <div className="rounded-lg border border-amber-800/60 bg-amber-950/20 p-3">
-                  <p className="text-xs font-bold text-amber-300">{t(lang, "ai.layers.llm.t")}</p>
-                  <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-400">{t(lang, "ai.layers.llm.d")}</p>
-                </div>
-                <div className="md:col-span-2 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
-                  <p className="text-xs font-bold text-zinc-200">❓ {t(lang, "ai.finetune.q")}</p>
-                  <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-400">{t(lang, "ai.finetune.a")}</p>
-                </div>
+              {/* 6a — Tự tiến hoá (0.2.54): đề xuất → backtest → áp → theo dõi → hoàn tác */}
+              <Card className="border-zinc-800/80 bg-zinc-900/60">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
+                    <Dna className="h-4 w-4 text-emerald-400" />
+                    {t(lang, "ai.evo.title")}
+                  </CardTitle>
+                  <p className="text-[11px] leading-relaxed text-zinc-500">{t(lang, "ai.evo.sub")}</p>
+                </CardHeader>
+                <CardContent className="space-y-2 pt-0">
+                  {evo && !evo.on && (
+                    <Badge variant="outline" className="border-amber-700 bg-amber-950/40 text-amber-300">
+                      {t(lang, "ai.evo.off")}
+                    </Badge>
+                  )}
+                  {evo?.active && (
+                    <p className="rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-2.5 text-[11px]">
+                      <span className="font-bold text-emerald-300">
+                        {t(lang, "ai.evo.active")}: {evo.active.name}
+                      </span>
+                      <span className="mt-0.5 block font-mono text-[10px] text-zinc-400">
+                        {evo.active.combo} · {evoCfg(evo.active.cfgAfter)}
+                        {evo.active.metrics?.best ? ` · exp ${evo.active.metrics.best.expectancy.toFixed(3)}%/lệnh` : ""}
+                      </span>
+                      {evo.watch && (
+                        <span className="mt-0.5 block text-zinc-500">⏳ {t(lang, "ai.evo.watch", { n: evo.watch.n, need: evo.watch.need })}</span>
+                      )}
+                    </p>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 gap-1.5 border-zinc-700 px-2.5 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                      disabled={evoBusy}
+                      onClick={() => void runEvolve()}
+                    >
+                      {evoBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Dna className="h-3.5 w-3.5 text-emerald-400" />}
+                      {evoBusy ? t(lang, "ai.evo.running") : t(lang, "ai.evo.run")}
+                    </Button>
+                    {evoMsg && <span className="text-[10px] text-zinc-500">{evoMsg}</span>}
+                  </div>
+                  {evo && evo.history.length > 0 ? (
+                    <div className="rail-scroll max-h-60 space-y-1 overflow-y-auto pr-0.5">
+                      {evo.history.slice(0, 10).map((h, i) => (
+                        <div key={`${h.at}-${i}`} className="rounded-md border border-zinc-800/80 bg-zinc-950/40 px-2 py-1.5 text-[10px]">
+                          <span className="flex flex-wrap items-center gap-1.5">
+                            <Badge variant="outline" className={`px-1.5 text-[9px] uppercase ${evoBadge(h.decision)}`}>
+                              {h.decision}
+                            </Badge>
+                            <span className="shrink-0 font-mono text-zinc-600">
+                              {new Date(h.at).toLocaleString(lang === "vi" ? "vi-VN" : "en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                            <span className="shrink-0 font-mono text-zinc-500">{h.combo}</span>
+                            {h.name && <span className="truncate text-zinc-300">{h.name}</span>}
+                          </span>
+                          {h.detail && (
+                            <span className="mt-0.5 block truncate text-zinc-500" title={h.detail}>
+                              {h.detail}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-zinc-600">{t(lang, "ai.evo.none")}</p>
+                  )}
+                </CardContent>
+              </Card>
+
+            </div>
+          </Chapter>
+        </section>
+
+        {/* ── 0.2.84 — CH4 · Phân tích nguyên nhân gốc (LLM) & About ── */}
+        <section id="ai-chD" className={flash === "ai-chD" ? "chapter-flash" : undefined}>
+          <Chapter title={t(lang, "ai.chD.t")} note={t(lang, "ai.chD.note")}>
+              {/* 6b — Phân tích nguyên nhân gốc: LLM kiểm toán snapshot thống kê (/stats) */}
+              <Card className="border-zinc-800/80 bg-zinc-900/60">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
+                    <ScrollText className="h-4 w-4 text-teal-400" />
+                    {t(lang, "ai.dive.title")}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 pt-0">
+                  <p className="text-[11px] leading-relaxed text-zinc-400">{t(lang, "ai.dive.hint")}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 gap-1.5 border-zinc-700 px-2.5 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                      disabled={statsDiveBusy}
+                      onClick={() => void runStatsDive()}
+                    >
+                      {statsDiveBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ScrollText className="h-3.5 w-3.5 text-teal-400" />}
+                      {t(lang, "ai.dive.run")}
+                    </Button>
+                    <Link href="/stats" className="text-[10px] text-zinc-500 underline decoration-dotted hover:text-zinc-300">
+                      {t(lang, "ai.dive.statsLink")}
+                    </Link>
+                    <span className="text-[10px] text-zinc-600">{statsDiveBusy ? t(lang, "ai.dive.busy") : t(lang, "ai.dive.hint2")}</span>
+                  </div>
+                  {statsDive && (
+                    <div className="rail-scroll space-y-1.5 rounded-lg border border-zinc-800 bg-zinc-950/60 p-2.5 text-[11px]">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge
+                          variant="outline"
+                          className={statsDive.ok ? "border-emerald-700 bg-emerald-950/40 text-emerald-300" : "border-amber-700 bg-amber-950/40 text-amber-300"}
+                        >
+                          {statsDive.ok ? t(lang, "ai.dive.ok") : t(lang, "ai.dive.fail")}
+                        </Badge>
+                        <span className="ml-auto font-mono text-zinc-500">{statsDive.ms}ms</span>
+                        {!statsDive.ok && <span className="text-amber-400">{statsDive.detail}</span>}
+                      </div>
+                      <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap text-zinc-300">{statsDive.ok ? statsDive.text : "—"}</pre>
+                    </div>
+                  )}
+
+                  {/* 0.2.36 — lịch sử các lần dive đã lưu trong DB */}
+                  <div className="border-t border-zinc-800 pt-2">
+                    {diveHistory != null && diveHistory.length > 0 ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 gap-1.5 px-1.5 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                          onClick={() => setDiveHistoryOpen((o) => !o)}
+                        >
+                          <History className="h-3 w-3" />
+                          {diveHistoryOpen ? t(lang, "ai.dive.history.hide") : t(lang, "ai.dive.history.show", { n: diveHistory.length })}
+                          {diveHistoryOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                        </Button>
+                        {diveHistoryOpen && (
+                          <div className="rail-scroll mt-1.5 max-h-96 space-y-2 overflow-y-auto">
+                            {diveHistory.map((rep) => (
+                              <details key={rep.id} className="group rounded-lg border border-zinc-800 bg-zinc-950/60 p-2">
+                                <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 text-[11px]">
+                                  <Badge
+                                    variant="outline"
+                                    className={rep.ok ? "border-emerald-800 text-emerald-400" : "border-amber-800 text-amber-400"}
+                                  >
+                                    {rep.ok ? t(lang, "ai.dive.ok") : t(lang, "ai.dive.history.fail")}
+                                  </Badge>
+                                  <span className="font-mono text-zinc-500">{rep.ms}ms</span>
+                                  <span className="text-zinc-600">{rep.model}</span>
+                                  <span className="ml-auto text-zinc-500">
+                                    {new Date(rep.createdAt).toLocaleString(lang === "vi" ? "vi-VN" : "en-US")}
+                                  </span>
+                                </summary>
+                                <pre className="mt-2 max-h-72 overflow-y-auto whitespace-pre-wrap border-t border-zinc-800 pt-2 text-[11px] text-zinc-300">
+                                  {rep.ok ? rep.text : rep.detail || "—"}
+                                </pre>
+                              </details>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-[10px] leading-relaxed text-zinc-600">{t(lang, "ai.dive.history.empty")}</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            {/* 7 — About: 2 lớp AI + cách đọc Prob — gấp gọn mặc định (0.2.76 dọn
+                trang: giải thích tĩnh xuống đáy, dữ liệu sống lên trên) */}
+            <Card className="border-zinc-800/80 bg-zinc-900/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
+                  <BookOpen className="h-4 w-4 text-teal-400" />
+                  {t(lang, "ai.about.title")}
+                </CardTitle>
+              </CardHeader>
+              {aboutOpen ? (
+                <CardContent className="space-y-3 pt-0">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="rounded-lg border border-teal-800/60 bg-teal-950/20 p-3">
+                      <p className="text-xs font-bold text-teal-300">{t(lang, "ai.layers.xgb.t")}</p>
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-400">{t(lang, "ai.layers.xgb.d")}</p>
+                    </div>
+                    <div className="rounded-lg border border-amber-800/60 bg-amber-950/20 p-3">
+                      <p className="text-xs font-bold text-amber-300">{t(lang, "ai.layers.llm.t")}</p>
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-400">{t(lang, "ai.layers.llm.d")}</p>
+                    </div>
+                    <div className="md:col-span-2 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+                      <p className="text-xs font-bold text-zinc-200">❓ {t(lang, "ai.finetune.q")}</p>
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-400">{t(lang, "ai.finetune.a")}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-[11px] leading-relaxed text-zinc-400">{t(lang, "ai.prob.d")}</p>
+                    <p className="rounded-lg border border-amber-800/60 bg-amber-950/20 p-2.5 text-[11px] leading-relaxed text-amber-200/90">{t(lang, "ai.prob.warn")}</p>
+                  </div>
+                </CardContent>
+              ) : null}
+              <div className="px-6 pb-4">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 w-full gap-1 text-[11px] text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
+                  onClick={() => setAboutOpen((v) => !v)}
+                >
+                  {aboutOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  {aboutOpen ? t(lang, "ai.about.less") : t(lang, "ai.about.more")}
+                </Button>
               </div>
-              <div className="space-y-2">
-                <p className="text-[11px] leading-relaxed text-zinc-400">{t(lang, "ai.prob.d")}</p>
-                <p className="rounded-lg border border-amber-800/60 bg-amber-950/20 p-2.5 text-[11px] leading-relaxed text-amber-200/90">{t(lang, "ai.prob.warn")}</p>
-              </div>
-            </CardContent>
-          ) : null}
-          <div className="px-6 pb-4">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 w-full gap-1 text-[11px] text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
-              onClick={() => setAboutOpen((v) => !v)}
-            >
-              {aboutOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-              {aboutOpen ? t(lang, "ai.about.less") : t(lang, "ai.about.more")}
-            </Button>
-          </div>
-        </Card>
+            </Card>
+
+          </Chapter>
+        </section>
       </div>
 
       {/* ── Settings popup (0.2.76) — mọi thứ chỉnh được sống ở đây, không còn

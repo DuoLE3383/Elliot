@@ -203,12 +203,48 @@ html, body {
 .mosaic-cell {
   animation: mosaic-blink 5.5s ease-in-out infinite;
 }
+/* ── 0.2.84 — FlowMap: line suy diễn + nhóm sáng khi đang xử lý ───────────── */
+/* Xung chạy dọc connector giữa các node: dash trượt theo hướng vẽ (trái→phải),
+   cùng ngôn ngữ "dòng điện" với nền circuit 0.2.83 */
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+.flow-line {
+  stroke-dasharray: 5 7;
+  animation: flow-dash 1.4s linear infinite;
+}
+/* line VÀO node đang xử lý: dash dày + xung nhanh hơn — nhìn là biết điện
+   đang đổ về đâu */
+.flow-line-hot {
+  stroke-dasharray: 4 4;
+  animation: flow-dash 0.5s linear infinite;
+}
+/* Nhóm vừa được node trỏ tới: phát vòng sáng cyan rồi tắt trong 1.5s */
+@keyframes chapter-flash {
+  0% {
+    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.65), 0 0 24px rgba(34, 211, 238, 0.3);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0);
+  }
+}
+.chapter-flash {
+  animation: chapter-flash 1.5s ease-out 1;
+  border-radius: 1rem;
+}
 /* Tôn trọng người dùng tắt chuyển động */
 @media (prefers-reduced-motion: reduce) {
   .circuit-pulse,
   .sparkle,
   .node-dot,
   .mosaic-cell {
+    animation: none !important;
+  }
+  .flow-line,
+  .flow-line-hot,
+  .chapter-flash {
     animation: none !important;
   }
 }
