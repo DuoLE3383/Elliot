@@ -1,0 +1,53 @@
+0.2.87 — RÀ LẠI SỔ DRY-RUN PHÍA SHORT + SỬA SAI TOÁN DCA + GATE SHORT CHỌN LỌC
+
+"rà lại lịch sử dryrun của lệnh short đã bị tính sai cho nên tỉ lệ thắng quá tệ"
+
+Điều tra: mọi đường chốt lệnh (closeTradeDirect, PATCH close, papers.ts,
+trailing, liquidation) đều nhất quán và đúng toán cho SHORT — sai nằm ở ba chỗ
+khác làm SỔ LỊCH SỬsa lệch:
+
+1. DCA ghi entry bằng TRUNG BÌNH CỘNG (engine.ts dcaRescue) — các bù DCA cam
+   cùng NOTIONAL (stake0 % vốn) chứ không cùng lượng coin nên bình quân giá
+   phải là TRUNG BÌNH ĐIỀU HOÀ (n / Σ(1/pᵢ)). Cộng đơn giản làm lệnh có bù
+   chuyền ghi entry sai cả hai phía: SHORT bù giá cao → entry ghi CAO hơn thật
+   → thắng được phình, lỗ bị che, SL/TP re-anchor lệch theo. Đã sửa harmonic
+   mean (1 dòng toán, có chú giải vì sao).
+
+2. Sổ lịch sử trộn nhiều phiên bản công thức: lệnh chốt trước 0.2.77 là gross
+   ROE (không phí round-trip), thanh lý có thời điểm không ép −100 → thống kê
+   WR — nhất là SHORT — không phản ánh hiệu quả thật. Thêm module
+   src/lib/audit-book.ts (pure, test được):
+   • expectedPnlPctOf — tính lại ROE theo đúng công thức chốt hiện hành (một
+     nguồn với closeTradeDirect: move × lev − feeRoe, thanh lý −100).
+   • auditBook — liệt kê từng dòng lệch (stored vs expected) + thống kê
+     LONG/SHORT tách biệt TRƯỚC và SAU chuẩn hoá.
+   • repairBook — ROE đúng + CHUỖI VỐN chạy lại theo createdAt (capitalBefore
+     kế thừa capitalAfter trước, delta = vốn × stake% × ROE%, đáy 0; lệnh đang
+     mở dán lại mốc vốn lúc mở).
+
+3. API + UI để dùng ngay:
+   • PATCH /api/autotrade { action: "audit", repair?: bool } — repair=false chỉ
+     báo cáo (dry), repair=true ghi ROE đúng + chạy lại chuỗi vốn, trả report
+     sau sửa để đối chiếu.
+   • Panel Auto: khối "WIN RATE BY SIDE" — 2 chip LONG/SHORT (n lệnh · WR · net
+     ROE) tính từ sổ recent để thấy ngay phía nào đang tệ; nút "Audit book" →
+     báo cáo (số lệnh lệch, net ROE {a}% → {b}%, LONG/SHORT trước→sau, cảnh báo
+     ⚠ số dòng lệch mỗi phía) + nút "Sửa sổ ngay" khi có lệch; sau sửa refresh
+     KPI + toast "Đã sửa n ROE · c mốc vốn · vốn cuối f USDT". i18n vi/en đủ.
+
+4. Gate SHORT CHỌN LỌC (hạn chế thua tiếp): knob SHORT_PROB_MIN (nhóm Flip /
+   SL-TP, mặc định 0.60, ≤0.5 = tắt) — vào lệnh SHORT MỚI cần confidence theo
+   phía ngắn 1 − prob ≥ 0.60 (prob ≤ 0.40, chặt hơn sàn bias 0.44 một bậc);
+   LONG giữ nguyên noise band. Bất đối xứng CÓ SỐ LIỆU từ chính sổ dry-run
+   (SHORT "vừa đủ gate" làbucket thua lớn nhất, thị trường trôi lên dài hạn);
+   flip không ăn gate này vì đã có FLIP_PROB_MIN 0.62 chặt hơn rồi.
+
+Test mới scripts/test-audit-book.mts — 27 checks: công thức SHORT/LONG đối
+xứng (+29/−31/thanh lý −100/×1 phí 0.1), audit bắt đúng 2 dòng lệch thuộc
+SHORT + thống kê trước/sau, repair tái lập chuỗi vốn (1290 → 1664.1 → 0, lệnh
+mở dán mốc), gate chặn SHORT toward 58% cho qua toward 61% và không đụng LONG
+57%. tsc sạch; test-autoflip / test-params-02-59 fail đúng như stash-verify
+trên HEAD sạch (fail cũ, không hồi quy). Verify standalone 3111: seed sổ giả
+lệnh → audit khô bắt 2 lệch (SHORT tp 30→29, sl −110→−100) → repair ghi đúng +
+chuỗi vốn 1000→1290→0, issues còn 0; UI thật click "Audit book" → "Book clean"
+sau sửa; ảnh chấm trang chủ khối mới gọn trong card.

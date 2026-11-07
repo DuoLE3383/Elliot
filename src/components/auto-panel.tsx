@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
+  auditAutoBook,
   closeAutoTrade,
   COOLDOWN_CHOICES,
   DCA_CHOICES,
@@ -24,6 +25,7 @@ import {
   trailMovePct,
   trailStopPrice,
   AUTO_DEFAULTS,
+  type AutoAuditResult,
   type AutoConfig,
   type AutoState,
   type AutoTradeRow,
@@ -36,7 +38,7 @@ import { INTERVALS } from "@/lib/types";
 import { UNIVERSE, UNIVERSE_INTERVAL, type UniverseRow } from "@/lib/universe";
 import { msgClose, slPrice, tpPrice } from "@/lib/tg-msgs";
 import { NOISE_BAND } from "@/lib/xgb";
-import { Bot, RotateCcw, ScanLine, Send, Square } from "lucide-react";
+import { Bot, RotateCcw, ScanLine, Send, Square, ListChecks } from "lucide-react";
 
 interface Props {
   lang: Lang;
@@ -185,6 +187,9 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   const [resetOpen, setResetOpen] = useState(false);
   const [resetAmount, setResetAmount] = useState<string>("");
   const [resetBusy, setResetBusy] = useState(false);
+  // RÀ SỔ DRY-RUN (0.2.87) — audit/repair state
+  const [auditBusy, setAuditBusy] = useState(false);
+  const [auditRes, setAuditRes] = useState<AutoAuditResult | null>(null);
 
   const langRef = useRef(lang);
   const scanBusyRef = useRef(false);
@@ -435,6 +440,26 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
       }
     } finally {
       if (mountedRef.current) setResetBusy(false);
+    }
+  };
+
+  /** RÀ SỔ DRY-RUN (0.2.87) — repair=false: chỉ báo cáo lệch; repair=true:
+   *  server tính lại ROE mọi lệnh closed theo công thức hiện hành + chạy lại
+   *  chuỗi vốn. Xong → refreshAuto() để KPI/capital vẽ lại số đã sửa. */
+  const doAudit = async (repair: boolean) => {
+    if (auditBusy) return;
+    setAuditBusy(true);
+    try {
+      const r = await auditAutoBook(repair);
+      setAuditRes(r);
+      if (r.ok && repair) {
+        await refreshAuto();
+        pushToast({ kind: "xgb", text: t(langRef.current, "auto.audit.done", { n: r.pnlFixed ?? 0, c: r.capitalRefixed ?? 0 }) });
+      } else if (!r.ok) {
+        pushToast({ kind: "error", text: t(langRef.current, "auto.audit.err", { detail: r.error ?? "?" }) });
+      }
+    } finally {
+      if (mountedRef.current) setAuditBusy(false);
     }
   };
 
@@ -1261,6 +1286,114 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
               {auto?.stats.wins ?? 0}/{auto?.stats.closed ?? 0}
             </p>
           </div>
+        </div>
+
+        {/* RÀ SỔ + WIN RATE THEO PHÍA (0.2.87) — lịch sử dry-run trộn nhiều phiên
+            bản công thức (trước 0.2.77 gross ROE, DCA ghi entry trung bình cộng
+            sai) → WR phía SHORT/LONG có thể sai. Nút "Rà sổ" tính lại ROE mọi
+            lệnh closed theo công thức hiện hành, thống kê LONG/SHORT tách biệt
+            trước/sau; "Sửa sổ" ghi số đúng + chạy lại chuỗi vốn. */}
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
+          <div className="flex flex-wrap items-center justify-between gap-1.5">
+            <p className="text-[10px] uppercase tracking-wide text-zinc-500">{t(lang, "auto.sides.title")}</p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 border-zinc-700 px-2 text-[11px] text-zinc-300 hover:bg-zinc-800"
+              disabled={auditBusy}
+              onClick={() => void doAudit(false)}
+            >
+              <ListChecks className="mr-1.5 h-3 w-3" />
+              {auditBusy && !auditRes ? "…" : t(lang, "auto.audit.btn")}
+            </Button>
+          </div>
+          <div className="mt-1.5 grid grid-cols-2 gap-2">
+            {(["LONG", "SHORT"] as const).map((side) => {
+              const closed = (auto?.trades ?? []).filter((x) => x.status === "closed" && x.side === side);
+              const wins = closed.filter((x) => (x.pnlPct ?? 0) > 0).length;
+              const net = closed.reduce((a, x) => a + (x.pnlPct ?? 0), 0);
+              const wr = closed.length ? (wins / closed.length) * 100 : 0;
+              return (
+                <div key={side} className="rounded-md border border-zinc-800/80 bg-zinc-900/40 px-2 py-1.5">
+                  <p className={`font-mono text-[10px] font-bold ${side === "LONG" ? "text-emerald-400" : "text-rose-400"}`}>{side}</p>
+                  <p className="mt-0.5 font-mono text-sm font-bold text-zinc-100">{wr.toFixed(0)}%</p>
+                  <p className="font-mono text-[9px] text-zinc-600">
+                    {wins}/{closed.length} · <span className={net >= 0 ? "text-emerald-400/80" : "text-rose-400/80"}>{net >= 0 ? "+" : ""}{net.toFixed(1)}%</span>
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+          {auditRes?.ok && auditRes.report && (
+            <div className="mt-2 space-y-1.5 rounded-md border border-teal-900/60 bg-teal-950/20 p-2 text-[10px] leading-relaxed text-zinc-300">
+              <p className="font-medium text-teal-300">
+                {auditRes.report.issues.length === 0
+                  ? t(lang, "auto.audit.clean")
+                  : t(lang, "auto.audit.mismatch", { n: auditRes.report.issues.length, m: auditRes.report.closed })}
+              </p>
+              {auditRes.report.issues.length > 0 && (
+                <p className="text-zinc-400">
+                  {t(lang, "auto.audit.net", {
+                    a: auditRes.report.netBefore.toFixed(2),
+                    b: auditRes.report.netAfter.toFixed(2),
+                  })}
+                </p>
+              )}
+              {/* LONG/SHORT theo sổ ĐẦY ĐỦ (server rà cả lịch sử, không chỉ 200 lệnh) */}
+              <div className="grid grid-cols-2 gap-1.5 font-mono">
+                {auditRes.report.sides.after.map((s) => {
+                  const b = auditRes.report!.sides.before.find((x) => x.side === s.side);
+                  return (
+                    <div key={s.side} className="rounded border border-zinc-800 bg-zinc-900/50 px-1.5 py-1">
+                      <span className={s.side === "LONG" ? "text-emerald-400" : "text-rose-400"}>{s.side}</span>
+                      <span className="text-zinc-400"> {b ? `${b.winRate.toFixed(0)}%` : "?"}→{s.winRate.toFixed(0)}%</span>
+                      <span className="text-zinc-600">
+                        {" "}· {s.wins}/{s.closed}
+                      </span>
+                      <span className={`ml-1 ${s.netPnl >= 0 ? "text-emerald-400/80" : "text-rose-400/80"}`}>
+                        {s.netPnl >= 0 ? "+" : ""}
+                        {s.netPnl.toFixed(1)}%
+                      </span>
+                      {b && b.mismatched > 0 && <span className="block text-[9px] text-amber-400/80">{b.mismatched} ⚠</span>}
+                    </div>
+                  );
+                })}
+              </div>
+              {auditRes.report.issues.length > 0 && !auditRes.repaired && (
+                <>
+                  <div className="max-h-20 overflow-y-auto rounded border border-zinc-800 bg-zinc-950/60 font-mono text-[9px] text-zinc-400">
+                    {auditRes.report.issues.slice(0, 12).map((x) => (
+                      <p key={x.id} className="px-1.5 py-0.5">
+                        {x.symbol ?? ""} {x.side === "SHORT" ? "S" : "L"} {x.exitKind === "tp" ? "TP" : x.exitKind === "sl" ? "SL" : x.exitKind === "flip" ? "🔄" : x.exitKind === "trail" ? "🪢" : "···"} {x.stored >= 0 ? "+" : ""}
+                        {x.stored.toFixed(2)}% → {x.expected >= 0 ? "+" : ""}
+                        {x.expected.toFixed(2)}%
+                      </p>
+                    ))}
+                    {auditRes.report.issues.length > 12 && (
+                      <p className="px-1.5 py-0.5 text-zinc-600">+{auditRes.report.issues.length - 12} …</p>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    className="h-7 w-full border-teal-900 bg-teal-950/50 px-2 text-[11px] text-teal-300 hover:bg-teal-900/50"
+                    disabled={auditBusy}
+                    onClick={() => void doAudit(true)}
+                  >
+                    {auditBusy ? "…" : t(lang, "auto.audit.repair")}
+                  </Button>
+                </>
+              )}
+              {auditRes.repaired && (
+                <p className="font-mono text-emerald-400">
+                  {t(lang, "auto.audit.repaired", {
+                    n: auditRes.pnlFixed ?? 0,
+                    c: auditRes.capitalRefixed ?? 0,
+                    f: (auditRes.finalCapital ?? 0).toFixed(2),
+                  })}
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* RESET VỐN DRY-RUN (0.2.86) — xoá sạch sổ lệnh + đặt vốn mới về ví

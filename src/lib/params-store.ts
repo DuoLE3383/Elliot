@@ -64,6 +64,7 @@ import {
   FEE_PCT,
   FLIP_PROB_MIN,
   FLIP_SCORE_EXTRA,
+  SHORT_PROB_MIN,
   AGENT_FALLBACK_N,
   CALIBRATE,
   TUNE_GRID,
@@ -181,6 +182,7 @@ export const EDITABLE: ParamMeta[] = [
   { key: "TG_DD_ALERT", group: "Telegram notify", type: "number", def: TG_DD_ALERT, min: 0, max: 50, step: 0.5, unit: "%", note: "🔴 Alert the moment equity crosses below (24h peak × (1 − x%)). Fires once per crossing. 0 = off." },
   // Flip / SL-TP (0.2.72) — flip bất đối xứng + SL/TP độc lập đòn bẩy
   { key: "FLIP_PROB_MIN", group: "Flip / SL-TP", type: "number", def: FLIP_PROB_MIN, min: 0.5, max: 0.9, step: 0.01, note: "Asymmetric flip gate: prob toward the NEW side must be ≥ this to flip an open position (entry only needs the noise band). 0.5 = off. Data 0.2.71: 75 flips net −105% ROE while TP:SL was 16:6 — flips needed a higher bar." },
+  { key: "SHORT_PROB_MIN", group: "Flip / SL-TP", type: "number", def: SHORT_PROB_MIN, min: 0.5, max: 0.9, step: 0.01, note: "0.2.87 SHORT selectivity: a FRESH short entry needs confidence-toward-short (1 − prob) ≥ this (0.60 = prob ≤ 0.40) — longs keep the plain noise band. Book evidence: shorts entered just past the gate are the biggest loss bucket; the market drifts up. Only fresh entries — flips already have FLIP_PROB_MIN. ≤ 0.5 = off (symmetric)." },
   { key: "FLIP_SCORE_EXTRA", group: "Flip / SL-TP", type: "number", def: FLIP_SCORE_EXTRA, min: 0, max: 40, step: 1, int: true, note: "Flip also needs score ≥ entry floor (Auto panel minScore) + this. 0 = off (same floor as entry)." },
   { key: "TP_LEV_MODE", group: "Flip / SL-TP", type: "string", def: TP_LEV_MODE, maxLen: 4, pattern: "^(off|sqrt|lin)$", note: "Leverage-independent SL/TP: shrink price distance as leverage grows so ROE-at-SL stops scaling with lev. off = legacy · sqrt = √(ref/lev) (matches trailing 0.2.63) · lin = ref/lev (fully independent). Only shrinks when lev > ref. Manual tpMode skips the scale (still liq-capped)." },
   { key: "TP_LEV_REF", group: "Flip / SL-TP", type: "number", def: TP_LEV_REF, min: 1, max: 50, step: 1, int: true, unit: "×", note: "Reference leverage where the scale = 1 (set to the leverage you actually run). lin at lev 20 / ref 10 → SL/TP × 0.5." },

@@ -14,6 +14,10 @@
 //         "wallet"). capital thiếu → giữ vốn ví hiện có (lần reset trước) hoặc
 //         1000. readAutoState rơi về ví khi sổ trống → UI thấy tiền NGAY, và
 //         capitalBefore của lệnh kế tiếp bắt đầu đúng từ con số đó.
+// PATCH { action: "audit", repair?: bool }           → RÀ SỔ DRY-RUN (0.2.87):
+//         tính lại ROE mọi lệnh closed theo công thức hiện hành (phí round-trip
+//         + thanh lý −100), thống kê LONG/SHORT tách biệt trước/sau chuẩn hoá.
+//         repair=true → ghi ROE đúng + CHẠY LẠI CHUỖI VỐN toàn sổ.
 // DELETE ?id                                    → remove one row (housekeeping)
 
 import { NextRequest, NextResponse } from "next/server";
@@ -21,6 +25,7 @@ import { db } from "@/lib/db";
 import { readAutoState, readOpenPosition, readWallet, serialize } from "@/lib/autostate";
 import { feeRoe } from "@/lib/autotrade";
 import { autopsyClosedTrade } from "@/lib/autopsy";
+import { auditBook, repairBook } from "@/lib/audit-book";
 
 export const dynamic = "force-dynamic";
 
@@ -109,6 +114,43 @@ export async function PATCH(req: NextRequest) {
     await db.$transaction([db.autoTrade.deleteMany(), db.dryRunState.upsert({ where: { id: "wallet" }, create: { id: "wallet", capital: cap, resetAt, note }, update: { capital: cap, resetAt, note } })]);
     console.log(`[autotrade] reset_capital — sổ đã xoá sạch, vốn đặt về ${cap} USDT (${note})`);
     return NextResponse.json({ ok: true, capital: cap, resetAt: resetAt.toISOString() });
+  }
+
+  // ─── RÀ SỔ DRY-RUN (0.2.87) — tính lại ROE mọi lệnh đã đóng theo công thức
+  // hiện hành + thống kê LONG/SHORT tách biệt. repair=false (mặc định): chỉ
+  // BÁO (dry audit). repair=true: ghi ROE đúng + CHẠY LẠI CHUỖI VỐN toàn sổ —
+  // sửa một dòng mà không tái lập chuỗi vốn là equity vẫn sai.
+  if (body.action === "audit") {
+    const rows = await db.autoTrade.findMany({ orderBy: { createdAt: "asc" } });
+    const report = auditBook(rows);
+    if (body.repair === true) {
+      const plan = repairBook(rows);
+      for (const u of plan.updates) {
+        await db.autoTrade.update({
+          where: { id: u.id },
+          data: {
+            ...(u.pnlPct !== undefined ? { pnlPct: u.pnlPct } : {}),
+            ...(u.capitalBefore !== undefined ? { capitalBefore: u.capitalBefore } : {}),
+            ...(u.capitalAfter !== undefined ? { capitalAfter: u.capitalAfter } : {}),
+          },
+        });
+      }
+      const after = await db.autoTrade.findMany({ orderBy: { createdAt: "asc" } });
+      const reportAfter = auditBook(after);
+      console.log(
+        `[autotrade] audit+repair — sửa ${plan.pnlFixed} ROE, dán lại ${plan.capitalRefixed} mốc vốn; còn lệch ${reportAfter.issues.length} dòng sau chạy (dòng này thiếu entry/exit — bỏ qua được)`,
+      );
+      return NextResponse.json({
+        ok: true,
+        repaired: true,
+        pnlFixed: plan.pnlFixed,
+        capitalRefixed: plan.capitalRefixed,
+        finalCapital: plan.finalCapital,
+        report: reportAfter,
+        reportBefore: report,
+      });
+    }
+    return NextResponse.json({ ok: true, repaired: false, report });
   }
 
   if (body.action !== "close") {

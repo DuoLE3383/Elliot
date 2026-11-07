@@ -140,6 +140,16 @@ export const TG_DD_ALERT = 5;
  *  0.5 = tắt (hạ về mức vào lệnh). Mặc định 0.62: giữa noise band (~0.56)
  *  và tín hiệu mạnh (0.70). Chỉnh runtime trên /ai. */
 export const FLIP_PROB_MIN = 0.62;
+
+/** SHORT CHỌN LỌC (0.2.87) — "rà sổ thấy SHORT thắng tệ hơn LONG": thị trường
+ *  crypto trôi lên dài hạn, SHORT cắm đầu theo tín hiệu "vừa đủ gate" là phần
+ *  chảy máu lớn nhất của sổ. Vào lệnh SHORT MỚI (không phải flip — flip đã có
+ *  FLIP_PROB_MIN riêng) phải chắc chắn theo phía ngắn tối thiểu mức này:
+ *  confidence-toward-short = 1 − prob ≥ SHORT_PROB_MIN (0.60 = prob ≤ 0.40,
+ *  tức chặt hơn sàn bias 0.44 một bậc). LONG giữ nguyên noise band — bất đối
+ *  xứng CÓ SỐ LIỆU, không phải cảm tính. ≤ 0.5 = tắt (đối xứng như cũ).
+ *  Chỉnh runtime nhóm Flip / SL-TP trên /ai. */
+export const SHORT_PROB_MIN = 0.6;
 /** Flip thêm yêu cầu score ≥ sàn vào lệnh (cfg.minScore) + phần bù này.
  *  0 = tắt (dùng đúng sàn vào lệnh). Mặc định +10: combo 66 điểm được mở
  *  lệnh mới nhưng KHÔNG đủ tư cách phá lệnh đang mở. Chỉnh runtime /ai. */

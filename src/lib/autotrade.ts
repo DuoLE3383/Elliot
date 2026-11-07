@@ -24,6 +24,7 @@ import {
   PROB_CAP,
   REGRESS_EPS,
   SIBLING_DISCOUNT,
+  SHORT_PROB_MIN,
   TP_LEV_MODE,
   TP_LEV_REF,
   TP_LIQ_SAFE,
@@ -348,13 +349,19 @@ export function bestTradeableAvoid(
   // XGBoost denoiser: an undecided model is statistical noise, not a signal.
   // regressed combos (this retrain measurably worse than the combo's champion)
   // never trade — no gambling on a bad roll.
+  // 0.2.87 — SHORT_CHỌN LỌC: vào lệnh SHORT MỚI phải chắc chắn theo phía ngắn
+  // tối thiểu SHORT_PROB_MIN (1−prob ≥ ngưỡng; 0.6 = prob ≤ 0.40). Sổ dry-run
+  // chứng minh SHORT "vừa đủ gate" là phần thua lớn nhất — LONG giữ nguyên
+  // noise band. Chỉ áp vào-lệnh-thường; flip có FLIP_PROB_MIN riêng đã chặt hơn.
+  const shortMin = pval("SHORT_PROB_MIN", SHORT_PROB_MIN);
   const cands = rankRows(
     rows.filter(
       (r) =>
         isTradeable(r, minAuc, minAcc, minScore) &&
         !r.regressed &&
         (!whaleFilter || r.whale?.tag !== "whale") &&
-        (noiseBand <= 0 || Math.abs(r.prob - 0.5) >= noiseBand),
+        (noiseBand <= 0 || Math.abs(r.prob - 0.5) >= noiseBand) &&
+        (r.bias !== "SHORT" || shortMin <= 0.5 || 1 - r.prob >= shortMin),
     ),
   );
   const regressedCount = rows.filter((r) => isTradeable(r, minAuc, minAcc, minScore) && r.regressed).length;
@@ -904,6 +911,47 @@ export async function resetAutoCapital(
     return { ok: json?.ok === true, capital: json?.capital };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "fetch failed" };
+  }
+}
+
+// ─── RÀ SỔ DRY-RUN (0.2.87) — client helper cho panel Auto ────────────────────
+
+/** Kết quả audit UI cần — gọn hơn AuditReport đầy đủ (issues chỉ lấy top N). */
+export interface AutoAuditResult {
+  ok: boolean;
+  repaired: boolean;
+  pnlFixed?: number;
+  capitalRefixed?: number;
+  finalCapital?: number | null;
+  report?: {
+    total: number;
+    closed: number;
+    ok: number;
+    issues: { id: string; side: string; symbol?: string; interval?: string; exitKind: string | null; stored: number; expected: number; diff: number }[];
+    sides: {
+      before: { side: string; closed: number; wins: number; winRate: number; netPnl: number; mismatched: number }[];
+      after: { side: string; closed: number; wins: number; winRate: number; netPnl: number; mismatched: number }[];
+    };
+    netBefore: number;
+    netAfter: number;
+  };
+  error?: string;
+}
+
+/** Rà lại toàn bộ sổ dry-run: repair=false → chỉ báo cáo; true → sửa ROE +
+ *  chạy lại chuỗi vốn (PATCH /api/autotrade action "audit"). */
+export async function auditAutoBook(repair: boolean): Promise<AutoAuditResult> {
+  try {
+    const res = await fetch("/api/autotrade", {
+      method: "PATCH",
+      headers: jsonHeaders,
+      body: JSON.stringify({ action: "audit", repair }),
+    });
+    const json = (await res.json().catch(() => null)) as AutoAuditResult | null;
+    if (!res.ok) return { ok: false, repaired: false, error: json?.error ?? `HTTP ${res.status}` };
+    return json ?? { ok: false, repaired: false, error: "empty response" };
+  } catch (e) {
+    return { ok: false, repaired: false, error: e instanceof Error ? e.message : "fetch failed" };
   }
 }
 

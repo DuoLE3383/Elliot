@@ -1700,10 +1700,16 @@ async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "c
   const stake0 = p.dca.stake0 || open.stakePct || c.riskPct;
   const tranchePrices = p.dca.prices.length > 0 ? p.dca.prices : [open.entryPrice];
   const count = p.dca.count;
-  // equal-notional tranches (each = stake0 % of the entry-time capital) → the
-  // average entry is the plain mean of the tranche prices
+  // 0.2.87 — SỬA SAI SỔ: mỗi bù DCA cam cùng NOTIONAL (stake0 % vốn) chứ không
+  // cùng lượng coin → bình quân giá phải là TRUNG BÌNH ĐIỀU HÒA (tổng notional
+  // chia tổng lượng = n / Σ(1/pᵢ)), KHÔNG phải trung bình cộng. Cộng đơn giản
+  // ghi entry sai cả hai phía: LONG bù giá thấp ghi entry CAO hơn thật (lãi bị
+  // khoét), SHORT bù giá cao ghi entry CAO hơn thật (thắng được phình, lỗ bị
+  // che) — SL/TP re-anchor theo entry sai theo. Sạch lệnh không DCA → mean thuần.
+  const all = [...tranchePrices, price];
+  const nAll = all.length;
   const avgEntry =
-    Math.round(([...tranchePrices, price].reduce((a, x) => a + x, 0) / (tranchePrices.length + 1)) * 1e8) / 1e8;
+    Math.round((all.reduce((a, x) => a + (x > 0 ? 1 / x : 0), 0) > 0 ? nAll / all.reduce((a, x) => a + (x > 0 ? 1 / x : 0), 0) : 0) * 1e8) / 1e8;
   const newStakePct = Math.round(((open.stakePct ?? c.riskPct) + stake0) * 100) / 100;
   try {
     const updated = await db.autoTrade.update({
