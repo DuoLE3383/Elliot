@@ -1,0 +1,44 @@
+0.2.86 — VÒNG HỌC KHÉP KÍN CHO LỆNH DRY-RUN + LỆNH RESET VỐN
+
+Yêu cầu: "nghiên cứu và cập nhật logic vào lệnh dryrun nhằm lợi nhuận tốt nhất",
+"tạo 1 lệnh reset vốn dry-run", "train và xgboost chưa tác dụng nhiều vào việc
+vào lệnh tiếp theo".
+
+TẠI SAO TRAIN/XGB CHƯA TÁC DỤNG — VÀ VÁ:
+1) Model của vòng QUÉT 5 phút (nơi quyết định vào lệnh) trước giờ train thuần
+   kline — CHỈ nút Train mới nạp bài học lệnh thật. scanCore giờ dùng chung
+   loadTradeLessons() với trainCore: mỗi model quét học từ track record thật
+   của combo nó (lệnh thắng/thua lặp ×LESSON_WEIGHT trong TRAIN split; val giữ
+   thuần kline nên AUC/ACC vẫn so được với champion — gate không phình).
+2) Champion cũ là best-ever SUỐT ĐỜI mọi run: một lần train "trúng số" (kể cả
+   train tay difficulty cao — thang AUC khác hẳn quét) nâng thanh ngang vĩnh
+   viễn → mọi lần quét sau bị gắn regressed → combo bị khoá suốt đời. Champion
+   mới ROLLING: đỉnh AUC trong N run GẦN NHẤT và CHỈ run difficulty 0 đủ tư
+   cách (quét so quét). CHAMP_WINDOW=20 chỉnh runtime /ai; 0 = legacy all-time.
+   trainSnapshot dùng cùng luật → nhãn "best" trên panel khớp gate engine.
+3) COMBO MEMORY — AUC/ACC không đo được hiệu quả live, sổ dry-run mới là sự
+   thật. Combo thua streak ≥ MEM_LOSE_STREAK (4) hoặc net ROE MEM_LOOKBACK (8)
+   lệnh gần nhất ≤ MEM_NET_FLOOR (−12%) bị tạm loại khỏi vòng chọn lệnh; status
+   line + pm2 log ghi rõ lý do, không âm thầm.
+4) STAKE THEO TIN CẬY — score ≥ minScore + RISK_TIER_SCORE (15) mới được dùng
+   trần stake panel; dưới đó hạ về RISK_TIER_MIN (2%) — tín hiệu "vừa đủ gate"
+   rủi ro nhỏ hơn tín hiệu mạnh. Không bao giờ đặt lớn hơn cfg.riskPct.
+   6 knob mới (CHAMP_WINDOW, MEM_*, RISK_TIER_*) chỉnh runtime nhóm
+   Champion–challenger trên /ai, hiệu lực chu kỳ kế tiếp.
+
+LỆNH RESET VỐN DRY-RUN:
+- API: PATCH /api/autotrade {action:"reset_capital", capital?, note?} — xoá
+  sạch sổ lệnh + ghi vốn mới vào ví DryRunState (bảng một dòng id "wallet",
+  thêm vào schema + bootstrap tự tạo). capital thiếu → giữ vốn lần trước/1000.
+- readAutoState/readOpenPosition rơi về ví khi sổ trống → UI thấy vốn NGAY sau
+  reset (hết kiểu "?"), pm2 restart không mất, lệnh kế mở với capitalBefore
+  đúng con số đó. /stats auto equity cũng ăn fallback này.
+- UI: nút "Reset vốn / Reset capital" trong Auto panel (dưới khối vốn) — hai
+  bước: mở dải xác nhận (viền amber) có ô nhập vốn khởi tạo = vốn hiện tại →
+  "Xoá & reset". Toast xác nhận kèm vốn đã đặt. i18n vi/en đủ.
+
+VERIFY: build standalone + server :3111 — 12/12 bảng bootstrap ok; 8 bước API
+reset_capital/open/reset legacy/unknown-action đều PASS; UI bấm reset end-to-end
+toast đúng; /stats + /ai 200; pure functions (comboMemoryOf/comboMemoryReason/
+rollingChampions/lvOfRunParams) test ✓ — bắt 1 bug legacy-window (window 0 phải
+tính mọi difficulty) ngay trước khi commit. typecheck sạch.

@@ -133,6 +133,20 @@ model AutoTrade {
   @@index([symbol, interval])
 }
 
+// ─── Dry-run wallet — vốn gốc của sổ paper-trade (0.2.86) ────────────────────
+// Trước đây vốn chỉ SỐNG TRONG chuỗi capitalAfter của các lệnh: xoá sổ (reset)
+// là vốn thành null, UI hiện "?" và lệnh kế phải đoán lại từ cfg của panel.
+// Một dòng duy nhất (id "wallet") ghi vốn sau lần reset gần nhất — readAutoState
+// dùng làm fallback khi sổ trống, nên "Reset vốn" thấy tiền NGAY, sống qua
+// pm2 restart, và chuỗi equity lệnh mới bắt đầu đúng từ con số đó.
+
+model DryRunState {
+  id       String   @id // luôn "wallet" — bảng một dòng
+  capital  Float // vốn đã đặt sau lần reset gần nhất (USDT)
+  resetAt  DateTime @default(now())
+  note     String   @default("") // nguồn đặt vốn: "panel" | "api" | …
+}
+
 // ─── Broadcast verdict — MỘT thuật toán gate dùng chung panel + Telegram ─────
 // Mỗi 5 phút broadcast tick chấm TẤT CẢ combo quét qua đúng một hàm
 // bcast-gate.gateRow() và upsert phán quyết vào đây (một dòng / combo).

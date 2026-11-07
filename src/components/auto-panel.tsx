@@ -13,6 +13,7 @@ import {
   fetchAutoState,
   loadAutoConfig,
   pushAutoStats,
+  resetAutoCapital,
   RISK_CHOICES,
   roeOf,
   saveAutoConfig,
@@ -35,7 +36,7 @@ import { INTERVALS } from "@/lib/types";
 import { UNIVERSE, UNIVERSE_INTERVAL, type UniverseRow } from "@/lib/universe";
 import { msgClose, slPrice, tpPrice } from "@/lib/tg-msgs";
 import { NOISE_BAND } from "@/lib/xgb";
-import { Bot, ScanLine, Send, Square } from "lucide-react";
+import { Bot, RotateCcw, ScanLine, Send, Square } from "lucide-react";
 
 interface Props {
   lang: Lang;
@@ -179,6 +180,11 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   const [llmLast, setLlmLast] = useState<LlmLast | null>(null);
   const [engineTrail, setEngineTrail] = useState<EngineSnap["trail"]>(null);
   const [engineInfo, setEngineInfo] = useState<{ pool: number; bundled: boolean } | null>(null);
+  // RESET VỐN (0.2.86) — hai bước: nút mở dải xác nhận → nhập vốn → xác nhận.
+  // resetAmount khời tạo = vốn hiện tại; sau khi API trả về, refreshAuto() vẽ lại.
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetAmount, setResetAmount] = useState<string>("");
+  const [resetBusy, setResetBusy] = useState(false);
 
   const langRef = useRef(lang);
   const scanBusyRef = useRef(false);
@@ -409,6 +415,27 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
     // close message (the old inline path read the pre-close state, so the very
     // first manual close announced "Track record: 0 lệnh · Win rate 0%")
     await closeOpen(open, price, "manual");
+  };
+
+  /** LỆNH RESET VỐN (0.2.86) — xoá sạch sổ dry-run + đặt vốn mới (ví DryRunState
+   *  server nhớ qua restart). Xong → refresh state + toast kèm vốn đã đặt. */
+  const doResetCapital = async () => {
+    if (resetBusy) return;
+    const cap = Math.max(1, Number(resetAmount) || 0);
+    if (!(cap > 0)) return;
+    setResetBusy(true);
+    try {
+      const r = await resetAutoCapital(cap, "panel");
+      if (r.ok) {
+        await refreshAuto();
+        setResetOpen(false);
+        pushToast({ kind: "xgb", text: t(langRef.current, "auto.reset.done", { n: r.capital ?? cap }) });
+      } else {
+        pushToast({ kind: "error", text: t(langRef.current, "auto.reset.err", { detail: r.error ?? "?" }) });
+      }
+    } finally {
+      if (mountedRef.current) setResetBusy(false);
+    }
   };
 
   const capitalNow = auto?.capital ?? cfg.capital;
@@ -1217,7 +1244,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
           <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
             <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">{t(lang, "auto.capital.now")}</p>
             <p className="mt-0.5 truncate font-mono text-sm font-bold text-zinc-100">{capitalNow.toFixed(2)}</p>
-            <p className="truncate text-[9px] text-zinc-600">{t(lang, "auto.capital.start", { n: cfg.capital })}</p>
+            <p className="truncate text-[9px] text-zinc-600">{t(lang, "auto.capital.start", { n: auto?.walletCapital ?? cfg.capital })}</p>
           </div>
           <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
             <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">Net ROE</p>
@@ -1234,6 +1261,59 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
               {auto?.stats.wins ?? 0}/{auto?.stats.closed ?? 0}
             </p>
           </div>
+        </div>
+
+        {/* RESET VỐN DRY-RUN (0.2.86) — xoá sạch sổ lệnh + đặt vốn mới về ví
+            DryRunState (server nhớ qua restart). Hai bước: nút → xác nhận có ô
+            nhập vốn (khởi tạo = vốn hiện tại). Chấp nhận = mất lịch sử lệnh. */}
+        <div className="flex flex-wrap items-center gap-2">
+          {!resetOpen ? (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 border-zinc-700 px-2 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                onClick={() => {
+                  setResetAmount(String(Math.round(auto?.walletCapital ?? capitalNow)));
+                  setResetOpen(true);
+                }}
+              >
+                <RotateCcw className="mr-1.5 h-3 w-3" />
+                {t(lang, "auto.reset.btn")}
+              </Button>
+              <span className="text-[10px] text-zinc-600">{t(lang, "auto.reset.hint")}</span>
+            </>
+          ) : (
+            <div className="flex w-full flex-wrap items-center gap-1.5 rounded-lg border border-amber-900/60 bg-amber-950/20 p-1.5">
+              <span className="text-[10px] text-amber-300/90">{t(lang, "auto.reset.confirm")}</span>
+              <Input
+                type="number"
+                min={1}
+                value={resetAmount}
+                onChange={(e) => setResetAmount(e.target.value)}
+                className="h-7 w-24 border-zinc-800 bg-zinc-950/60 px-2 font-mono text-xs text-zinc-100"
+                aria-label={t(lang, "auto.reset.btn")}
+              />
+              <span className="text-[10px] text-zinc-500">USDT</span>
+              <Button
+                size="sm"
+                className="h-7 border-rose-900 bg-rose-950/50 px-2 text-[11px] text-rose-300 hover:bg-rose-900/50"
+                disabled={resetBusy}
+                onClick={() => void doResetCapital()}
+              >
+                {resetBusy ? "…" : t(lang, "auto.reset.yes")}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-[11px] text-zinc-400"
+                onClick={() => setResetOpen(false)}
+                disabled={resetBusy}
+              >
+                {t(lang, "auto.reset.no")}
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* win-rate by pair × timeframe */}

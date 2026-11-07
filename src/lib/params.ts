@@ -412,6 +412,40 @@ export const PROB_CAP = 0.95;
  *  trung thực nên 15 là mức cân bằng hợp lý; tắt calibration thì cân nhắc hạ. */
 export const CONF_W = 15;
 
+// ── 7b · COMBO MEMORY + CHAMPION CÔNG BẰNG + STAKE THEO TIN CẬY (0.2.86) ─────
+// Ba vòng phản hồi làm "train/xgb TÁC DỤNG vào lệnh kế tiếp" và dừng chảy máu:
+//
+//  • COMBO MEMORY — metrics train (AUC/ACC) không đo được hiệu quả LIVE; sổ
+//    dry-run mới là sự thật. Combo thua streak dài / net ROE gần nhất quá âm
+//    bị tạm loại khỏi vòng chọn lệnh (một dạng tự học khép kín).
+//  • CHAMP_WINDOW — champion cũ là best-ever SUỐT ĐỜI: một lần train "trúng
+//    số" (kể cả train tay difficulty cao, thang AUC khác) nâng thanh ngang vĩnh
+//    viễn → mọi lần quét sau bị gắn regressed → combo KHÔNG BAO GIỜ được trade
+//    lại ("train còn có hại"). Champion mới = đỉnh trong N lần chạy gần NHẤT
+//    và CHỈ đếm run difficulty 0 (quét so quét — cùng thang đo, công bằng).
+//  • RISK_TIER — stake phần thưởng độ tin cậy: đạt ngưỡng mạnh mới được dùng
+//    trần stake của panel; dưới đó stake hạ về mức nền (giảm rủi ro những tín
+//    hiệu "vừa đủ gate").
+
+/** Streak lỗ liên tiếp của combo (theo sổ dry-run) bị TẠM LOẠI khỏi vòng chọn
+ *  lệnh — combo đang "không hợp chế độ" thì đừng nhét lệnh mới vào. 0 = tắt. */
+export const MEM_LOSE_STREAK = 4;
+/** Net ROE (tổng %) của MEM_LOOKBACK lệnh đóng GẦN NHẤT cùng combo dưới mức
+ *  này cũng bị tạm loại — streak bắt được chuỗi thua đều, floor bắt được chuỗi
+ *  lỗ to lẻ tẻ. 0 = tắt. */
+export const MEM_NET_FLOOR = -12;
+/** Cửa sổ lệnh gần nhất dùng cho MEM_NET_FLOOR (mỗi combo). */
+export const MEM_LOOKBACK = 8;
+/** Champion = đỉnh AUC trong N lần chạy GẦN NHẤT mỗi combo (chỉ run difficulty
+ *  0 — quét so quét). 0 = legacy all-time (so mọi run từ trước tới nay). */
+export const CHAMP_WINDOW = 20;
+/** Stake tier — score ≥ minScore + RISK_TIER_SCORE mới được dùng trần stake
+ *  panel (cfg.riskPct sau kẹp RISK_MAX_STAKE); dưới đó stake hạ về RISK_TIER_MIN
+ *  (vẫn ≤ cfg.riskPct — không bao giờ đặt lớn hơn ý user). 0 = tắt (stake phẳng). */
+export const RISK_TIER_SCORE = 15;
+/** Mức stake nền cho tín hiệu "vừa đủ gate" (% vốn). */
+export const RISK_TIER_MIN = 2;
+
 // ── 8 · LLM RISK OFFICER — kiểm tra rủi ro im lặng trước khi vào lệnh ────────
 
 export const LLM_URL_DEFAULT = "http://127.0.0.8:8888";

@@ -32,15 +32,19 @@ import { dataFile } from "./data-dir";
 import {
   AUTO_DEFAULTS,
   bestTradeableAvoid,
+  comboMemoryOf,
+  comboMemoryReason,
   flipDecision,
   feeRoe,
   levAdjSlTp,
   levNormScale,
   liquidationHit,
+  lvOfRunParams,
   nearHit,
   passesChaseGuard,
   rankRows,
   roeOf,
+  rollingChampions,
   rowOf,
   scoreOf,
   sanitizeTpMode,
@@ -56,6 +60,7 @@ import {
   sanitizeFloors,
   type AutoConfig,
   type AutoTradeRow,
+  type ChampRun,
   type ScanRow,
 } from "./autotrade";
 import { readAutoState, serialize } from "./autostate";
@@ -92,9 +97,15 @@ import { directionalPnl, outcomeOf } from "./history";
 import {
   AUTOPSY_BACKFILL_MS,
   AUTOPSY_ON,
+  CHAMP_WINDOW,
   LLM_FAIL_CLOSED,
   LLM_TIMEOUT_MS,
+  MEM_LOSE_STREAK,
+  MEM_LOOKBACK,
+  MEM_NET_FLOOR,
   NOISE_BAND,
+  RISK_TIER_MIN,
+  RISK_TIER_SCORE,
   SCAN_DIGEST_EVERY_MS,
   SCAN_DIGEST_OFFSET_MS,
   SCAN_FRESH_MS,
@@ -438,6 +449,46 @@ async function bumpSignalTotals(rows: ScanRow[]): Promise<void> {
 
 // ─── scan / train / universe cores (run inside job lanes) ────────────────────
 
+/**
+ * Load closed dry-run trades as per-combo TradeLesson lists (newest-first,
+ * capped per combo). Shared by scanCore AND trainCore — 0.2.86: trước giờ chỉ
+ * nút Train mới nạp bài học lệnh thật, còn model của vòng QUÉT 5 phút (nơi
+ * quyết định vào lệnh) lại train thuần kline → "train/xgb không tác dụng vào
+ * lệnh kế tiếp". Từ bản này MỌI model quét đều học từ track record của chính
+ * nó: lệnh thắng/thua được lặp ×LESSON_WEIGHT trong TRAIN split (val giữ thuần
+ * kline → AUC/ACC vẫn so được với champion — gate không phình).
+ */
+async function loadTradeLessons(): Promise<Map<string, TradeLesson[]>> {
+  const map = new Map<string, TradeLesson[]>();
+  try {
+    const closed = await db.autoTrade.findMany({
+      where: { status: "closed" },
+      orderBy: { exitTime: "desc" },
+      take: 500,
+    });
+    for (const t of closed) {
+      if (!t.exitTime) continue;
+      const key = `${t.symbol}|${t.interval}`;
+      const lst = map.get(key) ?? [];
+      if (lst.length < 40) {
+        lst.push({
+          t: new Date(t.entryTime).getTime(),
+          side: t.side === "SHORT" ? "SHORT" : "LONG",
+          pnl: t.pnlPct ?? 0,
+        });
+      }
+      map.set(key, lst);
+    }
+    if (map.size > 0)
+      console.log(
+        `[engine] trade lessons — ${[...map.values()].reduce((a, x) => a + x.length, 0)} closed trades across ${map.size} combo(s)`,
+      );
+  } catch {
+    // no trade history — trains run on klines only, as before
+  }
+  return map;
+}
+
 async function scanCore(
   report: (patch: { progress?: { done: number; total: number; current: string }; extra?: Record<string, unknown> }) => void,
   opts?: { pairs?: string[]; intervals?: string[] },
@@ -449,10 +500,19 @@ async function scanCore(
   const combos = pairs.length * intervals.length;
   const collected: ScanRow[] = [];
   let done = 0;
+  // 0.2.86 — model quét học từ sổ dry-run (best-effort: DB chớp → train thuần kline)
+  const tradeMap = await loadTradeLessons();
   report({ progress: { done: 0, total: combos, current: "" }, extra: { workers: pool.parallelism } });
   try {
     await pool.runQueue(
-      pairs.flatMap((sym) => intervals.map((itv) => ({ sym, itv, difficulty: 0 }))), // fair race — difficulty pinned 0
+      pairs.flatMap((sym) =>
+        intervals.map((itv) => ({
+          sym,
+          itv,
+          difficulty: 0, // fair race — difficulty pinned 0
+          trades: tradeMap.get(`${sym}|${itv}`),
+        })),
+      ),
       p.settings,
       {
         onComboStart: (sym, itv) => report({ progress: { done, total: combos, current: `${sym} ${itv}` } }),
@@ -476,27 +536,30 @@ async function scanCore(
   const nBlend = blended.filter((r, i) => r.prob !== collected[i].prob).length;
   if (nBlend > 0) console.log(`[engine] confluence — ${nBlend}/${blended.length} row ghép phiếu đa khung cùng symbol`);
   const ranked = rankRows(blended);
-  // champion map — best-ever run per combo from the persisted history; a fresh
-  // retrain that rolled measurably worse (auc < champ − 0.02) is flagged and
-  // the auto-cycle skips it ("mỗi lần train phải tốt hơn" — no gambling on a
-  // bad roll). One query, computed in JS — no schema change.
+  // champion map — 0.2.86 ROLLING champion: đỉnh AUC trong N run GẦN NHẤT mỗi
+  // combo và CHỈ run difficulty 0 đủ tư cách (quét so quét — cùng thang đo;
+  // train tay difficulty cao có dead-zone/horizon khác hẳn, không còn nâng
+  // thanh ngang vĩnh viễn làm combo bị khoá suốt đời). CHAMP_WINDOW = 0 →
+  // legacy all-time. Một query, tính trong JS — không đổi schema.
   try {
     const runs = await db.finetuneRun.findMany({
-      select: { symbol: true, interval: true, acc: true, auc: true },
+      select: { symbol: true, interval: true, acc: true, auc: true, params: true },
       orderBy: { createdAt: "desc" },
       take: 4000,
     });
-    const champ = new Map<string, { auc: number; acc: number }>();
-    for (const r of runs) {
-      const k = `${r.symbol}|${r.interval}`;
-      const cur = champ.get(k);
-      if (!cur || r.auc > cur.auc || (r.auc === cur.auc && r.acc > cur.acc)) champ.set(k, { auc: r.auc, acc: r.acc });
-    }
+    const champRuns: ChampRun[] = runs.map((r) => ({
+      symbol: r.symbol,
+      interval: r.interval,
+      acc: r.acc,
+      auc: r.auc,
+      lv: lvOfRunParams(r.params),
+    }));
+    const champ = rollingChampions(champRuns, pval("CHAMP_WINDOW", CHAMP_WINDOW));
     for (const row of ranked) {
       const c = champ.get(`${row.symbol}|${row.interval}`);
       if (c) Object.assign(row, withChampion(row, c.auc, c.acc));
     }
-    console.log(`[engine] scan enriched — ${ranked.filter((r) => r.regressed).length}/${ranked.length} regressed vs champion`);
+    console.log(`[engine] scan enriched — ${ranked.filter((r) => r.regressed).length}/${ranked.length} regressed vs champion (rolling ${pval("CHAMP_WINDOW", CHAMP_WINDOW)} lv0-runs)`);
   } catch {
     // no history yet → rows stay unflagged
   }
@@ -531,32 +594,9 @@ async function trainCore(
   // worker needs it up-front (browser pool used to fetch it itself)
   const diffs = new Map<string, number>();
   for (const s of list) diffs.set(`${s.sym}|${s.itv}`, await runCount(s.sym, s.itv));
-  // win/lose lessons — closed dry-run trades per combo, newest first (capped
-  // per combo: recent trades matter, a year-old roll doesn't)
-  const tradeMap = new Map<string, TradeLesson[]>();
-  try {
-    const closed = await db.autoTrade.findMany({
-      where: { status: "closed" },
-      orderBy: { exitTime: "desc" },
-      take: 500,
-    });
-    for (const t of closed) {
-      if (!t.exitTime) continue;
-      const key = `${t.symbol}|${t.interval}`;
-      const lst = tradeMap.get(key) ?? [];
-      if (lst.length < 40) {
-        lst.push({
-          t: new Date(t.entryTime).getTime(),
-          side: t.side === "SHORT" ? "SHORT" : "LONG",
-          pnl: t.pnlPct ?? 0,
-        });
-      }
-      tradeMap.set(key, lst);
-    }
-    if (tradeMap.size > 0) console.log(`[engine] trade lessons — ${[...tradeMap.values()].reduce((a, x) => a + x.length, 0)} closed trades across ${tradeMap.size} combo(s)`);
-  } catch {
-    // no trade history — trains run on klines only, as before
-  }
+  // win/lose lessons — closed dry-run trades per combo (helper chung với
+  // scanCore từ 0.2.86 — cùng một nguồn bài học cho cả train lẫn quét)
+  const tradeMap = await loadTradeLessons();
   report({ progress: { done: 0, total: combos, current: "" }, extra: { workers: pool.parallelism } });
   try {
     await pool.runQueue(
@@ -685,17 +725,17 @@ async function trainSnapshot(): Promise<TrainSnapshot> {
       db.finetuneRun.count(),
       db.finetuneRun.findMany({ orderBy: { createdAt: "desc" }, take: 12 }),
       db.finetuneRun.findMany({
-        select: { symbol: true, interval: true, acc: true, auc: true },
+        select: { symbol: true, interval: true, acc: true, auc: true, params: true },
         orderBy: { createdAt: "desc" },
         take: 4000,
       }),
     ]);
-    const champ = new Map<string, { auc: number; acc: number }>();
-    for (const r of hist) {
-      const k = `${r.symbol}|${r.interval}`;
-      const cur = champ.get(k);
-      if (!cur || r.auc > cur.auc || (r.auc === cur.auc && r.acc > cur.acc)) champ.set(k, { auc: r.auc, acc: r.acc });
-    }
+    // cùng luật champion với scanCore (0.2.86): rolling N run lv-0 — nhãn
+    // "best" trên panel khớp với cái gate engine đang dùng, không lệch nguồn
+    const champ = rollingChampions(
+      hist.map((r) => ({ symbol: r.symbol, interval: r.interval, acc: r.acc, auc: r.auc, lv: lvOfRunParams(r.params) })),
+      pval("CHAMP_WINDOW", CHAMP_WINDOW),
+    );
     const latest: TrainRunLite[] = runs.map((r) => {
       const c = champ.get(`${r.symbol}|${r.interval}`);
       return {
@@ -1297,9 +1337,19 @@ async function cycleTick(): Promise<void> {
     // then the chase guard rejects same-side re-entries until price has reversed
     // back through the level that stopped us ("SL xong vào lại giá cao hơn" → hết)
     const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
+    // COMBO MEMORY (0.2.86) — combo đang thua streak dài / net ROE cửa sổ gần
+    // nhất quá âm bị tạm loại: AUC/ACC không đo được hiệu quả live, sổ dry-run
+    // mới là sự thật. Knob MEM_* chỉnh runtime trên /ai (0 = tắt tầng đó).
+    const memCfg = {
+      loseStreak: pval("MEM_LOSE_STREAK", MEM_LOSE_STREAK),
+      netFloor: pval("MEM_NET_FLOOR", MEM_NET_FLOOR),
+      lookback: pval("MEM_LOOKBACK", MEM_LOOKBACK),
+    };
     let best: ScanRow | null = null;
     let price = 0;
     let guardBlocked = 0;
+    let memBlocked = 0;
+    let memWhy = "";
     for (const cand of cands) {
       const px = tickers[cand.symbol]?.price ?? 0;
       if (px <= 0) continue;
@@ -1308,21 +1358,32 @@ async function cycleTick(): Promise<void> {
         guardBlocked++;
         continue;
       }
+      const mem = comboMemoryOf(st.trades, cand.symbol, cand.interval, memCfg.lookback);
+      const why = comboMemoryReason(mem, memCfg.loseStreak, memCfg.netFloor);
+      if (why) {
+        memBlocked++;
+        if (!memWhy) memWhy = `${cand.symbol} ${cand.interval}: ${why}`;
+        continue;
+      }
       best = cand;
       price = px;
       break;
     }
     if (!best) {
+      const memTag = memBlocked > 0 ? ` · ${memBlocked} combo đang thua (memory)` : "";
       v.lastCycleStatus =
         guardBlocked > 0
-          ? `chase guard — chờ giá quay đầu (${guardBlocked} combo)`
+          ? `chase guard — chờ giá quay đầu (${guardBlocked} combo)${memTag}`
           : allInCooldown
             ? regressedCount > 0
-              ? `all in cooldown · ${regressedCount} combo regress`
-              : "all in cooldown"
+              ? `all in cooldown · ${regressedCount} combo regress${memTag}`
+              : `all in cooldown${memTag}`
             : regressedCount > 0
-              ? `no tradeable combo · ${regressedCount} regress`
-              : "no tradeable combo";
+              ? `no tradeable combo · ${regressedCount} regress${memTag}`
+              : memBlocked > 0
+                ? `combo tốt nhất đang thua (memory) — ${memWhy}`
+                : "no tradeable combo";
+      if (memBlocked > 0) console.log(`[engine] combo memory — chặn ${memBlocked} combo, ví dụ ${memWhy}`);
       return;
     }
 
@@ -1389,9 +1450,19 @@ async function cycleTick(): Promise<void> {
     // RISK ENVELOPE (0.2.79) — stake cam = min(cfg.riskPct, RISK_MAX_STAKE):
     // lệnh ghi số ĐÃ KẸP (equity impact của lệnh = capitalBefore × stakePct ×
     // pnlPct), kẹp bị ghi rõ log + status + note Telegram — không âm thầm.
-    const stakeUsed = clampStake(c.riskPct);
+    // STAKE THEO TIN CẬY (0.2.86) — score ≥ minScore + RISK_TIER_SCORE mới được
+    // dùng trần stake của panel; dưới đó hạ về RISK_TIER_MIN (không bao giờ lớn
+    // hơn cfg.riskPct): tín hiệu "vừa đủ gate" rủi ro nhỏ hơn tín hiệu mạnh.
+    // RISK_TIER_SCORE = 0 → tắt (stake phẳng như cũ).
+    const tierExtra = pval("RISK_TIER_SCORE", RISK_TIER_SCORE);
+    const tierMin = pval("RISK_TIER_MIN", RISK_TIER_MIN);
+    const strong = tierExtra <= 0 || best.score >= c.minScore + tierExtra;
+    const stakeWanted = strong ? c.riskPct : Math.min(c.riskPct, Math.max(0.5, tierMin));
+    const stakeUsed = clampStake(stakeWanted);
     if (stakeUsed < c.riskPct) {
-      console.log(`[engine] stake ${c.riskPct}% → ${stakeUsed}% (trần RISK_MAX_STAKE ${pval("RISK_MAX_STAKE", RISK_MAX_STAKE)}%)`);
+      console.log(
+        `[engine] stake ${c.riskPct}% → ${stakeUsed}% (${strong ? `trần RISK_MAX_STAKE ${pval("RISK_MAX_STAKE", RISK_MAX_STAKE)}%` : `score ${best.score} < ngưỡng mạnh ${c.minScore + tierExtra} — tier nền ${tierMin}%`})`,
+      );
     }
     const created = await db.autoTrade.create({
       data: {
@@ -1417,13 +1488,17 @@ async function cycleTick(): Promise<void> {
       },
     });
     const trade = serialize(created);
-    v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice}${stakeUsed < c.riskPct ? ` · stake ${stakeUsed}% (trần ${stakeUsed}<${c.riskPct}%)` : ""}`;
+    v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice}${stakeUsed < c.riskPct ? ` · stake ${stakeUsed}%` : ""}`;
     p.warned = { id: trade.id, tp: false, sl: false };
     p.dca = { id: trade.id, count: 0, stake0: stakeUsed, prices: [trade.entryPrice] };
     persistEngine();
     if (tgReady()) {
-      // note kẹp stake (envelope) nối đuôi note SL/TP — 1 dòng, mọi nguồn thấy
-      const capNote = stakeUsed < c.riskPct ? `🛡 stake ${c.riskPct}% → ${stakeUsed}% (trần RISK_MAX_STAKE)` : "";
+      // note kẹp stake (envelope + tier) nối đuôi note SL/TP — 1 dòng, mọi nguồn thấy
+      const capNote = stakeUsed < c.riskPct
+        ? strong
+          ? `🛡 stake ${c.riskPct}% → ${stakeUsed}% (trần RISK_MAX_STAKE)`
+          : `🛡 stake ${c.riskPct}% → ${stakeUsed}% (score ${best.score} < ${c.minScore + tierExtra} — tier nền)`
+        : "";
       const baseNote =
         c.tpMode === "dyn" && live
           ? `📏 SL/TP động = ATR ${live.atrPct.toFixed(2)}% × ${coef} · time ×${live.heatMul.toFixed(2)} · vol ×${live.volMul.toFixed(2)}${levScale < 1 ? ` · lev-norm ×${levScale.toFixed(2)} @ ×${p.leverage}` : ""} → SL ${finalSl}% · TP ${finalTp}% — pair/time/volume đo tại entry`

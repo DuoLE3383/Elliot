@@ -9,11 +9,16 @@
 //         → opens ONE position; rejected while another is open
 // PATCH { action: "close", id, exitPrice, exitKind } → settles ROE + capital
 // PATCH { action: "reset" }                          → wipe the whole book
+// PATCH { action: "reset_capital", capital?, note? }  → LỆNH RESET VỐN (0.2.86):
+//         xoá sạch sổ lệnh + ghi vốn mới vào ví DryRunState (một dòng id
+//         "wallet"). capital thiếu → giữ vốn ví hiện có (lần reset trước) hoặc
+//         1000. readAutoState rơi về ví khi sổ trống → UI thấy tiền NGAY, và
+//         capitalBefore của lệnh kế tiếp bắt đầu đúng từ con số đó.
 // DELETE ?id                                    → remove one row (housekeeping)
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { readAutoState, readOpenPosition, serialize } from "@/lib/autostate";
+import { readAutoState, readOpenPosition, readWallet, serialize } from "@/lib/autostate";
 import { feeRoe } from "@/lib/autotrade";
 import { autopsyClosedTrade } from "@/lib/autopsy";
 
@@ -87,6 +92,23 @@ export async function PATCH(req: NextRequest) {
   if (body.action === "reset") {
     await db.autoTrade.deleteMany({});
     return NextResponse.json({ ok: true });
+  }
+
+  // ─── RESET VỐN DRY-RUN (0.2.86) — lệnh người dùng yêu cầu riêng ───
+  // Xoá sạch sổ + đặt lại vốn về con số mong muốn (mặc định giữ vốn ví/lần
+  // trước hoặc 1000). Vốn sống trong bảng DryRunState nên sau reset UI hiện
+  // ngay, pm2 restart không mất, và lệnh kế mở với capitalBefore đúng.
+  if (body.action === "reset_capital") {
+    const wallet = await readWallet();
+    const cap =
+      body.capital == null
+        ? wallet.capital ?? 1000
+        : num(body.capital, 1, 10_000_000, wallet.capital ?? 1000);
+    const resetAt = new Date();
+    const note = typeof body.note === "string" && body.note.trim() ? body.note.trim().slice(0, 60) : "api";
+    await db.$transaction([db.autoTrade.deleteMany(), db.dryRunState.upsert({ where: { id: "wallet" }, create: { id: "wallet", capital: cap, resetAt, note }, update: { capital: cap, resetAt, note } })]);
+    console.log(`[autotrade] reset_capital — sổ đã xoá sạch, vốn đặt về ${cap} USDT (${note})`);
+    return NextResponse.json({ ok: true, capital: cap, resetAt: resetAt.toISOString() });
   }
 
   if (body.action !== "close") {

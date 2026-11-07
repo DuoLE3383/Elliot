@@ -29,9 +29,15 @@ import {
   BCAST_SCORE_MIN,
   BCAST_TOP_N,
   BCAST_VOL_MIN,
+  CHAMP_WINDOW,
   CONF_W,
   CYCLE_DAYS,
   LESSON_WEIGHT,
+  MEM_LOSE_STREAK,
+  MEM_LOOKBACK,
+  MEM_NET_FLOOR,
+  RISK_TIER_MIN,
+  RISK_TIER_SCORE,
   LLM_TIMEOUT_MS,
   MAX_DIFFICULTY,
   NOISE_BAND,
@@ -127,6 +133,14 @@ export const EDITABLE: ParamMeta[] = [
   { key: "SIBLING_DISCOUNT", group: "Champion–challenger", type: "number", def: SIBLING_DISCOUNT, min: 0, max: 1, step: 0.05, note: "Vote weight of other timeframes. Higher = stronger consensus boost, more double-counting risk." },
   { key: "CONF_W", group: "Champion–challenger", type: "number", def: CONF_W, min: 0, max: 30, step: 1, int: true, note: "Weight of the confidence term in scoreOf. Lower it if Prob looks inflated." },
   { key: "REGRESS_EPS", group: "Champion–challenger", type: "number", def: REGRESS_EPS, min: 0, max: 0.1, step: 0.01, note: "AUC drop vs the combo champion that marks a retrain as a regression." },
+  // 0.2.86 — champion ROLLING theo cửa sổ + memory cổ combo đang chảy máu +
+  // stake theo tin cậy: ba vòng phản hồi làm train/xgb TÁC DỤNG vào lệnh kế.
+  { key: "CHAMP_WINDOW", group: "Champion–challenger", type: "number", def: CHAMP_WINDOW, min: 0, max: 100, step: 1, int: true, unit: "runs", note: "Rolling champion: the gate compares a fresh scan against the best difficulty-0 run of the LAST N runs of that combo (scan-vs-scan, same measuring scale). A lucky old train can no longer lock a combo forever. 0 = legacy all-time champion." },
+  { key: "MEM_LOSE_STREAK", group: "Champion–challenger", type: "number", def: MEM_LOSE_STREAK, min: 0, max: 15, step: 1, int: true, unit: "losses", note: "Combo memory: skip combos whose newest consecutive dry-run losses ≥ this — a combo losing 4 in a row is out of regime, do not feed it another trade. 0 = off." },
+  { key: "MEM_NET_FLOOR", group: "Champion–challenger", type: "number", def: MEM_NET_FLOOR, min: -50, max: 0, step: 1, unit: "%", note: "Combo memory net floor: skip combos whose net ROE over the last MEM_LOOKBACK closed trades ≤ this (catches choppy bleed even without a clean streak). Needs ≥ 3 closed trades in the window. 0 = off." },
+  { key: "MEM_LOOKBACK", group: "Champion–challenger", type: "number", def: MEM_LOOKBACK, min: 3, max: 30, step: 1, int: true, unit: "trades", note: "Window (closed trades per combo) used by MEM_NET_FLOOR." },
+  { key: "RISK_TIER_SCORE", group: "Champion–challenger", type: "number", def: RISK_TIER_SCORE, min: 0, max: 40, step: 1, int: true, note: "Conviction sizing: score ≥ minScore + this earns the full Auto-panel stake; below it, stake drops to RISK_TIER_MIN. 0 = off (flat stake)." },
+  { key: "RISK_TIER_MIN", group: "Champion–challenger", type: "number", def: RISK_TIER_MIN, min: 0.5, max: 10, step: 0.5, unit: "%", note: "Stake floor for just-passed-gate entries (% of equity, still capped by the Auto panel risk and RISK_MAX_STAKE)." },
   // XGB booster hyper — override runtime cho XGB_BASE (params.ts xgbBase()).
   // Hiệu lực ở lần RETRAIN kế tiếp (champion–challenger tự chạy định kỳ);
   // grid ứng viên vẫn patch đè lên base nên "base" mới là mốc bị đổi.

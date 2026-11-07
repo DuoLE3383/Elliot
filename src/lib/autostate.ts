@@ -91,6 +91,25 @@ export const serialize = (r: {
   createdAt: r.createdAt.toISOString(),
 });
 
+// ─── Wallet — vốn gốc của sổ dry-run (0.2.86) ────────────────────────────
+// Một dòng id "wallet" trong bảng DryRunState: vốn sau lần reset gần nhất.
+// Trước đây vốn chỉ sống trong chuỗi capitalAfter của các lệnh — xoá sổ là
+// vốn thành null (UI hiện "?") và lệnh kế phải đoán lại từ cfg của panel.
+
+export interface WalletState {
+  capital: number | null;
+  resetAt: string | null;
+}
+
+export async function readWallet(): Promise<WalletState> {
+  try {
+    const row = await db.dryRunState.findUnique({ where: { id: "wallet" } });
+    return { capital: row?.capital ?? null, resetAt: row?.resetAt?.toISOString() ?? null };
+  } catch {
+    return { capital: null, resetAt: null };
+  }
+}
+
 export async function readAutoState(): Promise<AutoState> {
   const rows = await db.autoTrade.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
   // win-rate table aggregates the ENTIRE closed history, not just the last 200
@@ -103,12 +122,16 @@ export async function readAutoState(): Promise<AutoState> {
   const closed = trades.filter((t) => t.status === "closed");
   // equity = last settled capital; while a position is open and nothing has
   // settled yet, the entry-time capital is the best known equity — never "?"
-  const capital = closed[0]?.capitalAfter ?? open?.capitalBefore ?? null;
+  // 0.2.86: sổ TRỐNG (vừa Reset vốn) → rơi về ví DryRunState, không còn "?"
+  const wallet = await readWallet();
+  const capital = closed[0]?.capitalAfter ?? open?.capitalBefore ?? wallet.capital ?? null;
   const wins = closed.filter((t) => (t.pnlPct ?? 0) > 0).length;
   return {
     trades,
     open,
     capital,
+    resetAt: wallet.resetAt,
+    walletCapital: wallet.capital,
     byCombo: comboStats(allClosed),
     stats: {
       closed: closed.length,
@@ -131,5 +154,8 @@ export async function readOpenPosition(): Promise<{ open: TradeRow | null; capit
     orderBy: { createdAt: "desc" },
     select: { capitalAfter: true },
   });
-  return { open: null, capital: last?.capitalAfter ?? null };
+  if (last?.capitalAfter != null) return { open: null, capital: last.capitalAfter };
+  // sổ trống → vốn từ ví (sau Reset vốn) — hết kiểu hiện "?" ngay sau reset
+  const wallet = await readWallet();
+  return { open: null, capital: wallet.capital };
 }

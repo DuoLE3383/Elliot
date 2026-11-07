@@ -649,6 +649,119 @@ export function comboStats(rows: Pick<AutoTradeRow, "symbol" | "interval" | "sta
   return out.sort((a, b) => b.closed - a.closed || b.winRate - a.winRate);
 }
 
+// ─── Combo memory — phản hồi THẬT từ sổ dry-run (0.2.86) ─────────────────────
+// AUC/ACC của model không đo được hiệu quả LIVE của combo; sổ dry-run mới là
+// sự thật. Hàm thuần (không IO) đọc danh sách lệnh NEWEST-FIRST (đúng thứ tự
+// AutoState.trades trả về) và trả về:
+//   • streak — số lệnh LỖ liên tiếp mới nhất của combo (0 = lệnh mới nhất thắng)
+//   • net / n — tổng ROE % và số lệnh trong cửa sổ `lookback` lệnh đóng gần nhất
+// engine dùng comboMemoryReason() để tạm loại combo đang chảy máu khỏi vòng
+// chọn lệnh — tự học khép kín, không cần đợi ai train lại.
+
+export interface ComboMemory {
+  /** consecutive newest-first losses (0 = newest closed trade won / none) */
+  streak: number;
+  /** sum of ROE % over the last `lookback` closed trades of the combo */
+  net: number;
+  /** how many closed trades fell inside the window */
+  n: number;
+}
+
+export function comboMemoryOf(
+  trades: Pick<AutoTradeRow, "symbol" | "interval" | "status" | "pnlPct">[],
+  symbol: string,
+  interval: string,
+  lookback = 8,
+): ComboMemory {
+  let streak = 0;
+  let streakDone = false;
+  let net = 0;
+  let n = 0;
+  for (const t of trades) {
+    if (t.status !== "closed" || t.symbol !== symbol || t.interval !== interval) continue;
+    const pnl = t.pnlPct ?? 0;
+    if (!streakDone) {
+      if (pnl < 0) streak += 1;
+      else streakDone = true; // first non-loss breaks the streak (0-pnl counts as non-loss)
+    }
+    if (n < Math.max(0, lookback)) {
+      net += pnl;
+      n += 1;
+    }
+    if (streakDone && n >= Math.max(0, lookback)) break;
+  }
+  return { streak, net: Math.round(net * 100) / 100, n };
+}
+
+/**
+ * Gate "ghi nhớ combo" — null = combo được phép vào lệnh; string = lý do bị
+ * tạm loại (hiện ở status line + pm2 log, không âm thầm). loseStreak/netFloor
+ * = 0 → tắt tầng tương ứng.
+ */
+export function comboMemoryReason(
+  mem: ComboMemory,
+  loseStreak: number,
+  netFloor: number,
+): string | null {
+  if (loseStreak > 0 && mem.streak >= loseStreak)
+    return `streak ${mem.streak} lỗ liên tiếp (gate ${loseStreak})`;
+  if (netFloor < 0 && mem.n >= 3 && mem.net <= netFloor)
+    return `net ${mem.net.toFixed(1)}% ${mem.n} lệnh gần nhất ≤ ${netFloor}%`;
+  return null;
+}
+
+// ─── Rolling champion — champion CÔNG BẰNG theo cửa sổ (0.2.86) ──────────────
+// Champion cũ là best-ever SUỐT ĐỜI mọi run: một lần train "trúng số" (đặc
+// biệt train tay difficulty cao — dead-zone/horizon khác hẳn quét) nâng thanh
+// ngang vĩnh viễn, mọi lần quét sau bị gắn regressed → combo không bao giờ
+// được trade lại. Champion mới:
+//   • chỉ đếm run difficulty 0 (quét so quét — cùng thang đo, công bằng);
+//   • chỉ nhìn N run gần nhất mỗi combo (CHAMP_WINDOW) — đỉnh cũ xạt xuống
+//     theo thời gian, combo tự thoát ân hạn khi quét trở lại mức tốt của nó.
+// `runs` phải NEWEST-FIRST (đúng thứ tự orderBy createdAt desc của DB).
+// window ≤ 0 → giữ hành vi legacy (all-time, mọi difficulty).
+
+export interface ChampRun {
+  symbol: string;
+  interval: string;
+  acc: number;
+  auc: number;
+  /** difficulty của run — chỉ run lv 0 (quét) đủ tư cách làm champion */
+  lv: number;
+}
+
+export function rollingChampions(
+  runs: ChampRun[],
+  window: number,
+): Map<string, { auc: number; acc: number }> {
+  const seen = new Map<string, number>(); // per-combo run counter (newest-first)
+  const champ = new Map<string, { auc: number; acc: number }>();
+  const win = Math.max(0, Math.round(window));
+  for (const r of runs) {
+    const k = `${r.symbol}|${r.interval}`;
+    if (win > 0) {
+      const c = seen.get(k) ?? 0;
+      if (c >= win) continue; // ngoài cửa sổ N run gần nhất
+      seen.set(k, c + 1);
+      if (r.lv !== 0) continue; // train tay difficulty cao — khác thang đo quét
+    }
+    // legacy (window 0): all-time, MỌI difficulty đủ tư cách — đúng hành vi cũ
+    const cur = champ.get(k);
+    if (!cur || r.auc > cur.auc || (r.auc === cur.auc && r.acc > cur.acc)) champ.set(k, { auc: r.auc, acc: r.acc });
+  }
+  return champ;
+}
+
+/** Parse difficulty `lv` từ cột params (JSON) của FinetuneRun — hỏng/thiếu → 0. */
+export function lvOfRunParams(params: string | null | undefined): number {
+  try {
+    const n = Number((JSON.parse(params ?? "{}") as { lv?: unknown }).lv);
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+  } catch {
+    return 0;
+  }
+}
+
 // ─── Position book (SQLite via /api/autotrade) ────────────────────────────────
 
 export interface AutoTradeRow {
@@ -696,6 +809,10 @@ export interface AutoState {
   trades: AutoTradeRow[];
   open: AutoTradeRow | null;
   capital: number | null;
+  /** thời điểm lần "Reset vốn" gần nhất (null = chưa từng reset qua ví DryRunState) */
+  resetAt?: string | null;
+  /** vốn gốc sau lần reset gần nhất — hiển thị cạnh vốn hiện tại (0.2.86) */
+  walletCapital?: number | null;
   stats: AutoStats;
   /** win-rate table grouped by pair × timeframe (all closed history) */
   byCombo?: ComboStat[];
@@ -764,6 +881,29 @@ export async function resetAutoTrades(): Promise<boolean> {
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+/**
+ * LỆNH RESET VỐN DRY-RUN (0.2.86) — xoá sạch sổ lệnh + đặt vốn về `capital`
+ * (thiếu → giữ vốn ví hiện có / 1000). Vốn ghi vào ví DryRunState nên UI thấy
+ * NGAY sau reset, sống qua restart; lệnh kế mở với capitalBefore đúng con số đó.
+ */
+export async function resetAutoCapital(
+  capital?: number,
+  note?: string,
+): Promise<{ ok: boolean; capital?: number; error?: string }> {
+  try {
+    const res = await fetch("/api/autotrade", {
+      method: "PATCH",
+      headers: jsonHeaders,
+      body: JSON.stringify({ action: "reset_capital", ...(capital != null ? { capital } : {}), ...(note ? { note } : {}) }),
+    });
+    const json = (await res.json().catch(() => null)) as { ok?: boolean; capital?: number; error?: string } | null;
+    if (!res.ok) return { ok: false, error: json?.error ?? `HTTP ${res.status}` };
+    return { ok: json?.ok === true, capital: json?.capital };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "fetch failed" };
   }
 }
 

@@ -50,6 +50,9 @@ const SCHEMA_SQL: string[] = [
   // 0.2.54 — nhật ký vòng tự tiến hoá (promote/keep/confirm/revert)
   `CREATE TABLE IF NOT EXISTS "EvolveLog" ("id" TEXT NOT NULL PRIMARY KEY, "combo" TEXT NOT NULL, "decision" TEXT NOT NULL, "name" TEXT NOT NULL DEFAULT '', "detail" TEXT NOT NULL DEFAULT '', "cfgBefore" TEXT NOT NULL DEFAULT '', "cfgAfter" TEXT NOT NULL DEFAULT '', "metrics" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE INDEX IF NOT EXISTS "EvolveLog_createdAt_idx" ON "EvolveLog"("createdAt")`,
+  // 0.2.86 — ví vốn dry-run (một dòng id "wallet"): vốn sau lần reset gần nhất,
+  // sống qua pm2 restart; readAutoState dùng làm fallback khi sổ lệnh trống
+  `CREATE TABLE IF NOT EXISTS "DryRunState" ("id" TEXT NOT NULL PRIMARY KEY, "capital" REAL NOT NULL, "resetAt" DATETIME NOT NULL, "note" TEXT NOT NULL DEFAULT '')`,
 ];
 
 // ─── Thêm cột cho DB ĐÃ TỒN TẠI (0.2.28 autopsy) ────────────────────────────
@@ -67,7 +70,7 @@ const SCHEMA_COLUMNS: { table: string; column: string; ddl: string }[] = [
   { table: "AutoTrade", column: "autopsy", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "autopsy" TEXT` },
   { table: "AutoTrade", column: "methodId", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "methodId" TEXT` },
 ];
-const MODEL_TABLES = ["User", "Post", "Suggestion", "FinetuneRun", "AutoTrade", "BcastVerdict", "SignalTotal", "DiveReport", "StrategyVariant", "ImproveEvent"];
+const MODEL_TABLES = ["User", "Post", "Suggestion", "FinetuneRun", "AutoTrade", "BcastVerdict", "SignalTotal", "DiveReport", "StrategyVariant", "ImproveEvent", "EvolveLog", "DryRunState"];
 /** exported for the /api health diagnostic */
 export { MODEL_TABLES };
 
