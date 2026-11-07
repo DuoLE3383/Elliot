@@ -1,0 +1,49 @@
+0.2.83 — NỀN CIRCUIT-TECH ĐỘNG TOÀN CỤC ("thiết kế giống như hình, thêm animation")
+
+User gửi ảnh nền circuit-board (navy đen sâu, mạch cyan phát sáng đối xứng
+hai bên với node tròn cuối đường, ô pixel xanh dày ở tâm, sao trắng lấp lánh)
++ yêu cầu "thiết kế giống như hình, thêm animation và update repo".
+
+THAY ĐỔI:
+
+1) src/components/tech-background.tsx (MỚI) — TechBackground tái lập đúng hình:
+   • Nền radial navy (#0a1f3d tâm → #01040c mép) trên body #020617;
+   • 8 trace mạch kiểu Manhattan mỗi bên (đối xứng gương qua transform
+     scale(-1,1)) kết thúc node tròn cyan; 3 bus ngang full-width sau mosaic;
+   • Dòng điện CHẠY dọc mạch: path phủ sáng stroke-dasharray 10/282, CSS
+     animation circuit-pulse trượt stroke-dashoffset — mỗi trace/bus một
+     tốc độ + delay riêng;
+   • Pixel mosaic 30×12 ô ở tâm, opacity theo công thức phần tử-fixed, ~1/13
+     ô nhấp nháy chậm (mosaic-blink);
+   • 22 sao 4 cánh trắng/cyan twinkle (opacity + scale, transform-box
+     fill-box) rải rác theo vị trí công thức;
+   • Lớp phủ gradient tối dần về đáy — chữ luôn đọc được trên nền động.
+   DETERMINISTIC 100%: mọi vị trí/opacity sinh bằng công thức (không
+   Math.random) → SSR = client, không hydration mismatch. Server component
+   thuần (không "use client", không hook) — không tốn JS bundle.
+
+2) globals.css — 4 keyframes (circuit-pulse / twinkle / node-glow /
+   mosaic-blink) + 4 class, cùng @media (prefers-reduced-motion: reduce)
+   tắt sạch animation cho ai cần.
+
+3) layout.tsx — mount <TechBackground /> MỘT LẦN cho mọi trang; body
+   bg-background → bg-[#020617]; themeColor #0a100f → #020617 (chrome mobile
+   khớp nền mới). Nền nằm z-[-1]: dưới nội dung, trên canvas body.
+
+4) 3 trang về trong suốt để lộ nền, các bề mặt đục tint navy:
+   • Trang chủ: root bg-zinc-950 → bg-transparent; sticky header
+     bg-zinc-950/95 → bg-[#020617]/85; footer mobile + toast flip đồng bộ;
+   • /stats: root bg-zinc-950 → bg-transparent (0.2.80 full-width giữ nguyên);
+   • /ai: bỏ nền #0a100f + radial teal của 0.2.76 → bg-transparent; sticky
+     header → bg-[#020617]/85 (backdrop-blur giữ nguyên — mạch mờ nhòe đẹp
+     sau header khi cuộn).
+
+5) scripts/test-ai-page.mts — mục "Nền trang" cập nhật cho 0.2.83: root
+   trong suốt + hết #0a100f, header tint #020617/85, layout gắn
+   TechBackground + themeColor navy, TechBackground đủ 4 lớp animation.
+
+VERIFY: tsc sạch; eslint sạch; test-ai-page 36/36 PASS; test-journal-stats
+44/44 PASS; build production OK; standalone 3111 chụp cả 3 trang — mạch +
+node + mosaic + sao lộ sau card ở trang chủ, /stats, /ai; computed style
+xác nhận 4 animation đang chạy (circuit-pulse/twinkle/node-glow/mosaic-blink)
+và nền fixed; không console error. Không đụng logic engine/auto-trade.
