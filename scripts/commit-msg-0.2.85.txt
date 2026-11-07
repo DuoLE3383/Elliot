@@ -1,0 +1,27 @@
+0.2.85 — LÀM LẠI LINE SUY DIỄN + GOM NỘI DUNG /stats & /ai (bản 0.2.84 bị chê "kết quả khá tệ": line 20px không thấy chạy, nội dung vẫn dàn trải)
+
+PIPEMAP (thay FlowMap — components/pipe-map.tsx):
+- Sơ đồ SVG hình chữ S 2 hàng thật sự: hàng 1 trái→phải, bò xuống mép phải,
+  hàng 2 phải→trái — node toạ độ cố định, không measure DOM (SSR = client).
+- Connector elbow có DÒNG ĐIỆN CHẠY rõ (dash 7/9 trượt 1.1s, vào node đang
+  xử lý xung nhanh 0.45s + dày hơn) + mũi tên chỉ hướng suy diễn; line tô
+  MÀU CỦA NODE ĐÍCH — điện "đổ về" nơi nó nối.
+- Node đang xử lý: viền sáng + glow drop-shadow + halo nhấp nháy (pipe-halo).
+- Sửa bug offset kép: text node tính y bằng toạ độ tuyệt đối trong khi <g>
+  đã translate → text hàng 2 trôi ra ngoài viewBox, mất nhãn (bản đầu 0.2.85).
+- Mobile: cuộn ngang min-w 840px.
+
+STAGE ACCORDION (components/stage-panel.tsx) — gom nội dung hết dàn trải:
+- /stats: 5 chương Card-lồng-Card → 9 TRẠM gọn: market · universe · combo ·
+  dock · auto · open · hist+sg (gom 1 trạm) · journal · lab&analysis.
+- /ai: 4 chương ~10 card → 8 TRẠM: data+champion · reliability · engine ·
+  llm · autopsy · evo · dive · about.
+- Mỗi trạm = 1 hàng: dot trạng thái (ping khi đang xử lý) + tên + 2 số
+  headline + badge ok/warn + độ chính xác; bấm mới mở metrics/charts/basis.
+  Mặc định THU GỌN → cả trang vừa 1-2 màn hình; có nút Mở tất cả/Thu gọn.
+- Bấm node trên sơ đồ → trạm liên quan TỰ MỞ + cuộn tới + phát vòng sáng;
+  node "LLM dive → /ai" nhảy trang, node Settings (/ai) MỞ POPUP.
+
+CSS: keyframes pipe-dash / pipe-dash-hot / pipe-halo + reduced-motion.
+i18n: node dock mới (Signal dock), ui.expandAll/collapseAll, flow.hint mới.
+Version → 0.2.85.

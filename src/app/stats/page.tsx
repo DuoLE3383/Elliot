@@ -10,29 +10,22 @@
 //      (hai đường tính độc lập, chấm lại outcome từ giá, đối chiếu sổ vốn…).
 //   3. CHUẨN XÁC bao nhiêu % — Wilson 95% cận dưới cho tỉ lệ (độ tin cậy của
 //      con số), 100% cho số đếm/mô tả; note nói rõ vì sao.
-// 0.2.68 — trang có BIỂU ĐỒ (SVG tự vẽ, stat-charts.tsx), MỖI SECTION MỘT MÀU
-// accent theo luồng (market→model→scan→trade→history) + FLOW CHIPS cho biết
-// section nối vào giai đoạn nào, và MỌI FIELD/BIỂU ĐỒ có tooltip hover (hint
-// EN + VI do server gắn) giải thích công thức/nguồn số liệu.
-// 0.2.80 — (1) MERGE: bảng journal tương tác (filter All/TP/SL/Flip/Open +
-// Export CSV, từ tab Journal của trang chủ) nhập VÀO card Trade journal — cùng
-// nguồn /api/journal với các ô KPI nên khớp 1:1; ALL trộn mọi cặp + cột Symbol.
-// (2) FULL WIDTH: bỏ max-w-6xl; grid section 3 cột trên 2xl, KPI 3 cột trên xl.
-// 0.2.82 — DỜI NỐI 3 TAB CÒN LẠI CỦA TERMINAL (Suggestions / Lab / Analysis)
-// sang đây (nối tiếp Journal 0.2.80 — trang chủ thuần chart): cùng bộ chọn
-// pickSym/pickTf điều khiển; Analysis thay card Deep analysis cũ (cùng nguồn
-// /api/view + DEFAULT_SETTINGS — DeepAnalysis + pies là bộ siêu tập, giữ basis
-// note); Lab Apply ghi utp.settings (localStorage) — trang chủ đọc ở lần tải kế.
-// 0.2.84 — GOM NHÓM + LINE SUY DIỄN: 8 section dàn trải + journal + tabs gom
-// thành 5 CHƯƠNG theo luồng xử lý (CH1 thị trường&universe → CH2 gate&combo →
-// CH3 auto&open → CH4 lịch sử&journal → CH5 lab&analysis); đầu trang thêm
-// FLOWMAP (components/flow-map.tsx): node pill nối bằng line xung điện chạy
-// liên tục, node đang xử lý sáng + ping + line vào nó xung nhanh, bấm node
-// cuộn tới chương và chương phát vòng sáng. Node "LLM dive" nhảy sang /ai.
+// 0.2.84 — gom 8 section dàn trải thành 5 chương + FlowMap (hàng pill nối line
+// 20px — quá bé, không thấy "line chạy").
+// 0.2.85 — LÀM LẠI THEO FEEDBACK "kết quả khá tệ · line phải CHẠY rõ · nội
+// dung vẫn dàn trải":
+//   (1) PipeMap (components/pipe-map.tsx): sơ đồ chữ S 2 hàng SVG thật —
+//       node toạ độ cố định, connector elbow có DÒNG ĐIỆN CHẠY (dash trượt)
+//       + mũi tên hướng suy diễn, line tô màu node ĐÍCH; node đang xử lý
+//       glow + halo; bấm node → trạm liên quan TỰ MỞ + cuộn + phát sáng.
+//   (2) Stage accordion (components/stage-panel.tsx): 9 trạm gọn — hàng tiêu
+//       đề có dot trạng thái + 2 số headline + badge ok/warn, bấm mới mở
+//       metrics/charts/basis → trang mặc định vừa 1-2 màn hình, hết dàn trải.
+//   (3) Nút "Mở tất cả / Thu gọn" + node "LLM dive → /ai" nhảy trang.
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChartBox } from "@/components/stat-charts";
 import { Journal } from "@/components/journal";
@@ -40,7 +33,8 @@ import { DeepAnalysis } from "@/components/analysis";
 import { StrategyPies } from "@/components/strategy-pies";
 import { StrategyLab } from "@/components/strategy-lab";
 import { SuggestionHistory } from "@/components/suggestions";
-import { FlowMap, type FlowNodeDef } from "@/components/flow-map";
+import { PipeMap, type PipeNodeDef } from "@/components/pipe-map";
+import { Stage } from "@/components/stage-panel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtPct, t, type Lang } from "@/lib/i18n";
 import type { VariantRow } from "@/lib/history";
@@ -48,7 +42,7 @@ import type { KpiStats } from "@/lib/papers";
 import type { Paper } from "@/lib/types";
 // 0.2.67 — chỉ import TYPE (erased lúc build) nên bundle trình duyệt không kéo
 // db/engine của stats.ts vào; màu do SERVER gắn qua field tone, client chỉ tô.
-import type { StatAccent, StatChart, StatTone } from "@/lib/stats";
+import type { StatChart, StatTone } from "@/lib/stats";
 import { fetchView, type ViewPayload } from "@/lib/view";
 import { DEFAULT_SETTINGS, DEFAULT_WYCKOFF, SYMBOLS, type EngineSettings } from "@/lib/types";
 import {
@@ -72,7 +66,6 @@ interface StatSection {
   accPct: number;
   accNote: string;
   metrics: StatMetric[];
-  accent?: StatAccent;
   charts?: StatChart[];
 }
 interface StatsSnapshot {
@@ -105,49 +98,17 @@ const TONE_EDGE: Record<StatTone, string> = {
   info: "border-l-teal-500/60",
   dim: "border-l-zinc-600/50",
 };
+/** 0.2.85 — nền chip headline trên hàng Stage (cùng họ màu với field) */
+const TONE_CHIP: Record<StatTone, string> = {
+  ok: "bg-emerald-950/70 text-emerald-300",
+  warn: "bg-amber-950/70 text-amber-300",
+  bad: "bg-rose-950/70 text-rose-300",
+  info: "bg-teal-950/70 text-teal-300",
+  dim: "bg-zinc-900 text-zinc-400",
+};
 const toneText = (tone?: StatTone): string => (tone ? TONE_TEXT[tone] : "text-zinc-100");
 const toneEdge = (tone?: StatTone): string => (tone ? TONE_EDGE[tone] : "border-l-zinc-800/80");
-
-// 0.2.68 — MÀU NHẬN DIỆN SECTION theo luồng xử lý. Các section nối nhau trong
-// pipeline chia sẻ cùng họ màu để "phân biệt các chức năng kết nối nhau":
-//   market(cyan) → universe(sky) → combo(violet) → dock(amber) → auto(emerald)
-//   → open(rose) → hist(orange) / sg(indigo) · journal(fuchsia) · analysis(blue)
-const ACCENT: Record<StatAccent, { edge: string; text: string; dot: string }> = {
-  cyan: { edge: "border-t-cyan-500/70", text: "text-cyan-300", dot: "bg-cyan-400" },
-  sky: { edge: "border-t-sky-500/70", text: "text-sky-300", dot: "bg-sky-400" },
-  violet: { edge: "border-t-violet-500/70", text: "text-violet-300", dot: "bg-violet-400" },
-  emerald: { edge: "border-t-emerald-500/70", text: "text-emerald-300", dot: "bg-emerald-400" },
-  amber: { edge: "border-t-amber-500/70", text: "text-amber-300", dot: "bg-amber-400" },
-  rose: { edge: "border-t-rose-500/70", text: "text-rose-300", dot: "bg-rose-400" },
-  orange: { edge: "border-t-orange-500/70", text: "text-orange-300", dot: "bg-orange-400" },
-  indigo: { edge: "border-t-indigo-500/70", text: "text-indigo-300", dot: "bg-indigo-400" },
-  fuchsia: { edge: "border-t-fuchsia-500/70", text: "text-fuchsia-300", dot: "bg-fuchsia-400" },
-  blue: { edge: "border-t-blue-500/70", text: "text-blue-300", dot: "bg-blue-400" },
-};
-
-// 0.2.68 — FLOW CHIPS: mỗi section thuộc những giai đoạn nào của pipeline
-// (thị trường → model → scan → lệnh → lịch sử) — chip của chính section được
-// tô đậm, còn lại mờ; nhìn hàng chip là thấy "section này nối vào đâu".
-const STAGES = ["market", "model", "scan", "trade", "history"] as const;
-const FLOW: Record<string, readonly string[]> = {
-  market: ["market", "model", "scan", "trade"],
-  universe: ["market", "model", "scan", "trade"],
-  combo: ["market", "model", "scan", "trade"],
-  auto: ["model", "scan", "trade", "history"],
-  dock: ["model", "scan", "trade"],
-  open: ["scan", "trade", "history"],
-  hist: ["trade", "history"],
-  sg: ["model", "scan", "history"],
-  journal: ["trade", "history"],
-  analysis: ["market", "model"],
-};
-const STAGE_CHIP: Record<(typeof STAGES)[number], string> = {
-  market: "bg-cyan-950 text-cyan-300",
-  model: "bg-violet-950 text-violet-300",
-  scan: "bg-amber-950 text-amber-300",
-  trade: "bg-emerald-950 text-emerald-300",
-  history: "bg-orange-950 text-orange-300",
-};
+const toneChip = (tone?: StatTone): string => (tone ? TONE_CHIP[tone] : "bg-zinc-900 text-zinc-300");
 
 /** một dòng bảng con theo cặp của /api/journal?symbol=ALL */
 interface PerPair {
@@ -166,6 +127,21 @@ interface JournalAllResp {
 /** 0.2.52 — response 1 cặp của /api/journal (chỉ cần kpi + basis)
  *  0.2.80 — thêm papers: bảng journal tương tác cùng nguồn với KPI */
 type JournalOneResp = { kpi: KpiStats; basis: number; papers: Paper[] };
+
+// 0.2.85 — 9 trạm của pipeline + id element tương ứng (node PipeMap bấm vào
+// đây); thứ tự = luồng suy diễn: thị trường → gate → lệnh → lịch sử → lab
+const STAGE_IDS = [
+  "st-market",
+  "st-universe",
+  "st-combo",
+  "st-dock",
+  "st-auto",
+  "st-open",
+  "st-hist",
+  "st-journal",
+  "st-lab",
+] as const;
+type StageId = (typeof STAGE_IDS)[number];
 
 export default function StatsPage() {
   const [lang, setLang] = useState<Lang>("en");
@@ -189,7 +165,8 @@ export default function StatsPage() {
   const [labApplied, setLabApplied] = useState<{ name: string; sl: number; tp: number; key: number; period: number } | null>(null);
   /** 0.2.82 — bumped khi bấm Refresh → tab Suggestions/Lab tải lại theo combo */
   const [tabsRefresh, setTabsRefresh] = useState(0);
-  /** 0.2.84 — chương đang phát vòng sáng (bấm node trên FlowMap) */
+  /** 0.2.85 — trạm đang mở (accordion) + trạm đang phát vòng sáng */
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   const [flash, setFlash] = useState<string | null>(null);
 
   useEffect(() => {
@@ -284,18 +261,27 @@ export default function StatsPage() {
     localStorage.setItem("utp.lang", next);
   };
 
-  // 0.2.84 — bấm node trên FlowMap: cuộn tới chương + phát vòng sáng; node
-  // "dive" đặc biệt — nhảy sang /ai (root-cause của LLM nằm ở đó)
+  /** toggle 1 trạm accordion */
+  const toggleStage = useCallback((id: string) => {
+    setOpen((o) => ({ ...o, [id]: !o[id] }));
+  }, []);
+
+  /** 0.2.85 — bấm node trên PipeMap: TỰ MỞ trạm liên quan → cuộn tới → phát
+   *  vòng sáng; node "dive" đặc biệt — nhảy sang /ai (root-cause của LLM nằm
+   *  ở đó). rAF: đợi trạm render xong (đã mở) rồi mới đo vị trí cuộn. */
   const goTo = useCallback((id: string) => {
     if (id === "dive") {
       window.location.assign("/ai");
       return;
     }
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
-    setFlash(id);
-    window.setTimeout(() => setFlash((f) => (f === id ? null : f)), 1600);
+    setOpen((o) => ({ ...o, [id]: true }));
+    requestAnimationFrame(() => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      setFlash(id);
+      window.setTimeout(() => setFlash((f) => (f === id ? null : f)), 1600);
+    });
   }, []);
 
   /** 0.2.82 — Lab (dời từ terminal): nạp config biến thể vào utp.settings
@@ -334,28 +320,21 @@ export default function StatsPage() {
   if (journal) counts[journal.closed > 0 && journal.winRate >= 50 ? "ok" : "warn"] += 1;
   if (view?.analysis) counts.ok += 1;
 
-  // 0.2.84 — section theo key → chương: CH1 market+universe · CH2 combo+dock ·
-  // CH3 auto+open · CH4 hist+sg (+journal) · CH5 picker+tabs
+  // section theo key (0.2.85 — dùng cho Stage trạm, không còn Chapter)
   const byKey: Record<string, StatSection | undefined> = {};
   for (const s of snap?.sections ?? []) byKey[s.key] = s;
-  const sec = (k: string) =>
-    byKey[k] ? (
-      <SectionCard s={byKey[k] as StatSection} />
-    ) : (
-      <p key={k} className="rounded-lg border border-dashed border-zinc-800 p-4 text-xs text-zinc-600">
-        — {t(lang, "stats.chEmpty")}
-      </p>
-    );
-  // node FlowMap — id = element id của chương; active = đang xử lý/nạp dữ liệu
-  const flowNodes: FlowNodeDef[] = [
-    { id: "st-ch1", label: t(lang, "stats.node.market.t"), sub: t(lang, "stats.node.market.sub"), tone: "cyan", active: loading },
-    { id: "st-ch1", label: t(lang, "stats.node.universe.t"), sub: t(lang, "stats.node.universe.sub"), tone: "sky", active: loading },
-    { id: "st-ch2", label: t(lang, "stats.node.gate.t"), sub: t(lang, "stats.node.gate.sub"), tone: "amber", active: loading },
-    { id: "st-ch3", label: t(lang, "stats.node.auto.t"), sub: t(lang, "stats.node.auto.sub"), tone: "emerald", active: loading },
-    { id: "st-ch3", label: t(lang, "stats.node.open.t"), sub: t(lang, "stats.node.open.sub"), tone: "rose" },
-    { id: "st-ch4", label: t(lang, "stats.node.hist.t"), sub: t(lang, "stats.node.hist.sub"), tone: "orange" },
-    { id: "st-ch4", label: t(lang, "stats.node.journal.t"), sub: t(lang, "stats.node.journal.sub"), tone: "fuchsia", active: clientBusy },
-    { id: "st-ch5", label: t(lang, "stats.node.lab.t"), sub: t(lang, "stats.node.lab.sub"), tone: "blue", active: clientBusy },
+
+  // node PipeMap — id = element id của trạm; active = đang nạp/xử lý
+  const pipeNodes: PipeNodeDef[] = [
+    { id: "st-market", label: t(lang, "stats.node.market.t"), sub: t(lang, "stats.node.market.sub"), tone: "cyan", active: loading },
+    { id: "st-universe", label: t(lang, "stats.node.universe.t"), sub: t(lang, "stats.node.universe.sub"), tone: "sky", active: loading },
+    { id: "st-combo", label: t(lang, "stats.node.gate.t"), sub: t(lang, "stats.node.gate.sub"), tone: "amber", active: loading },
+    { id: "st-dock", label: t(lang, "stats.node.dock.t"), sub: t(lang, "stats.node.dock.sub"), tone: "violet", active: loading },
+    { id: "st-auto", label: t(lang, "stats.node.auto.t"), sub: t(lang, "stats.node.auto.sub"), tone: "emerald", active: loading },
+    { id: "st-open", label: t(lang, "stats.node.open.t"), sub: t(lang, "stats.node.open.sub"), tone: "rose", active: loading },
+    { id: "st-hist", label: t(lang, "stats.node.hist.t"), sub: t(lang, "stats.node.hist.sub"), tone: "orange", active: loading },
+    { id: "st-journal", label: t(lang, "stats.node.journal.t"), sub: t(lang, "stats.node.journal.sub"), tone: "fuchsia", active: clientBusy },
+    { id: "st-lab", label: t(lang, "stats.node.lab.t"), sub: t(lang, "stats.node.lab.sub"), tone: "blue", active: clientBusy },
     { id: "dive", label: t(lang, "stats.node.dive.t"), sub: t(lang, "stats.node.dive.sub"), tone: "teal" },
   ];
 
@@ -385,76 +364,65 @@ export default function StatsPage() {
     </span>
   );
 
-  /** hàng flow chips — chip của chính section tô đậm màu giai đoạn, còn lại mờ */
-  const flowChips = (key: string) => {
-    const mine = FLOW[key];
-    if (!mine) return null;
+  /** 0.2.85 — chip headline trên hàng trạm: 2 số đầu của section (số được tác
+   *  giả đặt đầu luôn là chỉ số nhận diện) + badge ok/warn + độ chính xác */
+  const stageAside = (s?: StatSection) =>
+    s ? (
+      <>
+        {s.metrics.slice(0, 2).map((m, i) => (
+          <span
+            key={i}
+            title={lang === "vi" ? m.hintVi ?? m.hint : m.hint}
+            className={`hidden items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px] md:inline-flex ${toneChip(m.tone)}`}
+          >
+            <span className="text-zinc-500">{m.k}</span>
+            <span className="font-semibold">{m.v}</span>
+          </span>
+        ))}
+        {accBadge(s.accPct, s.accNote)}
+        {stateBadge(s.state)}
+      </>
+    ) : null;
+
+  /** nội dung 1 trạm (thay SectionCard cũ — bỏ Card lồng Card): grid metrics +
+   *  charts + 2 dòng cơ sở/nhất quán. Field giữ tooltip hover/tap. */
+  const secBody = (k: string): ReactNode => {
+    const s = byKey[k];
+    if (!s) {
+      return (
+        <p className="rounded-lg border border-dashed border-zinc-800 p-4 text-xs text-zinc-600">
+          — {t(lang, "stats.chEmpty")}
+        </p>
+      );
+    }
     return (
-      <div className="mt-1 flex flex-wrap items-center gap-0.5">
-        {STAGES.map((st, idx) => {
-          const on = mine.includes(st);
-          return (
-            <span key={st} className="inline-flex items-center">
-              {idx > 0 && <span className="mx-0.5 text-[8px] text-zinc-600">→</span>}
-              <span
-                className={`rounded px-1 py-px text-[8px] font-semibold uppercase tracking-wide ${
-                  on ? STAGE_CHIP[st] : "border border-zinc-800 text-zinc-600"
-                }`}
-              >
-                {t(lang, `stats.flow.${st}`)}
-              </span>
-            </span>
-          );
-        })}
+      <div className="space-y-2.5">
+        <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
+          {s.metrics.map((m, i) => (
+            <Field key={i} m={m} lang={lang} />
+          ))}
+        </div>
+        {s.charts?.map((c, i) => (
+          <ChartBox key={i} chart={c} lang={lang} />
+        ))}
+        <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 p-2.5">
+          <p className="text-[11px] leading-relaxed text-zinc-400">
+            <span className="font-semibold text-zinc-300">📌 {t(lang, "stats.basis")}: </span>
+            {t(lang, `stats.basis.${s.key}`)}
+          </p>
+          <p className="text-[11px] leading-relaxed text-zinc-400">
+            <span className="font-semibold text-zinc-300">⚖️ {t(lang, "stats.consist")}: </span>
+            <span className={s.state === "warn" ? "text-amber-300" : ""}>{s.note}</span>
+          </p>
+        </div>
       </div>
     );
   };
 
-  const SectionCard = ({ s }: { s: StatSection }) => {
-    const acc = s.accent ? ACCENT[s.accent] : null;
-    return (
-      <Card className={`border-t-2 border-zinc-800 bg-zinc-900/60 ${acc ? acc.edge : "border-t-zinc-700"}`}>
-        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2 pb-2">
-          <div className="min-w-0">
-            <CardTitle className={`flex items-center gap-1.5 text-sm font-semibold ${acc ? acc.text : "text-zinc-100"}`}>
-              <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${acc ? acc.dot : "bg-zinc-500"}`} />
-              {t(lang, `stats.section.${s.key}`)}
-            </CardTitle>
-            {flowChips(s.key)}
-          </div>
-          <div className="flex items-center gap-1.5">
-            {accBadge(s.accPct, s.accNote)}
-            {stateBadge(s.state)}
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-2.5 pt-0">
-          <div className="grid gap-1.5 sm:grid-cols-2">
-            {s.metrics.map((m, i) => (
-              <Field key={i} m={m} lang={lang} />
-            ))}
-          </div>
-          {s.charts?.map((c, i) => (
-            <ChartBox key={i} chart={c} lang={lang} />
-          ))}
-          <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 p-2.5">
-            <p className="text-[11px] leading-relaxed text-zinc-400">
-              <span className="font-semibold text-zinc-300">📌 {t(lang, "stats.basis")}: </span>
-              {t(lang, `stats.basis.${s.key}`)}
-            </p>
-            <p className="text-[11px] leading-relaxed text-zinc-400">
-              <span className="font-semibold text-zinc-300">⚖️ {t(lang, "stats.consist")}: </span>
-              <span className={s.state === "warn" ? "text-amber-300" : ""}>{s.note}</span>
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  };
+  const allOpen = STAGE_IDS.every((id) => open[id]);
 
   return (
     <div className="min-h-screen bg-transparent text-zinc-200">
-      {/* 0.2.80 — FULL WIDTH: bỏ max-w-6xl (journal table rộng + KPI 3 cột dùng
-          được không gian màn lớn); giữ padding responsive như cũ */}
       <div className="space-y-4 p-3 sm:p-5">
         <header className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant="outline" className="h-8 gap-1.5 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800" asChild>
@@ -494,11 +462,11 @@ export default function StatsPage() {
           </Link>
         </p>
 
-        {/* ── 0.2.84 — FLOWMAP: sơ đồ suy diễn pipeline — line xung điện chạy
-            liên tục; node đang xử lý sáng + ping; bấm node cuộn tới chương ── */}
+        {/* ── 0.2.85 — PipeMap: sơ đồ suy diễn chữ S — line điện CHẠY rõ theo
+            hướng mũi tên; node đang xử lý glow + halo; bấm node → trạm tự mở ── */}
         <Card className="border-zinc-800 bg-zinc-900/60">
           <CardContent className="py-3">
-            <FlowMap nodes={flowNodes} onNodeClick={goTo} hint={t(lang, "flow.hint")} />
+            <PipeMap nodes={pipeNodes} onNodeClick={goTo} hint={t(lang, "flow.hint")} />
           </CardContent>
         </Card>
 
@@ -511,377 +479,440 @@ export default function StatsPage() {
         )}
 
         {!snap && !err && (
-          <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
-            {[0, 1, 2, 3, 4, 5].map((i) => (
-              <Skeleton key={i} className="h-40 rounded-lg border border-zinc-800 bg-zinc-900" />
+          <div className="space-y-2">
+            {STAGE_IDS.map((id) => (
+              <Skeleton key={id} className="h-12 rounded-xl border border-zinc-800 bg-zinc-900" />
             ))}
           </div>
         )}
 
         {snap && (
-          <>
-            {/* ── 0.2.84 — CH1..CH3: section dàn trải gom theo luồng suy diễn ── */}
-            <section id="st-ch1" className={flash === "st-ch1" ? "chapter-flash" : undefined}>
-              <Chapter title={t(lang, "stats.ch1.t")} note={t(lang, "stats.ch1.note")}>
-                <div className="grid gap-3 xl:grid-cols-2">
-                  {sec("market")}
-                  {sec("universe")}
-                </div>
-              </Chapter>
-            </section>
+          <div className="space-y-2">
+            {/* nút gom/mở toàn bộ — mặc định trang thu gọn cho hết dàn trải */}
+            <div className="flex items-center justify-end">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1 px-2 text-[11px] text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
+                onClick={() => {
+                  const next: Record<string, boolean> = {};
+                  if (!allOpen) for (const id of STAGE_IDS) next[id] = true;
+                  setOpen(next);
+                }}
+              >
+                {allOpen ? t(lang, "ui.collapseAll") : t(lang, "ui.expandAll")}
+              </Button>
+            </div>
 
-            <section id="st-ch2" className={flash === "st-ch2" ? "chapter-flash" : undefined}>
-              <Chapter title={t(lang, "stats.ch2.t")} note={t(lang, "stats.ch2.note")}>
-                <div className="grid gap-3 xl:grid-cols-2">
-                  {sec("combo")}
-                  {sec("dock")}
-                </div>
-              </Chapter>
-            </section>
+            {/* ── 9 trạm theo luồng suy diễn ── */}
+            <Stage
+              id="st-market"
+              tone="cyan"
+              title={t(lang, "stats.section.market")}
+              note={t(lang, "stats.ch1.note")}
+              active={loading}
+              open={!!open["st-market"]}
+              flashing={flash === "st-market"}
+              onToggle={() => toggleStage("st-market")}
+              aside={stageAside(byKey.market)}
+            >
+              {secBody("market")}
+            </Stage>
 
-            <section id="st-ch3" className={flash === "st-ch3" ? "chapter-flash" : undefined}>
-              <Chapter title={t(lang, "stats.ch3.t")} note={t(lang, "stats.ch3.note")}>
-                <div className="grid gap-3 xl:grid-cols-2">
-                  {sec("auto")}
-                  {sec("open")}
-                </div>
-              </Chapter>
-            </section>
+            <Stage
+              id="st-universe"
+              tone="sky"
+              title={t(lang, "stats.section.universe")}
+              note={t(lang, "stats.ch1.note")}
+              active={loading}
+              open={!!open["st-universe"]}
+              flashing={flash === "st-universe"}
+              onToggle={() => toggleStage("st-universe")}
+              aside={stageAside(byKey.universe)}
+            >
+              {secBody("universe")}
+            </Stage>
 
-            {/* ── 0.2.84 — CH4 · Lịch sử & Sổ lệnh: hist + sg + journal ── */}
-            <section id="st-ch4" className={flash === "st-ch4" ? "chapter-flash" : undefined}>
-              <Chapter title={t(lang, "stats.ch4.t")} note={t(lang, "stats.ch4.note")}>
-                <div className="grid gap-3 xl:grid-cols-2">
-                  {sec("hist")}
-                  {sec("sg")}
-                </div>
-                <div className="mt-3">
-                {/* ── Trade journal — tính Ở SERVER, luôn qua /api/journal (200 nến, 0.2.52) ── */}
-                <Card className="border-t-2 border-fuchsia-500/70 border-zinc-800 bg-zinc-900/60">
-                  <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
-                    <div className="min-w-0">
-                      <CardTitle className="flex items-center gap-1.5 text-sm font-semibold text-fuchsia-300">
-                        <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-fuchsia-400" />
-                        {t(lang, "stats.section.journal")} ·{" "}
-                        {pickSym === PICK_ALL ? t(lang, "stats.pick.all") : pickSym.replace("USDT", "")} {pickTf}
-                      </CardTitle>
-                      {flowChips("journal")}
-                    </div>
-                    {journal && accBadge(journal.closed > 0 ? journal.winRate : 0, `${journal.closed} closed`)}
-                  </CardHeader>
-                  <CardContent className="space-y-2.5 pt-0">
-                    {journal ? (
-                      <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
-                        <Metric
-                          lang={lang}
-                          k={t(lang, "stats.j.trades")}
-                          v={String(journal.total)}
-                          sub={`${journal.closed} closed · ${journal.open} open`}
-                          tone="info"
-                          hint="UT-Bot signals inside the 200-candle journal window; sub = how many produced closed vs still-open paper trades."
-                          hintVi="Tín hiệu UT-Bot trong cửa sổ 200 nến; dòng dưới = số đã đóng và số chưa chốt."
-                        />
-                        <Metric
-                          lang={lang}
-                          k="Win rate"
-                          v={`${journal.winRate.toFixed(0)}%`}
-                          sub={`${journal.wins} wins / ${journal.losses} losses`}
-                          tone={journal.closed === 0 ? "dim" : journal.winRate >= 50 ? "ok" : journal.winRate >= 40 ? "warn" : "bad"}
-                          hint="Wins ÷ closed trades inside the window. Tint: ≥50% green, 40–49% amber, <40% red."
-                          hintVi="Thắng ÷ số lệnh đóng trong cửa sổ. Màu: ≥50% xanh, 40–49% vàng, <40% đỏ."
-                        />
-                        <Metric
-                          lang={lang}
-                          k="TP / SL"
-                          v={`${journal.tpCount} / ${journal.slCount}`}
-                          tone={journal.tpCount > journal.slCount ? "ok" : journal.tpCount < journal.slCount ? "bad" : "info"}
-                          hint="TP hits vs SL hits among closed trades in the window — the raw exit mix."
-                          hintVi="Số lệnh chạm TP so với chạm SL trong cửa sổ — cơ cấu kết thúc thô."
-                        />
-                        <Metric
-                          lang={lang}
-                          k={t(lang, "stats.j.flips")}
-                          v={String(journal.flipCount)}
-                          sub={`net ${fmtPct(journal.flipNetPnl)}`}
-                          tone="info"
-                          hint="Flip closes (engine reversed the side mid-trade); sub = their net PnL contribution."
-                          hintVi="Lệnh đóng flip (engine đảo giữa chừng); dòng dưới = PnL ròng chúng đóng góp."
-                        />
-                        <Metric
-                          lang={lang}
-                          k={t(lang, "stats.j.net")}
-                          v={fmtPct(journal.netPnl)}
-                          tone={journal.netPnl > 0 ? "ok" : journal.netPnl < 0 ? "bad" : "dim"}
-                          hint="Net ROE sum over closed trades in the window (leverage-inclusive, not compounded)."
-                          hintVi="Tổng ROE ròng các lệnh đã đóng trong cửa sổ (đã gồm đòn bẩy, chưa compounding)."
-                        />
-                        <Metric
-                          lang={lang}
-                          k="UT-Bot signals"
-                          v={journal.basis}
-                          tone="info"
-                          hint="Raw signal count the journal was computed from — the base for every number above."
-                          hintVi="Số tín hiệu UT-Bot dùng để tính sổ — gốc của mọi số phía trên."
-                        />
-                      </div>
-                    ) : (
-                      <p className="text-xs text-zinc-500">— {clientBusy ? "…" : "failed to load candles"}</p>
-                    )}
+            <Stage
+              id="st-combo"
+              tone="amber"
+              title={t(lang, "stats.section.combo")}
+              note={t(lang, "stats.ch2.note")}
+              active={loading}
+              open={!!open["st-combo"]}
+              flashing={flash === "st-combo"}
+              onToggle={() => toggleStage("st-combo")}
+              aside={stageAside(byKey.combo)}
+            >
+              {secBody("combo")}
+            </Stage>
 
-                    {journal && (
-                      <ChartBox
+            <Stage
+              id="st-dock"
+              tone="violet"
+              title={t(lang, "stats.section.dock")}
+              note={t(lang, "stats.ch2.note")}
+              active={loading}
+              open={!!open["st-dock"]}
+              flashing={flash === "st-dock"}
+              onToggle={() => toggleStage("st-dock")}
+              aside={stageAside(byKey.dock)}
+            >
+              {secBody("dock")}
+            </Stage>
+
+            <Stage
+              id="st-auto"
+              tone="emerald"
+              title={t(lang, "stats.section.auto")}
+              note={t(lang, "stats.ch3.note")}
+              active={loading}
+              open={!!open["st-auto"]}
+              flashing={flash === "st-auto"}
+              onToggle={() => toggleStage("st-auto")}
+              aside={stageAside(byKey.auto)}
+            >
+              {secBody("auto")}
+            </Stage>
+
+            <Stage
+              id="st-open"
+              tone="rose"
+              title={t(lang, "stats.section.open")}
+              note={t(lang, "stats.ch3.note")}
+              active={loading}
+              open={!!open["st-open"]}
+              flashing={flash === "st-open"}
+              onToggle={() => toggleStage("st-open")}
+              aside={stageAside(byKey.open)}
+            >
+              {secBody("open")}
+            </Stage>
+
+            {/* hist + sg gom 1 trạm — cùng là "kết quả đã chốt" */}
+            <Stage
+              id="st-hist"
+              tone="orange"
+              title={`${t(lang, "stats.section.hist")} · ${t(lang, "stats.section.sg")}`}
+              note={t(lang, "stats.ch4.note")}
+              active={loading}
+              open={!!open["st-hist"]}
+              flashing={flash === "st-hist"}
+              onToggle={() => toggleStage("st-hist")}
+              aside={stageAside(byKey.hist)}
+            >
+              <div className="grid gap-3 xl:grid-cols-2">
+                {secBody("hist")}
+                {secBody("sg")}
+              </div>
+            </Stage>
+
+            {/* ── Trade journal — tính Ở SERVER, luôn qua /api/journal (200 nến, 0.2.52) ── */}
+            <Stage
+              id="st-journal"
+              tone="fuchsia"
+              title={`${t(lang, "stats.section.journal")} · ${pickSym === PICK_ALL ? t(lang, "stats.pick.all") : pickSym.replace("USDT", "")} ${pickTf}`}
+              note={t(lang, "stats.ch4.note")}
+              active={clientBusy}
+              open={!!open["st-journal"]}
+              flashing={flash === "st-journal"}
+              onToggle={() => toggleStage("st-journal")}
+              aside={
+                journal ? (
+                  <>
+                    <span className={`hidden rounded px-1.5 py-0.5 font-mono text-[10px] md:inline ${TONE_CHIP[journal.closed > 0 && journal.winRate >= 50 ? "ok" : "warn"]}`}>
+                      WR {journal.winRate.toFixed(0)}%
+                    </span>
+                    {accBadge(journal.closed > 0 ? journal.winRate : 0, `${journal.closed} closed`)}
+                  </>
+                ) : null
+              }
+            >
+              <div className="space-y-2.5">
+                {journal ? (
+                  <>
+                    <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
+                      <Metric
                         lang={lang}
-                        chart={{
-                          kind: "stack",
-                          items: [
-                            { label: "TP", n: journal.tpCount },
-                            { label: "SL", n: journal.slCount },
-                            { label: "flip", n: journal.flipCount },
-                          ],
-                          hint: "Exit mix inside the journal window: TP (green) vs SL (red) vs flip closes (amber).",
-                          hintVi: "Cơ cấu kết thúc trong cửa sổ sổ lệnh: TP (xanh) vs SL (đỏ) vs đóng flip (vàng).",
-                        }}
+                        k={t(lang, "stats.j.trades")}
+                        v={String(journal.total)}
+                        sub={`${journal.closed} closed · ${journal.open} open`}
+                        tone="info"
+                        hint="UT-Bot signals inside the 200-candle journal window; sub = how many produced closed vs still-open paper trades."
+                        hintVi="Tín hiệu UT-Bot trong cửa sổ 200 nến; dòng dưới = số đã đóng và số chưa chốt."
                       />
-                    )}
-
-                    {/* 0.2.80 — MERGE: bảng journal tương tác (từ tab Journal của
-                        trang chủ) nhập vào card này — CÙNG nguồn /api/journal với
+                      <Metric
+                        lang={lang}
+                        k="Win rate"
+                        v={`${journal.winRate.toFixed(0)}%`}
+                        sub={`${journal.wins} wins / ${journal.losses} losses`}
+                        tone={journal.closed === 0 ? "dim" : journal.winRate >= 50 ? "ok" : journal.winRate >= 40 ? "warn" : "bad"}
+                        hint="Wins ÷ closed trades inside the window. Tint: ≥50% green, 40–49% amber, <40% red."
+                        hintVi="Thắng ÷ số lệnh đóng trong cửa sổ. Màu: ≥50% xanh, 40–49% vàng, <40% đỏ."
+                      />
+                      <Metric
+                        lang={lang}
+                        k="TP / SL"
+                        v={`${journal.tpCount} / ${journal.slCount}`}
+                        tone={journal.tpCount > journal.slCount ? "ok" : journal.tpCount < journal.slCount ? "bad" : "info"}
+                        hint="TP hits vs SL hits among closed trades in the window — the raw exit mix."
+                        hintVi="Số lệnh chạm TP so với chạm SL trong cửa sổ — cơ cấu kết thúc thô."
+                      />
+                      <Metric
+                        lang={lang}
+                        k={t(lang, "stats.j.flips")}
+                        v={String(journal.flipCount)}
+                        sub={`net ${fmtPct(journal.flipNetPnl)}`}
+                        tone="info"
+                        hint="Flip closes (engine reversed the side mid-trade); sub = their net PnL contribution."
+                        hintVi="Lệnh đóng flip (engine đảo giữa chừng); dòng dưới = PnL ròng chúng đóng góp."
+                      />
+                      <Metric
+                        lang={lang}
+                        k={t(lang, "stats.j.net")}
+                        v={fmtPct(journal.netPnl)}
+                        tone={journal.netPnl > 0 ? "ok" : journal.netPnl < 0 ? "bad" : "dim"}
+                        hint="Net ROE sum over closed trades in the window (leverage-inclusive, not compounded)."
+                        hintVi="Tổng ROE ròng các lệnh đã đóng trong cửa sổ (đã gồm đòn bẩy, chưa compounding)."
+                      />
+                      <Metric
+                        lang={lang}
+                        k="UT-Bot signals"
+                        v={journal.basis}
+                        tone="info"
+                        hint="Raw signal count the journal was computed from — the base for every number above."
+                        hintVi="Số tín hiệu UT-Bot dùng để tính sổ — gốc của mọi số phía trên."
+                      />
+                    </div>
+                    <ChartBox
+                      lang={lang}
+                      chart={{
+                        kind: "stack",
+                        items: [
+                          { label: "TP", n: journal.tpCount },
+                          { label: "SL", n: journal.slCount },
+                          { label: "flip", n: journal.flipCount },
+                        ],
+                        hint: "Exit mix inside the journal window: TP (green) vs SL (red) vs flip closes (amber).",
+                        hintVi: "Cơ cấu kết thúc trong cửa sổ sổ lệnh: TP (xanh) vs SL (đỏ) vs đóng flip (vàng).",
+                      }}
+                    />
+                    {/* 0.2.80 — bảng journal tương tác: CÙNG nguồn /api/journal với
                         các ô KPI phía trên nên số liệu khớp 1:1 (cùng cửa sổ 200
                         nến, cùng default settings). ALL: trộn mọi cặp + cột Symbol
                         + bảng con theo cặp phía dưới vẫn giữ nguyên. */}
-                    {journal && (
-                      <div className="space-y-2.5">
-                        <div className="border-t border-zinc-800/70 pt-2.5">
-                          <Journal
-                            lang={lang}
-                            papers={journalPapers ?? []}
-                            symbol={pickSym}
-                            interval={pickTf}
-                            bare
-                            showSymbol={pickSym === PICK_ALL}
-                            maxListClass="max-h-[26rem]"
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {/* bảng con theo cặp — chỉ khi chọn “Tất cả cặp” */}
-                    {journalPer && journalPer.per.length > 0 && (
-                      <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 p-2.5">
-                        <p className="text-[11px] font-semibold text-zinc-300">{t(lang, "stats.journal.per")}</p>
-                        <div className="overflow-x-auto">
-                          <table className="w-full border-collapse text-left font-mono text-[11px]">
-                            <thead>
-                              <tr className="text-[10px] uppercase tracking-wide text-zinc-500">
-                                <th className="py-1 pr-2 font-medium">{t(lang, "stats.journal.perPair")}</th>
-                                <th className="py-1 pr-2 text-right font-medium">{t(lang, "stats.journal.perClosed")}</th>
-                                <th className="py-1 pr-2 text-right font-medium">{t(lang, "stats.journal.perWr")}</th>
-                                <th className="py-1 text-right font-medium">{t(lang, "stats.journal.perNet")}</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {journalPer.per.map((p) => (
-                                <tr key={p.symbol} className="border-t border-zinc-800/70">
-                                  <td className="py-1 pr-2 text-zinc-200">{p.symbol.replace("USDT", "")}</td>
-                                  <td className="py-1 pr-2 text-right text-zinc-400">{p.kpi.closed}</td>
-                                  <td className={`py-1 pr-2 text-right ${p.kpi.closed > 0 && p.kpi.winRate >= 50 ? "text-emerald-400" : "text-zinc-400"}`}>
-                                    {p.kpi.closed > 0 ? `${p.kpi.winRate.toFixed(0)}%` : "—"}
-                                  </td>
-                                  <td className={`py-1 text-right ${p.kpi.netPnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                                    {fmtPct(p.kpi.netPnl)}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                        <p className="text-[10px] text-zinc-500">{t(lang, "stats.journal.perNote")}</p>
-                        {journalPer.failed.length > 0 && (
-                          <p className="text-[10px] text-amber-300/80">
-                            {t(lang, "stats.journal.failed", { pairs: journalPer.failed.join(", ") })}
-                          </p>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 p-2.5">
-                      <p className="text-[11px] leading-relaxed text-zinc-400">
-                        <span className="font-semibold text-zinc-300">📌 {t(lang, "stats.basis")}: </span>
-                        {t(lang, "stats.basis.journal")}
-                      </p>
-                      <p className="text-[11px] leading-relaxed text-amber-300/80">⚠️ {t(lang, "stats.journalNote")}</p>
+                    <div className="border-t border-zinc-800/70 pt-2.5">
+                      <Journal
+                        lang={lang}
+                        papers={journalPapers ?? []}
+                        symbol={pickSym}
+                        interval={pickTf}
+                        bare
+                        showSymbol={pickSym === PICK_ALL}
+                        maxListClass="max-h-[26rem]"
+                      />
                     </div>
-                  </CardContent>
-                </Card>
+                  </>
+                ) : (
+                  <p className="text-xs text-zinc-500">— {clientBusy ? "…" : "failed to load candles"}</p>
+                )}
 
-                </div>
-              </Chapter>
-            </section>
-
-            {/* ── 0.2.84 — CH5 · Lab & Phân tích sâu: bộ chọn combo + 3 tab terminal ── */}
-            <section id="st-ch5" className={flash === "st-ch5" ? "chapter-flash" : undefined}>
-              <Chapter title={t(lang, "stats.ch5.t")} note={t(lang, "stats.ch5.note")}>
-                {/* combo picker cho 2 section client-side */}
-                <Card className="border-zinc-800 bg-zinc-900/60">
-                  <CardContent className="flex flex-wrap items-center gap-2 py-3">
-                    <span className="text-[11px] font-medium text-zinc-400">{t(lang, "stats.pick")}:</span>
-                    <select
-                      value={pickSym}
-                      onChange={(e) => setPickSym(e.target.value)}
-                      className="h-7 rounded-md border border-zinc-700 bg-zinc-950 px-2 font-mono text-xs text-zinc-200"
-                    >
-                      <option value={PICK_ALL}>{t(lang, "stats.pick.all")}</option>
-                      {PICK_SYMBOLS.map((s) => (
-                        <option key={s} value={s}>
-                          {s.replace("USDT", "")}
-                        </option>
-                      ))}
-                    </select>
-                    {PICK_TFS.map((tf) => (
-                      <Button
-                        key={tf}
-                        size="sm"
-                        variant="outline"
-                        className={`h-7 px-2 font-mono text-xs ${
-                          pickTf === tf ? "border-zinc-500 bg-zinc-800 text-zinc-100" : "border-zinc-800 text-zinc-400 hover:bg-zinc-800"
-                        }`}
-                        onClick={() => setPickTf(tf)}
-                      >
-                        {tf}
-                      </Button>
-                    ))}
-                    {clientBusy && <RefreshCw className="h-3.5 w-3.5 animate-spin text-zinc-500" />}
-                  </CardContent>
-                </Card>
-
-                {/* ── 0.2.82 — TERMINAL TABS (dời từ trang chủ): Suggestions / Lab /
-                    Analysis — nối tiếp Journal 0.2.80. Cùng bộ chọn pickSym/pickTf
-                    phía trên điều khiển; ALL: Suggestions khoá scope "all"
-                    (forceAll), Lab + Analysis yêu cầu cặp cụ thể (biến thể + pies
-                    tính theo từng cặp). Lab Apply ghi utp.settings → trang chủ đọc
-                    ở lần tải kế tiếp (note xác nhận ngay trong tab). ─────────── */}
-                <Tabs defaultValue="suggest">
-                  <TabsList className="h-8 w-full justify-start overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                    <TabsTrigger
-                      value="suggest"
-                      className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
-                    >
-                      {t(lang, "tabs.suggest")}
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="lab"
-                      className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
-                    >
-                      {t(lang, "tabs.lab")}
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="analysis"
-                      className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
-                    >
-                      {t(lang, "tabs.analysis")}
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="suggest" className="mt-2.5">
-                    <SuggestionHistory
-                      lang={lang}
-                      symbol={pickSym}
-                      interval={pickTf}
-                      refreshKey={tabsRefresh}
-                      forceAll={pickSym === PICK_ALL}
-                    />
-                  </TabsContent>
-                  <TabsContent value="lab" className="mt-2.5">
-                    {pickSym === PICK_ALL ? (
-                      <p className="rounded-lg border border-dashed border-zinc-800 p-6 text-center text-xs text-zinc-500">
-                        {t(lang, "stats.labAll")}
+                {/* bảng con theo cặp — chỉ khi chọn “Tất cả cặp” */}
+                {journalPer && journalPer.per.length > 0 && (
+                  <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 p-2.5">
+                    <p className="text-[11px] font-semibold text-zinc-300">{t(lang, "stats.journal.per")}</p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse text-left font-mono text-[11px]">
+                        <thead>
+                          <tr className="text-[10px] uppercase tracking-wide text-zinc-500">
+                            <th className="py-1 pr-2 font-medium">{t(lang, "stats.journal.perPair")}</th>
+                            <th className="py-1 pr-2 text-right font-medium">{t(lang, "stats.journal.perClosed")}</th>
+                            <th className="py-1 pr-2 text-right font-medium">{t(lang, "stats.journal.perWr")}</th>
+                            <th className="py-1 text-right font-medium">{t(lang, "stats.journal.perNet")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {journalPer.per.map((p) => (
+                            <tr key={p.symbol} className="border-t border-zinc-800/70">
+                              <td className="py-1 pr-2 text-zinc-200">{p.symbol.replace("USDT", "")}</td>
+                              <td className="py-1 pr-2 text-right text-zinc-400">{p.kpi.closed}</td>
+                              <td className={`py-1 pr-2 text-right ${p.kpi.closed > 0 && p.kpi.winRate >= 50 ? "text-emerald-400" : "text-zinc-400"}`}>
+                                {p.kpi.closed > 0 ? `${p.kpi.winRate.toFixed(0)}%` : "—"}
+                              </td>
+                              <td className={`py-1 text-right ${p.kpi.netPnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                                {fmtPct(p.kpi.netPnl)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="text-[10px] text-zinc-500">{t(lang, "stats.journal.perNote")}</p>
+                    {journalPer.failed.length > 0 && (
+                      <p className="text-[10px] text-amber-300/80">
+                        {t(lang, "stats.journal.failed", { pairs: journalPer.failed.join(", ") })}
                       </p>
-                    ) : (
-                      <>
-                        {labApplied && (
-                          <p className="mb-2.5 rounded-lg border border-teal-800/60 bg-teal-950/30 px-3 py-2 text-[11px] leading-relaxed text-teal-300">
-                            {t(lang, "sl.applyToast", {
-                              name: labApplied.name,
-                              sl: labApplied.sl.toFixed(1),
-                              tp: labApplied.tp.toFixed(1),
-                              key: String(labApplied.key),
-                              period: String(labApplied.period),
-                            })}{" "}
-                            · {t(lang, "stats.labApplied")}
-                          </p>
-                        )}
-                        <StrategyLab
-                          lang={lang}
-                          symbol={pickSym}
-                          interval={pickTf}
-                          refreshKey={tabsRefresh}
-                          onApply={applyVariantStats}
-                        />
-                      </>
                     )}
-                  </TabsContent>
-                  <TabsContent value="analysis" className="mt-2.5">
-                    {pickSym === PICK_ALL ? (
-                      <p className="text-xs leading-relaxed text-zinc-500">— {t(lang, "stats.analysisAll")}</p>
-                    ) : view ? (
-                      <div className="space-y-2.5">
-                        {/* 0.2.82 — DeepAnalysis + pies thay card Deep analysis cũ:
-                            cùng /api/view + DEFAULT_SETTINGS (một nguồn sự thật với
-                            cửa sổ journal), thêm ô cổng SMA + 3 donut preset —
-                            giữ basis note của card cũ. */}
-                        <DeepAnalysis
-                          lang={lang}
-                          a={view.analysis}
-                          smaFilter={DEFAULT_SETTINGS.smaFilter}
-                          smaPeriod={DEFAULT_SETTINGS.smaPeriod}
-                          gateLong={view.gate.long}
-                          gateShort={view.gate.short}
-                          smaValue={view.gate.sma}
-                        />
-                        <StrategyPies
-                          lang={lang}
-                          pies={view.pies}
-                          n={view.n}
-                          leverage={DEFAULT_SETTINGS.leverage}
-                        />
-                        <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 p-2.5">
-                          <p className="text-[11px] leading-relaxed text-zinc-400">
-                            <span className="font-semibold text-zinc-300">📌 {t(lang, "stats.basis")}: </span>
-                            {t(lang, "stats.basis.analysis")}
-                          </p>
-                        </div>
+                  </div>
+                )}
+
+                <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 p-2.5">
+                  <p className="text-[11px] leading-relaxed text-zinc-400">
+                    <span className="font-semibold text-zinc-300">📌 {t(lang, "stats.basis")}: </span>
+                    {t(lang, "stats.basis.journal")}
+                  </p>
+                  <p className="text-[11px] leading-relaxed text-amber-300/80">⚠️ {t(lang, "stats.journalNote")}</p>
+                </div>
+              </div>
+            </Stage>
+
+            {/* ── Lab & Phân tích: bộ chọn combo + 3 tab terminal ── */}
+            <Stage
+              id="st-lab"
+              tone="blue"
+              title={t(lang, "stats.section.analysis")}
+              note={t(lang, "stats.ch5.note")}
+              active={clientBusy}
+              open={!!open["st-lab"]}
+              flashing={flash === "st-lab"}
+              onToggle={() => toggleStage("st-lab")}
+            >
+              {/* combo picker cho 2 section client-side */}
+              <div className="mb-2.5 flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-medium text-zinc-400">{t(lang, "stats.pick")}:</span>
+                <select
+                  value={pickSym}
+                  onChange={(e) => setPickSym(e.target.value)}
+                  className="h-7 rounded-md border border-zinc-700 bg-zinc-950 px-2 font-mono text-xs text-zinc-200"
+                >
+                  <option value={PICK_ALL}>{t(lang, "stats.pick.all")}</option>
+                  {PICK_SYMBOLS.map((s) => (
+                    <option key={s} value={s}>
+                      {s.replace("USDT", "")}
+                    </option>
+                  ))}
+                </select>
+                {PICK_TFS.map((tf) => (
+                  <Button
+                    key={tf}
+                    size="sm"
+                    variant="outline"
+                    className={`h-7 px-2 font-mono text-xs ${
+                      pickTf === tf ? "border-zinc-500 bg-zinc-800 text-zinc-100" : "border-zinc-800 text-zinc-400 hover:bg-zinc-800"
+                    }`}
+                    onClick={() => setPickTf(tf)}
+                  >
+                    {tf}
+                  </Button>
+                ))}
+                {clientBusy && <RefreshCw className="h-3.5 w-3.5 animate-spin text-zinc-500" />}
+              </div>
+
+              {/* 0.2.82 — TERMINAL TABS (dời từ trang chủ): Suggestions / Lab /
+                  Analysis — cùng bộ chọn pickSym/pickTf phía trên điều khiển;
+                  ALL: Suggestions khoá scope "all" (forceAll), Lab + Analysis
+                  yêu cầu cặp cụ thể. Lab Apply ghi utp.settings → trang chủ đọc
+                  ở lần tải kế tiếp (note xác nhận ngay trong tab). */}
+              <Tabs defaultValue="suggest">
+                <TabsList className="h-8 w-full justify-start overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <TabsTrigger
+                    value="suggest"
+                    className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+                  >
+                    {t(lang, "tabs.suggest")}
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="lab"
+                    className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+                  >
+                    {t(lang, "tabs.lab")}
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="analysis"
+                    className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+                  >
+                    {t(lang, "tabs.analysis")}
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="suggest" className="mt-2.5">
+                  <SuggestionHistory
+                    lang={lang}
+                    symbol={pickSym}
+                    interval={pickTf}
+                    refreshKey={tabsRefresh}
+                    forceAll={pickSym === PICK_ALL}
+                  />
+                </TabsContent>
+                <TabsContent value="lab" className="mt-2.5">
+                  {pickSym === PICK_ALL ? (
+                    <p className="rounded-lg border border-dashed border-zinc-800 p-6 text-center text-xs text-zinc-500">
+                      {t(lang, "stats.labAll")}
+                    </p>
+                  ) : (
+                    <>
+                      {labApplied && (
+                        <p className="mb-2.5 rounded-lg border border-teal-800/60 bg-teal-950/30 px-3 py-2 text-[11px] leading-relaxed text-teal-300">
+                          {t(lang, "sl.applyToast", {
+                            name: labApplied.name,
+                            sl: labApplied.sl.toFixed(1),
+                            tp: labApplied.tp.toFixed(1),
+                            key: String(labApplied.key),
+                            period: String(labApplied.period),
+                          })}{" "}
+                          · {t(lang, "stats.labApplied")}
+                        </p>
+                      )}
+                      <StrategyLab
+                        lang={lang}
+                        symbol={pickSym}
+                        interval={pickTf}
+                        refreshKey={tabsRefresh}
+                        onApply={applyVariantStats}
+                      />
+                    </>
+                  )}
+                </TabsContent>
+                <TabsContent value="analysis" className="mt-2.5">
+                  {pickSym === PICK_ALL ? (
+                    <p className="text-xs leading-relaxed text-zinc-500">— {t(lang, "stats.analysisAll")}</p>
+                  ) : view ? (
+                    <div className="space-y-2.5">
+                      {/* 0.2.82 — DeepAnalysis + pies thay card Deep analysis cũ:
+                          cùng /api/view + DEFAULT_SETTINGS (một nguồn sự thật với
+                          cửa sổ journal), thêm ô cổng SMA + 3 donut preset —
+                          giữ basis note của card cũ. */}
+                      <DeepAnalysis
+                        lang={lang}
+                        a={view.analysis}
+                        smaFilter={DEFAULT_SETTINGS.smaFilter}
+                        smaPeriod={DEFAULT_SETTINGS.smaPeriod}
+                        gateLong={view.gate.long}
+                        gateShort={view.gate.short}
+                        smaValue={view.gate.sma}
+                      />
+                      <StrategyPies
+                        lang={lang}
+                        pies={view.pies}
+                        n={view.n}
+                        leverage={DEFAULT_SETTINGS.leverage}
+                      />
+                      <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 p-2.5">
+                        <p className="text-[11px] leading-relaxed text-zinc-400">
+                          <span className="font-semibold text-zinc-300">📌 {t(lang, "stats.basis")}: </span>
+                          {t(lang, "stats.basis.analysis")}
+                        </p>
                       </div>
-                    ) : (
-                      <p className="text-xs text-zinc-500">— {clientBusy ? "…" : "failed to load candles"}</p>
-                    )}
-                  </TabsContent>
-                </Tabs>
-
-              </Chapter>
-            </section>
-
-            {/* 0.2.82 — card Deep analysis (blue) XOÁ: nội dung của nó hợp nhất
-                vào tab Analysis phía trên (DeepAnalysis + pies — cùng nguồn
-                /api/view + DEFAULT_SETTINGS, thêm ô cổng SMA + 3 donut preset,
-                giữ basis note). Một nguồn sự thật, không lặp Trend/RSI/Vol/ATR/
-                Structure hai lần trên cùng trang. */}
-          </>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-zinc-500">— {clientBusy ? "…" : "failed to load candles"}</p>
+                  )}
+                </TabsContent>
+              </Tabs>
+            </Stage>
+          </div>
         )}
       </div>
     </div>
-  );
-}
-
-/** 0.2.84 — khung "chương" gom nhóm: tiêu đề + dòng suy diễn + nội dung.
- *  Đặt ngoài StatsPage để không bị tạo lại mỗi render. */
-function Chapter({ title, note, children }: { title: string; note: string; children: ReactNode }) {
-  return (
-    <Card className="border-zinc-800 bg-zinc-900/40">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-semibold text-zinc-100">{title}</CardTitle>
-        <p className="text-[11px] leading-relaxed text-zinc-500">↳ {note}</p>
-      </CardHeader>
-      <CardContent className="pt-0">{children}</CardContent>
-    </Card>
   );
 }
 
