@@ -404,7 +404,7 @@ export default function StatsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-200">
+    <div className="min-h-screen bg-transparent text-zinc-200">
       {/* 0.2.80 — FULL WIDTH: bỏ max-w-6xl (journal table rộng + KPI 3 cột dùng
           được không gian màn lớn); giữ padding responsive như cũ */}
       <div className="space-y-4 p-3 sm:p-5">

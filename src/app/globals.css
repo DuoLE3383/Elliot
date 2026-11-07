@@ -149,3 +149,66 @@ html, body {
     min-height: 32px;
   }
 }
+
+/* ── 0.2.83 — TechBackground (nền circuit-tech toàn cục) ─────────────────── */
+/* Dòng điện chạy dọc đường mạch: dash 10px mỗi chu kỳ 292px, lùi offset để
+   dash trượt theo hướng vẽ path (từ mép vào tâm — trace được vẽ từ mép ra) */
+@keyframes circuit-pulse {
+  to {
+    stroke-dashoffset: -292;
+  }
+}
+/* Sao twinkle: mờ → sáng → mờ, hơi phồng nhẹ */
+@keyframes twinkle {
+  0%, 100% {
+    opacity: 0.12;
+    transform: scale(0.55);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scale(1.12);
+  }
+}
+/* Node tròn cuối mạch nhấp nháy như đèn tín hiệu */
+@keyframes node-glow {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+/* Ô pixel giữa màn sáng mờ theo nhịp riêng (mỗi ô một delay) */
+@keyframes mosaic-blink {
+  0%, 100% {
+    opacity: 0.08;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+.circuit-pulse {
+  stroke-dasharray: 10 282;
+  animation: circuit-pulse 7s linear infinite;
+}
+.sparkle {
+  animation: twinkle 3.6s ease-in-out infinite;
+  /* transform-origin quanh chính ô của path trong SVG (không phải góc viewBox) */
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.node-dot {
+  animation: node-glow 4.2s ease-in-out infinite;
+}
+.mosaic-cell {
+  animation: mosaic-blink 5.5s ease-in-out infinite;
+}
+/* Tôn trọng người dùng tắt chuyển động */
+@media (prefers-reduced-motion: reduce) {
+  .circuit-pulse,
+  .sparkle,
+  .node-dot,
+  .mosaic-cell {
+    animation: none !important;
+  }
+}

@@ -1056,10 +1056,10 @@ export default function Home() {
   const tickerUp = (activeTicker?.changePct ?? 0) >= 0;
 
   return (
-    <div className="flex min-h-dvh flex-col bg-zinc-950 text-zinc-100 lg:h-dvh lg:min-h-0 lg:overflow-hidden">
+    <div className="flex min-h-dvh flex-col bg-transparent text-zinc-100 lg:h-dvh lg:min-h-0 lg:overflow-hidden">
       {/* ── Header — ELLIOTT terminal bar (sticky trên mobile: refresh/settings
           luôn trong tầm tay khi cuộn dọc panel dài) ─────────────────── */}
-      <header className="sticky top-0 z-40 shrink-0 border-b border-zinc-800 bg-zinc-950/95 backdrop-blur">
+      <header className="sticky top-0 z-40 shrink-0 border-b border-zinc-800/70 bg-[#020617]/85 backdrop-blur">
         <div className="flex h-12 items-center gap-2 px-3">
           <div className="flex min-w-0 items-center gap-2">
             <div className="flex h-8 shrink-0 items-center gap-2 rounded-lg border border-zinc-800 bg-gradient-to-b from-zinc-900 to-zinc-950 p-1.5 shadow-[0_0_18px_-6px_rgba(16,185,129,0.45)] lg:pr-3">
@@ -1500,7 +1500,7 @@ export default function Home() {
       </main>
 
       {/* ── Footer (mobile flow only — the terminal fills the screen) ── */}
-      <footer className="shrink-0 border-t border-zinc-800 bg-zinc-950 py-2.5 lg:hidden">
+      <footer className="shrink-0 border-t border-zinc-800/70 bg-[#020617]/85 py-2.5 lg:hidden">
         <p className="pb-[env(safe-area-inset-bottom)] text-center text-[11px] text-zinc-600">
           {t(lang, "footer.note")}
         </p>
@@ -1513,7 +1513,7 @@ export default function Home() {
             key={toast.id}
             className={`pointer-events-auto rounded-lg border px-3.5 py-2.5 shadow-lg backdrop-blur ${
               toast.kind === "flip"
-                ? "border-zinc-600 bg-zinc-950/90"
+                ? "border-zinc-600 bg-[#020617]/90"
                 : toast.kind === "warn"
                   ? "border-amber-600 bg-amber-950/90"
                   : toast.kind === "wy"

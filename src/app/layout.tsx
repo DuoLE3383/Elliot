@@ -5,6 +5,7 @@ import path from "path";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import BuildReload from "@/components/build-reload";
+import { TechBackground } from "@/components/tech-background";
 
 // Build marker — prebuild ghi public/build-id.txt cho MỖI lần build; id được
 // Baked into the HTML at build time on the line below. BuildReload (client) compares it with
@@ -41,12 +42,12 @@ export const metadata: Metadata = {
   other: { "elliott-build": BUILD_ID },
 };
 
-// Mobile browser chrome matches the terminal background colour (0.2.76: /ai
-// moved to a teal-tinted dark #0a100f — imperceptible vs the zinc-950 dashboard).
+// Mobile browser chrome matches the terminal background colour (0.2.83: navy
+// circuit-tech #020617 — the animated TechBackground paints the same base).
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#0a100f",
+  themeColor: "#020617",
 };
 
 export default function RootLayout({
@@ -57,8 +58,11 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#020617] text-foreground`}
       >
+        {/* 0.2.83 — nền circuit-tech động (mạch cyan + pixel + sao) cho MỌI trang;
+            z-[-1] + trang để root trong suốt nên nội dung luôn đè lên nền */}
+        <TechBackground />
         {children}
         <BuildReload />
         <Toaster />

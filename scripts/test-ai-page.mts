@@ -66,11 +66,17 @@ check("editor LLM KHÔNG còn trong card LLM (saveLlmSetup chỉ gọi từ dial
 check("card LLM vẫn có nút duyệt thử (runLlmTest)", page.includes("void runLlmTest()"));
 check("llmSetupOpen + utp.llmSetupOpen đã xoá", !page.includes("llmSetupOpen") && !page.includes("utp.llmSetupOpen"));
 
-console.log("── 3. Nền trang ──");
-check("nền mới #0a100f + glow radial teal", page.includes("bg-[#0a100f]") && page.includes("[background-image:radial-gradient(ellipse_75%_45%_at_50%_-8%,rgba(45,212,191,0.07),transparent)]"));
+console.log("── 3. Nền trang (0.2.83: TechBackground toàn cục) ──");
+check("root /ai trong suốt — nền từ TechBackground, hết #0a100f cũ", page.includes("min-h-screen bg-transparent") && !page.includes("bg-[#0a100f]"));
 check("nền cũ zinc-950 phẳng đã xoá khỏi root", !page.includes("min-h-screen bg-zinc-950"));
 check("sticky header (sticky top-0 + backdrop-blur)", /sticky top-0 z-30[\s\S]{0,120}backdrop-blur/.test(page));
-check("layout themeColor khớp #0a100f", layout.includes('themeColor: "#0a100f"'));
+check("header tint navy translucent #020617/85", page.includes("bg-[#020617]/85"));
+check("layout gắn TechBackground + body navy #020617", layout.includes("<TechBackground />") && layout.includes("bg-[#020617]"));
+check("themeColor khớp nền navy #020617", layout.includes('themeColor: "#020617"'));
+check("TechBackground đủ 4 lớp animation (mạch/node/pixel/sao)", (() => {
+  const bg = readFileSync("src/components/tech-background.tsx", "utf8");
+  return bg.includes("circuit-pulse") && bg.includes("node-dot") && bg.includes("mosaic-cell") && bg.includes("sparkle");
+})());
 
 console.log("── 4. Bố cục dọn trang ──");
 check("About gấp gọn mặc định: aboutOpen=false + render điều kiện", /const \[aboutOpen, setAboutOpen\] = useState\(false\)/.test(page) && page.includes("{aboutOpen ? (") && page.includes(": null}"));

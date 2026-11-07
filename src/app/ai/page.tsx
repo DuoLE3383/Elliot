@@ -10,8 +10,9 @@
 //      timeout/fail-closed). Nothing editable sits in the long page body anymore.
 // 0.2.76 cleanup: status cards lead the page, static education collapsed into
 // "About" at the bottom, evo + stats-dive share a row (xl), sticky header keeps
-// Settings / Refresh / lang reachable on the long scroll, page background moved
-// from flat zinc-950 to a teal-tinted dark (#0a100f) with a soft top glow.
+// Settings / Refresh / lang reachable on the long scroll. 0.2.83: page
+// background is now the GLOBAL animated TechBackground (circuit-tech navy) —
+// this root is transparent, header tints navy translucent for the blur.
 // Data: GET /api/ai-info — read-only, manual refresh + auto every 60s.
 
 import { Badge } from "@/components/ui/badge";
@@ -497,9 +498,9 @@ export default function AiPage() {
   const unsynced = data?.engine ? !data.engine.synced : false;
 
   return (
-    <div className="min-h-screen bg-[#0a100f] text-zinc-200 [background-image:radial-gradient(ellipse_75%_45%_at_50%_-8%,rgba(45,212,191,0.07),transparent)]">
+    <div className="min-h-screen bg-transparent text-zinc-200">
       {/* sticky header — Settings / Refresh / lang luôn trong tầm tay trên trang dài */}
-      <header className="sticky top-0 z-30 border-b border-zinc-800/60 bg-[#0a100f]/90 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b border-zinc-800/60 bg-[#020617]/85 backdrop-blur">
         {/* 0.2.80 — FULL WIDTH: bỏ mx-auto max-w-6xl cho khớp body bên dưới */}
         <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 sm:px-5">
           <Button size="sm" variant="outline" className="h-8 gap-1.5 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800" asChild>
