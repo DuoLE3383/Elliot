@@ -77,7 +77,13 @@ export interface AuditReport {
 
 /** ROE % kỳ vọng của một lệnh đã đóng theo công thức hiện hành (0.2.77+):
  *  move% × đòn bẩy − phí round-trip; thanh lý (di chuyển bất lợi chạm
- *  100/lev %) ép −100; không bao giờ dưới −100. */
+ *  100/lev %) ép −100; không bao giờ dưới −100.
+ *  0.2.88 — VÁ BUG ĐẢO DẤU: trước đây `adverse = -movePct` cho SHORT khiến
+ *  điều kiện `adverse <= -(100/lev)` bắn vào lệnh SHORT THẮNG lớn (move ≥
+ *  100/lev %) thay vì lệnh THUA đến hạn thanh lý — một SHORT ×5 thắng ≥20%
+ *  giá bị ghi −100 liều mạng. Giờ dùng thẳng movePct ≤ −(100/lev), một nguồn
+ *  với liquidationHit() của engine (autotrade.ts) — kiểm thử hồi quy ở
+ *  scripts/test-audit-book.mts chốt cả 4 góc LONG/SHORT × thắng/thua. */
 export function expectedPnlPctOf(row: Pick<AuditTradeRow, "side" | "entryPrice" | "exitPrice" | "leverage" | "exitKind">): number | null {
   const entry = row.entryPrice;
   const exit = row.exitPrice;
@@ -85,8 +91,7 @@ export function expectedPnlPctOf(row: Pick<AuditTradeRow, "side" | "entryPrice" 
   if (!entry || !exit || !(lev > 0)) return null;
   const movePct = row.side === "SHORT" ? ((entry - exit) / entry) * 100 : ((exit - entry) / entry) * 100;
   let pnl = Math.round((movePct * lev - feeRoe(lev)) * 100) / 100;
-  const adverse = row.side === "SHORT" ? -movePct : movePct;
-  if (lev > 1 && adverse <= -(100 / lev)) pnl = -100;
+  if (lev > 1 && movePct <= -(100 / lev)) pnl = -100;
   else if (pnl < -100) pnl = -100;
   return pnl;
 }

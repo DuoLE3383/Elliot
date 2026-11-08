@@ -35,6 +35,17 @@ check("LONG thanh lý: entry 100 → exit 89 @×10 → −100", expectedPnlPctOf
 check("×1 đứng im: −0.1% (phí round-trip)", expectedPnlPctOf({ side: "SHORT", entryPrice: 100, exitPrice: 100, leverage: 1, exitKind: "manual" }) === -0.1);
 check("thiếu exit → null (không đoán)", expectedPnlPctOf({ side: "SHORT", entryPrice: 100, exitPrice: null, leverage: 10, exitKind: null }) === null);
 
+// ─── 1b · HỒI QUY 0.2.88 — bug đảo dấu thanh lý phía SHORT ───────────────────
+// Trước 0.2.88: `adverse = -movePct` cho SHORT khiến điều kiện
+// `adverse <= -(100/lev)` bắn vào lệnh SHORT THẮNG lớn (move ≥ 100/lev %)
+// thay vì lệnh thua — SHORT ×5 thắng 20% giá bị ghi −100 liều mạng.
+check("[0.2.88] SHORT thắng 20% giá ×5 (100→80) = +99.5, KHÔNG phải −100", expectedPnlPctOf({ side: "SHORT", entryPrice: 100, exitPrice: 80, leverage: 5, exitKind: "tp" }) === 99.5);
+check("[0.2.88] SHORT thắng 10% giá ×10 (100→90) = +99, KHÔNG phải −100", expectedPnlPctOf({ side: "SHORT", entryPrice: 100, exitPrice: 90, leverage: 10, exitKind: "tp" }) === 99);
+check("[0.2.88] SHORT thắng 25% giá ×5 = +124.5 (thắng quá 100% ROE là hợp lệ)", expectedPnlPctOf({ side: "SHORT", entryPrice: 100, exitPrice: 75, leverage: 5, exitKind: "tp" }) === 124.5);
+check("[0.2.88] LONG thắng 20% giá ×5 = +99.5 (đối xứng giữ nguyên)", expectedPnlPctOf({ side: "LONG", entryPrice: 100, exitPrice: 120, leverage: 5, exitKind: "tp" }) === 99.5);
+check("[0.2.88] SHORT thua 20% giá ×5 (100→120) → −100 (đúng ranh giới thanh lý)", expectedPnlPctOf({ side: "SHORT", entryPrice: 100, exitPrice: 120, leverage: 5, exitKind: "liq" }) === -100);
+check("[0.2.88] LONG thua 20% giá ×5 (100→80) → −100 (đúng ranh giới thanh lý)", expectedPnlPctOf({ side: "LONG", entryPrice: 100, exitPrice: 80, leverage: 5, exitKind: "liq" }) === -100);
+
 // ─── 2 · auditBook — bắt dòng lệch + thống kê theo phía ──────────────────────
 // Sổ mô phỏng lịch sử thật: LONG mới sau 0.2.77 (đúng), SHORT cũ gross (sai —
 // thiếu phí), 1 lệnh SHORT thanh lý chưa ép −100 (sai), 1 lệnh mở.
