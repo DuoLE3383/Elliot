@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { PrismaClient } from '@prisma/client'
+import { backupFileName, corruptDbHint, isCorruptDbError, selectBackupsToPrune } from "./db-hardening";
 
 // query logging floods the pm2 log in production (every poll of every route) —
 // keep it for dev only, or opt back in with DEBUG_PRISMA=1
@@ -97,6 +98,89 @@ function ensureSqliteDir(url: string | undefined): void {
 
 let schemaReady: Promise<void> | null = null;
 
+// ─── 0.2.92 — DB HARDENING ──────────────────────────────────────────────────
+// WAL + busy_timeout giảm xung đột ghi giữa engine và luồng đọc dashboard;
+// integrity_check lúc boot phát hiện corrupt SỚM; VACUUM INTO mỗi ngày tạo
+// bản .db sạch (giữ 7 bản) trong <thư_mục_db>/backups — VACUUM INTO an toàn
+// khi app đang chạy, và tự fail với thông báo rõ nếu DB đã hỏng.
+
+let backupTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Đường dẫn tuyệt đối của file SQLite từ DATABASE_URL (null nếu không phải file). */
+function sqliteDbPath(): string | null {
+  const url = process.env.DATABASE_URL;
+  if (!url?.startsWith("file:")) return null;
+  let p = url.slice(5);
+  const q = p.indexOf("?");
+  if (q >= 0) p = p.slice(0, q);
+  if (!p || p === ":memory:") return null;
+  return path.isAbsolute(p) ? p : path.resolve(process.cwd(), p);
+}
+
+async function hardenSqlite(base: PrismaClient): Promise<void> {
+  try {
+    for (const pragma of ["PRAGMA journal_mode=WAL", "PRAGMA busy_timeout=5000", "PRAGMA synchronous=NORMAL"]) {
+      await base.$queryRawUnsafe(pragma);
+    }
+    const rows = await base
+      .$queryRawUnsafe<{ integrity: string }[]>("PRAGMA integrity_check")
+      .catch(() => null);
+    if (rows) {
+      const bad = (rows ?? []).filter((r) => r.integrity !== "ok");
+      if (bad.length > 0) {
+        const sample = bad.slice(0, 2).map((r) => r.integrity).join(" | ");
+        console.error(
+          `[db] integrity_check — DATABASE HỎNG (${bad.length} lỗi: ${sample}) — backup sẽ thất bại tới khi sửa: ${corruptDbHint(sqliteDbPath() ?? undefined)}`,
+        );
+      } else {
+        console.warn("[db] integrity_check — ok (WAL + busy_timeout đã bật)");
+      }
+    }
+  } catch (e) {
+    if (isCorruptDbError(e)) {
+      console.error(`[db] integrity_check — DATABASE HỎNG: ${e instanceof Error ? e.message : String(e)} — ${corruptDbHint(sqliteDbPath() ?? undefined)}`);
+    } else {
+      console.warn(`[db] harden — chưa áp dụng được pragma: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+}
+
+/** Backup hằng ngày qua VACUUM INTO — 1 file/ngày, giữ 7 bản mới nhất. */
+async function backupDatabase(base: PrismaClient): Promise<void> {
+  try {
+    const dbPath = sqliteDbPath();
+    if (!dbPath) return;
+    const dir = path.join(path.dirname(dbPath), "backups");
+    fs.mkdirSync(dir, { recursive: true });
+    const target = path.join(dir, backupFileName(new Date()));
+    if (!fs.existsSync(target)) {
+      await base.$queryRawUnsafe(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
+      console.warn(`[db] backup — ${target}`);
+    }
+    const stale = selectBackupsToPrune(
+      fs.readdirSync(dir).filter((f) => /^elliott-\d{4}-\d{2}-\d{2}\.db$/.test(f)),
+      7,
+    );
+    for (const f of stale) {
+      try {
+        fs.unlinkSync(path.join(dir, f));
+      } catch {
+        // file đang bị process khác đọc — bỏ qua, lượt sau dọn tiếp
+      }
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (isCorruptDbError(e)) console.error(`[db] backup THẤT BẠI — DB hỏng cần .recover: ${corruptDbHint(sqliteDbPath() ?? undefined)}`);
+    else console.warn(`[db] backup thất bại (không chặn query): ${msg}`);
+  }
+}
+
+function scheduleDailyBackup(base: PrismaClient): void {
+  if (backupTimer) return;
+  backupTimer = setInterval(() => void backupDatabase(base), 24 * 3_600_000);
+  backupTimer.unref?.(); // không giữ process sống chỉ vì timer
+}
+
 async function runBootstrap(base: PrismaClient): Promise<void> {
   ensureSqliteDir(process.env.DATABASE_URL);
   const before = new Set<string>(
@@ -135,6 +219,9 @@ async function runBootstrap(base: PrismaClient): Promise<void> {
   } else {
     console.warn(`[db] schema bootstrap — ok (all ${MODEL_TABLES.length} tables present, db: ${dbPath})`);
   }
+  await hardenSqlite(base);
+  void backupDatabase(base);
+  scheduleDailyBackup(base);
 }
 
 /** Never throws into a query's way: a failed bootstrap is LOGGED (reason + db

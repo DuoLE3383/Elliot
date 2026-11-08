@@ -937,8 +937,11 @@ export async function resetAutoCapital(
       headers: jsonHeaders,
       body: JSON.stringify({ action: "reset_capital", ...(capital != null ? { capital } : {}), ...(note ? { note } : {}) }),
     });
-    const json = (await res.json().catch(() => null)) as { ok?: boolean; capital?: number; error?: string } | null;
-    if (!res.ok) return { ok: false, error: json?.error ?? `HTTP ${res.status}` };
+    const json = (await res.json().catch(() => null)) as
+      | { ok?: boolean; capital?: number; error?: string; message?: string }
+      | null;
+    // 0.2.92 — db_corrupt trả 503 kèm `message` (hint .recover) — ưu tiên hiện nó
+    if (!res.ok) return { ok: false, error: json?.message ?? json?.error ?? `HTTP ${res.status}` };
     return { ok: json?.ok === true, capital: json?.capital };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "fetch failed" };

@@ -1,0 +1,23 @@
+0.2.92 — DB HARDENING: WAL + INTEGRITY_CHECK + BACKUP HẰNG NGÀY + RESET BÁO LỖI CORRUPT THÂN THIỆN
+
+Sự cố 09/11: reset_capital → HTTP 500 vì /opt/elliott/data/custom.db lỗi
+SQLITE_CORRUPT 779 ("database disk image is malformed") — đọc vẫn chạy,
+deleteMany chạm vào trang/index hỏng mới nổ. Ba lớp phòng:
+
+1. src/lib/db-hardening.ts (MỚI, thuần không Prisma): isCorruptDbError()
+   nhận diện mọi dạng lỗi corrupt; corruptDbHint() trả nguyên trình tự
+   .recover để UI hiện thẳng; backupFileName/selectBackupsToPrune cho
+   backup 1 file/ngày giữ 7 bản.
+
+2. db.ts: hardenSqlite — PRAGMA journal_mode=WAL + busy_timeout=5000 +
+   synchronous=NORMAL lúc boot; PRAGMA integrity_check in thẳng pm2 log
+   (phát hiện corrupt SỚM kèm hint sửa); backupDatabase — VACUUM INTO an
+   toàn khi app đang chạy, file vào <db_dir>/backups/elliott-YYYY-MM-DD.db,
+   timer 24h + một lần ngay lúc boot, giữ 7 bản mới nhất.
+
+3. route.ts: reset & reset_capital bắt lỗi corrupt → 503 {error:"db_corrupt",
+   message:hint} thay vì 500 trần; helper client resetAutoCapital ưu tiên
+   hiện `message` → toast UI đọc được hướng dẫn sửa thay vì "HTTP 500".
+
+KIỂM THỬ: test-db-hardening 13/13 PASS (mới) · test-audit-book 33/33 ·
+test-ev-gate 12/12 · tsc --noEmit PASS · build PASS.

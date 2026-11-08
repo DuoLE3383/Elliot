@@ -22,6 +22,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { isCorruptDbError, corruptDbHint } from "@/lib/db-hardening";
 import { readAutoState, readOpenPosition, readWallet, serialize } from "@/lib/autostate";
 import { feeRoe } from "@/lib/autotrade";
 import { autopsyClosedTrade } from "@/lib/autopsy";
@@ -34,6 +35,14 @@ const num = (v: unknown, lo: number, hi: number, fb: number): number => {
   if (!Number.isFinite(n)) return fb;
   return Math.min(hi, Math.max(lo, n));
 };
+
+// 0.2.92 — DB hỏng (SQLITE_CORRUPT) không còn 500 trần: trả 503 + hint đầy đủ,
+// UI hiện luôn hướng dẫn .recover thay vì "failed" vô nghĩa.
+const corruptDbResponse = () =>
+  NextResponse.json(
+    { ok: false, error: "db_corrupt", message: corruptDbHint() },
+    { status: 503 },
+  );
 
 export async function GET(req: NextRequest) {
   // ?part=open — dải vị thế đang mở poll mỗi 5s; chỉ 1 hàng, rẻ cho điện thoại
@@ -95,7 +104,12 @@ export async function PATCH(req: NextRequest) {
   }
 
   if (body.action === "reset") {
-    await db.autoTrade.deleteMany({});
+    try {
+      await db.autoTrade.deleteMany({});
+    } catch (e) {
+      if (isCorruptDbError(e)) return corruptDbResponse();
+      throw e;
+    }
     return NextResponse.json({ ok: true });
   }
 
@@ -111,7 +125,12 @@ export async function PATCH(req: NextRequest) {
         : num(body.capital, 1, 10_000_000, wallet.capital ?? 1000);
     const resetAt = new Date();
     const note = typeof body.note === "string" && body.note.trim() ? body.note.trim().slice(0, 60) : "api";
-    await db.$transaction([db.autoTrade.deleteMany(), db.dryRunState.upsert({ where: { id: "wallet" }, create: { id: "wallet", capital: cap, resetAt, note }, update: { capital: cap, resetAt, note } })]);
+    try {
+      await db.$transaction([db.autoTrade.deleteMany(), db.dryRunState.upsert({ where: { id: "wallet" }, create: { id: "wallet", capital: cap, resetAt, note }, update: { capital: cap, resetAt, note } })]);
+    } catch (e) {
+      if (isCorruptDbError(e)) return corruptDbResponse();
+      throw e;
+    }
     console.log(`[autotrade] reset_capital — sổ đã xoá sạch, vốn đặt về ${cap} USDT (${note})`);
     return NextResponse.json({ ok: true, capital: cap, resetAt: resetAt.toISOString() });
   }
