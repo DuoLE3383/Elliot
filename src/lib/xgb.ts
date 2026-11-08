@@ -1058,8 +1058,21 @@ export async function runXgb(
   if (!ds) throw new Error("not enough data");
 
   const split = Math.max(40, Math.floor(ds.rows.length * (1 - VAL_FRAC)));
-  const trainRows = ds.rows.slice(0, split);
-  const trainY = ds.y.slice(0, split);
+  // Purge training rows whose forward label reaches the first validation
+  // feature timestamp. Without this gap, y[i] reads close[i + horizon], which
+  // can fall inside the validation period and leak future information across
+  // the chronological boundary. ds.idx remains chronological even when the
+  // ATR noise-band filter drops individual rows.
+  const valStartIdx = ds.idx[split];
+  let trainEnd = split;
+  while (trainEnd > 0 && ds.idx[trainEnd - 1] + horizon >= valStartIdx) {
+    trainEnd--;
+  }
+  if (trainEnd < 40 || split >= ds.rows.length) {
+    throw new Error("not enough data after purging forward-label overlap");
+  }
+  const trainRows = ds.rows.slice(0, trainEnd);
+  const trainY = ds.y.slice(0, trainEnd);
   const valRows = ds.rows.slice(split);
   const valY = ds.y.slice(split);
 
