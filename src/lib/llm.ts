@@ -479,6 +479,48 @@ export function parseVerdictText(
   return { verdict, confidence, reasons: rawReasons };
 }
 
+/** (0.2.91) Ngân sách sinh token cho MỘT lần gọi verdict/propose/autopsy —
+ *  chỉnh runtime được qua pval LLM_MAX_TOKENS từ panel. Model think-mode sinh
+ *  <think> TRƯỚC khi ra JSON: log thật 0.2.90 cho thấy 400 token vẫn bị ăn hết
+ *  mà think CHƯA ĐÓNG (2 task liên tiếp dừng đúng cap → content rỗng → no-json).
+ *  1200 đủ cho think dài + JSON kết luận; model non-thinking dừng EOS sớm nên
+ *  không tốn thêm thời gian. */
+export function llmMaxTokens(): number {
+  const n = Number(pval("LLM_MAX_TOKENS", 1200));
+  return Number.isFinite(n) && n >= 200 ? Math.floor(n) : 1200;
+}
+
+/** (0.2.91) Tắt think ngay từ template phía server — llama.cpp (--jinja) nhận
+ *  field `chat_template_kwargs` của request và truyền vào Jinja template nhúng
+ *  trong GGUF; template DeepSeek/Qwen3 hỗ trợ `enable_thinking`. Build cũ hoặc
+ *  server không --jinja bỏ qua field này MỘT CÁCH VÔ HẠI. Đây là mũi nhọn chữa
+ *  gốc rễ "no-json": think tắt → model trả JSON ngay từ token đầu, không đốt
+ *  budget. Fix TRIỆT ĐỂ vẫn là chạy server với: --jinja --reasoning-budget 0 */
+export const noThinkKwargs = (): Record<string, unknown> => ({
+  chat_template_kwargs: { enable_thinking: false },
+});
+
+/** (0.2.91) Đọc text từ chat completion + fallback reasoning_content: server
+ *  --reasoning-format auto tách <think> vào reasoning_content; khi model bị cắt
+ *  giữa think, content = "" và "Raw model response" trên /ai trống trơn —
+ *  không hiểu model đang làm gì. Giờ hiển thị chính phần reasoning + gợi ý
+ *  cách tắt think. `text` dùng để PARSE (chỉ content), `raw` để HIỂN THỊ. */
+export function pickLlmText(j: {
+  choices?: { message?: { content?: string; reasoning_content?: string } }[];
+}): { text: string; raw: string } {
+  const msg = j?.choices?.[0]?.message;
+  const content = (msg?.content ?? "").trim();
+  const reasoning = (msg?.reasoning_content ?? "").trim();
+  if (content) return { text: content, raw: content };
+  if (reasoning) {
+    return {
+      text: "",
+      raw: `[think-only — model sinh ${reasoning.length} ký tự reasoning nhưng KHÔNG kịp/không ra JSON kết luận. Tắt think: chạy llama-server với --jinja --reasoning-budget 0]\n${reasoning.slice(0, 800)}${reasoning.length > 800 ? " …" : ""}`,
+    };
+  }
+  return { text: "", raw: "" };
+}
+
 /** Full result of one review attempt — for the /ai "duyệt thử" test button. */
 export interface LlmDebugResult {
   /** true = got a parsed go/skip verdict */
@@ -532,13 +574,15 @@ async function llmReviewDebugUnlocked(
         { role: "user", content: prompt },
       ],
       temperature: 0,
-      // (0.2.90) 120 token KHÔNG đủ cho model think-mode (DeepSeek V3-style sinh
-      // <think>…</think> trước JSON). Log thật 0.2.89: 828 prompt + 120 gen —
-      // dừng đúng max_tokens ("truncated = 0" = không phải hết context), phần
-      // think chưa kịp đóng nên content không còn JSON hoàn chỉnh → "no-json"
-      // 100% trên cả production. 400 token = đủ think ngắn + verdict JSON
-      // (~80 token); model non-thinking vẫn dừng EOS sớm nên không chậm thêm.
-      max_tokens: 400,
+      // (0.2.91) budget động qua LLM_MAX_TOKENS (mặc định 1200): model think-mode
+      // sinh <think>…</think> TRƯỚC JSON — log thật 0.2.90: 2 task liên tiếp đều
+      // dừng đúng cap 400 mà think chưa đóng → content rỗng → "no-json". 1200
+      // token đủ cho think dài + verdict (~80 token); model non-thinking vẫn
+      // dừng EOS sớm nên không chậm thêm.
+      max_tokens: llmMaxTokens(),
+      // (0.2.91) tắt think ngay từ template phía server (--jinja) — chữa gốc rễ;
+      // build cũ/không --jinja bỏ qua vô hại.
+      ...noThinkKwargs(),
       // Prefer plain prompt first — some llama builds HANG on json_schema
       // instead of returning 400 (was the main cause of 300s "unreachable")
       ...(withSchema
@@ -553,11 +597,13 @@ async function llmReviewDebugUnlocked(
         body: JSON.stringify(payload(withSchema)),
       });
     // Parse + fact-check + đóng gói result — dùng chung cho plain và schema retry.
-    const finish = (text: string): LlmDebugResult => {
+    // (0.2.91) tách text (parse) khỏi raw (hiển thị): content rỗng nhưng có
+    // reasoning_content → raw hiện phần think để debug thay vì trống trơn.
+    const finish = (text: string, raw: string): LlmDebugResult => {
       const ms = Date.now() - started;
       const parsed = parseVerdictText(stripThink(text));
       if ("detail" in parsed) {
-        return { ok: false, verdict: null, raw: text, detail: parsed.detail, ...base, ms };
+        return { ok: false, verdict: null, raw, detail: parsed.detail, ...base, ms };
       }
       // kiểm chéo lý do với số liệu trong setup — lý do nói bừa/trái checks bị
       // gắn cờ thay vì im lặng cho qua (verdict giữ nguyên: không tự ý lật)
@@ -565,7 +611,7 @@ async function llmReviewDebugUnlocked(
       return {
         ok: true,
         verdict: { verdict: parsed.verdict, confidence: parsed.confidence, reasons, ms },
-        raw: text,
+        raw,
         detail: "ok",
         ...base,
         ms,
@@ -579,9 +625,9 @@ async function llmReviewDebugUnlocked(
       const bodySnippet = (await res.text().catch(() => "")).slice(0, 240);
       return { ok: false, verdict: null, raw: "", detail: `http-${res.status}`, bodySnippet, ...base, ms: Date.now() - started };
     }
-    const j = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    const text = j.choices?.[0]?.message?.content ?? "";
-    const first = finish(text);
+    const j = (await res.json()) as { choices?: { message?: { content?: string; reasoning_content?: string } }[] };
+    const { text, raw } = pickLlmText(j);
+    const first = finish(text, raw);
     if (first.ok) return first;
     // plain parse fail (no-json/bad-json/bad-verdict) — thử ĐÚNG MỘT lần với
     // json_schema: grammar của llama.cpp ép JSON hợp lệ từ token đầu, cứu model
@@ -592,8 +638,9 @@ async function llmReviewDebugUnlocked(
     try {
       const res2 = await call(true);
       if (res2.ok) {
-        const j2 = (await res2.json()) as { choices?: { message?: { content?: string } }[] };
-        const second = finish(j2.choices?.[0]?.message?.content ?? "");
+        const j2 = (await res2.json()) as { choices?: { message?: { content?: string; reasoning_content?: string } }[] };
+        const r2 = pickLlmText(j2);
+        const second = finish(r2.text, r2.raw);
         if (second.ok) return second;
       }
     } catch {
@@ -670,20 +717,22 @@ export async function llmPropose(
           { role: "user", content: ctxJson },
         ],
         temperature: 0.2,
-        // (0.2.90) 220 không đủ cho model think-mode — cùng lý do llmReview
-        max_tokens: 400,
+        // (0.2.91) budget động LLM_MAX_TOKENS + tắt think từ template — cùng gốc
+        // rễ với llmReview (400 cũ vẫn bị think-mode ăn hết)
+        max_tokens: llmMaxTokens(),
+        ...noThinkKwargs(),
       }),
     });
     const ms = Date.now() - started;
     if (!res.ok) {
       return { ok: false, proposal: null, raw: "", detail: `http-${res.status}`, ms };
     }
-    const j = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    const text = j.choices?.[0]?.message?.content ?? "";
+    const j = (await res.json()) as { choices?: { message?: { content?: string; reasoning_content?: string } }[] };
+    const { text, raw } = pickLlmText(j);
     // (0.2.90) strip <think> trước khi match — model think-mode nhét reasoning
     // có dấu {} vào content khiến regex greedy bắt nhầm cặp ngoặc của think.
     const m = stripThink(text).match(/\{[\s\S]*\}/);
-    if (!m) return { ok: false, proposal: null, raw: text, detail: "no-json", ms };
+    if (!m) return { ok: false, proposal: null, raw, detail: "no-json", ms };
     const p = JSON.parse(m[0]) as Record<string, unknown>;
     const num = (k: string): number => {
       const v = Number(p[k]);
@@ -704,7 +753,7 @@ export async function llmPropose(
       smaFilter: p.smaFilter === true,
       smaPeriod: Number.isFinite(num("smaPeriod")) ? num("smaPeriod") : 200,
     };
-    return { ok: true, proposal, raw: text, detail: "ok", ms };
+    return { ok: true, proposal, raw, detail: "ok", ms };
   } catch (e) {
     const timedOut = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
     return {
@@ -726,7 +775,8 @@ export async function llmPropose(
 export interface LlmTextResult {
   ok: boolean;
   text: string;
-  /** "ok" | "timeout" | "error" | "http-<status>" | "empty" */
+  /** "ok" | "timeout" | "error" | "http-<status>" | "empty" | "think-only" (0.2.91 —
+   *  model chỉ sinh reasoning, không có bài phân tích; text kèm phần think) */
   detail: string;
   prompt: string;
   url: string;
@@ -783,6 +833,9 @@ export async function llmStatsDive(
         ],
         temperature: 0.15,
         max_tokens: 1600,
+        // (0.2.91) tắt think từ template — stats dive là bài phân tích dài, nếu
+        // model đốt 1600 token vào <think> thì content vẫn rỗng dù chờ 4 phút
+        ...noThinkKwargs(),
       }),
     });
     const ms = Date.now() - started;
@@ -790,10 +843,15 @@ export async function llmStatsDive(
       const bodySnippet = (await res.text().catch(() => "")).slice(0, 240);
       return { ok: false, text: "", detail: `http-${res.status}`, ...base, ms, ...(bodySnippet ? { bodySnippet } : {}) };
     }
-    const j = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    const text = (j.choices?.[0]?.message?.content ?? "").trim();
-    if (!text) return { ok: false, text: "", detail: "empty", ...base, ms };
-    return { ok: true, text, detail: "ok", ...base, ms };
+    const j = (await res.json()) as { choices?: { message?: { content?: string; reasoning_content?: string } }[] };
+    // (0.2.91) content rỗng nhưng có reasoning_content → trả reasoning (có nhãn)
+    // thay vì rỗng — nhận diện ngay model đang nghĩ mà chưa ra bài phân tích
+    const msg = j.choices?.[0]?.message;
+    const text = (msg?.content ?? "").trim();
+    const reasoning = (msg?.reasoning_content ?? "").trim();
+    const shown = text || (reasoning ? `[think-only — ${reasoning.length} ký tự reasoning, không có bài phân tích; tắt think: --jinja --reasoning-budget 0]\n${reasoning.slice(0, 600)}` : "");
+    if (!shown) return { ok: false, text: "", detail: "empty", ...base, ms };
+    return { ok: true, text: shown, detail: text ? "ok" : "think-only", ...base, ms };
   } catch (e) {
     const timedOut = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
     return {

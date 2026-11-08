@@ -32,7 +32,15 @@ import {
   LLM_URL_DEFAULT,
   pval,
 } from "./params";
-import { llmBaseOf, llmEnvEndpoint, llmJsonHeaders, stripThink, TF_MINUTES } from "./llm";
+import {
+  llmBaseOf,
+  llmEnvEndpoint,
+  llmJsonHeaders,
+  llmMaxTokens,
+  noThinkKwargs,
+  stripThink,
+  TF_MINUTES,
+} from "./llm";
 
 /** telegram sẵn sàng chưa — cùng công thức engine.ts (token + chat-id effective). */
 const tgReady = (): boolean => Boolean(effectiveToken().token && effectiveChatId().id);
@@ -257,10 +265,10 @@ export async function autopsyLlmCall(url: string, model: string, system: string,
       { role: "user", content: user },
     ],
     temperature: 0,
-    // (0.2.90) 260 không đủ cho model think-mode (DeepSeek V3-style sinh
-    // <think> trước JSON) — cùng gốc rễ với llmReview: dừng đúng max_tokens,
-    // JSON bị cắt cụt. 400 token = đủ think ngắn + JSON autopsy.
-    max_tokens: 400,
+    // (0.2.91) budget động LLM_MAX_TOKENS + tắt think từ template — model
+    // think-mode đốt hết budget vào <think> mà chưa đóng → JSON bị cắt
+    max_tokens: llmMaxTokens(),
+    ...noThinkKwargs(),
     ...(withSchema
       ? { response_format: { type: "json_schema", json_schema: { name: "autopsy", strict: true, schema: AUTOPSY_SCHEMA } } }
       : {}),
@@ -282,8 +290,14 @@ export async function autopsyLlmCall(url: string, model: string, system: string,
       });
     }
     if (!res.ok) return null;
-    const j = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    return { text: j.choices?.[0]?.message?.content ?? "", ms: Date.now() - started };
+    const j = (await res.json()) as { choices?: { message?: { content?: string; reasoning_content?: string } }[] };
+    // (0.2.91) content rỗng nhưng có reasoning_content → gắn nhãn think-only
+    // thay vì trả text rỗng (parse sẽ fail sạch như cũ, nhưng log/DB thấy rõ)
+    const msg = j.choices?.[0]?.message;
+    const content = (msg?.content ?? "").trim();
+    const reasoning = (msg?.reasoning_content ?? "").trim();
+    const text = content || (reasoning ? `[think-only — ${reasoning.length} ký tự reasoning, không có JSON; tắt think: --jinja --reasoning-budget 0] ${reasoning.slice(0, 300)}` : "");
+    return { text, ms: Date.now() - started };
   } catch {
     return null;
   }

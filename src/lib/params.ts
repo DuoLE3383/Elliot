@@ -479,17 +479,18 @@ export const RISK_TIER_MIN = 2;
 export const LLM_URL_DEFAULT = "http://127.0.0.8:8888";
 export const LLM_MODEL_DEFAULT = "local";
 /** Ngân sách chờ MỘT lần gọi LLM (verdict duyệt lệnh lẫn giải phẫu lệnh).
- *  Mặc định 300s — LLM chạy NỀN (llama-server khác máy/quy trình, engine chỉ
- *  chờ khi không có lệnh mở) nên tốc độ không quan trọng, chỉ cần trả lời ĐÚNG.
- *  llama 7B Q4 trên CPU mất 6-15s/verdict khi rảnh nhưng có thể chậm hơn hẳn
- *  khi máy đang bận train/scan — 90s cũ đủ dễ cắt cụt lưng câu trả lời.
+ *  Mặc định 600s (0.2.91 — tăng từ 300s theo log thật: model 9B think-mode trên
+ *  CPU chỉ ~12-13 t/s, một lượt think dài + verdict có thể ăn 2-3 phút, schema
+ *  retry nữa là gấp đôi — 300s cũ dễ cắt trước khi kịp trả lời. LLM chạy NỀN
+ *  (llama-server khác máy/quy trình, engine chỉ chờ khi không có lệnh mở) nên
+ *  chậm không sao, chỉ cần trả lời ĐÚNG.
  *  Override được bằng env LLM_TIMEOUT_MS (ms, tối thiểu 10s, tối đa 10 phút)
  *  — đổi env xong phải `pm2 restart elliott --update-env` vì standalone chỉ
- *  đọc env lúc boot. */
+ *  đọc env lúc boot; hoặc chỉnh LLM_TIMEOUT_MS ngay panel /ai (runtime). */
 export const LLM_TIMEOUT_MS = (() => {
   const n = Number(process.env.LLM_TIMEOUT_MS);
   if (Number.isFinite(n) && n >= 10_000) return Math.min(Math.floor(n), 600_000);
-  return 300_000;
+  return 600_000;
 })();
 /** Giải phẫu lệnh (autopsy) — LLM phân tích chuyên sâu lệnh ĐÃ ĐÓNG (cả thắng lẫn thua) rồi
  *  lưu bài học vào DB, nạp lại vào prompt duyệt các lệnh sau. Tắt = engine chỉ

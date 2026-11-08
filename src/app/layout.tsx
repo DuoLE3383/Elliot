@@ -64,6 +64,16 @@ export default function RootLayout({
             z-[-1] + trang để root trong suốt nên nội dung luôn đè lên nền */}
         <TechBackground />
         {children}
+        {/* 0.2.91 — build id NHÌN THẤY trên mọi trang: prebuild ghi
+            public/build-id.txt = v{version}-{git sha}-{stamp} MỖI lần build →
+            badge tự đúng bản khi deploy, hết đoán "tab đang chạy bản nào"
+            (trước đây id chỉ nằm trong meta ẩn elliott-build). */}
+        <div
+          className="fixed bottom-1 right-2 z-[70] select-none font-mono text-[9px] leading-none text-zinc-600"
+          title={`build ${BUILD_ID} — khớp /api/build-id khi server chạy cùng bản`}
+        >
+          {BUILD_ID}
+        </div>
         <BuildReload />
         <Toaster />
       </body>

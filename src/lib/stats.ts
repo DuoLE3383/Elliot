@@ -80,7 +80,7 @@ export type StatChart =
       /** cột — v có thể âm (PnL) hoặc 0..max (win rate, score) */
       kind: "bars";
       unit: string;
-      items: { label: string; v: number }[];
+      items: { label: string; v: number; /** (0.2.91) dòng chi tiết hiện trong tooltip hover TỪNG cột */ sub?: string[] }[];
       /** trần cố định trục Y (vd 100 cho win rate) — bỏ trống thì tự scale */
       max?: number;
       hint?: string;
@@ -317,9 +317,27 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
                 kind: "bars" as const,
                 unit: "%",
                 max: 100,
-                items: combos.map((c) => ({ label: `${c.symbol.replace("USDT", "")} ${c.interval}`, v: c.winRate })),
-                hint: "Win rate per pair+timeframe (top 6 by closed trades, 0–100%). Bars ≥50% are green-tinted on the page; hover a bar for the exact value.",
-                hintVi: "Win rate theo cặp+khung giờ (top 6 theo số lệnh đóng, 0–100%). Di chuột lên cột để xem giá trị chính xác.",
+                items: combos.map((c) => ({
+                  label: `${c.symbol.replace("USDT", "")} ${c.interval}`,
+                  v: c.winRate,
+                  // (0.2.91) chi tiết hover từng cột: số lệnh + ROE ròng
+                  sub: [`${c.closed} trades`, `net ${c.netPnlPct >= 0 ? "+" : ""}${c.netPnlPct.toFixed(1)}%`],
+                })),
+                hint: "Win rate per pair+timeframe (top 6 by closed trades, 0–100%). Bars ≥50% are green-tinted on the page. Hover a bar for trades count and net ROE.",
+                hintVi: "Win rate theo cặp+khung giờ (top 6 theo số lệnh đóng, 0–100%). Di chuột lên cột để xem số lệnh và ROE ròng.",
+              },
+              {
+                // (0.2.91) ROE trung bình MỖI LỆNH theo combo — WR cao mà avg
+                // âm là thắng ít nhưng lỗ to: chất lượng lệnh đằng sau WR
+                kind: "bars" as const,
+                unit: "%",
+                items: combos.map((c) => ({
+                  label: `${c.symbol.replace("USDT", "")} ${c.interval}`,
+                  v: c.closed > 0 ? c.netPnlPct / c.closed : 0,
+                  sub: [`${c.closed} trades`, `WR ${c.winRate.toFixed(0)}%`, `net tổng ${c.netPnlPct >= 0 ? "+" : ""}${c.netPnlPct.toFixed(1)}%`],
+                })),
+                hint: "Average ROE per closed trade for each pair+timeframe (net ROE sum ÷ trades) — the trade QUALITY behind the win rate: 67% WR can still lose money when losses outweigh wins. Hover a bar for trades, WR and net sum.",
+                hintVi: "ROE trung bình mỗi lệnh đã đóng theo cặp+khung (tổng ROE ròng ÷ số lệnh) — CHẤT LƯỢNG lệnh đằng sau win rate: WR 67% vẫn có thể lỗ nếu lỗ to hơn lãi. Di chuột xem số lệnh, WR và tổng net.",
               },
             ],
           }
@@ -548,7 +566,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
   // ─── 7. Auto history ──────────────────────────────────────────────────────
   const hist = await safe("hist", async () => {
     const rows = await db.autoTrade.findMany({
-      select: { status: true, exitKind: true, pnlPct: true, exitTime: true, symbol: true, interval: true },
+      select: { status: true, exitKind: true, pnlPct: true, exitTime: true, symbol: true, interval: true, side: true },
       orderBy: { createdAt: "desc" },
       take: 2000,
     });
@@ -565,10 +583,18 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     const avg = pnls.length ? pnls.reduce((a, b) => a + b, 0) / pnls.length : null;
     const last7d = closed.filter((r) => r.exitTime && now - new Date(r.exitTime).getTime() < 7 * 86_400_000).length;
     // PnL 20 lệnh đóng gần nhất (cũ → mới) — client vẽ cột xanh/đỏ
+    // (0.2.91) mỗi cột kèm chi tiết hover: phía · kiểu đóng + thời điểm
     const pnlBars = closed
       .slice(0, 20)
       .reverse()
-      .map((r) => ({ label: `${r.symbol.replace("USDT", "")} ${r.interval}`, v: r.pnlPct ?? 0 }));
+      .map((r) => ({
+        label: `${r.symbol.replace("USDT", "")} ${r.interval}`,
+        v: r.pnlPct ?? 0,
+        sub: [
+          `${r.side ?? "?"} · ${r.exitKind ?? "manual"}`,
+          r.exitTime ? new Date(r.exitTime).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "",
+        ].filter(Boolean),
+      }));
     const charts: StatChart[] = [];
     if (pnlBars.length >= 2) {
       charts.push({
@@ -591,6 +617,28 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         ],
         hint: "How closed trades ended: TP = take-profit hit (green), SL = stop-loss (red), trail = trailing stop, flip = reversed signal, manual = closed by hand. Healthy mix leans green.",
         hintVi: "Các lệnh đóng kết thúc thế nào: TP = chạm chốt lời (xanh), SL = chạm cắt lỗ (đỏ), trail = trailing stop, flip = đảo tín hiệu, manual = đóng tay. Cơ cấu lệch về xanh là healthy.",
+      });
+    }
+    // (0.2.91) win rate theo PHÍA — LONG vs SHORT lệch bền vững là tín hiệu
+    // model nghiêng sai một hướng hoặc regime bất lợi phía kia
+    const sideBars = (["LONG", "SHORT"] as const).map((side) => {
+      const rowsS = closed.filter((r) => r.side === side);
+      const winsS = rowsS.filter((r) => (r.pnlPct ?? 0) > 0).length;
+      const netS = rowsS.reduce((a, r) => a + (r.pnlPct ?? 0), 0);
+      return {
+        label: side,
+        v: rowsS.length ? (winsS / rowsS.length) * 100 : 0,
+        sub: [`${winsS}/${rowsS.length} trades`, `net ${netS >= 0 ? "+" : ""}${netS.toFixed(1)}%`],
+      };
+    });
+    if (closed.length > 0) {
+      charts.push({
+        kind: "bars",
+        unit: "%",
+        max: 100,
+        items: sideBars,
+        hint: "Win rate by side (LONG vs SHORT, win = ROE > 0). A persistent gap means the model leans wrong on one direction or the regime favours the other side. Hover for wins/closed and net ROE.",
+        hintVi: "Win rate theo phía (LONG so với SHORT, thắng = ROE > 0). Lệch bền vững nghĩa là model nghiêng sai một hướng hoặc regime bất lợi phía kia. Di chuột xem thắng/tổng và ROE ròng.",
       });
     }
     return {
@@ -638,6 +686,18 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         ? res.filter((r) => r.outcome !== "flat" && r.pnlPct != null).reduce((a, r) => a + (r.pnlPct ?? 0), 0) /
           res.filter((r) => r.outcome !== "flat" && r.pnlPct != null).length
         : null;
+    // (0.2.91) hit-rate theo bias — chỉ tính sides nào CÓ lệnh đã chấm (ex-flat)
+    const biasBars = (["LONG", "SHORT"] as const)
+      .map((b) => {
+        const rowsB = res.filter((r) => r.bias === b && r.outcome !== "flat");
+        const wB = rowsB.filter((r) => r.outcome === "win").length;
+        return {
+          label: b,
+          v: rowsB.length ? (wB / rowsB.length) * 100 : 0,
+          sub: [`${wB}/${rowsB.length} judged (ex-flat)`],
+        };
+      })
+      .filter((x) => x.sub[0] !== "0/0 judged (ex-flat)");
     return {
       state: (mismatch === 0 ? "ok" : "warn") as StatState,
       note:
@@ -660,6 +720,20 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
                 hint: "Outcome mix of resolved suggestions: win = price moved with the bias side (green), loss = against (red), flat = inside the dead zone (gray, excluded from hit-rate).",
                 hintVi: "Kết quả các đề xuất đã chấm: win = giá đi đúng phía bias (xanh), loss = ngược phía (đỏ), flat = trong vùng chết (xám, loại khỏi hit-rate).",
               },
+              // (0.2.91) hit-rate theo bias LONG/SHORT — lệch hai phía cho biết
+              // model tốt hơn ở hướng nào
+              ...(biasBars.length > 0
+                ? [
+                    {
+                      kind: "bars" as const,
+                      unit: "%",
+                      max: 100,
+                      items: biasBars,
+                      hint: "Side-aware hit-rate by bias (win / (win+loss), ex-flat): LONG vs SHORT. A gap shows which direction the model reads better — trade confidence should follow. Hover for the judged counts.",
+                      hintVi: "Hit-rate theo phía bias (win / (win+loss), loại flat): LONG so với SHORT. Lệch cho biết model đọc đúng hướng nào hơn — độ tin nên theo phía đó. Di chuột xem số lệnh đã chấm.",
+                    },
+                  ]
+                : []),
             ],
           }
         : {}),
