@@ -1,0 +1,42 @@
+0.2.88 — VÁ BUG ĐẢO DẤU THANH LÝ PHÍA SHORT TRONG AUDIT-BOOK
+
+"tôi muốn bạn xem lại các lệnh dryrun đã đóng tôi nghi đã bị lỗi"
+
+Tự kiểm script đối soát (self-test trên ca đối xứng) phát hiện
+expectedPnlPctOf (0.2.87) ĐẢO DẤU điều kiện thanh lý phía SHORT:
+
+  const adverse = side === "SHORT" ? -movePct : movePct;
+  if (lev > 1 && adverse <= -(100 / lev)) pnl = -100;
+
+`adverse` cho SHORT là −movePct nên điều kiện `<= −(100/lev)` bắn vào lệnh
+SHORT THẮNG lớn (move ≥ 100/lev %) thay vì lệnh THUA đến hạn thanh lý —
+SHORT ×5 thắng ≥20% giá, ×10 thắng ≥10% giá bị ghi −100 liều mạng, trong
+khi lệnh thua thanh lý chỉ đúng nhờ mũ chặn pnl < −100 (đi đường vòng).
+
+Hậu quả tiềm tàng: đường PATCH audit/repair (duy nhất dùng hàm này — engine
+chốt lệnh vẫn đi qua liquidationHit() đúng toán) có thể ép −100 vào lệnh
+SHORT thắng lớn trong lần repair kế tiếp.
+
+VÁ: bỏ biến adverse, dùng thẳng movePct ≤ −(100/lev) — một nguồn với
+liquidationHit() của engine. Kiểm chứng trên 6 ca hồi quy mới chốt đủ 4 góc
+LONG/SHORT × thắng/thua ở đúng ranh giới 100/lev %:
+
+  • SHORT thắng 20% giá ×5  → +99.5 (trước vá: −100 ❌)
+  • SHORT thắng 10% giá ×10 → +99   (trước vá: −100 ❌)
+  • SHORT thắng 25% giá ×5  → +124.5 (thắng >100% ROE là hợp lệ)
+  • LONG thắng 20% giá ×5   → +99.5 (đối xứng giữ nguyên)
+  • SHORT thua 20% giá ×5   → −100 (đúng ranh giới thanh lý)
+  • LONG  thua 20% giá ×5   → −100 (đúng ranh giới thanh lý)
+
+Sổ production 31 lệnh đã repair lúc 08/11 không hứng thiệt hại: mọi lệch
+trước vá đều −2 ROE (phí round-trip), không dòng nào rơi vào nhánh đảo dấu
+(diff sẽ là hàng trăm nếu rơi) — nhưng BUG CÒN NẰM VÀO cần vá trước khi có
+lệnh SHORT thắng lớn xuất hiện trong sổ.
+
+Kèm theo: scripts/audit-live.py — script đối soát độc lập chạy ngay trên
+VPS (python3 stdlib, không cần cài gì): đọc JSON /api/autotrade, tính lại
+ROE từng dòng + chuỗi vốn + thống kê theo phía + top lỗ + lệnh mở + lệnh
+sinh sau repair. Chạy: python3 scripts/audit-live.py
+
+KIỂM THỬ: test-audit-book 33/33 PASS (thêm 6 ca hồi quy 0.2.88); tsc
+--noEmit PASS; npm run build PASS; standalone smoke PATCH audit PASS.
