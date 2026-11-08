@@ -32,7 +32,7 @@ import {
   LLM_URL_DEFAULT,
   pval,
 } from "./params";
-import { llmBaseOf, llmEnvEndpoint, llmJsonHeaders, TF_MINUTES } from "./llm";
+import { llmBaseOf, llmEnvEndpoint, llmJsonHeaders, stripThink, TF_MINUTES } from "./llm";
 
 /** telegram sẵn sàng chưa — cùng công thức engine.ts (token + chat-id effective). */
 const tgReady = (): boolean => Boolean(effectiveToken().token && effectiveChatId().id);
@@ -257,7 +257,10 @@ export async function autopsyLlmCall(url: string, model: string, system: string,
       { role: "user", content: user },
     ],
     temperature: 0,
-    max_tokens: 260,
+    // (0.2.90) 260 không đủ cho model think-mode (DeepSeek V3-style sinh
+    // <think> trước JSON) — cùng gốc rễ với llmReview: dừng đúng max_tokens,
+    // JSON bị cắt cụt. 400 token = đủ think ngắn + JSON autopsy.
+    max_tokens: 400,
     ...(withSchema
       ? { response_format: { type: "json_schema", json_schema: { name: "autopsy", strict: true, schema: AUTOPSY_SCHEMA } } }
       : {}),
@@ -286,9 +289,11 @@ export async function autopsyLlmCall(url: string, model: string, system: string,
   }
 }
 
-/** Regex + JSON.parse + sanitize một phản hồi llama — export cho test. */
+/** Regex + JSON.parse + sanitize một phản hồi llama — export cho test.
+ *  (0.2.90) strip <think> trước khi match — model think-mode nhét reasoning
+ *  có dấu {} vào content khiến regex greedy bắt nhầm cặp ngoặc của think. */
 export function parseAutopsyText(text: string, model: string, ms: number, input: AutopsyTradeInput, ev: AutopsyEvidence): AutopsyJson | null {
-  const m = text.match(/\{[\s\S]*\}/);
+  const m = stripThink(text).match(/\{[\s\S]*\}/);
   let parsed: unknown = null;
   try {
     parsed = m ? JSON.parse(m[0]) : null;

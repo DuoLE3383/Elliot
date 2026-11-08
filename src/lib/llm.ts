@@ -438,6 +438,47 @@ export function factCheckReasons(reasons: string[], s: LlmSetup, verdict: "go" |
   });
 }
 
+/** Bỏ khối suy nghĩ <think>…</think> của model think-mode (DeepSeek V3-style
+ *  sinh <think> trước khi trả lời — build 9B hiện tại dùng llama-server cũng
+ *  vậy). Server với --reasoning-format auto thường đã tách sang
+ *  reasoning_content, nhưng client tự strip để chắc chắn với mọi build — kể cả
+ *  think KHÔNG ĐÓNG (response bị cắt cụt): từ <think> trở đi là reasoning,
+ *  không thể chứa JSON kết luận. Export cho test. */
+export function stripThink(text: string): string {
+  // think đóng đủ — bỏ nguyên khối
+  let out = text.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  // think không đóng (cắt cụt giữa chừng) — từ <think> tới hết chuỗi
+  out = out.replace(/<think>[\s\S]*$/i, "");
+  return out;
+}
+
+/** Parse text llama thành verdict go/skip. Tách riêng "bad-json" (có {...}
+ *  nhưng JSON.parse hỏng — trước 0.2.90 rơi vào catch-all nên hiển thị sai là
+ *  "error") khỏi "no-json" (không có JSON hoàn chỉnh trong text) khỏi
+ *  "bad-verdict" (JSON hợp lệ nhưng verdict lạ). Export cho test. */
+export function parseVerdictText(
+  text: string,
+): { verdict: "go" | "skip"; confidence: number; reasons: string[] } | { detail: "no-json" | "bad-json" | "bad-verdict" } {
+  const m = text.match(/\{[\s\S]*\}/);
+  if (!m) return { detail: "no-json" };
+  let parsed: { verdict?: unknown; confidence?: unknown; reasons?: unknown };
+  try {
+    parsed = JSON.parse(m[0]);
+  } catch {
+    return { detail: "bad-json" };
+  }
+  const verdict = parsed.verdict === "skip" ? "skip" : parsed.verdict === "go" ? "go" : null;
+  if (!verdict) return { detail: "bad-verdict" };
+  const rawReasons = Array.isArray(parsed.reasons)
+    ? parsed.reasons
+        .filter((x): x is string => typeof x === "string")
+        .slice(0, 3)
+        .map((x) => x.slice(0, 120))
+    : [];
+  const confidence = typeof parsed.confidence === "number" ? Math.min(1, Math.max(0, parsed.confidence)) : 0.5;
+  return { verdict, confidence, reasons: rawReasons };
+}
+
 /** Full result of one review attempt — for the /ai "duyệt thử" test button. */
 export interface LlmDebugResult {
   /** true = got a parsed go/skip verdict */
@@ -491,63 +532,74 @@ async function llmReviewDebugUnlocked(
         { role: "user", content: prompt },
       ],
       temperature: 0,
-      max_tokens: 120,
+      // (0.2.90) 120 token KHÔNG đủ cho model think-mode (DeepSeek V3-style sinh
+      // <think>…</think> trước JSON). Log thật 0.2.89: 828 prompt + 120 gen —
+      // dừng đúng max_tokens ("truncated = 0" = không phải hết context), phần
+      // think chưa kịp đóng nên content không còn JSON hoàn chỉnh → "no-json"
+      // 100% trên cả production. 400 token = đủ think ngắn + verdict JSON
+      // (~80 token); model non-thinking vẫn dừng EOS sớm nên không chậm thêm.
+      max_tokens: 400,
       // Prefer plain prompt first — some llama builds HANG on json_schema
       // instead of returning 400 (was the main cause of 300s "unreachable")
       ...(withSchema
         ? { response_format: { type: "json_schema", json_schema: { name: "verdict", strict: true, schema: VERDICT_SCHEMA } } }
         : {}),
     });
-    // Plain JSON first (fast path). Schema only as optional second try if parse fails.
-    let res = await fetch(`${baseOf(url)}/v1/chat/completions`, {
-      method: "POST",
-      headers: jsonHeaders(),
-      signal: AbortSignal.timeout(timeoutMs),
-      body: JSON.stringify(payload(false)),
-    });
-    if (!res.ok && res.status !== 400) {
-      // keep res for error handling below
-    } else if (res.ok) {
-      // ok — handled below
-    } else {
-      // 400 on plain is rare; still try once more without extras
-      res = await fetch(`${baseOf(url)}/v1/chat/completions`, {
+    const call = (withSchema: boolean) =>
+      fetch(`${baseOf(url)}/v1/chat/completions`, {
         method: "POST",
         headers: jsonHeaders(),
         signal: AbortSignal.timeout(timeoutMs),
-        body: JSON.stringify(payload(false)),
+        body: JSON.stringify(payload(withSchema)),
       });
-    }
-    const ms = Date.now() - started;
+    // Parse + fact-check + đóng gói result — dùng chung cho plain và schema retry.
+    const finish = (text: string): LlmDebugResult => {
+      const ms = Date.now() - started;
+      const parsed = parseVerdictText(stripThink(text));
+      if ("detail" in parsed) {
+        return { ok: false, verdict: null, raw: text, detail: parsed.detail, ...base, ms };
+      }
+      // kiểm chéo lý do với số liệu trong setup — lý do nói bừa/trái checks bị
+      // gắn cờ thay vì im lặng cho qua (verdict giữ nguyên: không tự ý lật)
+      const reasons = factCheckReasons(parsed.reasons, s, parsed.verdict);
+      return {
+        ok: true,
+        verdict: { verdict: parsed.verdict, confidence: parsed.confidence, reasons, ms },
+        raw: text,
+        detail: "ok",
+        ...base,
+        ms,
+      };
+    };
+    // Plain first (fast path). Trước 0.2.90 nhánh 400 gửi lại payload GIỐNG HỆT
+    // (payload(false) × 2 — gọi hai lần vô ích); giờ 400 thì thử schema ngay.
+    let res = await call(false);
+    if (res.status === 400) res = await call(true);
     if (!res.ok) {
       const bodySnippet = (await res.text().catch(() => "")).slice(0, 240);
-      return { ok: false, verdict: null, raw: "", detail: `http-${res.status}`, bodySnippet, ...base, ms };
+      return { ok: false, verdict: null, raw: "", detail: `http-${res.status}`, bodySnippet, ...base, ms: Date.now() - started };
     }
     const j = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const text = j.choices?.[0]?.message?.content ?? "";
-    const m = text.match(/\{[\s\S]*\}/);
-    if (!m) return { ok: false, verdict: null, raw: text, detail: "no-json", ...base, ms };
-    const parsed = JSON.parse(m[0]) as { verdict?: unknown; confidence?: unknown; reasons?: unknown };
-    const verdict = parsed.verdict === "skip" ? "skip" : parsed.verdict === "go" ? "go" : null;
-    if (!verdict) return { ok: false, verdict: null, raw: text, detail: "bad-verdict", ...base, ms };
-    const rawReasons = Array.isArray(parsed.reasons)
-      ? parsed.reasons
-          .filter((x): x is string => typeof x === "string")
-          .slice(0, 3)
-          .map((x) => x.slice(0, 120))
-      : [];
-    // kiểm chéo lý do với số liệu trong setup — lý do nói bừa/trái checks bị
-    // gắn cờ thay vì im lặng cho qua (verdict giữ nguyên: không tự ý lật)
-    const reasons = factCheckReasons(rawReasons, s, verdict);
-    const confidence = typeof parsed.confidence === "number" ? Math.min(1, Math.max(0, parsed.confidence)) : 0.5;
-    return {
-      ok: true,
-      verdict: { verdict, confidence, reasons, ms },
-      raw: text,
-      detail: "ok",
-      ...base,
-      ms,
-    };
+    const first = finish(text);
+    if (first.ok) return first;
+    // plain parse fail (no-json/bad-json/bad-verdict) — thử ĐÚNG MỘT lần với
+    // json_schema: grammar của llama.cpp ép JSON hợp lệ từ token đầu, cứu model
+    // think-mode mà không cần đụng server. Timeout vẫn bọc trong timeoutMs;
+    // chết thì fail-open với detail của lần 1 (như cũ).
+    // (Trước 0.2.90: payload(true) là DEAD CODE — comment hứa "second try" nhưng
+    // không có lần thử nào được gọi, schema chỉ nằm trên giấy.)
+    try {
+      const res2 = await call(true);
+      if (res2.ok) {
+        const j2 = (await res2.json()) as { choices?: { message?: { content?: string } }[] };
+        const second = finish(j2.choices?.[0]?.message?.content ?? "");
+        if (second.ok) return second;
+      }
+    } catch {
+      // schema retry chết (timeout/build cũ treo grammar) → giữ result lần 1
+    }
+    return first;
   } catch (e) {
     const timedOut = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
     return {
@@ -618,7 +670,8 @@ export async function llmPropose(
           { role: "user", content: ctxJson },
         ],
         temperature: 0.2,
-        max_tokens: 220,
+        // (0.2.90) 220 không đủ cho model think-mode — cùng lý do llmReview
+        max_tokens: 400,
       }),
     });
     const ms = Date.now() - started;
@@ -627,7 +680,9 @@ export async function llmPropose(
     }
     const j = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const text = j.choices?.[0]?.message?.content ?? "";
-    const m = text.match(/\{[\s\S]*\}/);
+    // (0.2.90) strip <think> trước khi match — model think-mode nhét reasoning
+    // có dấu {} vào content khiến regex greedy bắt nhầm cặp ngoặc của think.
+    const m = stripThink(text).match(/\{[\s\S]*\}/);
     if (!m) return { ok: false, proposal: null, raw: text, detail: "no-json", ms };
     const p = JSON.parse(m[0]) as Record<string, unknown>;
     const num = (k: string): number => {
