@@ -1,0 +1,36 @@
+0.2.93 — ENGINE A VULCAN/DONCHIANBREAKOUT: SỔ DRY-RUN RIÊNG, SONG SONG SỔ B
+
+Triển khai kiến trúc A/B đã thống nhất: chiến lược VulcanTrader (repo
+thuonghoi3-stack/VulcanTrader — Freqtrade fork) làm CHIẾN LƯỢC A, engine
+Elliott hiện tại làm B. Hai sổ độc lập hoàn toàn, so head-to-head ở /arena
+(bản 0.3.0).
+
+1. src/lib/vulcan.ts (MỚI) — port TS đầy đủ DonchianBreakout: RSI/ATR Wilder
+   khớp Rust bridge gốc, Donchian 20 band shift(1), lọc volume ≥1.5×MA20,
+   ROI ladder 8/5/3/1% theo phút, ATR stop ×2 (cap −5% giá), trailing 2→1%,
+   lev 5. Hai lớp chống ồn khai báo rõ: cooldownBars=3 (nghỉ sau MỌI thoát)
+   + minHoldBars=2 (chặn rsi_exit nổ ngay lúc breakout). Smoke test trên
+   klines thật 5 symbol × 10.4 ngày: 158 lệnh, payoff 1.5–1.8 (TB thắng
+   gấp 1.5–1.8 lần TB thua — cấu trúc rủi ro lành hơn hẳn sổ B payoff 0.48).
+
+2. prisma/schema.prisma + db.ts bootstrap: bảng VulcanBook (sổ A) —
+   symbol/side/entry/stopPrice/peak/trailArmed + exit set + capitalBefore/
+   After. Tách bảng để hai engine KHÔNG BAO GIỜ đụng chuỗi vốn của nhau;
+   bootstrap tự tạo bảng lúc boot (giống mọi model khác).
+
+3. src/lib/vulcan-engine.ts (MỚI) — engine sổ A: bám mốc nến 15m đóng
+   (+15s), quét 5 symbol (BTC/ETH/SOL/DOGE/XLM), MỘT vị thế toàn cục giữ
+   chuỗi vốn tuyến tính (rà sổ được), vốn xuất phát = vốn ví DryRunState
+   (cùng mốc với B để so công bằng), stake 10%/lệnh, ROE = move×5 −
+   feeRoe(5) đồng nhất công thức sổ B. decideVulcanLive() là hàm THUẦN
+   (stop → trailing → ROI ladder → tín hiệu thoát) — restart pm2 an toàn
+   (stop/peak/trailArmed lưu DB, tick sau tự nhận lại vị thế dở).
+   VULCAN_A=0 tắt engine A nếu cần.
+
+4. engine.ts: startVulcanEngine() vào nhịp boot. route.ts: reset &
+   reset_capital giờ xoá CẢ HAI sổ (AutoTrade + VulcanBook) — nút
+   "Wipe & reset" = về trắng cho toàn bộ arena; vốn mới áp cho cả hai.
+
+KIỂM THỬ: test-vulcan-engine 18/18 PASS (mở/stop gap/ROI ladder/trailing/
+minHoldBars/SHORT) · test-db-hardening 13/13 · test-audit-book 33/33 ·
+test-ev-gate 12/12 · tsc --noEmit PASS · build PASS.

@@ -54,6 +54,11 @@ const SCHEMA_SQL: string[] = [
   // 0.2.86 — ví vốn dry-run (một dòng id "wallet"): vốn sau lần reset gần nhất,
   // sống qua pm2 restart; readAutoState dùng làm fallback khi sổ lệnh trống
   `CREATE TABLE IF NOT EXISTS "DryRunState" ("id" TEXT NOT NULL PRIMARY KEY, "capital" REAL NOT NULL, "resetAt" DATETIME NOT NULL, "note" TEXT NOT NULL DEFAULT '')`,
+  // 0.2.93 — sổ dry-run CHIẾN LƯỢC A (Vulcan/DonchianBreakout port) — tách bảng
+  // khỏi AutoTrade (sổ B) để hai engine không đụng chuỗi vốn của nhau
+  `CREATE TABLE IF NOT EXISTS "VulcanBook" ("id" TEXT NOT NULL PRIMARY KEY, "symbol" TEXT NOT NULL, "side" TEXT NOT NULL, "entryPrice" REAL NOT NULL, "entryTime" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "status" TEXT NOT NULL DEFAULT 'open', "stopPrice" REAL NOT NULL, "peak" REAL NOT NULL DEFAULT 0, "trailArmed" BOOLEAN NOT NULL DEFAULT false, "exitPrice" REAL, "exitTime" DATETIME, "exitKind" TEXT, "movePct" REAL, "roePct" REAL, "capitalBefore" REAL, "capitalAfter" REAL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+  `CREATE INDEX IF NOT EXISTS "VulcanBook_symbol_status_idx" ON "VulcanBook"("symbol", "status")`,
+  `CREATE INDEX IF NOT EXISTS "VulcanBook_status_entryTime_idx" ON "VulcanBook"("status", "entryTime")`,
 ];
 
 // ─── Thêm cột cho DB ĐÃ TỒN TẠI (0.2.28 autopsy) ────────────────────────────
@@ -71,7 +76,7 @@ const SCHEMA_COLUMNS: { table: string; column: string; ddl: string }[] = [
   { table: "AutoTrade", column: "autopsy", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "autopsy" TEXT` },
   { table: "AutoTrade", column: "methodId", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "methodId" TEXT` },
 ];
-const MODEL_TABLES = ["User", "Post", "Suggestion", "FinetuneRun", "AutoTrade", "BcastVerdict", "SignalTotal", "DiveReport", "StrategyVariant", "ImproveEvent", "EvolveLog", "DryRunState"];
+const MODEL_TABLES = ["User", "Post", "Suggestion", "FinetuneRun", "AutoTrade", "BcastVerdict", "SignalTotal", "DiveReport", "StrategyVariant", "ImproveEvent", "EvolveLog", "DryRunState", "VulcanBook"];
 /** exported for the /api health diagnostic */
 export { MODEL_TABLES };
 

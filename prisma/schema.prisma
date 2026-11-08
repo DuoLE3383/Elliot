@@ -248,6 +248,13 @@ model ImproveEvent {
 // hiệu quả trên lệnh giấy THẬT (AutoTrade đóng sau thời điểm áp) → tự hoàn tác
 // nếu tệ hơn mốc. Mỗi quyết định 1 dòng: promote (áp) / keep (không đạt biên)
 // / confirm (qua theo dõi) / revert (hoàn tác) / error.
+// ─── Evolve log — nhật ký vòng "tự tiến hoá" (0.2.54) ────────────────────────
+// Vòng khép kín trên nền Strategy Lab: sinh ứng viên từ dữ liệu đang tích hợp
+// (feature importance của champion + grid) và đề xuất LLM → backtest đúng
+// thuật toán engine trên nến thật → áp kẻ thắng vào settings engine → theo dõi
+// hiệu quả trên lệnh giấy THẬT (AutoTrade đóng sau thời điểm áp) → tự hoàn tác
+// nếu tệ hơn mốc. Mỗi quyết định 1 dòng: promote (áp) / keep (không đạt biên)
+// / confirm (qua theo dõi) / revert (hoàn tác) / error.
 model EvolveLog {
   id        String   @id @default(cuid())
   combo     String // "BTCUSDT 15m" — combo đại diện dùng cho backtest
@@ -260,4 +267,30 @@ model EvolveLog {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// ─── Vulcan book — sổ dry-run CHIẾN LƯỢC A (0.2.93) ──────────────────────────
+// Port DonchianBreakout (VulcanTrader) — tách bảng khỏi AutoTrade (sổ B)
+// để hai engine không bao giờ đụng chuỗi vốn của nhau; /arena đọc cả hai.
+model VulcanBook {
+  id            String    @id @default(cuid())
+  symbol        String
+  side          String // LONG | SHORT
+  entryPrice    Float
+  entryTime     DateTime  @default(now())
+  status        String    @default("open") // open | closed
+  stopPrice     Float // ATR×2 neo tại entry, trailing có thể siết
+  peak          Float     @default(0) // đỉnh tốt nhất (trailing)
+  trailArmed    Boolean   @default(false)
+  exitPrice     Float?
+  exitTime      DateTime?
+  exitKind      String? // sl | roi_8pct | roi_5pct | roi_3pct | roi_1pct | rsi_exit | mid_exit
+  movePct       Float?
+  roePct        Float?
+  capitalBefore Float?
+  capitalAfter  Float?
+  createdAt     DateTime  @default(now())
+
+  @@index([symbol, status])
+  @@index([status, entryTime])
 }

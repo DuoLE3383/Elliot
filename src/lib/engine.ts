@@ -72,6 +72,7 @@ import { llmReview, resolveLlmEndpoint, type LlmVerdict } from "./llm";
 import { methodIdOf, methodSnapshot } from "./method";
 import { runAgentTick } from "./self-improve";
 import { fetchKlinesDirect, fetchBoard24h } from "./klines-direct";
+import { startVulcanEngine } from "./vulcan-engine";
 import { XgbPoolNode, xgbPoolAvailable, xgbPoolSize } from "./xgb-pool-node";
 import { labCfgOf, maybeAutoLab } from "./strategy-lab";
 import { evolveInfo, evolveRound, evolveWatch, type EvolveBridge } from "./evolve";
@@ -2152,4 +2153,12 @@ export function startEngineScheduler(): void {
   evIv.unref?.();
   const evWatchIv = setInterval(() => void runEvolveWatchNow(), 30 * 60_000);
   evWatchIv.unref?.();
+
+  // 0.2.93 — sổ A (Vulcan/DonchianBreakout port): engine riêng bảng VulcanBook,
+  // bám nến 15m, KHÔNG đụng chuỗi vốn sổ B. VULCAN_A=0 để tắt.
+  try {
+    startVulcanEngine();
+  } catch (e) {
+    console.error(`[vulcan] không khởi động được: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }

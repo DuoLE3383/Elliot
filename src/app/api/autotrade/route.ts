@@ -105,7 +105,7 @@ export async function PATCH(req: NextRequest) {
 
   if (body.action === "reset") {
     try {
-      await db.autoTrade.deleteMany({});
+      await db.$transaction([db.autoTrade.deleteMany({}), db.vulcanBook.deleteMany({})]);
     } catch (e) {
       if (isCorruptDbError(e)) return corruptDbResponse();
       throw e;
@@ -126,7 +126,13 @@ export async function PATCH(req: NextRequest) {
     const resetAt = new Date();
     const note = typeof body.note === "string" && body.note.trim() ? body.note.trim().slice(0, 60) : "api";
     try {
-      await db.$transaction([db.autoTrade.deleteMany(), db.dryRunState.upsert({ where: { id: "wallet" }, create: { id: "wallet", capital: cap, resetAt, note }, update: { capital: cap, resetAt, note } })]);
+      // 0.2.93 — wipe/factory xoá CẢ hai sổ (B: AutoTrade, A: VulcanBook) —
+      // nút "Wipe & reset" nghĩa là về lại trắng từ đầu cho toàn bộ arena
+      await db.$transaction([
+        db.autoTrade.deleteMany(),
+        db.vulcanBook.deleteMany(),
+        db.dryRunState.upsert({ where: { id: "wallet" }, create: { id: "wallet", capital: cap, resetAt, note }, update: { capital: cap, resetAt, note } }),
+      ]);
     } catch (e) {
       if (isCorruptDbError(e)) return corruptDbResponse();
       throw e;
