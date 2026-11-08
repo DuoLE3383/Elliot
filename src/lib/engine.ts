@@ -1332,6 +1332,7 @@ async function cycleTick(): Promise<void> {
       c.whaleFilter,
       pval("NOISE_BAND", NOISE_BAND),
       c.minScore,
+      p.leverage, // EV gate (0.2.89) — dùng đòn bẩy thật của lệnh kế
     );
     // walk the ranked candidates: regressed/cooldown-blocked combos are skipped,
     // then the chase guard rejects same-side re-entries until price has reversed

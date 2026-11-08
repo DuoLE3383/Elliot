@@ -173,6 +173,24 @@ export const TP_LEV_REF = 10;
  *  giữ nguyên R:R. */
 export const TP_LIQ_SAFE = 60;
 
+// ── 4b2 · EV GATE + TRẦN LỖ ROE (0.2.89) — từ audit sổ 08/11 (33 lệnh sạch) ──
+// Sổ sạch (sau vá 0.2.88) cho thấy lỗ KHÔNG nằm ở toán nữa mà nằm ở cấu trúc:
+// • LONG payoff 0.48 — TB thắng +8.49 ROE vs TB thua −17.76: TP hẹp hơn SL
+//   ~2.2 lần với WR 47% là kỳ vọng âm chắc chắn mỗi lệnh ~−5.4 ROE;
+// • top 5 lỗ nặng nhất đều đòn ×20 — OP −60 ROE vẫn hợp lệ theo mui
+//   TP_LIQ_SAFE=60 (SL 2.9% giá × 20). RISK_MAX_STAKE đã chặn stake, nhưng
+//   ROE-at-SL thì chưa có trần riêng.
+// Hai knob đối xứng với tầng 4e — cả hai giữ nguyên R:R và chỉnh runtime:
+/** TRẦN LỖ ROE/LỆNH — ROE-at-SL (slPct × lev) không vượt trần; vượt thì co
+ *  SL+TP cùng hệ số (giữ R:R, kiểu mui thanh khoản). 20 = lệnh ×20 không đặt
+ *  SL ngoài 1% giá. 0 = tắt. */
+export const SL_ROE_MAX = 20;
+/** EV GATE — kỳ vọng ROE tối thiểu tại lối vào tính từ prob/tp/sl CỦA CHÍNH
+ *  candidate: p×tp×lev − (1−p)×sl×lev − phí round-trip. Lệnh cấu trúc âm
+ *  (TP mỏng + SL dày + prob không gánh nổi) chết ở cổng, không đợi sổ phán.
+ *  ≤ −100 = tắt. */
+export const EV_GATE_MIN = 0;
+
 // ── 4c2 · PHÍ GIAO DỊCH TRONG ROE (0.2.77) ──────────────────────────────────
 // "add fees in trade for calculator ROE" — ROE của lệnh dry-run trước nay là
 // GROSS (biến động giá × đòn bẩy) nên mọi thống kê tự hoa mắt: flip −1.4%/lệnh

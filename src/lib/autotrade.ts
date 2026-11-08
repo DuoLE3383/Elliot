@@ -25,10 +25,13 @@ import {
   REGRESS_EPS,
   SIBLING_DISCOUNT,
   SHORT_PROB_MIN,
+  SL_ROE_MAX,
+  EV_GATE_MIN,
   TP_LEV_MODE,
   TP_LEV_REF,
   TP_LIQ_SAFE,
   clampStake,
+  feeRoe,
   pval,
 } from "./params";
 
@@ -342,6 +345,8 @@ export function bestTradeableAvoid(
   noiseBand = pval("NOISE_BAND", NOISE_BAND),
   /** ngưỡng điểm của cùng bộ setpoint chung — 0 = không chấm điểm */
   minScore = 0,
+  /** đòn bẩy cấu hình cho EV gate (0.2.89) — 0 = tắt gate (test cũ dùng 0) */
+  lev = 0,
 ): { best: ScanRow | null; allInCooldown: boolean; cands: ScanRow[]; regressedCount: number } {
   // whaleFilter (default on) skips combos whose last closed candle is a full
   // whale bar (≥4σ volume) — entries opened into those get wicked out.
@@ -354,6 +359,20 @@ export function bestTradeableAvoid(
   // chứng minh SHORT "vừa đủ gate" là phần thua lớn nhất — LONG giữ nguyên
   // noise band. Chỉ áp vào-lệnh-thường; flip có FLIP_PROB_MIN riêng đã chặt hơn.
   const shortMin = pval("SHORT_PROB_MIN", SHORT_PROB_MIN);
+  // 0.2.89 — EV GATE: kỳ vọng ROE của chính candidate (prob/tp/sl của nó ×
+  // đòn bẩy cấu hình − phí round-trip) phải ≥ EV_GATE_MIN. Lệnh cấu trúc âm
+  // chết ở cổng thay vì đợi sổ phán — audit 08/11: LONG payoff 0.48 với prob
+  // "tự tin" 0.72–0.79 vẫn thua ⇒ prob không bảo vệ được lệnh EV âm. Lưu ý:
+  // dùng sl/tp dòng scan (train-time); mode "dyn" thay mức live lúc vào nên
+  // gate là xấp xỉ — chấp nhận được vì cùng gốc ATR. lev ≤ 0 hoặc knob
+  // ≤ −100 → tắt (tương thích cũ, test cũ không đổi).
+  const evMin = pval("EV_GATE_MIN", EV_GATE_MIN);
+  // prob của ScanRow là xác suất chiều LÊN (P_UP): LONG thắng với prob, SHORT
+  // thắng với 1−prob — gate phải dùng xác suất thắng của chính phía lệnh.
+  const evOf = (r: ScanRow, lev: number): number => {
+    const pWin = r.bias === "SHORT" ? 1 - r.prob : r.prob;
+    return pWin * r.tpPct * lev - (1 - pWin) * r.slPct * lev - feeRoe(lev);
+  };
   const cands = rankRows(
     rows.filter(
       (r) =>
@@ -361,7 +380,8 @@ export function bestTradeableAvoid(
         !r.regressed &&
         (!whaleFilter || r.whale?.tag !== "whale") &&
         (noiseBand <= 0 || Math.abs(r.prob - 0.5) >= noiseBand) &&
-        (r.bias !== "SHORT" || shortMin <= 0.5 || 1 - r.prob >= shortMin),
+        (r.bias !== "SHORT" || shortMin <= 0.5 || 1 - r.prob >= shortMin) &&
+        (lev <= 0 || evMin <= -100 || evOf(r, lev) >= evMin),
     ),
   );
   const regressedCount = rows.filter((r) => isTradeable(r, minAuc, minAcc, minScore) && r.regressed).length;
@@ -545,6 +565,17 @@ export function levAdjSlTp(sl: number, tp: number, scale: number, lev: number): 
   const cap = lev > 0 ? (safe / 100) * (100 / lev) : 0; // = safe/lev (% giá)
   if (cap > 0 && s > cap) {
     const k = cap / s;
+    s *= k;
+    t *= k;
+  }
+  // MUI TRẦN LỖ ROE (0.2.89) — audit sổ 08/11: OP −60 ROE ở ×20 là hợp lệ
+  // theo mui thanh khoản (SL 2.9% giá). TB thua −17.76 ROE trong khi TB thắng
+  // chỉ +8.49 — payoff 0.48 là nguồn chảy máu chính của LONG. Trần ROE-at-SL:
+  // s × lev không vượt SL_ROE_MAX, vượt thì co SL+TP cùng hệ số (R:R giữ
+  // nguyên, cùng kiểu mui liq phía trên). 0 = tắt.
+  const roeCap = pval("SL_ROE_MAX", SL_ROE_MAX);
+  if (roeCap > 0 && lev > 0 && s * lev > roeCap) {
+    const k = roeCap / (s * lev);
     s *= k;
     t *= k;
   }
