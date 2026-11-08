@@ -1,0 +1,18 @@
+0.2.94 — TRANG ARENA A/B: SO SÁNH SỔ A (VULCAN) vs SỔ B (ELLIOTT)
+
+1. src/lib/arena.ts (MỚI) — một nguồn số liệu cho cả API lẫn trang:
+   statsFromRoes() thuần (n/wr/net/avgWin/avgLoss/payoff/bySide/đầu-cuối
+   chuỗi vốn — đầu chuỗi = capitalBefore ĐẦU TIÊN, không phải min);
+   arenaSnapshot() đọc VulcanBook (A) + AutoTrade (B), vẽ equity theo
+   exitTime, ghép net theo symbol (bảng A-nét vs B-nét).
+2. GET /api/arena — JSON snapshot đầy đủ cho script/đối chiếu ngoài.
+3. /arena — server component (force-dynamic, không cần client JS):
+   2 thẻ thống kê A (amber) vs B (blue), SVG đường vốn 2 polyline cùng
+   thang tuyệt đối (hai sổ cùng vốn xuất phát từ ví reset), bảng theo
+   symbol với cột "A/B advantage" (ai net cao hơn trên từng cặp).
+   A khởi động từ 0.2.93 nên đang trống — dữ liệu tích tụ dần theo nến 15m.
+   Học chéo (lessons job) nối vào trang này ở phiên kế tiếp khi sổ A đủ mẫu.
+
+KIỂM THỬ: test-arena 10/10 PASS · test-vulcan-engine 18/18 ·
+test-db-hardening 13/13 · test-audit-book 33/33 · test-ev-gate 12/12 ·
+tsc --noEmit PASS · build PASS (/arena + /api/arena xuất hiện trong route map).
