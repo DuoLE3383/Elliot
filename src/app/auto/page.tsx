@@ -1,8 +1,12 @@
 "use client";
 
-// ─── /auto — Auto Trade (dry-run) — trang riêng, tách khỏi dashboard ────────
+// ─── /auto — Auto Trade — trang riêng, tách khỏi dashboard ───────────────────
 // 0.2.95 — AutoPanel trước đây nằm cuối cột phải dashboard (bị chật, phải cuộn
 // dài). Trang riêng cho không gian đầy đủ; dashboard còn lối tắt mở trang này.
+// 0.2.97 — trang CHỦ cfg + books (một nguồn dùng chung AutoPanel ↔
+// StrategyCards: START/STOP ở card B và switch ở panel đổi cùng một state);
+// thêm StrategyCards (A/B/C + đề xuất) + AutoAnalytics chi tiết. Universe đã
+// dời về Watchlist (dashboard) — trang này chỉ còn trade.
 // Data tự lo, KHÔNG cần /api/view nặng của dashboard:
 //   · settings/pairs  = localStorage (utp.settings / utp.pairs — CÙNG NGUỒN với
 //     dashboard, đổi ở đây → dashboard đọc lại lần sau)
@@ -15,10 +19,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, ArrowLeftRight, Bot, BrainCircuit, Landmark } from "lucide-react";
+import { AutoAnalytics } from "@/components/auto-analytics";
 import { AutoPanel } from "@/components/auto-panel";
 import { BinanceApiCard } from "@/components/binance-api-card";
+import { StrategyCards } from "@/components/strategy-cards";
 import { Button } from "@/components/ui/button";
 import { t, type Lang } from "@/lib/i18n";
+import { fetchAutoState, loadAutoConfig, saveAutoConfig, AUTO_DEFAULTS, type AutoConfig, type AutoState } from "@/lib/autotrade";
 import {
   DEFAULT_SETTINGS,
   EngineSettings,
@@ -104,6 +111,30 @@ export default function AutoPage() {
     if (hydratedRef.current) localStorage.setItem("utp.pairs", JSON.stringify(customPairs));
   }, [customPairs]);
 
+  // ── cfg sổ B — NGUỒN DUY NHẤT ở trang (0.2.97): AutoPanel + StrategyCards
+  // cùng đổi một state; persist utp.auto như cũ (cùng key với dashboard).
+  const [cfg, setCfg] = useState<AutoConfig>(AUTO_DEFAULTS);
+  useEffect(() => {
+    try {
+      setCfg(loadAutoConfig());
+    } catch {
+      setCfg(AUTO_DEFAULTS);
+    }
+  }, []);
+  const patchCfg = useCallback((patch: Partial<AutoConfig>) => {
+    setCfg((prev) => {
+      const next = { ...prev, ...patch };
+      saveAutoConfig(next);
+      return next;
+    });
+  }, []);
+
+  // ── books A/C — mặc định BẬT; đọc lại engine (sync khởi động) sẽ khớp thật ──
+  const [books, setBooks] = useState<{ a: boolean; c: boolean }>({ a: true, c: true });
+  const patchBooks = useCallback((patch: { a?: boolean; c?: boolean }) => {
+    setBooks((prev) => ({ ...prev, ...patch }));
+  }, []);
+
   const allPairs = useMemo(() => {
     const extra = customPairs.filter((c) => !(SYMBOLS as readonly string[]).includes(c));
     return [...SYMBOLS, ...extra];
@@ -162,15 +193,6 @@ export default function AutoPage() {
     [router],
   );
 
-  // onUniverseTop: thêm top universe vào watchlist (giống dashboard)
-  const handleUniverseTop = useCallback((topSyms: string[]) => {
-    setCustomPairs((list) => {
-      const add = topSyms.filter((s) => !(SYMBOLS as readonly string[]).includes(s) && !list.includes(s));
-      if (add.length === 0) return list;
-      return [...list, ...add].slice(-MAX_CUSTOM_PAIRS);
-    });
-  }, []);
-
   return (
     <div className="min-h-screen bg-transparent text-zinc-200">
       {/* sticky header — back / title / lang luôn trong tầm tay */}
@@ -200,11 +222,21 @@ export default function AutoPage() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl px-3 py-3 sm:px-5">
+      <main className="mx-auto w-full max-w-6xl space-y-3 px-3 py-3 sm:px-5">
         {/* Setting Binance API (0.2.96) — key server-side, test kết nối chỉ đọc */}
         <div className="mb-3">
           <BinanceApiCard lang={lang} />
         </div>
+        {/* 0.2.97 — bộ chọn chiến lược A/B/C + đề xuất + trạng thái LIVE */}
+        <StrategyCards
+          lang={lang}
+          cfgOn={cfg.on}
+          onCfgToggle={(on) => patchCfg({ on })}
+          books={books}
+          onToggleBooks={patchBooks}
+          onPushToast={pushToast}
+        />
+        {/* khối điều khiển + sổ B */}
         <AutoPanel
           lang={lang}
           pairs={allPairs}
@@ -214,10 +246,14 @@ export default function AutoPage() {
           }
           tickers={tickers}
           settings={settings}
+          cfg={cfg}
+          onCfgChange={patchCfg}
+          books={books}
           onPickPair={handlePickPair}
-          onUniverseTop={handleUniverseTop}
           pushToast={pushToast}
         />
+        {/* 0.2.97 — analytics chi tiết sổ B */}
+        <AutoAnalyticsSection lang={lang} />
       </main>
 
       {/* ── Toasts — giống dashboard ─────────────────────────────────────── */}
@@ -254,4 +290,29 @@ export default function AutoPage() {
       </div>
     </div>
   );
+}
+
+// ── Analytics — fetch /api/autotrade riêng (30s): component thuần display
+//    nhận AutoState; fetch tách khỏi AutoPanel để không poll kép.
+
+function AutoAnalyticsSection({ lang }: { lang: Lang }) {
+  const [auto, setAuto] = useState<AutoState | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const st = await fetchAutoState();
+        if (alive) setAuto(st);
+      } catch {
+        /* giữ cũ */
+      }
+    };
+    void load();
+    const id = window.setInterval(() => void load(), 30_000);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, []);
+  return <AutoAnalytics lang={lang} auto={auto} />;
 }

@@ -12,19 +12,16 @@ import {
   COOLDOWN_CHOICES,
   DCA_CHOICES,
   fetchAutoState,
-  loadAutoConfig,
   pushAutoStats,
   resetAutoCapital,
   RISK_CHOICES,
   roeOf,
-  saveAutoConfig,
   sendTelegram,
   TP_MODES,
   telegramConfigured,
   telegramStatus,
   trailMovePct,
   trailStopPrice,
-  AUTO_DEFAULTS,
   type AutoAuditResult,
   type AutoConfig,
   type AutoState,
@@ -35,10 +32,10 @@ import {
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
 import { MAX_LEVERAGE, type EngineSettings, type Ticker } from "@/lib/types";
 import { INTERVALS } from "@/lib/types";
-import { UNIVERSE, UNIVERSE_INTERVAL, type UniverseRow } from "@/lib/universe";
+import type { UniverseRow } from "@/lib/universe";
 import { msgClose, slPrice, tpPrice } from "@/lib/tg-msgs";
 import { NOISE_BAND } from "@/lib/xgb";
-import { Bot, RotateCcw, ScanLine, Send, Square, ListChecks } from "lucide-react";
+import { Bot, Play, RotateCcw, ScanLine, Send, Square, ListChecks } from "lucide-react";
 
 interface Props {
   lang: Lang;
@@ -52,11 +49,15 @@ interface Props {
   tickers: Record<string, Ticker>;
   /** user engine settings — passed through to the trainer */
   settings: EngineSettings;
+  /** 0.2.97 — cfg NÂNG LÊN TRANG (nguồn duy nhất ở /auto/page.tsx): panel chỉ
+   *  vẽ + gọi onCfgChange; persist localStorage do trang lo (cùng nguồn với
+   *  StrategyCards — nút START/STOP ở card B và switch ở panel đổi chung 1 state) */
+  cfg: AutoConfig;
+  onCfgChange: (patch: Partial<AutoConfig>) => void;
+  /** 0.2.97 — cờ chiến lược A/C (engine); sync payload cũng kèm books */
+  books: { a: boolean; c: boolean };
   onPickPair: (symbol: string, interval: string) => void;
-  /** top-N universe pairs after each 8h scan — the page merges them into the
-   * watchlist automatically (yêu cầu: TOP-30 tự vào watchlist) */
-  onUniverseTop: (symbols: string[]) => void;
-  pushToast: (toast: { kind: "entry" | "flip" | "error" | "wy" | "xgb"; text: string }) => void;
+  pushToast: (toast: { kind: "entry" | "flip" | "error" | "warn" | "wy" | "xgb"; text: string }) => void;
 }
 
 /** rescan when the snapshot is older than this */
@@ -100,6 +101,9 @@ interface EngineSnap {
   synced: boolean;
   syncedAt: number | null;
   cfg: { on: boolean };
+  books?: { a: boolean; c: boolean };
+  live?: { on: boolean; confirmedAt: number | null; keys: boolean };
+  wyckoff?: { breadth: number | null; status: string; tickAt: number };
   scan: { rows: ScanRow[]; at: number } | null;
   universe: { rows: UniverseRow[]; at: number } | null;
   train: { at: number; total: number; latest: EngineSnapTrainRun[] } | null;
@@ -159,8 +163,11 @@ const TEST_MSG =
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, settings, onPickPair, onUniverseTop, pushToast }: Props) {
-  const [cfg, setCfg] = useState<AutoConfig>(loadAutoConfigSafe());
+export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, settings, cfg, onCfgChange, books, onPickPair, pushToast }: Props) {
+  // cfg + books NÂNG LÊN TRANG (0.2.97) — một nguồn dùng chung với StrategyCards:
+  // START/STOP ở card B và switch ở panel đều đổi cùng 1 state của page.
+  const [liveState, setLiveState] = useState<EngineSnap["live"] | null>(null);
+  const [wyStatus, setWyStatus] = useState<EngineSnap["wyckoff"] | null>(null);
   // BACKEND ENGINE since the server-side refactor: scan / train / universe /
   // TOP-coin broadcast / paper-trade cycle / digests ALL run in the Node
   // process (src/lib/engine.ts) 24/7 with no tab open. This panel is
@@ -168,7 +175,6 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   const [rows, setRows] = useState<ScanRow[]>([]);
   const [scanAt, setScanAt] = useState<number | null>(null);
   const [scanning, setScanning] = useState<{ done: number; total: number; current: string; queued: number } | null>(null);
-  const [universe, setUniverse] = useState<UniverseRow[]>([]);
   const [trainHist, setTrainHist] = useState<EngineSnap["train"]>(null);
   const [bcastSnap, setBcastSnap] = useState<EngineSnap["bcast"]>(null);
   const [auto, setAuto] = useState<AutoState | null>(null);
@@ -195,11 +201,10 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   const scanBusyRef = useRef(false);
   const closingRef = useRef(false);
   const mountedRef = useRef(true);
-  // top-30 universe → watchlist merge callback (ref: the poller has no deps)
-  const uniTopRef = useRef(onUniverseTop);
-  useEffect(() => {
-    uniTopRef.current = onUniverseTop;
-  }, [onUniverseTop]);
+  // 0.2.97 — LIVE: quy trình hai bước (nút LIVE → nhập "LIVE" → xác nhận)
+  const [liveConfirmOpen, setLiveConfirmOpen] = useState(false);
+  const [liveConfirmText, setLiveConfirmText] = useState("");
+  const [liveBusy, setLiveBusy] = useState(false);
 
   useEffect(() => {
     langRef.current = lang;
@@ -284,17 +289,16 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
     return [];
   }, [pushToast]);
 
-  // ── engine sync — push the localStorage config up to the backend scheduler ──
-  // cfg / settings / pairs / leverage stay editable HERE (localStorage); the
-  // server keeps a persisted copy and uses it for every scheduled loop. Runs
-  // debounced on every change + right after mount (also resumes after a server
-  // reboot, which wiped its in-memory copy).
+  // ── engine sync — push the page config up to the backend scheduler ──────────
+  // cfg / settings / pairs / leverage / books editable trên trang (localStorage);
+  // server giữ bản persist và dùng cho mọi loop định lịch. Chạy debounce mỗi lần
+  // đổi + ngay khi mount (resume sau reboot server).
   useEffect(() => {
     const id = window.setTimeout(() => {
-      void postEngine({ action: "sync", cfg, settings, pairs, leverage });
+      void postEngine({ action: "sync", cfg, settings, pairs, leverage, books });
     }, 800);
     return () => window.clearTimeout(id);
-  }, [cfg, settings, pairs, leverage]);
+  }, [cfg, settings, pairs, leverage, books]);
 
   // ── engine poll — the single source of truth for everything on screen ──────
   // rows / scan age / scan progress (incl. queue position) / universe /
@@ -320,18 +324,10 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
               }
             : null,
         );
-        setUniverse(snap.universe?.rows ?? []);
         setTrainHist(snap.train ?? null);
         setBcastSnap(snap.bcast ?? null);
-        // TOP-30 tự vào watchlist (gộp, giữ pair người dùng thêm trước, không trùng)
-        const topSyms = (snap.universe?.rows ?? []).map((r) => r.symbol);
-        if (topSyms.length > 0) {
-          try {
-            uniTopRef.current(topSyms);
-          } catch {
-            // callback lỗi không cản poll
-          }
-        }
+        setLiveState(snap.live ?? null);
+        setWyStatus(snap.wyckoff ?? null);
         setStatus(snap.cycle?.status ?? "");
         setCountdown(
           snap.cfg?.on && snap.cycle?.nextAt > 0 ? Math.max(0, Math.round((snap.cycle.nextAt - Date.now()) / 1000)) : null,
@@ -374,11 +370,9 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   }, [refreshAuto]);
 
   const updateCfg = (patch: Partial<AutoConfig>) => {
-    setCfg((prev) => {
-      const next = { ...prev, ...patch };
-      saveAutoConfig(next);
-      return next;
-    });
+    // cfg sống ở PAGE (0.2.97) — panel chỉ bắn patch lên; persist localStorage
+    // + sync engine do trang lo (đồng bộ với StrategyCards START/STOP)
+    onCfgChange(patch);
   };
 
   const checkTg = async () => {
@@ -479,6 +473,32 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   const closedHist = (auto?.trades ?? []).filter((x) => x.status === "closed").slice(0, 4);
   const sideClass = (side: string) => (side === "LONG" ? "text-emerald-400" : "text-rose-400");
 
+  // ── LIVE start/stop (0.2.97) — action postEngine liveStart/liveStop; start
+  //    đi qua dải xác nhận (nhập "LIVE"); lỗi hiển thị toast + chi tiết.
+  const liveOn = liveState?.on === true;
+  const liveGo = async () => {
+    setLiveBusy(true);
+    try {
+      const res = await fetch("/api/engine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: liveOn ? "liveStop" : "liveStart" }),
+      });
+      const j = (await res.json()) as { ok?: boolean; note?: string };
+      if (mountedRef.current) {
+        pushToast({ kind: j.ok ? "wy" : "error", text: j.note ?? t(langRef.current, j.ok ? "auto.live.ok" : "auto.live.fail") });
+        if (j.ok && !liveOn) setLiveConfirmOpen(false);
+      }
+    } catch {
+      if (mountedRef.current) pushToast({ kind: "error", text: t(langRef.current, "auto.live.fail") });
+    } finally {
+      if (mountedRef.current) {
+        setLiveBusy(false);
+        setLiveConfirmText("");
+      }
+    }
+  };
+
   return (
     <Card className="border-zinc-800 bg-zinc-900/60">
       <CardHeader className="px-3 pb-2">
@@ -500,6 +520,94 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
           </div>
         </div>
         <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">{t(lang, "auto.sub")}</p>
+
+        {/* 0.2.97 — DRY-RUN / LIVE + START/STOP — mọi điều khiển chế độ sổ B
+            nằm gọn một hàng: mode segmented + nút play/stop + badge LIVE. */}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <div className="flex overflow-hidden rounded-md border border-zinc-800" role="group" aria-label={t(lang, "auto.mode.label")}>
+            <button
+              type="button"
+              onClick={() => !liveOn && updateCfg({ on: false })}
+              disabled={liveOn}
+              title={t(lang, "auto.mode.dry")}
+              className={`h-7 px-2.5 font-mono text-[11px] ${!liveOn ? "border-teal-700 bg-teal-950/40 text-teal-300" : "text-zinc-500 hover:bg-zinc-800 disabled:opacity-40"} ${!liveOn && !cfg.on ? "" : ""}`}
+            >
+              DRY-RUN
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!liveState?.keys) {
+                  pushToast({ kind: "warn", text: t(lang, "auto.live.nokeys") });
+                  return;
+                }
+                if (!liveOn) setLiveConfirmOpen(true);
+              }}
+              title={t(lang, "auto.mode.live")}
+              className={`h-7 border-l border-zinc-800 px-2.5 font-mono text-[11px] ${liveOn ? "border-emerald-700 bg-emerald-950/40 text-emerald-300" : "text-zinc-400 hover:bg-zinc-800"}`}
+            >
+              LIVE
+            </button>
+          </div>
+          <Button
+            size="sm"
+            variant={cfg.on ? "outline" : "default"}
+            onClick={() => updateCfg({ on: !cfg.on })}
+            className={`h-7 gap-1.5 px-2.5 text-[11px] ${cfg.on ? "border-rose-800 bg-transparent text-rose-300 hover:bg-rose-950/40" : "bg-emerald-700 text-white hover:bg-emerald-600"}`}
+          >
+            {cfg.on ? <Square className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+            {cfg.on ? t(lang, "auto.stop") : t(lang, "auto.start")}
+          </Button>
+          {liveOn && (
+            <span className="inline-flex items-center gap-1 rounded-md border border-emerald-700 bg-emerald-950/50 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-300" title={t(lang, "auto.live.onTip")}>
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" aria-hidden />
+              LIVE
+            </span>
+          )}
+          {wyStatus && wyStatus.breadth !== null && (
+            <span
+              className={`rounded-md border px-2 py-0.5 font-mono text-[10px] ${wyStatus.breadth >= 50 ? "border-violet-800 text-violet-300" : "border-zinc-800 text-zinc-500"}`}
+              title={t(lang, "auto.breadth.tip")}
+            >
+              breadth {wyStatus.breadth.toFixed(0)}%
+            </span>
+          )}
+        </div>
+
+        {/* 0.2.97 — dải xác nhận LIVE (hai bước, gõ "LIVE") */}
+        {liveConfirmOpen && (
+          <div className="rounded-lg border border-emerald-800 bg-emerald-950/40 p-2.5">
+            <p className="text-[11px] leading-relaxed text-emerald-200">{t(lang, "auto.live.confirmText")}</p>
+            <div className="mt-1.5 flex items-center gap-2">
+              <Input
+                value={liveConfirmText}
+                onChange={(e) => setLiveConfirmText(e.target.value)}
+                placeholder="LIVE"
+                className="h-7 w-28 border-emerald-800 bg-zinc-950/60 font-mono text-xs uppercase text-zinc-100 placeholder:text-zinc-600"
+                aria-label="LIVE"
+              />
+              <Button
+                size="sm"
+                disabled={liveBusy || liveConfirmText.trim().toUpperCase() !== "LIVE"}
+                onClick={() => void liveGo()}
+                className="h-7 bg-emerald-700 px-2.5 text-[11px] text-white hover:bg-emerald-600"
+              >
+                {t(lang, "auto.live.confirmBtn")}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setLiveConfirmOpen(false);
+                  setLiveConfirmText("");
+                }}
+                className="h-7 border-zinc-700 px-2.5 text-[11px] text-zinc-300 hover:bg-zinc-800"
+              >
+                {t(lang, "auto.live.cancel")}
+              </Button>
+            </div>
+          </div>
+        )}
       </CardHeader>
 
       <CardContent className="space-y-3 px-3 pt-0">
@@ -1126,45 +1234,10 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
           </div>
         )}
 
-        {/* universe 8h — bộ cặp cứng trong source, xếp hạng ATR + trending */}
-        <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
-          <div className="flex items-center justify-between">
-            <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-sky-400">
-              <ScanLine className="h-3 w-3" /> {t(lang, "auto.universe")}
-            </span>
-            <span className="font-mono text-[10px] text-zinc-600">8h · {UNIVERSE.length} pairs</span>
-          </div>
-          {universe.length > 0 ? (
-            <div className="mt-1 space-y-0.5">
-              {universe.slice(0, 10).map((r, i) => (
-                <button
-                  key={r.symbol}
-                  type="button"
-                  onClick={() => onPickPair(r.symbol, UNIVERSE_INTERVAL)}
-                  className="flex w-full items-center justify-between rounded px-1.5 py-0.5 font-mono text-[10px] hover:bg-zinc-800/60"
-                >
-                  <span className="text-zinc-300">
-                    {i + 1}. {r.symbol.replace("USDT", "")}
-                  </span>
-                  <span className="flex gap-2 text-zinc-500">
-                    <span>ATR {r.atrPct.toFixed(2)}%</span>
-                    <span
-                      className={
-                        r.trend > 0.15 ? "text-emerald-400" : r.trend < -0.15 ? "text-rose-400" : "text-zinc-500"
-                      }
-                    >
-                      {r.trend >= 0 ? "+" : ""}
-                      {(r.trend * 100).toFixed(0)}%
-                    </span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="mt-1 text-[10px] text-zinc-600">{t(lang, "auto.universe.empty")}</p>
-          )}
-          <p className="mt-1 text-[10px] leading-snug text-zinc-600">{t(lang, "auto.noiseBand", { band: NOISE_BAND })}</p>
-        </div>
+        {/* 0.2.97 — universe đã DỜI sang Watchlist (dashboard): "universe không
+            phải nằm trong auto mà nằm ở watch list mới đúng". Panel auto chỉ
+            còn trade: rank/scan/bcast/vị thế. */}
+        <p className="border-t border-zinc-800 pt-2 text-[10px] leading-snug text-zinc-600">{t(lang, "auto.noiseBand", { band: NOISE_BAND })}</p>
 
         {/* open position */}
         {open ? (
@@ -1514,10 +1587,4 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
       </CardContent>
     </Card>
   );
-}
-
-/** localStorage read guarded for SSR — AutoPanel mounts client-only anyway. */
-function loadAutoConfigSafe() {
-  if (typeof window === "undefined") return AUTO_DEFAULTS;
-  return loadAutoConfig();
 }

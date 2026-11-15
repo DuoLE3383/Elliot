@@ -1,9 +1,12 @@
-// ─── ARENA (0.2.94) — so sánh sổ A (Vulcan/Donchian) vs sổ B (Elliott) ──────
+// ─── ARENA (0.2.94 → 0.2.97 ba chiều + live) — sổ A (Vulcan/Donchian) vs sổ B
+// (Elliott) vs sổ C (Wyckoff gốc) + trạng thái sổ LIVE (mirror thật của B).
 // Một nguồn số liệu cho GET /api/arena và trang /arena. Sổ A = bảng
-// VulcanBook (engine 0.2.93), sổ B = bảng AutoTrade (engine Elliott).
-// ROE cả hai sổ cùng công thức (move×lev − feeRoe) nên so sánh trực tiếp được.
+// VulcanBook, sổ B = bảng AutoTrade, sổ C = bảng WyckoffBook (0.2.97). ROE
+// cả ba sổ cùng công thức (move×lev − feeRoe) nên so sánh trực tiếp được.
 
+import { existsSync, readFileSync } from "fs";
 import { db } from "./db";
+import { dataFile } from "./data-dir";
 
 export interface BookStats {
   nClosed: number;
@@ -30,13 +33,31 @@ export interface SymbolRow {
   aNet: number;
   bN: number;
   bNet: number;
+  cN: number;
+  cNet: number;
+}
+
+export interface LiveStats {
+  on: boolean;
+  nClosed: number;
+  nOpen: number;
+  wins: number;
+  wr: number;
+  netRoe: number;
+  balanceBefore: number | null;
+  balanceAfter: number | null;
 }
 
 export interface ArenaSnapshot {
   a: BookStats;
   b: BookStats;
+  /** 0.2.97 — sổ C Wyckoff gốc (long-only nến ngày) */
+  c: BookStats;
+  /** 0.2.97 — sổ LIVE mirror sổ B (bảng LiveBook, vốn = balance thật) */
+  live: LiveStats;
   aEquity: EquityPoint[];
   bEquity: EquityPoint[];
+  cEquity: EquityPoint[];
   bySymbol: SymbolRow[];
   generatedAt: string;
 }
@@ -78,19 +99,38 @@ export function statsFromRoes(
   };
 }
 
-/** Snapshot đầy đủ — đọc cả hai sổ, ghép theo symbol. */
+/** Cờ LIVE đọc trực tiếp engine.json — tránh import engine.ts (nặng) vào
+ *  trang /arena server component; engine.json là nguồn persist của cờ này. */
+function liveOnFlag(): boolean {
+  try {
+    const f = dataFile("engine.json");
+    if (!existsSync(f)) return false;
+    const raw = JSON.parse(readFileSync(f, "utf8")) as { live?: { on?: boolean } };
+    return raw.live?.on === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Snapshot đầy đủ — đọc cả ba sổ dry-run + sổ live, ghép theo symbol. */
 export async function arenaSnapshot(): Promise<ArenaSnapshot> {
-  const [aRows, aOpen, bRows, bOpen] = await Promise.all([
+  const [aRows, aOpen, bRows, bOpen, cRows, cOpen, lRows, lOpen] = await Promise.all([
     db.vulcanBook.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" } }),
     db.vulcanBook.count({ where: { status: "open" } }),
     db.autoTrade.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" } }),
     db.autoTrade.count({ where: { status: "open" } }),
+    db.wyckoffBook.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" } }),
+    db.wyckoffBook.count({ where: { status: "open" } }),
+    db.liveBook.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" } }),
+    db.liveBook.count({ where: { status: "open" } }),
   ]);
 
   const a = statsFromRoes(aRows.map((r) => ({ side: r.side, roe: r.roePct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter })));
   const b = statsFromRoes(bRows.map((r) => ({ side: r.side, roe: r.pnlPct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter })));
+  const c = statsFromRoes(cRows.map((r) => ({ side: r.side, roe: r.pnlPct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter })));
   a.nOpen = aOpen;
   b.nOpen = bOpen;
+  c.nOpen = cOpen;
 
   const aEquity: EquityPoint[] = aRows
     .filter((r) => r.capitalAfter != null)
@@ -98,21 +138,43 @@ export async function arenaSnapshot(): Promise<ArenaSnapshot> {
   const bEquity: EquityPoint[] = bRows
     .filter((r) => r.capitalAfter != null)
     .map((r) => ({ t: (r.exitTime ?? r.createdAt).toISOString(), capital: r.capitalAfter as number }));
+  const cEquity: EquityPoint[] = cRows
+    .filter((r) => r.capitalAfter != null)
+    .map((r) => ({ t: (r.exitTime ?? r.createdAt).toISOString(), capital: r.capitalAfter as number }));
+
+  // sổ live — vốn là balance thật trước/sau, ROE như các sổ giấy
+  const lRoes = lRows.map((r) => r.roePct ?? 0);
+  const live: LiveStats = {
+    on: liveOnFlag(),
+    nClosed: lRoes.length,
+    nOpen: lOpen,
+    wins: lRoes.filter((x) => x > 0).length,
+    wr: lRoes.length ? Math.round((lRoes.filter((x) => x > 0).length / lRoes.length) * 1000) / 10 : 0,
+    netRoe: Math.round(lRoes.reduce((s, x) => s + x, 0) * 100) / 100,
+    balanceBefore: lRows.length ? lRows[0].balanceBefore : null,
+    balanceAfter: lRows.length ? lRows[lRows.length - 1].balanceAfter : null,
+  };
 
   const symMap = new Map<string, SymbolRow>();
   for (const r of aRows) {
-    const e = symMap.get(r.symbol) ?? { symbol: r.symbol, aN: 0, aNet: 0, bN: 0, bNet: 0 };
+    const e = symMap.get(r.symbol) ?? { symbol: r.symbol, aN: 0, aNet: 0, bN: 0, bNet: 0, cN: 0, cNet: 0 };
     e.aN += 1;
     e.aNet = Math.round((e.aNet + (r.roePct ?? 0)) * 100) / 100;
     symMap.set(r.symbol, e);
   }
   for (const r of bRows) {
-    const e = symMap.get(r.symbol) ?? { symbol: r.symbol, aN: 0, aNet: 0, bN: 0, bNet: 0 };
+    const e = symMap.get(r.symbol) ?? { symbol: r.symbol, aN: 0, aNet: 0, bN: 0, bNet: 0, cN: 0, cNet: 0 };
     e.bN += 1;
     e.bNet = Math.round((e.bNet + (r.pnlPct ?? 0)) * 100) / 100;
     symMap.set(r.symbol, e);
   }
-  const bySymbol = [...symMap.values()].sort((x, y) => y.aN + y.bN - (x.aN + x.bN));
+  for (const r of cRows) {
+    const e = symMap.get(r.symbol) ?? { symbol: r.symbol, aN: 0, aNet: 0, bN: 0, bNet: 0, cN: 0, cNet: 0 };
+    e.cN += 1;
+    e.cNet = Math.round((e.cNet + (r.pnlPct ?? 0)) * 100) / 100;
+    symMap.set(r.symbol, e);
+  }
+  const bySymbol = [...symMap.values()].sort((x, y) => y.aN + y.bN + y.cN - (x.aN + x.bN + x.cN));
 
-  return { a, b, aEquity, bEquity, bySymbol, generatedAt: new Date().toISOString() };
+  return { a, b, c, live, aEquity, bEquity, cEquity, bySymbol, generatedAt: new Date().toISOString() };
 }

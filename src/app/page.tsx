@@ -9,6 +9,7 @@ import { RailContext } from "@/components/rail-context";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { TickerStrip } from "@/components/ticker-strip";
 import { Watchlist } from "@/components/watchlist";
+import { UniverseCard } from "@/components/universe-card";
 import { WyckoffPanel } from "@/components/wyckoff-panel";
 import { XgbPanel } from "@/components/xgb-panel";
 import { Badge } from "@/components/ui/badge";
@@ -859,8 +860,8 @@ export default function Home() {
     return [...SYMBOLS, ...extra];
   }, [customPairs]);
 
-  const addPair = useCallback(async () => {
-    const sym = normalizePair(pairInput);
+  const addPair = useCallback(async (input?: string) => {
+    const sym = normalizePair(input ?? pairInput);
     if (!sym || checkingPair) return;
     if ((allPairs as string[]).includes(sym)) {
       setSymbol(sym);
@@ -1243,6 +1244,9 @@ export default function Home() {
                 onSelect={setSymbol}
                 defaultPairs={SYMBOLS}
               />
+              {/* 0.2.97 — universe 8h dời từ /auto về watchlist: đề xuất pair
+                  ATR+trending, người dùng tự bấm thêm vào watchlist */}
+              <UniverseCard lang={lang} existing={allPairs} onAddSymbol={(s) => void addPair(s)} />
               <SessionsPanel lang={lang} stats={view.sessStats} whale={view.whale} cycles={view.cycles} forecast={view.forecast} />
             </div>
 

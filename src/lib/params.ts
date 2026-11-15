@@ -295,6 +295,101 @@ export const WY_UPTHRUST_VETO = true;
 /** TTL cache breadth (ms) — mỗi lần quét breadth fetch 1d×25 nến/symbol. */
 export const WY_BREADTH_TTL_MS = 30 * 60_000;
 
+// ── 4c′ · WYCKOFF GỐC — PHỄU 5 LỚP SỔ C (0.2.97) ────────────────────────────
+// Port 1-1 FunnelConfig (YoungCan-Wang/WyckoffTradingAgent core/wyckoff_engine.py)
+// lên crypto USDT-M. Tên key WYC_* để KHÁC hẳn bộ WY_* của cổng sổ B (4c):
+// cổng sổ B chỉ dùng phần đã verify; sổ C dùng ĐẦY ĐỦ phễu gốc theo thông số
+// production của repo gốc (LPS + Compression gốc để OFF → port giữ nguyên OFF).
+// Thích nghi crypto (ghi rõ từng chỗ trong wyckoff-engine.ts):
+//   · L1 "market cap / giá trị giao dịch" → quote volume 20 ngày (USDT)
+//   · L3 "top-5 ngành hot" → breadth regime RISK_ON (crypto không có ngành)
+//   · L5 thêm thoát breadth RISK_OFF (verify 07/11: SOS RISK_OFF −1.77%)
+
+/** Bật sổ C — phễu Wyckoff gốc (false = không quét, không vào lệnh mới; vị thế
+ *  đang mở vẫn được quản lý exit bình thường). */
+export const WYC_C_ON = true;
+/** L1 — quote volume trung bình 20 ngày ngày tối thiểu (USDT). Gốc:
+ *  min_avg_amount_wan = 4000 (40M CNY) — crypto dùng 5M USDT. */
+export const WYC_L1_QUOTE_VOL = 5_000_000;
+/** L2 — markup: MA50 > MA200 giữ liên tục ≥ N ngày (markup_ma_crossover_confirm_days). */
+export const WYC_MARKUP_CONFIRM_DAYS = 5;
+/** L2 — góc MA50 tối thiểu %/5 ngày (markup_ma_angle_min). */
+export const WYC_MA50_ANGLE_MIN = 2.0;
+/** L2 — bias200 tối đa cho entry markup % (global_entry_max_bias_200). */
+export const WYC_BIAS200_MAX = 25.0;
+/** L2 — RPS50 tối thiểu (rps_fast_min). */
+export const WYC_RPS50_MIN = 65.0;
+/** L2 — RPS120 tối thiểu (rps_slow_min). */
+export const WYC_RPS120_MIN = 70.0;
+/** L2 — bypass: RPS120 ≥ này → RPS50 chỉ cần ≥ 50 (rps_slow_strong_bypass). */
+export const WYC_RPS120_STRONG = 80.0;
+/** L3 — breadth tối thiểu để coi thị trường "cộng hưởng" (RISK_ON). */
+export const WYC_BREADTH_MIN = 50.0;
+/** L4 Spring — cửa sổ support (nến ngày, spring_support_window). */
+export const WYC_SPRING_WINDOW = 60;
+/** L4 Spring — vol nến cuối ≥ ×trung bình 4 nến trước (spring_vol_ratio). */
+export const WYC_SPRING_VOL = 1.3;
+/** L4 Spring — vol(số tiền thu hồi) / vol(số tiền thăm dò) ≥ (spring_vol_expand_ratio). */
+export const WYC_SPRING_EXPAND = 1.15;
+/** L4 Spring — range zone tối đa % (spring_tr_max_range_pct) — sàn động theo ATR
+ *  ×4, tối thiểu 30, tối đa 60 như gốc. */
+export const WYC_SPRING_TR_MAX = 30.0;
+/** L4 Spring — drift tối đa % (spring_tr_max_drift_pct). */
+export const WYC_SPRING_TR_DRIFT = 12.0;
+/** L4 SOS — % tăng nến ngày tối thiểu (sos_pct_min). */
+export const WYC_SOS_PCT = 6.0;
+/** L4 SOS — vol ratio tối thiểu vs 20 nến (sos_vol_ratio). */
+export const WYC_SOS_VOL = 3.0;
+/** L4 SOS — cửa sổ breakout ngày (sos_breakout_window). */
+export const WYC_SOS_BREAKOUT = 60;
+/** L4 SOS — dung sai breakout (sos_breakout_tolerance, 0.01 = 1%). */
+export const WYC_SOS_TOL = 0.01;
+/** L4 SOS — quantile volume (sos_vol_quantile trên cửa sổ 60). */
+export const WYC_SOS_VOL_Q = 0.95;
+/** L4 EVR — vol ratio (evr_vol_ratio). */
+export const WYC_EVR_VOL = 1.8;
+/** L4 EVR — biên độ "lao không thành công" tối đa ±% (evr_max_drop/rise). */
+export const WYC_EVR_MOVE = 2.0;
+/** L4 TrendPullback — cửa sổ (trend_pb_lookback). */
+export const WYC_TP_LOOKBACK = 10;
+/** L4 TrendPullback — pullback min/max % (trend_pb_min/max_pullback_pct). */
+export const WYC_TP_MIN = 5.0;
+export const WYC_TP_MAX = 20.0;
+/** L4 TrendPullback — vol thu hẹp tối đa (trend_pb_vol_shrink_ratio). */
+export const WYC_TP_VOL = 0.6;
+/** L5 — stop vốn: dưới đáy吸筹 thêm % (exit_stop_loss_pct = −7). */
+export const WYC_EXIT_SL_PCT = 7.0;
+/** L5 — trailing bật khi giá ≥ đáy × (1 + exit_trailing_active_pct/100 = 15%). */
+export const WYC_TRAIL_ACT = 15.0;
+/** L5 — trailing stop = đỉnh 60n × (1 − exit_trailing_drawdown_pct/100 = 10%). */
+export const WYC_TRAIL_DD = 10.0;
+/** L5 — cần N ngày đóng dưới stop mới thoát (exit_confirm_days); thâm hụt ≥5%
+ *  dưới stop thoát NGAY (deep breach). */
+export const WYC_EXIT_CONFIRM = 2;
+/** L5 — ngày nào vol < ×(exit_vol_confirm_ratio) của ref 20n coi là RỬA CHUỒNG
+ *  (không tính vào confirm thoát). */
+export const WYC_EXIT_VOL_WASH = 0.8;
+/** L5 — Upthrust: breakout tối thiểu % trên resistance (dist_upthrust_breakout_pct). */
+export const WYC_UT_BREAK = 1.0;
+/** L5 — Upthrust: đóng lại dưới resistance tối thiểu % (dist_upthrust_close_back_pct). */
+export const WYC_UT_BACK = 0.3;
+/** L5 — Upthrust: râu trên ≥ ×(dist_upthrust_upper_shadow_ratio) biên ngày. */
+export const WYC_UT_SHADOW = 0.35;
+/** L5 — Upthrust: vol ≥ ×(dist_upthrust_vol_ratio) 20n trước. */
+export const WYC_UT_VOL = 1.5;
+/** L5 — Upthrust chỉ đếm khi bias200 ≥ % này (dist_upthrust_min_bias_200_pct). */
+export const WYC_UT_BIAS = 15.0;
+/** L5 — Distribution: bias200 ≥ % này + N ngày vol < 50% ref 60n → thoát
+ *  (dist_high_threshold_pct / dist_confirm_days / dist_vol_dry_ratio 0.5). */
+export const WYC_DIST_BIAS = 30.0;
+export const WYC_DIST_CONFIRM = 3;
+/** Nhịp quét sổ C (ms) — nến ngày nên 20 phút là đủ nhạy với ngày mới đóng. */
+export const WYC_TICK_MS = 20 * 60_000;
+/** Stake sổ C mỗi lệnh (% vốn chuỗi sổ C) — như sổ A. */
+export const WYC_STAKE_PCT = 10;
+/** Đòn bẩy sổ C — gốc Wyckoff là spot cổ phiếu → lev 1. */
+export const WYC_LEV = 1;
+
 // ── 4d · SELF-IMPROVE FALLBACK — bù chốt methodId reset (0.2.75) ───────────
 // methodId là hash của TOÀN BỘ chính sách (sc|auc|acc|r|x|tp|sl|tpct|atr|tf|fl|wh)
 // → MỌI thay đổi knob (user chỉnh tay, agent tự +2 minScore, đổi tpMode 0.2.74)

@@ -843,6 +843,31 @@ export interface AutoStats {
   netPnlPct: number;
 }
 
+// ── ANALYTICS CHI TIẾT (0.2.97) — dịch từ lịch sử đóng, tính 1 nguồn ở
+// autostate.readAutoState (server) → /api/autotrade GET → bảng Analytics /auto.
+export interface AutoAnalytics {
+  /** tổng % ROE trừ phí, trung bình trên lệnh đóng — điểm kỳ vọng mỗi lệnh */
+  expectancy: number;
+  /** sum(pnl>0) / |sum(pnl<=0)| — ≥1 = hệ thống có lãi */
+  profitFactor: number;
+  /** độ sâu sụt vốn lớn nhất (% từ đỉnh vốn, theo chuỗi capitalAfter) */
+  maxDrawdownPct: number;
+  /** phút giữ trung bình (exitTime − entryTime) */
+  avgHoldMin: number;
+  /** chuỗi thắng/thua hiện tại + kỷ lục */
+  streak: { current: number; currentKind: "win" | "loss" | "none"; maxWin: number; maxLoss: number };
+  /** net + n + WR theo lý do thoát (tp/sl/manual/flip/trail…) */
+  byExitKind: Array<{ kind: string; n: number; net: number; wr: number }>;
+  /** net + n theo symbol (top 8 theo số lệnh) */
+  bySymbol: Array<{ symbol: string; n: number; net: number; wr: number }>;
+  /** net + n theo khung thời gian */
+  byInterval: Array<{ interval: string; n: number; net: number; wr: number }>;
+  /** net + n theo chiều */
+  bySide: Array<{ side: string; n: number; net: number; wr: number }>;
+  /** đường vốn từ chuỗi capitalAfter (cũ → mới) */
+  equity: Array<{ t: string; capital: number }>;
+}
+
 export interface AutoState {
   trades: AutoTradeRow[];
   open: AutoTradeRow | null;
@@ -854,6 +879,8 @@ export interface AutoState {
   stats: AutoStats;
   /** win-rate table grouped by pair × timeframe (all closed history) */
   byCombo?: ComboStat[];
+  /** 0.2.97 — phân tích chi tiết theo lý do thoát / symbol / khung / streak */
+  analytics?: AutoAnalytics;
 }
 
 const jsonHeaders = { "Content-Type": "application/json" };

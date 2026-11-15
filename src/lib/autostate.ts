@@ -4,7 +4,100 @@
 // UI and the Telegram reports always quote the same numbers.
 
 import { db } from "@/lib/db";
-import { comboStats, type AutoState } from "@/lib/autotrade";
+import { comboStats, type AutoAnalytics, type AutoState } from "@/lib/autotrade";
+
+// ─── Analytics chi tiết (0.2.97) — hàm thuần, test được độc lập ──────────────
+// Input: MỌI lệnh đóng xếp CŨ → MỚI (đúng chiều thời gian thoát) + vốn gốc ví
+// (sau reset gần nhất) để đường vốn có điểm xuất phát khi sổ còn trống.
+
+export function analyticsFromClosed(
+  closedAsc: Array<{ symbol: string; interval: string; side: string; pnlPct: number | null; exitKind: string | null; entryTime: Date; exitTime: Date | null; capitalAfter: number | null }>,
+  walletCapital: number | null,
+): AutoAnalytics {
+  const n = closedAsc.length;
+  const pnls = closedAsc.map((t) => t.pnlPct ?? 0);
+  const wins = pnls.filter((x) => x > 0);
+  const losses = pnls.filter((x) => x <= 0);
+  const sumWin = wins.reduce((s, x) => s + x, 0);
+  const sumLoss = Math.abs(losses.reduce((s, x) => s + x, 0));
+
+  // max drawdown % từ đỉnh vốn trên chuỗi capitalAfter (fallback = ví gốc)
+  const equity: Array<{ t: string; capital: number }> = [];
+  if (walletCapital != null && walletCapital > 0) equity.push({ t: closedAsc[0]?.entryTime.toISOString() ?? new Date().toISOString(), capital: walletCapital });
+  for (const t of closedAsc) {
+    if (t.capitalAfter != null) equity.push({ t: (t.exitTime ?? t.entryTime).toISOString(), capital: t.capitalAfter });
+  }
+  let peak = equity.length ? equity[0].capital : 0;
+  let maxDD = 0;
+  for (const p of equity) {
+    if (p.capital > peak) peak = p.capital;
+    if (peak > 0) maxDD = Math.max(maxDD, ((peak - p.capital) / peak) * 100);
+  }
+
+  // streak — đi từ MỚI về CŨ cho chuỗi hiện tại; từ CŨ → MỚI cho kỷ lục
+  let current = 0;
+  let currentKind: "win" | "loss" | "none" = "none";
+  for (let i = n - 1; i >= 0; i--) {
+    const p = pnls[i];
+    const kind = p > 0 ? "win" : "loss";
+    if (currentKind === "none") {
+      currentKind = kind;
+      current = 1;
+    } else if (kind === currentKind) current++;
+    else break;
+  }
+  let maxWin = 0;
+  let maxLoss = 0;
+  let run = 0;
+  let runKind: "win" | "loss" | "none" = "none";
+  for (const p of pnls) {
+    const kind = p > 0 ? "win" : "loss";
+    if (kind === runKind) run++;
+    else {
+      run = 1;
+      runKind = kind;
+    }
+    if (kind === "win") maxWin = Math.max(maxWin, run);
+    else maxLoss = Math.max(maxLoss, run);
+  }
+
+  const holdMin = closedAsc
+    .filter((t) => t.exitTime)
+    .map((t) => (t.exitTime!.getTime() - t.entryTime.getTime()) / 60000);
+
+  const group = (keyOf: (t: (typeof closedAsc)[number]) => string) => {
+    const m = new Map<string, { n: number; net: number; wins: number }>();
+    for (const t of closedAsc) {
+      const k = keyOf(t) || "—";
+      const e = m.get(k) ?? { n: 0, net: 0, wins: 0 };
+      e.n++;
+      e.net += t.pnlPct ?? 0;
+      if ((t.pnlPct ?? 0) > 0) e.wins++;
+      m.set(k, e);
+    }
+    return [...m.entries()]
+      .map(([k, v]) => ({ kindOrName: k, n: v.n, net: Math.round(v.net * 100) / 100, wr: Math.round((v.wins / v.n) * 1000) / 10 }))
+      .sort((a, b) => b.n - a.n);
+  };
+
+  const byExitKind = group((t) => t.exitKind ?? "manual");
+  const bySymbol = group((t) => t.symbol);
+  const byInterval = group((t) => t.interval);
+  const bySide = group((t) => t.side);
+
+  return {
+    expectancy: n ? Math.round((pnls.reduce((s, x) => s + x, 0) / n) * 100) / 100 : 0,
+    profitFactor: sumLoss > 0 ? Math.round((sumWin / sumLoss) * 100) / 100 : sumWin > 0 ? 99.99 : 0,
+    maxDrawdownPct: Math.round(maxDD * 100) / 100,
+    avgHoldMin: holdMin.length ? Math.round(holdMin.reduce((s, x) => s + x, 0) / holdMin.length) : 0,
+    streak: { current, currentKind, maxWin, maxLoss },
+    byExitKind: byExitKind.map((x) => ({ kind: x.kindOrName, n: x.n, net: x.net, wr: x.wr })),
+    bySymbol: bySymbol.slice(0, 8).map((x) => ({ symbol: x.kindOrName, n: x.n, net: x.net, wr: x.wr })),
+    byInterval: byInterval.map((x) => ({ interval: x.kindOrName, n: x.n, net: x.net, wr: x.wr })),
+    bySide: bySide.map((x) => ({ side: x.kindOrName, n: x.n, net: x.net, wr: x.wr })),
+    equity,
+  };
+}
 
 export type TradeRow = {
   id: string;
@@ -117,6 +210,21 @@ export async function readAutoState(): Promise<AutoState> {
     where: { status: "closed" },
     select: { symbol: true, interval: true, status: true, pnlPct: true },
   });
+  // 0.2.97 — analytics cần đủ 6 field trên TOÀN BỘ lịch sử đóng (cũ → mới)
+  const closedAsc = await db.autoTrade.findMany({
+    where: { status: "closed" },
+    orderBy: { exitTime: "asc" },
+    select: {
+      symbol: true,
+      interval: true,
+      side: true,
+      pnlPct: true,
+      exitKind: true,
+      entryTime: true,
+      exitTime: true,
+      capitalAfter: true,
+    },
+  });
   const trades = rows.map(serialize);
   const open = trades.find((t) => t.status === "open") ?? null;
   const closed = trades.filter((t) => t.status === "closed");
@@ -133,6 +241,7 @@ export async function readAutoState(): Promise<AutoState> {
     resetAt: wallet.resetAt,
     walletCapital: wallet.capital,
     byCombo: comboStats(allClosed),
+    analytics: analyticsFromClosed(closedAsc, wallet.capital),
     stats: {
       closed: closed.length,
       wins,

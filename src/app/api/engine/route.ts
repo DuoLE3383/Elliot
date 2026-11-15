@@ -19,6 +19,8 @@ import {
   submitTrainSingle,
   submitUniverse,
   syncEngine,
+  engineLiveStart,
+  engineLiveStop,
 } from "@/lib/engine";
 import type { AutoConfig } from "@/lib/autotrade";
 import type { EngineSettings } from "@/lib/types";
@@ -56,6 +58,7 @@ export async function POST(req: NextRequest) {
           settings: body.settings as Partial<EngineSettings> | undefined,
           pairs: Array.isArray(body.pairs) ? (body.pairs as string[]) : undefined,
           leverage: typeof body.leverage === "number" ? body.leverage : undefined,
+          books: body.books && typeof body.books === "object" ? (body.books as { a?: boolean; c?: boolean }) : undefined,
         });
         return NextResponse.json({ ok: true });
       }
@@ -84,6 +87,17 @@ export async function POST(req: NextRequest) {
         const j = submitUniverse();
         void j.promise.catch(() => undefined);
         return NextResponse.json({ ok: true, coalesced: j.coalesced });
+      }
+      // 0.2.97 — LIVE: start yêu cầu key Binance đã lưu + test OK; stop luôn OK.
+      // UI phải xác nhận hai bước (nhập LIVE) trước khi gọi — route không trao
+      // đổi thêm, ai gọi được endpoint là chủ app.
+      case "liveStart": {
+        const r = await engineLiveStart();
+        return NextResponse.json(r, { status: r.ok ? 200 : 400 });
+      }
+      case "liveStop": {
+        const r = engineLiveStop();
+        return NextResponse.json(r);
       }
       default:
         return NextResponse.json({ error: "unknown action" }, { status: 400 });

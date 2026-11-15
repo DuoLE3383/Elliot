@@ -88,8 +88,10 @@ sudo systemctl restart elliott
 If you use pm2 instead of systemd:
 
 ```bash
-git pull && npm run build && pm2 restart elliott --update-env && pm2 flush
+git pull && npm install && npx prisma db push && npm run build && pm2 restart elliott --update-env && pm2 flush
 ```
+
+`prisma db push` is required when a release adds tables (0.2.97 added `WyckoffBook` + `LiveBook`) — it creates the missing tables without touching existing data.
 
 ## 5. Health checks & common network issues
 

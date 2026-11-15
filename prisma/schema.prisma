@@ -294,3 +294,71 @@ model VulcanBook {
   @@index([symbol, status])
   @@index([status, entryTime])
 }
+
+// ─── Wyckoff book — sổ dry-run CHIẾN LƯỢC C (0.2.97) ─────────────────────────
+// Port phễu Wyckoff GỐC 5 lớp (WyckoffTradingAgent, core/wyckoff_engine.py):
+// L1 thanh khoản → L2 sức mạnh (markup/RPS) → L3 cộng hưởng (breadth regime)
+// → L4 trigger (Spring/SOS/EVR/TrendPullback; LPS + Compression gốc để OFF)
+// → L5 thoát (stop cấu trúc −7% đáy吸筹 / trailing 15%→−10% / Upthrust /
+//   Distribution / breadth RISK_OFF). Chỉ LONG (gốc là cổ phiếu spot: tích
+// luỹ → markup), lev 1, stake 10% vốn sổ.
+model WyckoffBook {
+  id            String    @id @default(cuid())
+  symbol        String
+  side          String // luôn LONG (phễu gốc long-only)
+  trigger       String // spring | sos | evr | trend_pullback
+  score         Float     @default(0) // điểm trigger (recovery%/vol ratio/…)
+  breadth       Float? // % universe trên MA20 lúc vào
+  entryPrice    Float
+  entryTime     DateTime  @default(now())
+  status        String    @default("open") // open | closed
+  stopPrice     Float // stop cấu trúc hiện hành (accum hoặc trailing)
+  stopKind      String    @default("accum") // accum | trailing
+  accumLow      Float     @default(0) // đáy吸筹 60 ngày — gốc của stop
+  peak          Float     @default(0) // đỉnh cao nhất từ khi vào (trailing)
+  trailArmed    Boolean   @default(false)
+  exitPrice     Float?
+  exitTime      DateTime?
+  exitKind      String? // sl | trailing | upthrust | distribution | breadth
+  exitReason    String?
+  movePct       Float?
+  pnlPct        Float? // lev 1 → ROE = move − phí
+  capitalBefore Float?
+  capitalAfter  Float?
+  createdAt     DateTime  @default(now())
+
+  @@index([symbol, status])
+  @@index([status, entryTime])
+}
+
+// ─── Live book — lệnh THẬT mirror sổ B khi LIVE mode (0.2.97) ────────────────
+// LIVE bật → mỗi lần engine mở/đóng/DCA lệnh dry-run thì gửi MARKET order thật
+// qua Binance USDT-M (key trong binance-keys.json) và ghi KHỐP thời gian/giá
+// vào đây. Vốn sổ live = balance thật đọc từ /fapi/v2/account (không chuỗi
+// vốn ảo). Dry-run LUÔN chạy — live chỉ là lớp mirror, tắt live không ảnh hưởng sổ giấy.
+model LiveBook {
+  id                 String    @id @default(cuid())
+  symbol             String
+  side               String // LONG | SHORT
+  entryPrice         Float // avgPrice khớp thực tế
+  entryTime          DateTime  @default(now())
+  status             String    @default("open") // open | closed
+  qty                Float // lượng coin thực (rounded theo stepSize)
+  notional           Float     @default(0) // qty × entryPrice
+  leverage           Float     @default(1)
+  binanceOrderId     String?
+  dryRunTradeId      String? // liên kết lệnh giấy tương ứng
+  exitPrice          Float?
+  exitTime           DateTime?
+  exitKind           String? // tp | sl | manual | flip
+  binanceExitOrderId String?
+  movePct            Float?
+  roePct             Float?
+  balanceBefore      Float? // totalWalletBalance lúc vào
+  balanceAfter       Float? // lúc đóng
+  note               String?
+  createdAt          DateTime  @default(now())
+
+  @@index([symbol, status])
+  @@index([status, entryTime])
+}

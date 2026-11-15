@@ -74,6 +74,10 @@ import { runAgentTick } from "./self-improve";
 import { fetchKlinesDirect, fetchBoard24h } from "./klines-direct";
 import { wyckoffLongGate } from "./wyckoff-gate";
 import { startVulcanEngine } from "./vulcan-engine";
+import { startWyckoffEngine, wyckoffEngineStatus } from "./wyckoff-engine";
+import { getBooksFlags, setBooksFlags } from "./books-flags";
+import { liveClose, liveOpen } from "./binance-live";
+import { binanceStatus, effectiveKeys, testBinanceKeys } from "./binance-keys";
 import { XgbPoolNode, xgbPoolAvailable, xgbPoolSize } from "./xgb-pool-node";
 import { labCfgOf, maybeAutoLab } from "./strategy-lab";
 import { evolveInfo, evolveRound, evolveWatch, type EvolveBridge } from "./evolve";
@@ -148,6 +152,13 @@ interface EnginePersisted {
    *  ("atr" | "cfg"), auto = đã thử đề xuất cho lệnh này chưa (chỉ thử 1 lần). */
   trail: { id: string; peak: number; act: number; dist: number; atrPct: number; lev: number; src: "atr" | "cfg"; auto: boolean };
   llmLast: { symbol: string; interval: string; side: string; verdict: string; reason: string; ms: number; at: number } | null;
+  /** 0.2.97 — cờ bật/tắt từng sổ chiến lược (sổ B đi theo cfg.on như cũ).
+   *  Tắt = không mở lệnh MỚI; vị thế đang mở vẫn được exit bình thường. */
+  books: { a: boolean; c: boolean };
+  /** 0.2.97 — LIVE mirror: true = mọi lệnh giấy mở/đóng của sổ B được gửi
+   *  MARKET order thật qua Binance (bảng LiveBook). Chỉ bật bằng liveStart
+   *  (yêu cầu key hợp lệ + test OK + xác nhận từ UI); restart giữ nguyên. */
+  live: { on: boolean; confirmedAt: number | null };
 }
 
 interface EngineVolatile {
@@ -182,6 +193,8 @@ function defaults(): { p: EnginePersisted; v: EngineVolatile } {
       dca: { id: "", count: 0, stake0: 0, prices: [] },
       trail: { id: "", peak: 0, act: 0, dist: 0, atrPct: 0, lev: 0, src: "cfg", auto: false },
       llmLast: null,
+      books: { a: true, c: true },
+      live: { on: false, confirmedAt: null },
     },
     v: {
       scan: null,
@@ -211,6 +224,9 @@ function loadEngine(): void {
     }
     if (!p0.warned) p0.warned = { id: "", tp: false, sl: false };
     if (!p0.dca) p0.dca = { id: "", count: 0, stake0: 0, prices: [] };
+    if (!p0.books) p0.books = { a: true, c: true };
+    if (!p0.live) p0.live = { on: false, confirmedAt: null };
+    setBooksFlags(p0.books);
     return;
   }
   const d = defaults();
@@ -249,6 +265,13 @@ function loadEngine(): void {
         };
       }
       if (raw.llmLast) p.llmLast = raw.llmLast;
+      if (raw.books && typeof raw.books === "object") {
+        p.books = { a: raw.books.a !== false, c: raw.books.c !== false };
+        setBooksFlags(p.books);
+      }
+      if (raw.live && typeof raw.live === "object") {
+        p.live = { on: raw.live.on === true, confirmedAt: typeof raw.live.confirmedAt === "number" ? raw.live.confirmedAt : null };
+      }
       if (raw.trail && typeof raw.trail === "object" && typeof raw.trail.id === "string") {
         p.trail = {
           id: raw.trail.id,
@@ -411,7 +434,54 @@ async function closeTradeDirect(
     const { p } = eng();
     void (() => { const ep = resolveLlmEndpoint({ url: p.cfg.llmUrl, model: p.cfg.llmModel }); void autopsyClosedTrade(updated, { url: ep.url, model: ep.model }); })();
   }
+  // LIVE MIRROR (0.2.97) — lệnh giấy đóng → MARKET reduceOnly ngược chiều trên
+  // sàn. Fire-and-forget, lỗi chỉ log: live không bao giờ giết dry-run.
+  mirrorLiveClose(updated.symbol, updated.side === "SHORT" ? "SHORT" : "LONG", id, exitKind);
   return serialize(updated);
+}
+
+// ─── LIVE MIRROR (0.2.97) — sổ giấy quyết định, sàn thật khớp theo ───────────
+// Hai điểm gọi duy nhất: liveOpen (mỗi db.autoTrade.create: cycleTick +
+// tryFlip) và liveClose (closeTradeDirect — mọi đường đóng đều qua đây: tp/sl/
+// manual/flip/trail). Dry-run luôn chạy; live chỉ là lớp mirror ghi bảng
+// LiveBook. liveStart/liveStop là api công khai của /api/engine.
+
+function mirrorLiveOpen(symbol: string, side: "LONG" | "SHORT", tradeId: string, leverage: number, stakePct: number): void {
+  const { p } = eng();
+  if (!p.live.on) return;
+  void liveOpen(symbol, side, tradeId, leverage, stakePct, `mirror ${new Date().toISOString()}`).then((r) => {
+    if (!r.ok) console.log(`[engine] live mirror OPEN không thực hiện — ${r.note}`);
+  });
+}
+
+function mirrorLiveClose(symbol: string, side: "LONG" | "SHORT", tradeId: string, exitKind: string): void {
+  const { p } = eng();
+  if (!p.live.on) return;
+  void liveClose(symbol, side, tradeId, exitKind).then((r) => {
+    if (!r.ok) console.log(`[engine] live mirror CLOSE không thực hiện — ${r.note}`);
+  });
+}
+
+/** Bật LIVE — yêu cầu key Binance hợp lệ (đã test OK). Trả thông báo chốt. */
+export async function engineLiveStart(): Promise<{ ok: boolean; note: string }> {
+  const { p } = eng();
+  if (!effectiveKeys()) return { ok: false, note: "chưa cấu hình API key — lưu key ở mục Binance API trước" };
+  const t = await testBinanceKeys();
+  if (!t.ok) return { ok: false, note: `key chưa sẵn sàng: ${t.note}` };
+  if (t.canTrade === false) return { ok: false, note: "key không có quyền trade (canTrade=false)" };
+  p.live = { on: true, confirmedAt: Date.now() };
+  persistEngine();
+  console.warn(`[engine] LIVE MODE BẬT — lệnh giấy sổ B giờ được mirror MARKET thật qua Binance (balance ${t.totalWalletBalance ?? "?"} USDT)`);
+  return { ok: true, note: `LIVE bật — balance ${t.totalWalletBalance ?? "?"} USDT · mọi lệnh giấy sổ B sẽ khớp thật` };
+}
+
+/** Tắt LIVE — không đảo lệnh đang mở trên sàn (mirror chỉ bám dry-run). */
+export function engineLiveStop(): { ok: boolean; note: string } {
+  const { p } = eng();
+  p.live = { on: false, confirmedAt: p.live.confirmedAt };
+  persistEngine();
+  console.warn("[engine] LIVE MODE TẮT — mirror dừng; vị thế sàn đang mở (nếu có) cần tự đóng tay hoặc khớp dry-run kế tiếp");
+  return { ok: true, note: "LIVE tắt — dry-run tiếp tục chạy bình thường" };
 }
 
 // ─── Signal totals — đếm TÍCH LUỸ tín hiệu server đã quét thấy ──────────────
@@ -1508,6 +1578,7 @@ async function cycleTick(): Promise<void> {
       },
     });
     const trade = serialize(created);
+    mirrorLiveOpen(trade.symbol, trade.side === "SHORT" ? "SHORT" : "LONG", trade.id, p.leverage, stakeUsed);
     v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice}${stakeUsed < c.riskPct ? ` · stake ${stakeUsed}%` : ""}`;
     p.warned = { id: trade.id, tp: false, sl: false };
     p.dca = { id: trade.id, count: 0, stake0: stakeUsed, prices: [trade.entryPrice] };
@@ -1653,6 +1724,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
     },
   });
   const trade = serialize(created);
+  mirrorLiveOpen(trade.symbol, trade.side === "SHORT" ? "SHORT" : "LONG", trade.id, p.leverage, stakeUsed);
   v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice} (lật từ ${from})${stakeUsed < c.riskPct ? ` · stake ${stakeUsed}% (trần ${stakeUsed}<${c.riskPct}%)` : ""}`;
   p.warned = { id: trade.id, tp: false, sl: false };
   p.dca = { id: trade.id, count: 0, stake0: stakeUsed, prices: [trade.entryPrice] };
@@ -1909,6 +1981,8 @@ export function syncEngine(input: {
   settings?: Partial<EngineSettings>;
   pairs?: string[];
   leverage?: number;
+  /** 0.2.97 — bật/tắt sổ A / sổ C (sổ B theo cfg.on) */
+  books?: { a?: boolean; c?: boolean };
 }): void {
   const { p } = eng();
   if (input.cfg) {
@@ -1932,6 +2006,11 @@ export function syncEngine(input: {
   // RISK ENVELOPE (0.2.79) — browser đẩy gì cũng bị trần RISK_MAX_LEV kẹp lại
   // (một nguồn với loadEngine; 0 = tắt). Vị thế đang mở giữ leverage lúc mở.
   if (typeof input.leverage === "number" && input.leverage >= 1 && input.leverage <= 125) p.leverage = clampLev(input.leverage);
+  // 0.2.97 — cờ chiến lược A/C: tắt chỉ ngừng mở mới, exit vẫn chạy
+  if (input.books && typeof input.books === "object") {
+    setBooksFlags(input.books);
+    p.books = getBooksFlags();
+  }
   p.syncedAt = Date.now();
   // Auto just turned ON (or first sync with Auto already on) → fire the first
   // cycle shortly (mirrors the client's "immediate tick on enable")
@@ -1965,6 +2044,11 @@ export function engineSnapshot(): {
   jobs: ReturnType<typeof jobViews>;
   workers: { pool: number; bundled: boolean };
   telegram: boolean;
+  /** 0.2.97 — cờ chiến lược A/C + trạng thái LIVE mirror */
+  books: { a: boolean; c: boolean };
+  live: { on: boolean; confirmedAt: number | null; keys: boolean };
+  /** 0.2.97 — trạng thái sổ C Wyckoff (breadth %, dòng trạng thái tick cuối) */
+  wyckoff: { breadth: number | null; status: string; tickAt: number };
   /** tổng tín hiệu tích luỹ per combo `SYM|TF` (bảng SignalTotal — 0.2.32) */
   signalTotals: Record<string, number>;
 } {
@@ -1988,6 +2072,9 @@ export function engineSnapshot(): {
     jobs: jobViews(),
     workers: { pool: xgbPoolSize(), bundled: xgbPoolAvailable() },
     telegram: tgReady(),
+    books: getBooksFlags(),
+    live: { on: p.live.on, confirmedAt: p.live.confirmedAt, keys: !!effectiveKeys() },
+    wyckoff: wyckoffEngineStatus(),
     signalTotals: { ...signalTotals },
   };
 }
@@ -2069,6 +2156,10 @@ export function startEngineScheduler(): void {
     // override unavailable — params.ts defaults keep working
   }
   loadEngine();
+
+  // Sổ C — phễu Wyckoff gốc (0.2.97): tick riêng 20 phút trên nến ngày, độc
+  // lập chu kỳ sổ B. Sổ A (Vulcan) đã tự start ở instrumentation lúc boot.
+  startWyckoffEngine();
 
   // train/broadcast-verdict snapshots for GET /api/engine — warm now, refresh every minute
   void trainSnapshot();

@@ -18,6 +18,7 @@ import { db } from "./db";
 import { fetchKlinesDirect } from "./klines-direct";
 import { feeRoe } from "./params";
 import { readWallet } from "./autostate";
+import { bookAOn } from "./books-flags";
 import {
   VULCAN_DEFAULTS,
   computeIndicators,
@@ -183,6 +184,8 @@ async function vulcanSymbolTick(symbol: string, lastCandleT: Map<string, number>
   }
 
   if (action.kind === "open" && !openRow) {
+    // cờ sổ A tắt → chỉ quản lý exit, không mở lệnh mới (toggle chiến lược /auto)
+    if (!bookAOn()) return;
     const head = await vulcanChainHead();
     const created = await db.vulcanBook.create({
       data: {
