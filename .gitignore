@@ -75,3 +75,8 @@ package-lock.json
 
 # patch/backup nội bộ — không bao giờ vào repo
 /.backup/
+
+# Wyckoff verification scratch (sandbox-only, không gửi repo)
+/wyckoff/
+scripts/wyckoff-cache/
+scripts/wyckoff_crypto_*.csv

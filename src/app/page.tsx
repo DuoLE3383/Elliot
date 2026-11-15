@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { AutoPanel } from "@/components/auto-panel";
 import { KpiCards } from "@/components/kpi";
 import { SessionsPanel } from "@/components/sessions";
 import { SignalDock } from "@/components/panels";
@@ -40,14 +39,13 @@ import {
   SYMBOLS,
   Ticker,
   WyckoffSettings,
-  MAX_LEVERAGE,
   aliasFuturesSymbol,
   matchPreset,
   migratePairsTo,
 } from "@/lib/types";
 import { type XgbResult } from "@/lib/xgb";
 import { ElliottLogo } from "@/components/logo";
-import { AlertTriangle, ArrowLeftRight, BrainCircuit, ChevronRight, Eye, EyeOff, Landmark, RefreshCw, ScrollText, Settings2 } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, Bot, BrainCircuit, ChevronRight, Eye, EyeOff, Landmark, RefreshCw, ScrollText, Settings2 } from "lucide-react";
 import Link from "next/link";
 
 interface Toast {
@@ -910,16 +908,6 @@ export default function Home() {
     [symbol],
   );
 
-  /** TOP-30 universe 8h tự vào watchlist — gộp sau các pair người dùng đã có,
-   * dedupe, không đè cặp mặc định, giữ đúng cap MAX_CUSTOM_PAIRS */
-  const handleUniverseTop = useCallback((topSyms: string[]) => {
-    setCustomPairs((list) => {
-      const add = topSyms.filter((s) => !(SYMBOLS as readonly string[]).includes(s) && !list.includes(s));
-      if (add.length === 0) return list;
-      return [...list, ...add].slice(-MAX_CUSTOM_PAIRS);
-    });
-  }, []);
-
   /**
    * Train + persist EVERY watched pair × EVERY timeframe in one pass — the
    * manual "Train" button only covers the current combo. Combos are pushed
@@ -1138,6 +1126,18 @@ export default function Home() {
               <Link href="/ai">
                 <BrainCircuit className="h-3.5 w-3.5 text-teal-400" />
                 <span className="hidden sm:inline">{t(lang, "ai.title")}</span>
+              </Link>
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800"
+              title={t(lang, "auto.title")}
+              asChild
+            >
+              <Link href="/auto">
+                <Bot className="h-3.5 w-3.5 text-teal-400" />
+                <span className="hidden md:inline">{t(lang, "auto.title")}</span>
               </Link>
             </Button>
             <Button
@@ -1411,22 +1411,27 @@ export default function Home() {
                 onUnpin={() => setPinnedTime(null)}
                 pinnedSig={pinnedSig}
               />
-              <AutoPanel
-                lang={lang}
-                pairs={allPairs}
-                leverage={settings.leverage}
-                onLeverageChange={(lev) =>
-                  setSettings((s) => ({ ...s, leverage: Math.max(1, Math.min(MAX_LEVERAGE, Math.round(lev) || 1)) }))
-                }
-                tickers={tickers}
-                settings={settings}
-                onPickPair={(sym, itv) => {
-                  setSymbol(sym);
-                  if ((INTERVALS as readonly string[]).includes(itv)) setIntervalTf(itv as Interval);
-                }}
-                onUniverseTop={handleUniverseTop}
-                pushToast={pushToast}
-              />
+              {/* Auto Trade — tách sang trang riêng /auto (0.2.95): rail hẹp
+                  không đủ cho sổ dry-run A/B; launcher còn hiển thị vị thế
+                  đang mở để biết engine còn sống */}
+              <Button
+                variant="outline"
+                className="h-9 w-full shrink-0 justify-between gap-2 border-zinc-800 bg-zinc-900/60 px-3 hover:bg-zinc-800"
+                asChild
+              >
+                <Link href="/auto">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Bot className="h-4 w-4 shrink-0 text-teal-400" />
+                    <span className="truncate text-xs font-semibold text-zinc-200">{t(lang, "auto.title")}</span>
+                    {autoOpen && (
+                      <span className="shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-teal-300">
+                        {autoOpen.symbol.replace("USDT", "")}
+                      </span>
+                    )}
+                  </span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-zinc-500" />
+                </Link>
+              </Button>
               {/* XGBoost Tuner — slim launcher; the full trainer panel opens
                   in a popup when needed instead of living inside the rail */}
               <Button
