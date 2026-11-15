@@ -1,0 +1,61 @@
+0.2.69 — redesign /stats & /ai: nhóm theo pipeline + sơ đồ kết nối + suy diễn
+
+BỐI CẢNH: user phản hồi "trang stat đang nhiều thông tin và rối quá.. hãy
+thiết kế lại những thành phần liên quan vào chung 1 group và connect với nhau
+như nào suy diễn ra sao" + "trang ai cũng vậy". Trang cũ dàn 10 card phẳng
+(không thấy liên hệ giữa sessions/universe/scan/gate/LLM/trade/kết quả).
+
+THAY ĐỔI LỚN:
+
+1) /stats — tổ chức lại theo ĐÚNG pipeline của engine (stats/page.tsx viết lại):
+   • Dải "Luồng quyết định" đầu trang: 6 chặng UNIVERSE → SCAN COMBOS → CỔNG
+     CHẤT LƯỢNG → LLM DUYỆT → LỆNH MỞ → ĐÓNG/THẮNG với SỐ THẬT chảy trái→phải,
+     bấm chặng nào nhảy tới nhóm chi tiết đó; cuối dải có mũi tên ⟲ vòng học
+     trỏ sang /ai.
+   • 4 nhóm màu accent riêng, đúng thứ tự suy luận:
+       ① MARKET (teal)   — sessions + universe: quét gì & khi nào
+       ② MODEL (sky)     — signal dock (scan+gate) + win rate theo pair
+       ③ EXEC (violet)   — auto dry-run + open position
+       ④ RESULT (emerald)— hist + sg + combo picker + journal + deep analysis
+     Mỗi nhóm có dòng vai trò trong chuỗi + dòng 💡 SUY DIỄN suy từ số thật:
+       — cổng chặn hết 0/44 → hiện ⛔ "không ứng viên đủ tin để vào LLM, nới
+         ngưỡng hay chờ model tốt hơn là quyết định ở đây";
+       — auto OFF → "pipeline dừng ở đây dù cổng có pass";
+       — closed = 0 → "các số 0 hiện tại là 0 thật, không phải lỗi";
+       — có số → WR kèm cận dưới Wilson, nhắc đọc cột Confidence.
+   • 3 lớp kiểm toán (cơ sở logic / nhất quán / độ tin cậy) của từng section
+     thu gọn vào <details> mở khi cần — số liệu luôn nổi trước, hết rối.
+   • TÔ MÀU NGỮ NGHĨA cho từng ô số (tiếp nối yêu cầu màu của 0.2.67, làm ở
+     tầng server): StatMetric thêm tone ok/warn/bad/info/dim — stats.ts gắn
+     cho 27/27 metric (winRate ≥50 = xanh, netPnl âm = đỏ, cổng pass = xanh,
+     NEUTRAL = xám…), client chỉ tô qua 2 map TONE_TEXT/TONE_EDGE.
+
+2) stats.ts — thêm StatsFlow: universePool/universeTop/scanned/gatePass/
+   llmReviewed/llmGo/openPos/closed/wins/scanAgeMin tính cùng nguồn với các
+   section (gatePass dùng ĐÚNG bộ lọc auto-cycle: isTradeable + không
+   regressed + ngoài NOISE_BAND; llmGo đếm llmVerdict="go" trên sổ lệnh).
+   Sửa nốt nhãn VI lẫn EN trên UI: "Sydney sau 1h" → "Sydney in 1h".
+
+3) /ai — 11 card rải phẳng → 5 nhóm theo VÒNG NÃO AI (di chuyển block JSX
+   nguyên văn bằng scripts/restructure_ai.py, không gõ lại):
+       ① TRAIN (sky)   — champions + runs: model đã huấn luyện
+       ② SIGNAL (teal) — 2 lớp AI + prob + reliability: tín hiệu & độ tin cậy
+       ③ VERDICT (amber) — LLM Risk Officer + dry test: chốt go/skip cuối
+       ④ LOOP (violet) — autopsy + evolve + dive: kết quả → bài học ⟲ về ①
+       ⑤ CONTROL (zinc)— engine config + system parameters: núm chỉnh cả vòng
+   Dải flow đầu trang: ①→②→③→④ + badge "⟲ lessons feed the next train" +
+   ⚙ Control; mỗi nhóm có role + 💡 suy diễn theo dữ liệu thật (LLM chết +
+   fail-open → "engine tự quyết theo cổng — rủi ro cao hơn, theo dõi nhóm ④";
+   engine chưa sync → nhắc bấm sync…). Thêm link chéo /ai ⇄ /stats ở cả 2 dải.
+
+4) i18n.ts — thêm ~60 key VI+EN cho stage/nhóm/role/suy diễn (stats.flow.*,
+   stats.stage.*, stats.g.{market,model,exec,result}.*, ai.flow.*,
+   ai.stage.*, ai.g.{train,signal,verdict,loop,control}.*, stats.deduce,
+   stats.audit).
+
+VERIFY: tsc --noEmit sạch; eslint sạch; build production OK; chạy standalone
+PORT=3111 chụp ảnh bằng agent-browser cả /stats lẫn /ai ở EN + VI: dải flow
+hiện số thật (44 combo, gate 0/44, LLM 0/0), suy diễn đúng dữ liệu (⛔ cổng
+chặn hết, ⚠ universe stale, LLM fail-open), tone màu đúng, nút VI/EN hoạt
+động, không key i18n nào lộ thô. Read-only 100% — flow/tone chỉ thêm dữ liệu
+hiển thị, không đụng logic vào lệnh.

@@ -1,0 +1,32 @@
+0.2.68 — VÁ TOÀN BỘ LOGIC VÀO LỆNH: engine không bao giờ mở được lệnh vì cổng chất lượng bất khả thi
+
+NGUYÊN NHÂN GỐC (đo thật, scripts/diag-funnel.ts — 36 combo Binance thật):
+  Cổng chung 60/0.8/70 (setpoint 31/10) yêu cầu model val AUC ≥ 0.80 · ACC ≥ 70%
+  · score ≥ 60. Trên 36 combo quét đúng pipeline: max AUC = 0.684, max ACC =
+  61.5%, max score = 32.9 → 0/36 vượt cổng ⇒ engine KHÔNG BAO GIỜ vào lệnh.
+  ACC ≥ 70% out-of-sample trên ~96 mẫu val crypto là ngoài tầm thống kê; Platt
+  calibration §6c còn kéo prob về 0.5 làm score càng xa mốc 60.
+
+SỬA (một nguồn cấu hình, giữ nguyên kiến trúc):
+  • autotrade.ts — AUTO_DEFAULTS: minAuc 0.58 · minAcc 55 · minScore 10; thêm
+    DEFAULT_RUN_TF = 15m/1h/4h (1m đói dữ liệu, 1w không bao giờ đủ 260 nến);
+    sanitizeFloors kẹp TRẦN hai đầu (auc ≤ 0.72, acc ≤ 68, score ≤ 35) +
+    migration: bộ 0.55/55 legacy, bộ 60/0.8/70, và mọi giá trị vượt trần
+    (self-improve từng siết tới 85/85) → về mặc định mới; giá trị trong dải do
+    user chỉnh tay được giữ nguyên.
+  • engine.ts — loadEngine/syncEngine: migration runTf đủ 8 khung → 15m/1h/4h;
+    scanCore: watchlist rỗng → quét nguyên UNIVERSE 41 cặp (hứa từ 0.2.x nhưng
+    chưa làm — từng dính "scan empty" vĩnh viễn); champion map chỉ tính 30 ngày
+    (best-ever trọn đời là bẫy ratchet: retrain chọn max-4-hyper nên đỉnh chỉ
+    tăng, REGRESS_EPS 0.02 dần biến MỌI combo thành regressed → chặn lệnh vĩnh viễn).
+  • params.ts — BCAST_* hạ đồng bộ 10 / 0.58 / 55 (broadcast dùng chung setpoint).
+  • self-improve.ts — trần siết cổng 85/85 → 30/64: hết kiểu "vài lệnh thua →
+    siết 2 điểm/6h → cổng bất khả thi vĩnh viễn".
+  • llm.ts — rubric coinflip "not barely" = đúng sàn cổng (55/0.58): Risk
+    Officer không còn phủ định lại metrics mà engine đã chấp nhận.
+  • auto-panel.tsx — dải input khớp trần mới.
+  • tests — test-dca, test-bcast-gates, test-train-lessons cập nhật setpoint
+    mới + vá 4 assert trôi chữ Việt/Anh từ 0.2.55; diag-funnel.ts đo funnel.
+
+KẾT QUẢ ĐO LẠI VỚI CỔNG MỚI: 5/36 combo đạt ngay lần đo đầu (~14%) — engine
+chọn tốt nhất mỗi chu kỳ 5 phút, vẫn chặn model dưới ngẫu nhiên.

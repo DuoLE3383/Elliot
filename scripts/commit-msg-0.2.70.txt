@@ -1,0 +1,58 @@
+0.2.70 — EYE WYCKOFF PHASES [EYEALGO] LÀM CHỈ BÁO CHÍNH của dry run
+
+BỐI CẢNH: user gửi chỉ báo TradingView "Eye Wyckoff Phases [EyeAlgo]"
+(vn.tradingview.com/script/SftK6OS0) và chỉ định "dùng chỉ báo này làm chính"
+— dry run vào lệnh bằng máy trạng thái Wyckoff thay vì UT/model mặc định.
+
+THAY ĐỔI CHÍNH (wyckoff-eye.ts mới, THUẦN — port trung thành luật EyeAlgo):
+  • MÁY TRẠNG THÁI Wyckoff đủ cả Accumulation/Distribution qua T-space (giá
+    ×−1, một luật hai chiều — mirror test đối xứng PASS):
+    SC/BC (đáy/đỉnh cửa sổ 60 nến + volume z≥2 + bar ≥1.5×ATR + close cắt EMA
+    trend) → AR (đỉnh swing MỚI sau SC + pullback xác nhận + rally ≥1.5×ATR +
+    chiều cao range trong [1..8]×ATR) → Phase B (ST volume khô, min 5 nến) →
+    Spring/UTAD (phá range ≤2×ATR, đóng lại trong ≤3 nến, quality score 0-100
+    theo depth/volume khô/tốc độ/close location) → Test → SOS/SOW (volume
+    ≥1.2×MA + body ≥0.5×ATR) → LPS/LPSY ENTRY (pullback giữ midpoint, volume
+    thấp hơn SOS, đóng lại quá breakout ở nửa trên nến).
+  • TRADE PLAN đúng mô tả chỉ báo: TP1 = 0.5 × chiều cao range trên breakout,
+    TP2 = 1.0 ×, TP3 = cause target (scale theo tuổi range, cap 3×); SL theo
+    stopMode (midpoint/Spring+buffer/LPS); setup score 0-100 → grade A/B/C;
+    entry trước TP2 bị loại (không chase).
+  • Xác nhận trên NẾN ĐÓNG (không repaint); entry chỉ "mới" tại nến đóng cuối.
+
+ENGINE (chế độ strategy="wyckoff" — MẶC ĐỊNH MỚI):
+  • wyckEntryTick: quét pairs×runTf (500 nến, 6 luồng), vào lệnh entry MỚI
+    NHẤT (ARM im lặng lần đầu — không trade lịch sử), race-safe như UT/model;
+    prob/acc/auc/llmVerdict = null, score = setup score EyeAlgo.
+  • SL/TP THEO CẤU TRÚC: slPct/tpPct đo từ GIÁ VÀO thực tế tới mức cấu trúc
+    (SL midpoint range, TP2 = 1 range height là mục tiêu chính — schema 1
+    position/1 TP).
+  • BREAKEVEN SAU TP1 (luật EyeAlgo "Stop moves to entry after TP1"):
+    watcherTick 20s thấy giá chạm TP1 → slPct về 0.05% (breakeven), phần còn
+    lại chạy TP2 rủi ro 0; telegram báo riêng tin TP1.
+  • wyckFlipTick: setup ngược chiều trên CÙNG combo → đóng + mở ngược ngay
+    (giữ hành vi "theo kịch" như UT bản gốc); cùng hướng → giữ (1 entry/structure).
+  • DCA tắt hẳn ở wyckoff; method.ts fingerprint + label thêm "Wyckoff Eye";
+    log synced hiển thị đúng 3 chế độ.
+  • MIGRATION MỘT LẦN: storage/engine.json để strategy "ut" từ 0.2.69 → đổi
+    "wyckoff" (cờ STRAT_MIGRATE_KEY; sau đó lựa chọn UT của user được tôn
+    trọng). Chip chiến thuật giờ có 3 lựa chọn: Wyckoff Eye (chính, tím) /
+    UT bản gốc / Model (AI) + i18n VI/EN.
+
+KIỂM THỬ:
+  • scripts/test-wyckoff-eye.ts — 18/18 PASS: unit accumulation synthetic
+    (SC→AR→Spring→SOS→LPS, entry 92.90 / SL 90.05 / TP1 95.15 / TP2 97.70,
+    score 79.2 grade B, TP1 = đúng 0.5 range height), mirror SHORT đối xứng,
+    entry fresh chỉ ở nến đóng cuối, minGrade chặn, đo THẬT 12 combo Binance
+    → 15 entries (9 LPS + 6 SPRING_TEST), 100% plan hợp lệ.
+  • Fix 3 bug khi port: AR fire sớm (thiếu pullback xác nhận đỉnh), minPhaseB
+    đếm ST event thay vì số nến Phase B, beyondEma/TP2-guard bị đảo dấu hai
+    lần trong T-space.
+  • E2E standalone 3111: seed wyck-e2e-seed.ts → engine chạy "Wyckoff Eye chờ
+    setup — 27 combo…", không crash, state wyckSeen/wyckTrail persist;
+    / /stats /ai đều 200; test-ut-mode equivalence vẫn PASS 12/12 (cả gate
+    ON/OFF) — chế độ UT bản gốc không bị phá.
+
+SAU NÀY: dry run chạy ổn với Wyckoff gốc → fine tune + áp công thức A/B
+(user đang phát triển) trên đường "model"; biểu đồ /stats + Market Model +
+timestamp log vẫn nằm trong hàng đợi (đẩy lùi).

@@ -1,0 +1,39 @@
+0.2.89 — EV GATE + TRẦN LỖ ROE: SỔ SẠCH XONG CHẾT CÁI GỐC LỖ
+
+"tôi muốn bạn xem lại các lệnh dryrun đã đóng tôi nghi đã bị lỗi"
+
+Audit độc lập trên VPS (scripts/audit-live.py, công thức khớp 1:1 với
+audit-book sau vá 0.2.88): 33/33 lệnh ĐÚNG, chuỗi vốn liền tới 71,540.92
+USDT, byCombo khớp UI. Sổ không còn lỗi tính toán — nghi ngờ "bị lỗi" khép
+lại đúng chỗ: bug 0.2.88 đã vá trước khi kịp gây hại (mọi lệch trước vá đều
+−2 ROE, không dòng nào rơi vào nhánh đảo dấu).
+
+SỐ THẬT SAU CHUẨN HOÁ — LỖ KHÔNG NẰM Ở TOÁN, NẰM Ở CẤU TRÚC:
+  LONG : 17 lệnh, WR 47.1%, net −91.93 — TB thắng +8.49, TB thua −17.76,
+         payoff 0.48 ⇒ kỳ vọng ~−5.4 ROE/lệnh: vào càng nhiều chảy càng máu
+  SHORT: 16 lệnh, WR 56.2%, net +5.33 — payoff 0.82 ⇒ kỳ vọng ~+0.3/lệnh
+  Top 5 lỗ nặng nhất ĐỀU đòn ×20 (OP −60.14 ROE stake 30% = một lệnh ăn
+  18% equity); prob "tự tin" 0.72–0.79 vẫn thua ⇒ prob không bảo vệ được
+  lệnh cấu trúc âm; phí round-trip ×20 = 2 ROE/lệnh, 33 lệnh đã đốt 66 điểm.
+
+HAI MUI MỚI (một nguồn ./params, chỉnh runtime, giữ R:R):
+
+1. SL_ROE_MAX = 20 — trần ROE-at-SL mỗi lệnh trong levAdjSlTp: slPct × lev
+   vượt trần thì co SL+TP cùng hệ số (giống mui thanh khoản TP_LIQ_SAFE,
+   xếp lớp ngay sau nó, trước sàn 0.15%). OP-style −60 ở ×20 (SL 2.9% giá)
+   co về ≤ −20; ×20 không còn đặt SL ngoài 1% giá. 0 = tắt.
+
+2. EV_GATE_MIN = 0 — cổng kỳ vọng trong bestTradeableAvoid, dùng prob/tp/sl
+   CỦA CHÍNH candidate × đòn bẩy cấu hình − phí round-trip:
+     pWin × tp × lev − (1−pWin) × sl × lev − feeRoe(lev) ≥ EV_GATE_MIN
+   pWin LONG = prob, pWin SHORT = 1 − prob (prob ScanRow là P_UP). Lệnh cấu
+   trúc âm (TP mỏng + SL dày + prob không gánh nổi + phí) chết ở cổng thay
+   vì đợi sổ phán. lev ≤ 0 hoặc knob ≤ −100 → tắt (tương thích cũ). Lưu ý
+   mode "dyn" dùng mức live lúc vào — gate là xấp xỉ cùng gốc ATR.
+
+engine cycleTick truyền p.leverage vào bestTradeableAvoid — gate chạy với
+đòn bẩy thật của lệnh kế.
+
+KIỂM THỬ: test-ev-gate 12/12 PASS (mui ROE 6 ca gồm xếp lớp liq+ROE; EV gate
+5 ca gồm pWin SHORT và phí; SHORT gate 0.2.87 vẫn song song) · test-audit-book
+33/33 PASS · test-atr-sltp + test-dca PASS · tsc --noEmit PASS · build PASS.
