@@ -16,6 +16,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, ArrowLeftRight, Bot, BrainCircuit, Landmark } from "lucide-react";
 import { AutoPanel } from "@/components/auto-panel";
+import { BinanceApiCard } from "@/components/binance-api-card";
 import { Button } from "@/components/ui/button";
 import { t, type Lang } from "@/lib/i18n";
 import {
@@ -200,6 +201,10 @@ export default function AutoPage() {
       </header>
 
       <main className="mx-auto w-full max-w-6xl px-3 py-3 sm:px-5">
+        {/* Setting Binance API (0.2.96) — key server-side, test kết nối chỉ đọc */}
+        <div className="mb-3">
+          <BinanceApiCard lang={lang} />
+        </div>
         <AutoPanel
           lang={lang}
           pairs={allPairs}

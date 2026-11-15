@@ -70,6 +70,17 @@ import {
   TUNE_GRID,
   UNIVERSE_TOP,
   XGB_BASE,
+  WYCKOFF_GATE,
+  WY_RANGE_LOOKBACK,
+  WY_RANGE_MIN_W,
+  WY_RANGE_MAX_W,
+  WY_DRIFT_MAX,
+  WY_SPRING_VOL,
+  WY_SOS_PCT,
+  WY_SOS_VOL,
+  WY_BREADTH_MIN,
+  WY_UPTHRUST_VETO,
+  WY_BREADTH_TTL_MS,
   pval,
 } from "./params";
 
@@ -87,7 +98,8 @@ export interface ParamMeta {
     | "LLM Risk Officer"
     | "Universe / sessions"
     | "Telegram notify"
-    | "Flip / SL-TP";
+    | "Flip / SL-TP"
+    | "Wyckoff gate";
   type: "number" | "bool" | "string";
   def: number | boolean | string;
   min?: number;
@@ -196,9 +208,23 @@ export const EDITABLE: ParamMeta[] = [
   // của MỘT vị thế (engine đơn vị thể) bất kể Auto panel đặt gì.
   { key: "RISK_MAX_LEV", group: "Flip / SL-TP", type: "number", def: RISK_MAX_LEV, min: 0, max: 125, step: 1, int: true, unit: "×", note: "Leverage ceiling: the engine clamps its effective leverage to this at load and on every browser sync (audit 04/11 recommended ×3-5 — at ×10 a 4% adverse move is −40% ROE and round-trip taker fees eat ~1% per trade). Open positions keep the leverage they were opened with. 0 = off." },
   { key: "RISK_MAX_STAKE", group: "Flip / SL-TP", type: "number", def: RISK_MAX_STAKE, min: 0, max: 100, step: 0.5, unit: "%", note: "Total-stake ceiling for the single open position: entries are clamped to this share of equity, and DCA adds that would push the committed stake past the roof are rejected (averaging down at full size is martingale). Audit 04/11: stake 10% × lev 10 × dcaMax 2 ≈ 300% notional — now stake ≤ 3% by default means liquidation costs at most 3% of equity. 0 = off." },
+  // Wyckoff gate (0.2.96) — cổng cấu trúc LONG sổ B, port ĐÚNG ngưỡng đã
+  // walk-forward verify trên nến ngày crypto (scripts/verify-wyckoff-crypto.py):
+  // gate Spring|SOS + breadth≥50 = +3.87%/58.7% vs baseline −0.14%/45.6%.
+  { key: "WYCKOFF_GATE", group: "Wyckoff gate", type: "bool", def: WYCKOFF_GATE, note: "Structural Wyckoff gate for BOOK-B LONG entries: a LONG only opens inside a valid 90-day trading range with a Spring/SOS trigger on the last closed daily candle and market breadth ≥ WY_BREADTH_MIN. Shorts are untouched. Fail-open on data errors. Off = 0.2.95 behavior." },
+  { key: "WY_RANGE_LOOKBACK", group: "Wyckoff gate", type: "number", def: WY_RANGE_LOOKBACK, min: 40, max: 200, step: 5, int: true, unit: "d", note: "Daily candles in the accumulation-zone window used to build the trading range (verified value 90)." },
+  { key: "WY_RANGE_MIN_W", group: "Wyckoff gate", type: "number", def: WY_RANGE_MIN_W, min: 2, max: 20, step: 0.5, unit: "%", note: "Minimum range width (resistance vs support). Below this the coin is trending tight, not accumulating (verified 4)." },
+  { key: "WY_RANGE_MAX_W", group: "Wyckoff gate", type: "number", def: WY_RANGE_MAX_W, min: 20, max: 55, step: 1, unit: "%", note: "Maximum range width — beyond this it is chaos, not a range (verified 45)." },
+  { key: "WY_DRIFT_MAX", group: "Wyckoff gate", type: "number", def: WY_DRIFT_MAX, min: 5, max: 40, step: 1, unit: "%", note: "Max |first→last| close drift inside the zone (verified 18). Higher drift = trend, not accumulation." },
+  { key: "WY_SPRING_VOL", group: "Wyckoff gate", type: "number", def: WY_SPRING_VOL, min: 1, max: 5, step: 0.1, unit: "×", note: "Spring: last closed daily volume ≥ ×mean of the previous 5 dailies (verified 1.3)." },
+  { key: "WY_SOS_PCT", group: "Wyckoff gate", type: "number", def: WY_SOS_PCT, min: 2, max: 15, step: 0.5, unit: "%", note: "SOS: last closed daily candle must close ≥ +this % vs the previous daily (verified 6 — DAILY candle, never rescale to 15m)." },
+  { key: "WY_SOS_VOL", group: "Wyckoff gate", type: "number", def: WY_SOS_VOL, min: 1, max: 8, step: 0.1, unit: "×", note: "SOS: last daily volume ≥ ×mean of the previous 20 dailies (verified 3). Rare — ~0.6/symbol/year, that scarcity IS the edge." },
+  { key: "WY_BREADTH_MIN", group: "Wyckoff gate", type: "number", def: WY_BREADTH_MIN, min: 0, max: 100, step: 5, int: true, unit: "%", note: "Regime gate: % of universe symbols with daily close ≥ MA20 must be ≥ this for LONG (verified 50 — below it SOS made −1.77% vs +7.10% above)." },
+  { key: "WY_UPTHRUST_VETO", group: "Wyckoff gate", type: "bool", def: WY_UPTHRUST_VETO, note: "L5 veto: the last daily pierced above range resistance and closed back under it (failed breakout) — block LONGs that would chase it." },
+  { key: "WY_BREADTH_TTL_MS", group: "Wyckoff gate", type: "number", def: WY_BREADTH_TTL_MS, min: 5, max: 240, step: 5, int: true, scale: 60_000, unit: "min", note: "Breadth cache TTL — each refresh fetches 1d×25 candles per universe symbol (≤40 symbols)." },
 ];
 
-const GROUPS: ParamMeta["group"][] = ["Quality gate", "5-minute broadcast", "Scan digest", "Train / Prob", "Champion–challenger", "LLM Risk Officer", "Universe / sessions", "Telegram notify", "Flip / SL-TP"];
+const GROUPS: ParamMeta["group"][] = ["Quality gate", "5-minute broadcast", "Scan digest", "Train / Prob", "Champion–challenger", "LLM Risk Officer", "Universe / sessions", "Telegram notify", "Flip / SL-TP", "Wyckoff gate"];
 
 // ── Store (db/params-override.json) ──────────────────────────────────────────
 

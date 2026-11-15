@@ -264,6 +264,37 @@ export function allowDcaAdd(curStake: number, addStake: number): boolean {
   return !(cap > 0 && curStake + addStake > cap + 1e-9);
 }
 
+// ── 4c · WYCKOFF GATE (0.2.96) — cổng cấu trúc cho lệnh LONG sổ B ───────────
+// Port ĐÚNG phần đã walk-forward verify trên nến ngày crypto (07/11/2026,
+// ~19 symbol × 2.7 năm — scripts/verify-wyckoff-crypto.py):
+//   Gate Spring|SOS + breadth≥50 → +3.87%/58.7% vs baseline chop −0.14%/45.6%;
+//   SOS chỉ có edge khi regime RISK_ON (+7.10%/65.2% vs −1.77%/28.6%).
+// Sổ B SHORT không đụng; chỉ LONG phải qua cổng. Chi tiết trong wyckoff-gate.ts.
+
+/** Bật cổng Wyckoff cho LONG (false = hành vi 0.2.95). */
+export const WYCKOFF_GATE = true;
+/** Số nến NGÀY của zone range (bản verify dùng 90). */
+export const WY_RANGE_LOOKBACK = 90;
+/** Width range hợp lệ tối thiểu (% từ đáy tới đỉnh). */
+export const WY_RANGE_MIN_W = 4;
+/** Width range hợp lệ tối đa (%). Verify: 45. */
+export const WY_RANGE_MAX_W = 45;
+/** Drift tối đa trong zone (% |đầu–cuối zone|). Verify: 18. */
+export const WY_DRIFT_MAX = 18;
+/** Spring: vol nến cuối ≥ ×trung bình 5 nến trước. */
+export const WY_SPRING_VOL = 1.3;
+/** SOS: nến ngày cuối đóng ≥ +this % so với nến trước (khung NGÀY — không hạ
+ *  xuống nến 15m, verify chỉ có edge trên nến ngày). */
+export const WY_SOS_PCT = 6;
+/** SOS: vol nến cuối ≥ ×trung bình 20 nến. */
+export const WY_SOS_VOL = 3;
+/** Breadth tối thiểu (% symbol universe có close ngày ≥ MA20) để LONG. */
+export const WY_BREADTH_MIN = 50;
+/** Veto LONG khi nến ngày cuối thủng đỉnh range rồi đóng lại dưới đỉnh (L5). */
+export const WY_UPTHRUST_VETO = true;
+/** TTL cache breadth (ms) — mỗi lần quét breadth fetch 1d×25 nến/symbol. */
+export const WY_BREADTH_TTL_MS = 30 * 60_000;
+
 // ── 4d · SELF-IMPROVE FALLBACK — bù chốt methodId reset (0.2.75) ───────────
 // methodId là hash của TOÀN BỘ chính sách (sc|auc|acc|r|x|tp|sl|tpct|atr|tf|fl|wh)
 // → MỌI thay đổi knob (user chỉnh tay, agent tự +2 minScore, đổi tpMode 0.2.74)

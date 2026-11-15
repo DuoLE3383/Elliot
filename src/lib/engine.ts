@@ -72,6 +72,7 @@ import { llmReview, resolveLlmEndpoint, type LlmVerdict } from "./llm";
 import { methodIdOf, methodSnapshot } from "./method";
 import { runAgentTick } from "./self-improve";
 import { fetchKlinesDirect, fetchBoard24h } from "./klines-direct";
+import { wyckoffLongGate } from "./wyckoff-gate";
 import { startVulcanEngine } from "./vulcan-engine";
 import { XgbPoolNode, xgbPoolAvailable, xgbPoolSize } from "./xgb-pool-node";
 import { labCfgOf, maybeAutoLab } from "./strategy-lab";
@@ -1423,6 +1424,23 @@ async function cycleTick(): Promise<void> {
       );
     }
 
+    // 2.4b) WYCKOFF GATE (0.2.96) — cổng cấu trúc cho lệnh LONG sổ B. Port ĐÚNG
+    // ngưỡng đã walk-forward verify trên nến ngày crypto (07/11): LONG chỉ vào
+    // khi có range tích luỹ hợp lệ + Spring/SOS ở nến ngày đã đóng + breadth
+    // ≥ ngưỡng; Upthrust (thủng đỉnh rồi đóng lại dưới đỉnh) bị veto. SHORT
+    // không đụng — sổ B SHORT đang net +45% ROE, không phá cái đang chạy tốt.
+    // Data lỗi → fail-open (gate không được giết engine), lý do ghi rõ log.
+    if (best.bias === "LONG") {
+      const wyUniverse = [...new Set([...p.pairs, ...(v.scan?.rows ?? []).map((r) => r.symbol)])];
+      const wy = await wyckoffLongGate(best.symbol, wyUniverse);
+      if (!wy.ok) {
+        console.log(`[engine] Wyckoff gate CHẶN LONG ${best.symbol} ${best.interval} — ${wy.reason}`);
+        v.lastCycleStatus = `LONG ${best.symbol} bị chặn cổng Wyckoff — ${wy.reason}`;
+        return;
+      }
+      console.log(`[engine] Wyckoff gate PASS ${best.symbol} ${best.interval} — ${wy.reason}`);
+    }
+
     // 2.5) LLM risk officer — silent. LLM CHẾT thì tuỳ tham số LLM_FAIL_CLOSED:
     //  • fail-open (mặc định)  → lệnh vẫn vào đường XGBoost-only, nhưng lượt
     //    duyệt bị bỏ qua được ghi llmLast "unreachable" (trang /ai hiện rõ —
@@ -1543,6 +1561,19 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
   const c = p.cfg;
   const from = open.side;
   const to = row.bias === "SHORT" ? "SHORT" : "LONG";
+
+  // 2.9) WYCKOFF GATE (0.2.96) — chạy TRƯỚC khi đóng lệnh cũ: flip sang LONG
+  // bị chặn cổng thì GIỮ NGUYÊN lệnh đang mở (không đóng xong rồi bỏ trống,
+  // trái với llmGate chạy sau đóng — cổng cấu trúc phải rẻ và chạy trước).
+  if (to === "LONG") {
+    const wyUniverse = [...new Set([...p.pairs, ...(v.scan?.rows ?? []).map((r) => r.symbol)])];
+    const wy = await wyckoffLongGate(row.symbol, wyUniverse);
+    if (!wy.ok) {
+      console.log(`[engine] Wyckoff gate chặn flip→LONG ${row.symbol} — ${wy.reason} · giữ lệnh ${from} hiện tại`);
+      v.lastCycleStatus = `flip→LONG bị chặn cổng Wyckoff — giữ lệnh cũ`;
+      return false;
+    }
+  }
 
   // 1) đóng lệnh cũ
   const closed = await closeTradeDirect(open.id, price, "flip");
