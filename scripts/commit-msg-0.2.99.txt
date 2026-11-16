@@ -1,0 +1,25 @@
+0.2.99 — TÁCH HẲN ĐƯỜNG START/STOP TỪNG SỔ (hết "dính cái giữa") + SỔ C BÁO LỖI RA STATUS
+
+Vấn đề còn lại sau 0.2.98 (báo cáo "vẫn dính cái giữa"):
+• AutoPanel sync effect có `books` trong deps → mỗi lần bấm START/STOP card A/C,
+  800ms sau panel re-post TOÀN BỘ cfg (kể cả cfg.on của sổ B) lấy từ localStorage
+  của trang. Nếu giá trị đó cũ (pm2 restart / B đã STOP ở nơi khác) → sổ giữa bị
+  hồi sinh/kéo theo mỗi lần đụng vào A/C.
+• cfg.on của sổ B không được hydrate từ engine lúc mount (0.2.98 chỉ hydrate
+  books A/C) → trạng thái B trên tab lệch engine thật.
+• Race hydrate: bấm START rất sớm sau khi mở trang, phản hồi GET tới sau có thể
+  ghi đè ngược lựa chọn vừa bấm.
+
+Sửa:
+• /auto/page.tsx — hydrate CẢ cfg.on (sổ B) từ GET /api/engine lúc mount, persist
+  utp.auto; interactedRef guard: user đã bấm gì đó trước khi engine trả lời thì
+  giữ lựa chọn của user (patchCfg/patchBooks đánh dấu). Engine = nguồn thật của
+  start/stop cả 3 sổ.
+• auto-panel — books RA KHỎI deps sync (booksRef chỉ đọc lúc mount-resume):
+  toggle card A/C đi đường riêng (StrategyCards POST books-only), KHÔNG CÒN
+  re-post cfg.on → hết kéo sổ B theo state cũ.
+• wyckoff-engine — wyckoffTickStatus(): mọi lỗi tick ghi vào dòng status của
+  card C (logStatus) + console — hết kẹt "booting first tick" vĩnh viễn khi
+  DB/dữ liệu trục trặc (DB hỏng trên VPS giờ cũng THẤY ngay trên card).
+
+Kiểm tra: npm run build pass (0.2.99 compiled + static pages ok).
