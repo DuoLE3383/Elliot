@@ -686,15 +686,27 @@ async function wyckoffTick(): Promise<void> {
 
 let cStarted = false;
 
+/** Tick sổ C có báo trạng thái: mọi lỗi đều THẤY trên card C (/auto) — hết kẹt
+ *  "booting first tick" vĩnh viễn khi dữ liệu/DB trục trặc (0.2.99). */
+async function wyckoffTickStatus(): Promise<void> {
+  try {
+    await wyckoffTick();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    logStatus(`lỗi tick: ${msg} — sẽ thử lại tick kế`);
+    console.error(`[wyckoff-C] tick: ${msg}`);
+  }
+}
+
 /** Khởi động nhịp sổ C — gọi MỘT lần lúc boot (engine.ts). */
 export function startWyckoffEngine(): void {
   if (cStarted) return;
   cStarted = true;
   const boot = setTimeout(() => {
-    void wyckoffTick().catch((e) => console.error(`[wyckoff-C] boot: ${e instanceof Error ? e.message : String(e)}`));
+    void wyckoffTickStatus();
     const arm = (): void => {
       const t = setTimeout(() => {
-        void wyckoffTick().catch((e) => console.error(`[wyckoff-C] tick: ${e instanceof Error ? e.message : String(e)}`));
+        void wyckoffTickStatus();
         arm();
       }, pval("WYC_TICK_MS", WYC_TICK_MS));
       t.unref?.();

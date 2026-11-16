@@ -113,6 +113,8 @@ export default function AutoPage() {
 
   // ── cfg sổ B — NGUỒN DUY NHẤT ở trang (0.2.97): AutoPanel + StrategyCards
   // cùng đổi một state; persist utp.auto như cũ (cùng key với dashboard).
+  // 0.2.99 — `on` được HYDRATE từ engine lúc mount (engine là nguồn thật của
+  // start/stop): localStorage cũ/pm2 restart không còn hồi sinh sổ B ngầm.
   const [cfg, setCfg] = useState<AutoConfig>(AUTO_DEFAULTS);
   useEffect(() => {
     try {
@@ -121,7 +123,10 @@ export default function AutoPage() {
       setCfg(AUTO_DEFAULTS);
     }
   }, []);
+  // đã có thao tác trước khi engine trả lời hydrate? → KHÔNG ghi đè lựa chọn
+  const interactedRef = useRef(false);
   const patchCfg = useCallback((patch: Partial<AutoConfig>) => {
+    interactedRef.current = true;
     setCfg((prev) => {
       const next = { ...prev, ...patch };
       saveAutoConfig(next);
@@ -133,6 +138,8 @@ export default function AutoPage() {
   //  khi AutoPanel sync lần đầu (0.2.98). Trước đây mặc định {a:true,c:true} →
   //  sync mount đè cờ engine, toggle sổ A/C không dính qua reload (phải đi qua
   //  START sổ giữa). Lỗi fetch → mở khoá sync luôn, dùng default như cũ.
+  //  0.2.99 — hydrate CẢ cfg.on (sổ B) cùng lúc + guard: nếu user đã bấm gì đó
+  //  trước khi engine trả lời thì giữ lựa chọn của user (không bị revert).
   const [books, setBooks] = useState<{ a: boolean; c: boolean }>({ a: true, c: true });
   const [booksReady, setBooksReady] = useState(false);
   useEffect(() => {
@@ -141,8 +148,19 @@ export default function AutoPage() {
       try {
         const res = await fetch("/api/engine", { cache: "no-store" });
         if (res.ok && alive) {
-          const j = (await res.json()) as { books?: { a: boolean; c: boolean } };
-          if (j.books) setBooks({ a: j.books.a === true, c: j.books.c === true });
+          const j = (await res.json()) as { cfg?: { on?: boolean }; books?: { a: boolean; c: boolean } };
+          if (!interactedRef.current) {
+            if (j.books) setBooks({ a: j.books.a === true, c: j.books.c === true });
+            const on = j.cfg?.on;
+            if (typeof on === "boolean") {
+              setCfg((prev) => {
+                if (prev.on === on) return prev;
+                const next = { ...prev, on };
+                saveAutoConfig(next);
+                return next;
+              });
+            }
+          }
         }
       } catch {
         /* engine chưa trả lời → giữ default */
@@ -155,6 +173,7 @@ export default function AutoPage() {
     };
   }, []);
   const patchBooks = useCallback((patch: { a?: boolean; c?: boolean }) => {
+    interactedRef.current = true;
     setBooks((prev) => ({ ...prev, ...patch }));
   }, []);
 

@@ -293,17 +293,24 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   }, [pushToast]);
 
   // ── engine sync — push the page config up to the backend scheduler ──────────
-  // cfg / settings / pairs / leverage / books editable trên trang (localStorage);
+  // cfg / settings / pairs / leverage editable trên trang (localStorage);
   // server giữ bản persist và dùng cho mọi loop định lịch. Chạy debounce mỗi lần
   // đổi + ngay khi mount (resume sau reboot server). 0.2.98: mount-sync CHẦN đến
   // khi trang hydrate xong cờ books từ engine — tránh đè trạng thái thật.
+  // 0.2.99 — books RA KHỎI deps: booksRef chỉ đọc lúc mount-resume. Bật/tắt sổ
+  // A/C đi đường riêng (StrategyCards POST books-only) — toggle card KHÔNG CÒN
+  // re-post cfg.on, hết kéo sổ B theo trạng thái localStorage cũ ("dính cái giữa").
+  const booksRef = useRef(books);
+  useEffect(() => {
+    booksRef.current = books;
+  }, [books]);
   useEffect(() => {
     if (!syncReady) return;
     const id = window.setTimeout(() => {
-      void postEngine({ action: "sync", cfg, settings, pairs, leverage, books });
+      void postEngine({ action: "sync", cfg, settings, pairs, leverage, books: booksRef.current });
     }, 800);
     return () => window.clearTimeout(id);
-  }, [cfg, settings, pairs, leverage, books, syncReady]);
+  }, [cfg, settings, pairs, leverage, syncReady]);
 
   // ── engine poll — the single source of truth for everything on screen ──────
   // rows / scan age / scan progress (incl. queue position) / universe /
