@@ -16,7 +16,7 @@
 
 import { db } from "./db";
 import { fetchKlinesDirect } from "./klines-direct";
-import { feeRoe } from "./params";
+import { feeRoe, pval, VUL_ATR_STOP_MULT, VUL_VOL_FACTOR } from "./params";
 import { readWallet } from "./autostate";
 import { bookAOn } from "./books-flags";
 import {
@@ -30,6 +30,19 @@ import {
 export const VULCAN_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT", "XLMUSDT"];
 export const VULCAN_STAKE_PCT = 10; // mỗi lệnh dùng 10% equity sổ A
 export const VULCAN_LEV = VULCAN_DEFAULTS.leverage; // 5 — đúng chiến lược gốc
+
+/** 0.3.0 — tham số sổ A đọc runtime (tune-2 "nâng cấp cấp 2"): đúng 2 núm RR
+ *  (atrStopMult — độ rộng stop) + quality floor (volFactor — sàn dòng tiền);
+ *  phần còn lại giữ VULCAN_DEFAULTS nguyên vẹn như chiến lược gốc. Override
+ *  runtime qua setOverride → hiệu lực NẾN 15m KẾ TIẾP (stop mới áp cho lệnh
+ *  mới — lệnh đang mở giữ stop lúc mở, đúng nghĩa "không đổi thân phận"). */
+function vulcanLiveParams(): VulcanParams {
+  return {
+    ...VULCAN_DEFAULTS,
+    atrStopMult: pval("VUL_ATR_STOP_MULT", VUL_ATR_STOP_MULT),
+    volFactor: pval("VUL_VOL_FACTOR", VUL_VOL_FACTOR),
+  };
+}
 
 export interface VulcanOpenState {
   side: "LONG" | "SHORT";
@@ -156,7 +169,7 @@ async function vulcanSymbolTick(symbol: string, lastCandleT: Map<string, number>
         }
       : null;
 
-  const decision = decideVulcanLive(kl as Candle[], open, VULCAN_DEFAULTS);
+  const decision = decideVulcanLive(kl as Candle[], open, vulcanLiveParams());
   const action = decision.action;
 
   if (action.kind === "close" && openRow && open) {
@@ -200,7 +213,7 @@ async function vulcanSymbolTick(symbol: string, lastCandleT: Map<string, number>
         capitalBefore: head,
       },
     });
-    console.log(`[vulcan] OPEN ${action.side} ${symbol} @ ${action.entry} stop ${action.stopPrice.toFixed(6)} (ATR×${VULCAN_DEFAULTS.atrStopMult}) vốn ${head} id=${created.id}`);
+    console.log(`[vulcan] OPEN ${action.side} ${symbol} @ ${action.entry} stop ${action.stopPrice.toFixed(6)} (ATR×${vulcanLiveParams().atrStopMult}) vốn ${head} id=${created.id}`);
     return;
   }
 

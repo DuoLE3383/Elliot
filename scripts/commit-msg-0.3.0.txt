@@ -1,0 +1,60 @@
+0.3.0 — "NÂNG CẤP CẤP 2": ĐỀ XUẤT RR + QUALITY FLOOR CHO CẢ 3 SỔ A/B/C, LƯU
+Ở Ô CẠNH Ô SETTING PHẦN DRY-RUN, NÊU RÕ LÝ DO
+
+Yêu cầu: "dùng nâng cấp 'cấp2' — chỉ chỉnh tham số RR và Quality floor cho tất
+cả các sổ A B C và lưu đề xuất ở một ô cạnh ô setting ở phần dry-run, nêu rõ
+lý do". Cấp 2 = bậc tinh chỉnh NHẸ: ĐÚNG 2 nhóm núm mỗi sổ, KHÔNG đụng stake/
+đòn bẩy/logic engine:
+
+  sổ A Vulcan  — RR: VUL_ATR_STOP_MULT (stop = entry ∓ mult×ATR) · floor: VUL_VOL_FACTOR
+  sổ B Elliott — RR: RR_TP_RATIO (TP = SL × ratio — TRƯỚC ĐÂY CỨNG 1.4 trong
+                 dynLevelsAtEntry, giờ thành tham số runtime) · floor: bộ ba
+                 minScore/minAuc/minAcc của Auto panel
+  sổ C Wyckoff — RR: WYC_EXIT_SL_PCT (stop cấu trúc −x% đáy吸筹) · floor:
+                 WYC_RPS50_MIN / WYC_RPS120_MIN
+
+Đề xuất sinh từ SỐ THẬT của từng sổ (VulcanBook / AutoTrade / WyckoffBook —
+cùng nguồn statsFromRoes với /api/arena) bằng LUẬT SỐ thuần, không LLM:
+
+  • RR SIẾT khi WR ≥ 55% nhưng payoff < 1.15 và exp ≤ 0.3 (thắng nhiều mà lãi
+    TB không bù lỗ TB → nâng tỉ lệ lãi/lỗ hiệu quả)
+  • RR NỚI khi WR ≤ 40% nhưng payoff ≥ 1.6 (win to nhưng hiếm → TP gần hơn)
+  • FLOOR NÂNG khi expectancy < 0 (đang chảy máu → lọc tín hiệu yếu)
+  • FLOOR HẠ NHẸ (chỉ về hướng default, không xuống dưới default) khi sổ khỏe
+    (exp ≥ 0.3 · WR ≥ 48% · n ≥ 20)
+  • n < 5 lệnh đóng → im lặng; exp 0..0.3 → giữ nguyên
+  Mọi đề xuất có LÝ DO kèm số: WR, payoff, lãi TB/lỗ TB, net, expectancy, phí
+  round-trip (feeRoe lev từng sổ: A×5, B×leverage engine, C×1).
+
+Thay đổi chính:
+• tune2.ts (server) — measure 3 sổ (per-book try/catch: DB bệnh → null, không
+  ném), luật thuần tune2ItemsForBook() (test được), persist db/tune2-proposal.json
+  (DATA_DIR — sống qua restart); tune2-types.ts thuần cho client (không fs/db —
+  tránh lỗi "Can't resolve fs" 0.2.55).
+• GET /api/tune2 — file có sẵn trả NGAY không đụng DB (poll nhẹ, bài học vụ
+  integrity_check); lần đầu tự tính + lưu. POST refresh (đo lại, GIỮ trạng
+  thái applied/dismissed cùng book+kind+param) · apply (setOverride núm runtime
+  + syncEngine cfg cho floor sổ B) · dismiss.
+• Tune2Card trên /auto — ĐỨNG NGAY TRÊN ô setting AutoPanel (cạnh ô setting
+  phần dry-run): từng sổ một khối màu riêng + dòng stats thật (n/WR/payoff/
+  exp/net) + mỗi đề xuất: chip RR/Floor, param label, from → to, extras, LÝ DO
+  theo ngôn ngữ, "current", badge ĐÃ ÁP/ĐÃ BỎ QUA; nút Áp dụng / Bỏ qua / Tính
+  lại. Áp xong floor sổ B → trang patch cfg localStorage cho khớp engine.
+• RR_TP_RATIO plumbed: engine.ts 2 call-site dynLevelsAtEntry truyền
+  pval("RR_TP_RATIO"); vulcan-engine vulcanLiveParams() đọc pval cho
+  atrStopMult + volFactor (lệnh đang mở giữ stop lúc mở — chỉ lệnh mới áp).
+• params-store EDITABLE: RR_TP_RATIO (nhóm Flip / SL-TP) + nhóm mới
+  "Books A/C · RR & floor" (VUL_ATR_STOP_MULT, VUL_VOL_FACTOR, WYC_EXIT_SL_PCT,
+  WYC_RPS50_MIN, WYC_RPS120_MIN) — chỉnh tay trên /ai cũng chính là áp đề xuất.
+• db.ts bootstrap soi gương schema.prisma: thêm WyckoffBook + LiveBook vào
+  SCHEMA_SQL + MODEL_TABLES (0.2.97 quên mirror → DB mới gãy "table does not
+  exist" khi quét sổ C/LIVE — gặp thật khi smoke standalone: bootstrap giờ
+  đủ 15 bảng, integrity_check ok).
+• i18n tune2.* đủ vi + en (35 key).
+
+Kiểm tra: scripts/test-tune2.mts — 36 checks ALL_TUNE2_OK (ma trận luật, biên
+clamp at-cap, restore không xuống dưới default, reasonKey đủ vi+en, types
+client-safe, round-trip file với DATA_DIR riêng — fixture KHÔNG được ghi vào
+repo db/, bài học từ lần chạy đầu). tsc sạch; npm run build 0.3.0 — /api/tune2
+đăng ký, /auto 200, smoke standalone: GET trả đề xuất + current đúng shape,
+apply khi không có pending → note lịch sự, bootstrap 15 bảng ok.

@@ -110,6 +110,7 @@ import {
   MEM_LOOKBACK,
   MEM_NET_FLOOR,
   NOISE_BAND,
+  RR_TP_RATIO,
   RISK_TIER_MIN,
   RISK_TIER_SCORE,
   SCAN_DIGEST_EVERY_MS,
@@ -1468,7 +1469,10 @@ async function cycleTick(): Promise<void> {
     let live: { slPct: number; tpPct: number; atrPct: number; heatMul: number; volMul: number } | null = null;
     if (c.tpMode === "dyn") {
       try {
-        live = dynLevelsAtEntry(await fetchKlinesDirect(best.symbol, best.interval), coef);
+        // 0.3.0 — TP = SL × RR_TP_RATIO (tune-2 cấp 2): ratio trước đây cứng 1.4
+        // trong dynLevelsAtEntry, giờ là tham số runtime — đề xuất RR cấp 2 áp
+        // được ngay tick kế tiếp mà không cần build lại.
+        live = dynLevelsAtEntry(await fetchKlinesDirect(best.symbol, best.interval), coef, pval("RR_TP_RATIO", RR_TP_RATIO));
       } catch {
         // fail-open — keep the train-time scan-row levels
       }
@@ -1661,7 +1665,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
   let live: { slPct: number; tpPct: number; atrPct: number; heatMul: number; volMul: number } | null = null;
   if (c.tpMode === "dyn") {
     try {
-      live = dynLevelsAtEntry(await fetchKlinesDirect(row.symbol, row.interval), coef);
+      live = dynLevelsAtEntry(await fetchKlinesDirect(row.symbol, row.interval), coef, pval("RR_TP_RATIO", RR_TP_RATIO));
     } catch {
       // fail-open — keep the scan-row levels
     }

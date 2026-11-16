@@ -660,3 +660,32 @@ export function pval<T>(key: string, def: T): T {
     return def;
   }
 }
+
+// ── 10 · TUNE-2 "NÂNG CẤP CẤP 2" (0.3.0) — đúng 2 nhóm núm: RR + quality floor ─
+// Cấp 2 = bậc tinh chỉnh NHẸ: chỉ đụng tỉ lệ lãi/lỗ (RR) và sàn chất lượng tín
+// hiệu của BA sổ dry-run, KHÔNG đụng stake/đòn bẩy/logic engine. Mỗi sổ một cặp:
+//
+//   sổ A Vulcan  — RR leg  = VUL_ATR_STOP_MULT (stop = entry ∓ mult×ATR; nhánh
+//                             thưởng là ROI ladder/trailing gốc — cố định)
+//                  floor   = VUL_VOL_FACTOR  (volume ≥ volMA20 × factor — lọc
+//                             breakout không có dòng tiền)
+//   sổ B Elliott — RR leg  = RR_TP_RATIO (dyn: TP = SL × ratio; TRƯỚC ĐÂY cứng
+//                             1.4 trong dynLevelsAtEntry — giờ thành tham số)
+//                  floor   = bộ ba minScore/minAuc/minAcc của Auto panel (cfg)
+//   sổ C Wyckoff — RR leg  = WYC_EXIT_SL_PCT (stop cấu trúc −x% đáy吸筹; nhánh
+//                             thưởng trailing gốc — cố định)
+//                  floor   = WYC_RPS50_MIN / WYC_RPS120_MIN (sàn độ mạnh tương
+//                             đối của coin trong universe)
+//
+// Tất cả đều pval() → override runtime (đề xuất cấp 2 ÁP bằng setOverride, hiệu
+// lực tick kế tiếp). RR sửa leg RỦI RO (A/C) vì nhánh thưởng của A/C là cấu
+// trúc chiến lược gốc; sổ B dyn ngược lại sửa leg THƯỞNG (ratio) vì SL đã đo
+// động theo ATR/heat/vol tại entry.
+
+/** Sổ B — TP = SL × ratio trong tpMode "dyn"/"auto" (mặc định giữ nguyên 1.4
+ *  như bản cứng trước 0.3.0). Chỉnh runtime nhóm Flip / SL-TP trên /ai. */
+export const RR_TP_RATIO = 1.4;
+/** Sổ A — stop = entry ∓ mult×ATR (VulcanDefaults.atrStopMult 2.0). */
+export const VUL_ATR_STOP_MULT = 2.0;
+/** Sổ A — volume phải ≥ volMA20 × factor để coi breakout có dòng tiền (1.5). */
+export const VUL_VOL_FACTOR = 1.5;

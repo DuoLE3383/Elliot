@@ -23,6 +23,7 @@ import { AutoAnalytics } from "@/components/auto-analytics";
 import { AutoPanel } from "@/components/auto-panel";
 import { BinanceApiCard } from "@/components/binance-api-card";
 import { StrategyCards } from "@/components/strategy-cards";
+import { Tune2Card } from "@/components/tune2-card";
 import { Button } from "@/components/ui/button";
 import { t, type Lang } from "@/lib/i18n";
 import { fetchAutoState, loadAutoConfig, saveAutoConfig, AUTO_DEFAULTS, type AutoConfig, type AutoState } from "@/lib/autotrade";
@@ -277,6 +278,13 @@ export default function AutoPage() {
           books={books}
           onToggleBooks={patchBooks}
           onPushToast={pushToast}
+        />
+        {/* 0.3.0 — ô "NÂNG CẤP CẤP 2" cạnh ô setting: đề xuất RR + Quality floor
+            cho cả 3 sổ A/B/C từ số thật, nêu rõ lý do; áp = núm runtime + cfg B */}
+        <Tune2Card
+          lang={lang}
+          onBcfgApplied={(patch) => patchCfg(patch)}
+          pushToast={pushToast}
         />
         {/* khối điều khiển + sổ B */}
         <AutoPanel

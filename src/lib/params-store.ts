@@ -81,6 +81,12 @@ import {
   WY_BREADTH_MIN,
   WY_UPTHRUST_VETO,
   WY_BREADTH_TTL_MS,
+  RR_TP_RATIO,
+  VUL_ATR_STOP_MULT,
+  VUL_VOL_FACTOR,
+  WYC_EXIT_SL_PCT,
+  WYC_RPS50_MIN,
+  WYC_RPS120_MIN,
   pval,
 } from "./params";
 
@@ -99,7 +105,8 @@ export interface ParamMeta {
     | "Universe / sessions"
     | "Telegram notify"
     | "Flip / SL-TP"
-    | "Wyckoff gate";
+    | "Wyckoff gate"
+    | "Books A/C · RR & floor";
   type: "number" | "bool" | "string";
   def: number | boolean | string;
   min?: number;
@@ -207,6 +214,7 @@ export const EDITABLE: ParamMeta[] = [
   // Risk envelope (0.2.79) — cùng nhóm position-math: hai trần này kẹp exposure
   // của MỘT vị thế (engine đơn vị thể) bất kể Auto panel đặt gì.
   { key: "RISK_MAX_LEV", group: "Flip / SL-TP", type: "number", def: RISK_MAX_LEV, min: 0, max: 125, step: 1, int: true, unit: "×", note: "Leverage ceiling: the engine clamps its effective leverage to this at load and on every browser sync (audit 04/11 recommended ×3-5 — at ×10 a 4% adverse move is −40% ROE and round-trip taker fees eat ~1% per trade). Open positions keep the leverage they were opened with. 0 = off." },
+  { key: "RR_TP_RATIO", group: "Flip / SL-TP", type: "number", def: RR_TP_RATIO, min: 1, max: 2.5, step: 0.1, unit: ":1", note: "Book-B dyn TP = SL × this (was hardcoded 1.4 before 0.3.0). Raise = winners sized bigger vs risk (needs WR to hold); lower = take profits sooner. Tune-2 level-2 proposals write this same key." },
   { key: "RISK_MAX_STAKE", group: "Flip / SL-TP", type: "number", def: RISK_MAX_STAKE, min: 0, max: 100, step: 0.5, unit: "%", note: "Total-stake ceiling for the single open position: entries are clamped to this share of equity, and DCA adds that would push the committed stake past the roof are rejected (averaging down at full size is martingale). Audit 04/11: stake 10% × lev 10 × dcaMax 2 ≈ 300% notional — now stake ≤ 3% by default means liquidation costs at most 3% of equity. 0 = off." },
   // Wyckoff gate (0.2.96) — cổng cấu trúc LONG sổ B, port ĐÚNG ngưỡng đã
   // walk-forward verify trên nến ngày crypto (scripts/verify-wyckoff-crypto.py):
@@ -222,9 +230,18 @@ export const EDITABLE: ParamMeta[] = [
   { key: "WY_BREADTH_MIN", group: "Wyckoff gate", type: "number", def: WY_BREADTH_MIN, min: 0, max: 100, step: 5, int: true, unit: "%", note: "Regime gate: % of universe symbols with daily close ≥ MA20 must be ≥ this for LONG (verified 50 — below it SOS made −1.77% vs +7.10% above)." },
   { key: "WY_UPTHRUST_VETO", group: "Wyckoff gate", type: "bool", def: WY_UPTHRUST_VETO, note: "L5 veto: the last daily pierced above range resistance and closed back under it (failed breakout) — block LONGs that would chase it." },
   { key: "WY_BREADTH_TTL_MS", group: "Wyckoff gate", type: "number", def: WY_BREADTH_TTL_MS, min: 5, max: 240, step: 5, int: true, scale: 60_000, unit: "min", note: "Breadth cache TTL — each refresh fetches 1d×25 candles per universe symbol (≤40 symbols)." },
+  // Tune-2 "nâng cấp cấp 2" (0.3.0) — đúng 2 nhóm núm RR + quality floor của sổ
+  // A (Vulcan) và sổ C (Wyckoff gốc); sổ B dùng RR_TP_RATIO (nhóm Flip / SL-TP)
+  // và bộ ba minScore/minAuc/minAcc của Auto panel. Đề xuất tự động sinh từ số
+  // thật của từng sổ (GET /api/tune2) — áp một núm ở đây cũng chính là áp đề xuất.
+  { key: "VUL_ATR_STOP_MULT", group: "Books A/C · RR & floor", type: "number", def: VUL_ATR_STOP_MULT, min: 1.2, max: 3, step: 0.1, unit: "×ATR", note: "Book A (Vulcan) stop distance: stop = entry ∓ mult × ATR. Smaller = tighter stop = higher effective R:R but more stop-outs. Applies to NEW trades only — an open position keeps the stop it was opened with." },
+  { key: "VUL_VOL_FACTOR", group: "Books A/C · RR & floor", type: "number", def: VUL_VOL_FACTOR, min: 1, max: 3, step: 0.1, unit: "×volMA20", note: "Book A quality floor: breakout volume must be ≥ volMA20 × this. Higher = fewer but stronger breakouts (filters no-liquidity pushes)." },
+  { key: "WYC_EXIT_SL_PCT", group: "Books A/C · RR & floor", type: "number", def: WYC_EXIT_SL_PCT, min: 3, max: 12, step: 0.5, unit: "%", note: "Book C (Wyckoff) structural stop: accumulation-low − this %. Smaller = tighter structural stop = higher R:R but earlier stop-outs. Applies to newly armed stops." },
+  { key: "WYC_RPS50_MIN", group: "Books A/C · RR & floor", type: "number", def: WYC_RPS50_MIN, min: 50, max: 85, step: 1, int: true, unit: "pt", note: "Book C quality floor: 20-day return percentile (RPS50) must be ≥ this (65 = top 35% of the universe). Raise = only strongest coins pass L2." },
+  { key: "WYC_RPS120_MIN", group: "Books A/C · RR & floor", type: "number", def: WYC_RPS120_MIN, min: 55, max: 90, step: 1, int: true, unit: "pt", note: "Book C quality floor: 120-day return percentile (RPS120) must be ≥ this (70). Raise = stricter trend-strength filter on the 5-layer funnel." },
 ];
 
-const GROUPS: ParamMeta["group"][] = ["Quality gate", "5-minute broadcast", "Scan digest", "Train / Prob", "Champion–challenger", "LLM Risk Officer", "Universe / sessions", "Telegram notify", "Flip / SL-TP", "Wyckoff gate"];
+const GROUPS: ParamMeta["group"][] = ["Quality gate", "5-minute broadcast", "Scan digest", "Train / Prob", "Champion–challenger", "LLM Risk Officer", "Universe / sessions", "Telegram notify", "Flip / SL-TP", "Wyckoff gate", "Books A/C · RR & floor"];
 
 // ── Store (db/params-override.json) ──────────────────────────────────────────
 
