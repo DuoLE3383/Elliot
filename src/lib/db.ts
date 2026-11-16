@@ -127,13 +127,21 @@ async function hardenSqlite(base: PrismaClient): Promise<void> {
     for (const pragma of ["PRAGMA journal_mode=WAL", "PRAGMA busy_timeout=5000", "PRAGMA synchronous=NORMAL"]) {
       await base.$queryRawUnsafe(pragma);
     }
+    // 0.2.100 — next build mở 17 worker song song: integrity/backup chỉ có ý
+    // nghĩa ở RUNTIME. Build phase bỏ qua — hết spam lúc collect page data.
+    if (process.env.NEXT_PHASE === "phase-production-build") return;
     const rows = await base
-      .$queryRawUnsafe<{ integrity: string }[]>("PRAGMA integrity_check")
+      .$queryRawUnsafe<Array<Record<string, unknown>>>("PRAGMA integrity_check")
       .catch(() => null);
     if (rows) {
-      const bad = (rows ?? []).filter((r) => r.integrity !== "ok");
+      // 0.2.100 — SỬA BÁO HỎNG ẢO: Prisma trả đúng tên cột SQLite là
+      // "integrity_check" (chứng thực bằng client thật), KHÔNG phải "integrity"
+      // như code cũ đọc → mọi row đều thành "lỗi" với chi tiết trống — DB khỏe
+      // cũng bị gào DATABASE HỎNG sau mỗi lượt build/restart.
+      const valOf = (r: Record<string, unknown>): unknown => r.integrity_check ?? r.integrity ?? Object.values(r)[0];
+      const bad = rows.filter((r) => String(valOf(r) ?? "") !== "ok");
       if (bad.length > 0) {
-        const sample = bad.slice(0, 2).map((r) => r.integrity).join(" | ");
+        const sample = bad.slice(0, 2).map((r) => String(valOf(r))).join(" | ");
         console.error(
           `[db] integrity_check — DATABASE HỎNG (${bad.length} lỗi: ${sample}) — backup sẽ thất bại tới khi sửa: ${corruptDbHint(sqliteDbPath() ?? undefined)}`,
         );
@@ -225,8 +233,12 @@ async function runBootstrap(base: PrismaClient): Promise<void> {
     console.warn(`[db] schema bootstrap — ok (all ${MODEL_TABLES.length} tables present, db: ${dbPath})`);
   }
   await hardenSqlite(base);
-  void backupDatabase(base);
-  scheduleDailyBackup(base);
+  // 0.2.100 — backup VACUUM INTO chỉ chạy ở runtime (build phase: 17 worker
+  // cùng mở DB — không ai cần backup, cũng đừng hẹn timer backup trong worker)
+  if (process.env.NEXT_PHASE !== "phase-production-build") {
+    void backupDatabase(base);
+    scheduleDailyBackup(base);
+  }
 }
 
 /** Never throws into a query's way: a failed bootstrap is LOGGED (reason + db
