@@ -56,6 +56,9 @@ interface Props {
   onCfgChange: (patch: Partial<AutoConfig>) => void;
   /** 0.2.97 — cờ chiến lược A/C (engine); sync payload cũng kèm books */
   books: { a: boolean; c: boolean };
+  /** 0.2.98 — false = trang chưa hydrate xong cờ sổ từ engine → CHẦN sync mount
+   *  (đừng đè cờ thật bằng default {a:true,c:true} trước khi đọc được trạng thái). */
+  syncReady?: boolean;
   onPickPair: (symbol: string, interval: string) => void;
   pushToast: (toast: { kind: "entry" | "flip" | "error" | "warn" | "wy" | "xgb"; text: string }) => void;
 }
@@ -163,7 +166,7 @@ const TEST_MSG =
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, settings, cfg, onCfgChange, books, onPickPair, pushToast }: Props) {
+export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, settings, cfg, onCfgChange, books, syncReady = true, onPickPair, pushToast }: Props) {
   // cfg + books NÂNG LÊN TRANG (0.2.97) — một nguồn dùng chung với StrategyCards:
   // START/STOP ở card B và switch ở panel đều đổi cùng 1 state của page.
   const [liveState, setLiveState] = useState<EngineSnap["live"] | null>(null);
@@ -292,13 +295,15 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   // ── engine sync — push the page config up to the backend scheduler ──────────
   // cfg / settings / pairs / leverage / books editable trên trang (localStorage);
   // server giữ bản persist và dùng cho mọi loop định lịch. Chạy debounce mỗi lần
-  // đổi + ngay khi mount (resume sau reboot server).
+  // đổi + ngay khi mount (resume sau reboot server). 0.2.98: mount-sync CHẦN đến
+  // khi trang hydrate xong cờ books từ engine — tránh đè trạng thái thật.
   useEffect(() => {
+    if (!syncReady) return;
     const id = window.setTimeout(() => {
       void postEngine({ action: "sync", cfg, settings, pairs, leverage, books });
     }, 800);
     return () => window.clearTimeout(id);
-  }, [cfg, settings, pairs, leverage, books]);
+  }, [cfg, settings, pairs, leverage, books, syncReady]);
 
   // ── engine poll — the single source of truth for everything on screen ──────
   // rows / scan age / scan progress (incl. queue position) / universe /

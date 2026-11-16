@@ -1,13 +1,18 @@
 "use client";
 
-// ─── StrategyCards (0.2.97) — bộ chọn chiến lược + đề xuất trên trang /auto ───
-// Ba sổ paper-trading song song, mỗi sổ một card: bật/tắt riêng, thống kê thực
-// (từ /api/arena), trạng thái LIVE + breadth. Kèm dòng ĐỀ XUẤT tính từ số thật
-// (không phải tiếng nói suông): sổ nào net ROE cao + WR đạt → bật/giữ; sổ nào
-// máu chảy → tắt/chờ. Sổ B đi theo cfg.on (START/STOP dùng chung nguồn cfg của
-// trang — nút ở đây và switch ở AutoPanel cùng đổi một state).
+// ─── StrategyCards (0.2.97 · 0.2.98) — bộ chọn chiến lược + đề xuất trên /auto
+// Ba sổ paper-trading song song, mỗi sổ một card MỘT NÚT START/STOP RIÊNG —
+// bật/tắt từng sổ độc lập, KHÔNG phải đi qua sổ nào làm “master” (0.2.98: cờ
+// A/C hydrate từ engine lúc mount nên toggle dính vĩnh viễn qua reload).
+// Hàng đầu tiên: START ALL / STOP ALL — bật hoặc tắt CẢ 3 sổ một lượt (một
+// POST sync duy nhất kèm cfg.on + books; LIVE mirror KHÔNG bị đụng tới).
+// Thống kê thực từ /api/arena; trạng thái LIVE + breadth. Kèm dòng ĐỀ XUẤT tính
+// từ số thật: sổ nào net ROE cao + WR đạt → bật/giữ; sổ nào máu chảy → tắt/chờ.
+// Sổ B đi theo cfg.on (START/STOP dùng chung nguồn cfg của trang — nút ở card
+// và switch ở AutoPanel cùng đổi một state).
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Play, Square } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -127,6 +132,27 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
     [books, onToggleBooks, lang],
   );
 
+  /** 0.2.98 — START ALL / STOP ALL: cả 3 sổ A/B/C một lượt. Một POST sync duy
+   *  nhất kèm cfg.on (sổ B) + books (sổ A/C); state trang đổi ngay, LIVE mirror
+   *  không đụng tới (liveStart/liveStop là hành động riêng, có dải xác nhận). */
+  const setAll = useCallback(
+    async (on: boolean) => {
+      onToggleBooks({ a: on, c: on });
+      onCfgToggle(on);
+      try {
+        const res = await fetch("/api/engine", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "sync", books: { a: on, c: on }, cfg: { on } }),
+        });
+        if (!res.ok) toastRef.current({ kind: "error", text: t(lang, "strat.syncFail") });
+      } catch {
+        toastRef.current({ kind: "error", text: t(lang, "strat.syncFail") });
+      }
+    },
+    [onToggleBooks, onCfgToggle, lang],
+  );
+
   const statsOf = (id: "a" | "b" | "c"): BookStats | null => (arena ? arena[id] : null);
   const advice = arena ? strategyAdvice([{ id: "a", s: arena.a }, { id: "b", s: arena.b }, { id: "c", s: arena.c }]) : [];
 
@@ -147,6 +173,27 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
 
   return (
     <div className="space-y-2">
+      {/* 0.2.98 — START ALL / STOP ALL: cả 3 sổ một lượt, không phải bấm 3 card */}
+      <div className="flex items-center gap-2" title={t(lang, "strat.all.tip")}>
+        <Button
+          size="sm"
+          onClick={() => void setAll(true)}
+          className="h-7 flex-1 gap-1.5 bg-emerald-700 text-[11px] text-white hover:bg-emerald-600"
+        >
+          <Play className="h-3 w-3" />
+          {t(lang, "strat.all.start")}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void setAll(false)}
+          className="h-7 flex-1 gap-1.5 border-rose-800 bg-transparent text-[11px] text-rose-300 hover:bg-rose-950/40"
+        >
+          <Square className="h-3 w-3" />
+          {t(lang, "strat.all.stop")}
+        </Button>
+      </div>
+
       {/* đề xuất — từ số thật của ba sổ */}
       {advice.some((a) => a.action !== "hold") && (
         <div className="rounded-lg border border-violet-800/60 bg-violet-950/30 px-3 py-2">
@@ -189,11 +236,12 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
             </dl>
             <Button
               size="sm"
-              variant="outline"
+              variant={books.a ? "outline" : "default"}
               onClick={() => void toggleBook({ a: !books.a })}
-              className={`mt-2 h-7 w-full text-[11px] ${books.a ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-amber-700 bg-amber-950/40 text-amber-300 hover:bg-amber-900/40"}`}
+              title={books.a ? t(lang, "strat.turnOff") : t(lang, "strat.turnOn")}
+              className={`mt-2 h-7 w-full text-[11px] ${books.a ? "border-rose-800 bg-transparent text-rose-300 hover:bg-rose-950/40" : "bg-emerald-700 text-white hover:bg-emerald-600"}`}
             >
-              {books.a ? t(lang, "strat.turnOff") : t(lang, "strat.turnOn")}
+              {books.a ? t(lang, "auto.stop") : t(lang, "auto.start")}
             </Button>
           </CardContent>
         </Card>
@@ -251,11 +299,12 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
             </p>
             <Button
               size="sm"
-              variant="outline"
+              variant={books.c ? "outline" : "default"}
               onClick={() => void toggleBook({ c: !books.c })}
-              className={`mt-1.5 h-7 w-full text-[11px] ${books.c ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-violet-700 bg-violet-950/40 text-violet-300 hover:bg-violet-900/40"}`}
+              title={books.c ? t(lang, "strat.turnOff") : t(lang, "strat.turnOn")}
+              className={`mt-1.5 h-7 w-full text-[11px] ${books.c ? "border-rose-800 bg-transparent text-rose-300 hover:bg-rose-950/40" : "bg-emerald-700 text-white hover:bg-emerald-600"}`}
             >
-              {books.c ? t(lang, "strat.turnOff") : t(lang, "strat.turnOn")}
+              {books.c ? t(lang, "auto.stop") : t(lang, "auto.start")}
             </Button>
           </CardContent>
         </Card>

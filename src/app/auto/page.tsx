@@ -129,8 +129,31 @@ export default function AutoPage() {
     });
   }, []);
 
-  // ── books A/C — mặc định BẬT; đọc lại engine (sync khởi động) sẽ khớp thật ──
+  // ── books A/C — boot: đọc TRẠNG THÁI THẬT từ engine (GET /api/engine) trước
+  //  khi AutoPanel sync lần đầu (0.2.98). Trước đây mặc định {a:true,c:true} →
+  //  sync mount đè cờ engine, toggle sổ A/C không dính qua reload (phải đi qua
+  //  START sổ giữa). Lỗi fetch → mở khoá sync luôn, dùng default như cũ.
   const [books, setBooks] = useState<{ a: boolean; c: boolean }>({ a: true, c: true });
+  const [booksReady, setBooksReady] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const hydrate = async (): Promise<void> => {
+      try {
+        const res = await fetch("/api/engine", { cache: "no-store" });
+        if (res.ok && alive) {
+          const j = (await res.json()) as { books?: { a: boolean; c: boolean } };
+          if (j.books) setBooks({ a: j.books.a === true, c: j.books.c === true });
+        }
+      } catch {
+        /* engine chưa trả lời → giữ default */
+      }
+      if (alive) setBooksReady(true); // mở khoá sync kể cả khi fetch lỗi
+    };
+    void hydrate();
+    return () => {
+      alive = false;
+    };
+  }, []);
   const patchBooks = useCallback((patch: { a?: boolean; c?: boolean }) => {
     setBooks((prev) => ({ ...prev, ...patch }));
   }, []);
@@ -249,6 +272,7 @@ export default function AutoPage() {
           cfg={cfg}
           onCfgChange={patchCfg}
           books={books}
+          syncReady={booksReady}
           onPickPair={handlePickPair}
           pushToast={pushToast}
         />
