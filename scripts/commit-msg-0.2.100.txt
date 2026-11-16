@@ -1,0 +1,24 @@
+0.2.100 — SỬA BÁO HỎNG ẢO CỦA integrity_check + BỎ CHECK/BACKUP Ở BUILD PHASE
+
+Sau khi user chạy .recover thành công (CLI: integrity_check = ok), log build
+VẪN gào "DATABASE HỎNG (1 lỗi: )" — chi tiết lỗi TRỐNG. Nguyên nhân:
+
+• db.ts hardenSqlite() đọc SAI TÊN CỘT: Prisma $queryRawUnsafe trả đúng tên cột
+  SQLite của PRAGMA integrity_check là "integrity_check" (đã chứng thực bằng
+  client thật: rows = [{ integrity_check: "ok" }]), code cũ lọc theo r.integrity
+  → undefined !== "ok" → MỌI row thành lỗi, chi tiết join thành chuỗi rỗng.
+  → DB khỏe cũng bị gào HỎNG vĩnh viễn; làm sai lệch chẩn đoán vụ DB hỏng thật
+  (vụ 779 ở reset_capital là hỏng thật, đã xử xong bằng .recover ngày 16/11).
+
+Sửa:
+• hardenSqlite — đọc đúng key: r.integrity_check ?? r.integrity ?? value đầu
+  tiên của row; String() so sánh với "ok". DB sạch giờ in "integrity_check — ok".
+• next build mở 17 worker song song: integrity_check + backup VACUUM INTO +
+  hẹn timer backup chỉ có ý nghĩa ở RUNTIME → bỏ qua khi
+  NEXT_PHASE=phase-production-build (hết spam lúc collect page data, worker
+  build không còn hẹn timer backup vô nghĩa).
+• scripts/test-pragma.mjs — công cụ chứng thực key PRAGMA qua Prisma (giữ lại
+  cho lần sau nghi vấn tương tự).
+
+Kiểm tra: npm run build 0.2.100 — không còn dòng integrity_check trong log build.
+Runtime sau deploy sẽ in "[db] integrity_check — ok" một lần mỗi process.
