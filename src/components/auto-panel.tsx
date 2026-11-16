@@ -30,6 +30,7 @@ import {
   type ScanRow,
 } from "@/lib/autotrade";
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
+import { EV_GATE_MIN, feeRoe, SHORT_PROB_MIN } from "@/lib/params";
 import { MAX_LEVERAGE, type EngineSettings, type Ticker } from "@/lib/types";
 import { INTERVALS } from "@/lib/types";
 import type { UniverseRow } from "@/lib/universe";
@@ -482,6 +483,33 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   // (probTxt) và bảng reliability /ai; in thô P(up) cạnh chữ SHORT khiến người
   // đọc tưởng "model chỉ tin 42%" trong khi thực tế tin 58% giá giảm.
   const probShown = (r: ScanRow): number => (r.bias === "SHORT" ? 1 - r.prob : r.prob);
+  // 0.3.1 — VÌ SAO dòng này KHÔNG được vào lệnh dry-run: liệt kê TỪNG cổng nó
+  // trượt (đúng thứ tự bestTradeableAvoid của engine): sàn chất lượng
+  // minAuc/minAcc/minScore theo cfg panel → regress vs champion → whale ≥4σ →
+  // noise band |P−0.5| → sàn SHORT → EV gate (đòn bẩy thật của panel).
+  // null = đạt hết cổng tĩnh — engine chỉ còn có thể chặn bởi cooldown /
+  // chase-guard / combo memory (đọc status chu kỳ cạnh "Next cycle").
+  // Lưu ý: band/SHORT/EV dùng hằng mặc định — knob runtime đặt khác trên /ai
+  // sẽ lệch nhẹ; số CHÍNH XÁC theo chu kỳ nằm ở status engine (0.3.1 đã in lý do).
+  const blockedWhy = (r: ScanRow): string | null => {
+    const why: string[] = [];
+    const sc = t(lang, "auto.col.score");
+    if (r.bias === "NEUTRAL") why.push("NEUTRAL");
+    if (r.auc < cfg.minAuc) why.push(`AUC ${r.auc.toFixed(2)}<${cfg.minAuc.toFixed(2)}`);
+    if (r.acc < cfg.minAcc) why.push(`ACC ${r.acc.toFixed(0)}%<${cfg.minAcc.toFixed(0)}%`);
+    if (cfg.minScore > 0 && r.score < cfg.minScore) why.push(`${sc} ${r.score.toFixed(1)}<${cfg.minScore}`);
+    if (r.regressed) why.push(`regress<${(r.champAuc ?? 0).toFixed(2)}`);
+    if (r.whale?.tag === "whale") why.push(`whale ${(r.whale.volZ ?? 0).toFixed(1)}σ`);
+    if (Math.abs(r.prob - 0.5) < NOISE_BAND) why.push(`band ${Math.abs(r.prob - 0.5).toFixed(2)}<${NOISE_BAND}`);
+    if (r.bias === "SHORT" && SHORT_PROB_MIN > 0.5 && 1 - r.prob < SHORT_PROB_MIN)
+      why.push(`SHORT ${(1 - r.prob).toFixed(2)}<${SHORT_PROB_MIN}`);
+    if (leverage > 0 && EV_GATE_MIN > -100) {
+      const pWin = r.bias === "SHORT" ? 1 - r.prob : r.prob;
+      const ev = pWin * r.tpPct * leverage - (1 - pWin) * r.slPct * leverage - feeRoe(leverage);
+      if (ev < EV_GATE_MIN) why.push(`EV ${ev.toFixed(1)}%<${EV_GATE_MIN}%`);
+    }
+    return why.length ? why.join(" · ") : null;
+  };
   const closedHist = (auto?.trades ?? []).filter((x) => x.status === "closed").slice(0, 4);
   const sideClass = (side: string) => (side === "LONG" ? "text-emerald-400" : "text-rose-400");
 
@@ -1124,11 +1152,13 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
               </div>
               {rows.slice(0, TOP_N).map((r, i) => {
                 const tradeable = r.bias !== "NEUTRAL" && r.auc >= cfg.minAuc && r.acc >= cfg.minAcc && (cfg.minScore <= 0 || r.score >= cfg.minScore);
+                const why = blockedWhy(r);
                 return (
                   <button
                     key={`${r.symbol}-${r.interval}`}
                     type="button"
                     onClick={() => onPickPair(r.symbol, r.interval)}
+                    title={why ? t(lang, "auto.block.tip", { why }) : undefined}
                     className={`grid w-full grid-cols-[minmax(0,1fr)_39px_41px_42px_30px_28px_38px] items-center gap-x-0.5 px-1.5 py-1 text-left font-mono text-[10px] hover:bg-zinc-800/60 ${
                       i === 0 ? "bg-teal-950/20" : ""
                     }`}

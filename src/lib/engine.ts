@@ -1396,7 +1396,7 @@ async function cycleTick(): Promise<void> {
       v.lastCycleStatus = "scan empty";
       return;
     }
-    const { allInCooldown, cands, regressedCount } = bestTradeableAvoid(
+    const { allInCooldown, cands, regressedCount, blocked } = bestTradeableAvoid(
       rows,
       c.minAuc,
       c.minAcc,
@@ -1445,6 +1445,24 @@ async function cycleTick(): Promise<void> {
     }
     if (!best) {
       const memTag = memBlocked > 0 ? ` · ${memBlocked} combo đang thua (memory)` : "";
+      // 0.3.1 — "no tradeable combo" phải NÓI LÝ DO: ghép đếm từng cổng chặn
+      // (chỉ hiện cổng > 0). Trước đây status trơ khi bảng scan vẫn đầy signal
+      // → không ai biết dry-run đứng yên vì sàn chất lượng / whale / noise
+      // band / sàn SHORT / EV gate cổng nào.
+      const why = [
+        blocked.floor > 0 ? `sàn ${blocked.floor}` : "",
+        blocked.regress > 0 ? `regress ${blocked.regress}` : "",
+        blocked.whale > 0 ? `whale ${blocked.whale}` : "",
+        blocked.band > 0 ? `nhiễu ${blocked.band}` : "",
+        blocked.shortMin > 0 ? `short ${blocked.shortMin}` : "",
+        blocked.ev > 0 ? `EV ${blocked.ev}` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      const whyTag = why ? ` (${why})` : "";
+      if (cands.length === 0 && rows.length > 0) {
+        console.log(`[engine] 0 combo tradeable — ${rows.length} dòng scan${whyTag}`);
+      }
       v.lastCycleStatus =
         guardBlocked > 0
           ? `chase guard — chờ giá quay đầu (${guardBlocked} combo)${memTag}`
@@ -1453,10 +1471,10 @@ async function cycleTick(): Promise<void> {
               ? `all in cooldown · ${regressedCount} combo regress${memTag}`
               : `all in cooldown${memTag}`
             : regressedCount > 0
-              ? `no tradeable combo · ${regressedCount} regress${memTag}`
+              ? `no tradeable combo · ${regressedCount} regress${whyTag}`
               : memBlocked > 0
                 ? `combo tốt nhất đang thua (memory) — ${memWhy}`
-                : "no tradeable combo";
+                : `no tradeable combo${whyTag}`;
       if (memBlocked > 0) console.log(`[engine] combo memory — chặn ${memBlocked} combo, ví dụ ${memWhy}`);
       return;
     }

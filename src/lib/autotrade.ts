@@ -334,6 +334,26 @@ export function withChampion(r: ScanRow, champAuc: number, champAcc: number): Sc
   };
 }
 
+/** 0.3.1 — funnel vào lệnh phải NÓI RA lý do: đếm số dòng scan bị TỪNG cổng
+ *  chặn (phân loại theo cổng trượt ĐẦU TIÊN — một dòng chỉ đếm một lần, đúng
+ *  thứ tự engine kiểm tra). Client vẽ tooltip từng dòng, server ghép vào status
+ *  "no tradeable combo (…)" — hết cảnh bảng có signal mà không hiểu vì sao
+ *  dry-run đứng yên. */
+export interface GateBlocked {
+  /** sàn chất lượng: bias NEUTRAL hoặc AUC/ACC/Điểm dưới cfg.minAuc/minAcc/minScore */
+  floor: number;
+  /** train mới AUC tụt dưới champion (champion–challenger) */
+  regress: number;
+  /** whale filter: nến khối lượng cuối ≥4σ */
+  whale: number;
+  /** noise band XGBoost: |P−0.5| < NOISE_BAND (model chưa dứt khoát) */
+  band: number;
+  /** sàn SHORT: 1−prob < SHORT_PROB_MIN */
+  shortMin: number;
+  /** EV gate: kỳ vọng ROE (prob·tp − (1−prob)·sl)·lev − phí < EV_GATE_MIN */
+  ev: number;
+}
+
 export function bestTradeableAvoid(
   rows: ScanRow[],
   minAuc: number,
@@ -347,7 +367,7 @@ export function bestTradeableAvoid(
   minScore = 0,
   /** đòn bẩy cấu hình cho EV gate (0.2.89) — 0 = tắt gate (test cũ dùng 0) */
   lev = 0,
-): { best: ScanRow | null; allInCooldown: boolean; cands: ScanRow[]; regressedCount: number } {
+): { best: ScanRow | null; allInCooldown: boolean; cands: ScanRow[]; regressedCount: number; blocked: GateBlocked } {
   // whaleFilter (default on) skips combos whose last closed candle is a full
   // whale bar (≥4σ volume) — entries opened into those get wicked out.
   // noiseBand skips model probs with no decisive lean (0.5 ± band) — the
@@ -373,20 +393,41 @@ export function bestTradeableAvoid(
     const pWin = r.bias === "SHORT" ? 1 - r.prob : r.prob;
     return pWin * r.tpPct * lev - (1 - pWin) * r.slPct * lev - feeRoe(lev);
   };
+  // 0.3.1 — phân loại cổng trượt ĐẦU TIÊN của từng dòng (đúng thứ tự điều kiện
+  // dưới) — tổng blocked = số dòng bị loại, đối chiếu 1-1 với bảng scan UI.
+  const blocked: GateBlocked = { floor: 0, regress: 0, whale: 0, band: 0, shortMin: 0, ev: 0 };
   const cands = rankRows(
-    rows.filter(
-      (r) =>
-        isTradeable(r, minAuc, minAcc, minScore) &&
-        !r.regressed &&
-        (!whaleFilter || r.whale?.tag !== "whale") &&
-        (noiseBand <= 0 || Math.abs(r.prob - 0.5) >= noiseBand) &&
-        (r.bias !== "SHORT" || shortMin <= 0.5 || 1 - r.prob >= shortMin) &&
-        (lev <= 0 || evMin <= -100 || evOf(r, lev) >= evMin),
-    ),
+    rows.filter((r) => {
+      if (!isTradeable(r, minAuc, minAcc, minScore)) {
+        blocked.floor++;
+        return false;
+      }
+      if (r.regressed) {
+        blocked.regress++;
+        return false;
+      }
+      if (whaleFilter && r.whale?.tag === "whale") {
+        blocked.whale++;
+        return false;
+      }
+      if (noiseBand > 0 && Math.abs(r.prob - 0.5) < noiseBand) {
+        blocked.band++;
+        return false;
+      }
+      if (r.bias === "SHORT" && shortMin > 0.5 && 1 - r.prob < shortMin) {
+        blocked.shortMin++;
+        return false;
+      }
+      if (lev > 0 && evMin > -100 && evOf(r, lev) < evMin) {
+        blocked.ev++;
+        return false;
+      }
+      return true;
+    }),
   );
-  const regressedCount = rows.filter((r) => isTradeable(r, minAuc, minAcc, minScore) && r.regressed).length;
+  const regressedCount = blocked.regress; // cùng ngữ nghĩa: đạt sàn nhưng tụt vs champion
   const free = cands.find((r) => slCooldownLeft(trades, r.symbol, r.interval, cooldownMin) === 0) ?? null;
-  return { best: free, allInCooldown: free == null && cands.length > 0, cands, regressedCount };
+  return { best: free, allInCooldown: free == null && cands.length > 0, cands, regressedCount, blocked };
 }
 
 // ─── Auto-flip — thị trường luôn biến động, dự báo chỉ là dự báo ─────────────
