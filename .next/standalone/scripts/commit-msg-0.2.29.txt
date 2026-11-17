@@ -1,0 +1,25 @@
+0.2.29 — panel Auto nói đúng một ngôn ngữ với Telegram//ai: prob THEO PHÍA + badge "model đã lật chiều"
+
+Từ ảnh user gửi thấy 2 chỗ bất hợp lý thật (đã xác minh trong code):
+
+1. Bảng xếp hạng in prob GỐC P(up) cạnh chữ side — dòng SHORT hiện "42%"
+khiến người đọc tưởng "model chỉ tin 42%" trong khi thực tế model tin 58% giá
+giảm. Chuẩn hiển thị đã lệch nhau giữa 3 nơi: tin Telegram (probTxt) lật theo
+phía, bảng reliability /ai lật theo phía, riêng bảng auto-panel in thô.
+→ auto-panel.tsx: probShown() lật SHORT → 1−p, tooltip giải thích ngay trên ô.
+Bây giờ cả app một chuẩn: "Prob 61.3% theo phía SHORT = tin 61.3% giá giảm".
+
+2. Card "Tốt nhất" KHÔNG biết lệnh đang mở — ảnh cho thấy LINKUSDT 15m mở
+SHORT trong khi best pick lại là LONG 67.6 (model đã lật chiều trong vài giờ,
+history còn thấy chuỗi: SHORT TP 08:57 → vào lại SHORT → scan nói LONG).
+Engine cố tình không tự đóng theo flip (chỉ PHE/papers có flip; DCA tự tắt khi
+model flipped) nhưng UI không nói gì → nhìn như bug.
+→ Badge vàng "⚠ model đã lật chiều" trên card Tốt nhất khi best ngược phía
+lệnh mở cùng cặp/khung, tooltip nói rõ: lệnh vẫn chạy đến SL/TP, DCA đã tắt,
+muốn thoát sớm dùng nút Close. Không đụng hành vi engine — chỉ làm(state) nhìn
+thấy.
+
+3. Nhẹ: tint "đạt ngưỡng" của cột Điểm trước đây chỉ kiểm minAuc/minAcc, thiếu
+minScore — thêm cho khớp đúng gate engine (isTradeable + minScore).
+
+UI-only, không đổi thuật toán. tsc sạch, build ok.

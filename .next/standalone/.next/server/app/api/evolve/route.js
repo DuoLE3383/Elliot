@@ -1,0 +1,13 @@
+var R=require("../../../chunks/[turbopack]_runtime.js")("server/app/api/evolve/route.js")
+R.c("server/chunks/node_modules_next_dist_esm_build_templates_app-route_0e60e6d1.js")
+R.c("server/chunks/src_lib_dc2781fa._.js")
+R.c("server/chunks/src_lib_063166da._.js")
+R.c("server/chunks/src_lib_autopsy_ts_178a2a3d._.js")
+R.c("server/chunks/src_lib_engine_ts_a98ddc17._.js")
+R.c("server/chunks/src_lib_autostate_ts_ee2c7f64._.js")
+R.c("server/chunks/[root-of-the-server]__a8f1e142._.js")
+R.c("server/chunks/[root-of-the-server]__f408c708._.js")
+R.c("server/chunks/[root-of-the-server]__304809e9._.js")
+R.c("server/chunks/_next-internal_server_app_api_evolve_route_actions_50e859a8.js")
+R.m(65760)
+module.exports=R.m(65760).exports

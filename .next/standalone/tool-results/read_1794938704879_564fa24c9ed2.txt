@@ -1,0 +1,963 @@
+     1→// ─── Auto trade (dry-run) — scan engine, ranking, position book, Telegram ────
+     2→//
+     3→// The auto engine answers two questions every cycle:
+     4→//   1. WHICH pair × timeframe looks best right now?  → scanAll() trains an
+     5→//      XGBoost model for EVERY watched pair on EVERY timeframe and ranks the
+     6→//      results by a composite quality score.
+     7→//   2. SHOULD a dry-run position be opened/closed?   → the best tradeable row
+     8→//      (bias ≠ NEUTRAL, auc/acc above thresholds) is traded with a virtual
+     9→//      capital; open positions are checked against SL/TP each cycle.
+    10→//
+    11→// Scan runs use difficulty 0 so every combo faces the SAME task — a fair
+    12→// ranking. Manual "Train" still persists + bumps difficulty per pair.
+    13→
+    14→import type { EngineSettings, Kline } from "./types";
+    15→import { INTERVALS } from "./types";
+    16→import { biasFrom, runXgb, type WhaleReadout, type WhaleTag, type XgbBias, type XgbResult } from "./xgb";
+    17→import { LLM_MODEL_DEFAULT, LLM_URL_DEFAULT, type LlmSetup } from "./llm";
+    18→import {
+    19→  CONF_W,
+    20→  NEAR_FRAC,
+    21→  NOISE_BAND,
+    22→  PROB_CAP,
+    23→  REGRESS_EPS,
+    24→  SIBLING_DISCOUNT,
+    25→  pval,
+    26→} from "./params";
+    27→
+    28→// Knob sống ở ./params — MỘT nguồn config; re-export cho chỗ cũ không đổi path.
+    29→export { CONF_W, NEAR_FRAC, REGRESS_EPS } from "./params";
+    30→import { fmtPrice } from "./i18n";
+    31→
+    32→// ─── Scan rows ────────────────────────────────────────────────────────────────
+    33→
+    34→export interface ScanRow {
+    35→  symbol: string;
+    36→  interval: string;
+    37→  acc: number;
+    38→  auc: number;
+    39→  prob: number;
+    40→  confidence: number;
+    41→  bias: XgbBias;
+    42→  slPct: number;
+    43→  tpPct: number;
+    44→  /** ATR multiplier retrained for this coin — live "atr" entries re-apply it at entry time */
+    45→  atrCoef: number;
+    46→  score: number;
+    47→  samples: number;
+    48→  valSamples: number;
+    49→  horizon: number;
+    50→  trainedAt: number;
+    51→  /** whale footprint at the last closed candle — auto-entry skips "whale" */
+    52→  whale: WhaleReadout;
+    53→  /** best-ever run of this combo (from the FinetuneRun history) — 0 = no history */
+    54→  champAuc: number;
+    55→  champAcc: number;
+    56→  /** this retrain rolled measurably worse than the combo's best-ever model —
+    57→   *  auto-entry skips it until a train matches the champion again */
+    58→  regressed: boolean;
+    59→}
+    60→
+    61→/**
+    62→ * Composite quality score — "how much do we trust this model's edge":
+    63→ *   (auc − 0.5) × 100   rank quality beyond a coin flip
+    64→ * + (acc − 50)          validation accuracy beyond a coin flip
+    65→ * + confidence × CONF_W how decisively the model leans at the last candle
+    66→ * (CONF_W = 15 trong params.ts §7 — prob đầu vào đã qua calibration §6c,
+    67→ *  nên "confidence" là số trung thực, không còn kiểu 86% chỉ để rồi thắng 60%.)
+    68→ */
+    69→export const scoreFrom = (auc: number, acc: number, confidence: number): number =>
+    70→  Math.round(((auc - 0.5) * 100 + (acc - 50) + confidence * pval("CONF_W", CONF_W)) * 10) / 10;
+    71→
+    72→export function scoreOf(res: XgbResult): number {
+    73→  return scoreFrom(res.auc, res.acc, res.suggestion.confidence);
+    74→}
+    75→
+    76→export function rowOf(res: XgbResult, symbol: string, interval: string): ScanRow {
+    77→  return {
+    78→    symbol,
+    79→    interval,
+    80→    acc: res.acc,
+    81→    auc: res.auc,
+    82→    prob: res.suggestion.prob,
+    83→    confidence: res.suggestion.confidence,
+    84→    bias: res.suggestion.bias,
+    85→    slPct: res.suggestion.slPct,
+    86→    tpPct: res.suggestion.tpPct,
+    87→    atrCoef: res.suggestion.atrCoef ?? 1.5,
+    88→    score: scoreOf(res),
+    89→    samples: res.samples,
+    90→    valSamples: res.valSamples,
+    91→    horizon: res.horizon,
+    92→    trainedAt: Date.now(),
+    93→    whale: res.whale ?? { volZ: 0, risk: 0, tag: "calm" as WhaleTag },
+    94→    champAuc: 0,
+    95→    champAcc: 0,
+    96→    regressed: false,
+    97→  };
+    98→}
+    99→
+   100→/** Cổng tradeable dùng chung MỌI tầng: mở lệnh, bù DCA, best-pick. minScore = 0
+   101→ *  nghĩa là không chấm điểm (giữ backward-compat cho test); engine luôn truyền
+   102→ *  ngưỡng chung cfg.minScore. Model dưới ngưỡng nào trong ba (AUC/ACC/Điểm) thì đứng
+   103→ *  ngoài — một setpoint duy nhất, không có ngưỡng riêng thứ hai. */
+   104→export const isTradeable = (r: ScanRow, minAuc: number, minAcc: number, minScore = 0): boolean =>
+   105→  r.bias !== "NEUTRAL" && r.auc >= minAuc && r.acc >= minAcc && (minScore <= 0 || r.score >= minScore);
+   106→
+   107→export const rankRows = (rows: ScanRow[]): ScanRow[] => [...rows].sort((a, b) => b.score - a.score);
+   108→
+   109→export const bestTradeable = (rows: ScanRow[], minAuc: number, minAcc: number, minScore = 0): ScanRow | null =>
+   110→  rankRows(rows.filter((r) => isTradeable(r, minAuc, minAcc, minScore)))[0] ?? null;
+   111→
+   112→/**
+   113→ * Chọn setup THẬT cho nút "Duyệt thử" (test LLM) thay vì setup giả mid-strength:
+   114→ * ứng viên tốt nhất hiện có trong scan gần nhất của engine, lọc ĐÚNG như
+   115→ * auto-cycle (gate minAuc/minAcc/minScore + không regressed + noise band).
+   116→ * Không ứng viên nào đạt gate → rơi về top scan có hướng LONG/SHORT, kèm nhãn
+   117→ * "CHƯA đạt gate" để user biết engine thực tế sẽ KHÔNG gửi combo này đi.
+   118→ * Scan rỗng/toàn NEUTRAL → null (caller dùng setup giả mẫu làm phương án cuối).
+   119→ */
+   120→export function llmTestSetup(
+   121→  rows: ScanRow[],
+   122→  cfg: Pick<AutoConfig, "minAuc" | "minAcc" | "minScore" | "tpMode" | "slPct" | "tpPct" | "riskPct">,
+   123→  leverage: number,
+   124→): { setup: LlmSetup; source: string } | null {
+   125→  const cands = rows.filter(
+   126→    (r) => isTradeable(r, cfg.minAuc, cfg.minAcc, cfg.minScore) && !r.regressed && Math.abs(r.prob - 0.5) >= pval("NOISE_BAND", NOISE_BAND),
+   127→  );
+   128→  const pick = rankRows(cands)[0] ?? rankRows(rows.filter((r) => r.bias !== "NEUTRAL"))[0] ?? null;
+   129→  if (!pick) return null;
+   130→  const gated = cands.includes(pick);
+   131→  const setup: LlmSetup = {
+   132→    symbol: pick.symbol,
+   133→    interval: pick.interval,
+   134→    side: pick.bias as "LONG" | "SHORT",
+   135→    prob: pick.prob,
+   136→    confidence: pick.confidence,
+   137→    auc: pick.auc,
+   138→    acc: pick.acc,
+   139→    slPct: cfg.tpMode === "manual" ? cfg.slPct : pick.slPct,
+   140→    tpPct: cfg.tpMode === "manual" ? cfg.tpPct : pick.tpPct,
+   141→    leverage,
+   142→    stakePct: cfg.riskPct,
+   143→    horizon: pick.horizon,
+   144→    samples: pick.samples,
+   145→    score: pick.score,
+   146→    gatePassed: gated,
+   147→    // champion–challenger — "Duyệt thử" nhìn thấy Y HỆT những gì engine gửi:
+   148→    // kể cả khoảng cách tới đỉnh best-ever của cặp này (champ_check)
+   149→    ...(pick.champAuc ? { champAuc: pick.champAuc, champAcc: pick.champAcc } : {}),
+   150→  };
+   151→  const id = `${pick.symbol} ${pick.interval}`;
+   152→  return {
+   153→    setup,
+   154→    source: gated
+   155→      ? `REAL setup — the engine's best current candidate: ${id} · score ${pick.score.toFixed(1)} · gate passed`
+   156→      : `REAL setup — top of scan: ${id} · score ${pick.score.toFixed(1)} · gate NOT passed (no candidate above the gate yet)`,
+   157→  };
+   158→}
+   159→
+   160→// ─── Confluence pooling — các model train riêng của CÙNG symbol vote chung ───
+   161→// Trước đây mỗi combo (symbol × khung) là một hòn đảo: BTC 15m và BTC 1h train
+   162→// riêng, chấm riêng, không biết nhau tồn tại. Nhưng chúng là những bằng chứng
+   163→// về CÙNG chiều giá — ghép lại bằng log-odds pooling (Naive-Bayes):
+   164→//
+   165→//   p_pool = sigmoid( ( w_self·logit(p_self) + Σ λ·wⱼ·logit(pⱼ) ) / ( w_self + Σ λ·wⱼ ) )
+   166→//   wᵢ = max(0.2, (aucᵢ − 0.5) × 4)    model yếu → phiếu nhẹ
+   167→//   phiếu từ khung KHÁC × λ = 0.5       các khung correlate, không độc lập hoàn toàn
+   168→//
+   169→// prob LUÔN là P(giá đi lên) nên dấu logit tự mã hóa hướng — pool thô trong
+   170→// một hệ quy chiếu duy nhất, KHÔNG map theo phía từng row. Các khung cùng
+   171→// hướng → |logit| cộng dồn → Prob tổng đội lên thật sự; lệch hướng → các
+   172→// logit triệt tiêu nhau → xả về 0.5 → bias NEUTRAL → không trade. Model
+   173→// NEUTRAL (prob ≈ 0.5) tự động bỏ phiếu trắng vì logit(0.5) = 0. An toàn:
+   174→// bất đồng quá mức có thể kéo prob vắt qua 0.5 → kẹp về đúng 0.5 (KHÔNG lật
+   175→// chiều call của model gốc — hội đồng bất đồng thì đứng ngoài), và prob cuối
+   176→// kẹp [0.05, 0.95] — bỏ phiếu correlate không được biến thành tuyệt đối.
+   177→// prob/confidence/bias/score sau ghép dùng ĐÚNG công thức gốc (biasFrom,
+   178→// |p−0.5|×2, scoreFrom) — vẫn chỉ một thuật toán. SIBLING_DISCOUNT + PROB_CAP
+   179→// sống ở ./params (nhóm CONFLUENCE) để finetune một chỗ.
+   180→
+   181→const logitC = (p: number): number => {
+   182→  const q = Math.min(0.98, Math.max(0.02, p)); // chống ±∞ ở đầu mút
+   183→  return Math.log(q / (1 - q));
+   184→};
+   185→const sigmoid = (x: number): number => 1 / (1 + Math.exp(-x));
+   186→
+   187→export function confluenceBlend(rows: ScanRow[]): ScanRow[] {
+   188→  const bySym = new Map<string, ScanRow[]>();
+   189→  for (const r of rows) {
+   190→    const l = bySym.get(r.symbol);
+   191→    if (l) l.push(r);
+   192→    else bySym.set(r.symbol, [r]);
+   193→  }
+   194→  const out = rows.map((r) => ({ ...r }));
+   195→  const outByKey = new Map(out.map((r) => [`${r.symbol}|${r.interval}`, r]));
+   196→  for (const group of bySym.values()) {
+   197→    if (group.length < 2) continue; // không có anh em cùng symbol → giữ nguyên
+   198→    for (const r of group) {
+   199→      const dev = r.prob - 0.5;
+   200→      const band = pval("NOISE_BAND", NOISE_BAND);
+   201→      if (Math.abs(dev) < band) continue; // row tự thân coin-flip → không mượn phiếu
+   202→      const side = dev > 0 ? 1 : -1;
+   203→      const wSelf = Math.max(0.2, (r.auc - 0.5) * 4);
+   204→      let num = wSelf * logitC(r.prob);
+   205→      let den = wSelf;
+   206→      for (const s of group) {
+   207→        if (s === r) continue;
+   208→        const w = Math.max(0.2, (s.auc - 0.5) * 4) * pval("SIBLING_DISCOUNT", SIBLING_DISCOUNT);
+   209→        num += w * logitC(s.prob); // dấu logit tự mã hóa hướng — pool thô
+   210→        den += w;
+   211→      }
+   212→      const pooled = sigmoid(num / den);
+   213→      // bất đồng quá mức có thể kéo prob vắt qua 0.5 — không bao giờ lật chiều
+   214→      // call của model gốc: kẹp về đúng 0.5 → bias NEUTRAL → đứng ngoài cuộc
+   215→      const kept = side > 0 ? Math.max(pooled, 0.5) : Math.min(pooled, 0.5);
+   216→      const cap = pval("PROB_CAP", PROB_CAP);
+   217→      const row = outByKey.get(`${r.symbol}|${r.interval}`)!;
+   218→      row.prob = Math.round(Math.min(cap, Math.max(1 - cap, kept)) * 10_000) / 10_000;
+   219→      row.confidence = Math.abs(row.prob - 0.5) * 2; // công thức gốc xgb.ts
+   220→      row.bias = biasFrom(row.prob); // ngưỡng chết gốc 0.56/0.44
+   221→      row.score = scoreFrom(row.auc, row.acc, row.confidence);
+   222→    }
+   223→  }
+   224→  return out;
+   225→}
+   226→
+   227→/**
+   228→ * Pick the best tradeable row whose combo is NOT in an SL cooldown. A combo
+   229→ * that just stopped out tends to stay hostile — re-entering it immediately is
+   230→ * how dry-run books bleed. Cooldown 0 disables the check entirely.
+   231→ * trades must be newest-first (as /api/autotrade returns them).
+   232→ */
+   233→export function slCooldownLeft(
+   234→  trades: AutoTradeRow[],
+   235→  symbol: string,
+   236→  interval: string,
+   237→  cooldownMin: number,
+   238→  now = Date.now(),
+   239→): number {
+   240→  if (cooldownMin <= 0) return 0;
+   241→  const last = trades.find(
+   242→    (t) => t.status === "closed" && t.exitKind === "sl" && t.symbol === symbol && t.interval === interval,
+   243→  );
+   244→  if (!last?.exitTime) return 0;
+   245→  const end = new Date(last.exitTime).getTime() + cooldownMin * 60_000;
+   246→  return Math.max(0, Math.ceil((end - now) / 60_000));
+   247→}
+   248→
+   249→/** The newest SL-closed trade of a combo (newest-first trades), if any. */
+   250→export function lastSlExit(
+   251→  trades: AutoTradeRow[],
+   252→  symbol: string,
+   253→  interval: string,
+   254→): AutoTradeRow | null {
+   255→  return trades.find(
+   256→    (t) => t.status === "closed" && t.exitKind === "sl" && t.symbol === symbol && t.interval === interval,
+   257→  ) ?? null;
+   258→}
+   259→
+   260→/**
+   261→ * Chase guard — the "SL xong vào lại giá cao hơn" blocker.
+   262→ * After an SL exit on the SAME combo, a same-side re-entry is only allowed
+   263→ * once the price has reversed back through the exit level (SHORT: price is
+   264→ * back BELOW the level that stopped us; LONG: back ABOVE it). Re-entering a
+   265→ * SHORT at/above the stop that just fired is fighting the move that broke the
+   266→ * thesis — bleed by a thousand cuts. An OPPOSITE-side entry is a fresh thesis
+   267→ * and always passes.
+   268→ */
+   269→export function passesChaseGuard(
+   270→  trades: AutoTradeRow[],
+   271→  symbol: string,
+   272→  interval: string,
+   273→  side: string,
+   274→  price: number,
+   275→): boolean {
+   276→  const last = lastSlExit(trades, symbol, interval);
+   277→  if (!last?.exitPrice || !price) return true;
+   278→  if (side !== last.side) return true; // bias flipped → fresh thesis
+   279→  const eps = last.exitPrice * 1e-6;
+   280→  return side === "SHORT" ? price < last.exitPrice - eps : price > last.exitPrice + eps;
+   281→}
+   282→
+   283→/** AUC drop vs the combo's champion that marks a retrain as a regression —
+   284→ *  giá trị sống ở ./params (re-export đầu file). */
+   285→
+   286→/** Attach the combo's champion metrics to a fresh scan row (+ regression flag). */
+   287→export function withChampion(r: ScanRow, champAuc: number, champAcc: number): ScanRow {
+   288→  return {
+   289→    ...r,
+   290→    champAuc,
+   291→    champAcc,
+   292→    regressed: champAuc > 0 && r.auc < champAuc - pval("REGRESS_EPS", REGRESS_EPS),
+   293→  };
+   294→}
+   295→
+   296→export function bestTradeableAvoid(
+   297→  rows: ScanRow[],
+   298→  minAuc: number,
+   299→  minAcc: number,
+   300→  trades: AutoTradeRow[],
+   301→  cooldownMin: number,
+   302→  whaleFilter = true,
+   303→  /** XGBoost noise band — skip coin-flip probs (|P−0.5| < band); 0 = off */
+   304→  noiseBand = pval("NOISE_BAND", NOISE_BAND),
+   305→  /** ngưỡng điểm của cùng bộ setpoint chung — 0 = không chấm điểm */
+   306→  minScore = 0,
+   307→): { best: ScanRow | null; allInCooldown: boolean; cands: ScanRow[]; regressedCount: number } {
+   308→  // whaleFilter (default on) skips combos whose last closed candle is a full
+   309→  // whale bar (≥4σ volume) — entries opened into those get wicked out.
+   310→  // noiseBand skips model probs with no decisive lean (0.5 ± band) — the
+   311→  // XGBoost denoiser: an undecided model is statistical noise, not a signal.
+   312→  // regressed combos (this retrain measurably worse than the combo's champion)
+   313→  // never trade — no gambling on a bad roll.
+   314→  const cands = rankRows(
+   315→    rows.filter(
+   316→      (r) =>
+   317→        isTradeable(r, minAuc, minAcc, minScore) &&
+   318→        !r.regressed &&
+   319→        (!whaleFilter || r.whale?.tag !== "whale") &&
+   320→        (noiseBand <= 0 || Math.abs(r.prob - 0.5) >= noiseBand),
+   321→    ),
+   322→  );
+   323→  const regressedCount = rows.filter((r) => isTradeable(r, minAuc, minAcc, minScore) && r.regressed).length;
+   324→  const free = cands.find((r) => slCooldownLeft(trades, r.symbol, r.interval, cooldownMin) === 0) ?? null;
+   325→  return { best: free, allInCooldown: free == null && cands.length > 0, cands, regressedCount };
+   326→}
+   327→
+   328→// ─── Auto-flip — thị trường luôn biến động, dự báo chỉ là dự báo ─────────────
+   329→// Khi lệnh đang mở mà scan mới của CÙNG cặp/khung đảo chiều với tín hiệu ĐỦ
+   330→// TIN CẬY (cùng ngưỡng chất lượng với vào lệnh + noise band + không regressed +
+   331→// sạch nến whale), engine lật lệnh NGAY thay vì ôm chiều cũ đến SL/TP. Hàm
+   332→// này là bộ LOẠI thuần (không IO) — engine gọi rồi tự đóng/mở; test chạy thẳng.
+   333→
+   334→export interface FlipDecision {
+   335→  /** true = đủ điều kiện lật chiều */
+   336→  ok: boolean;
+   337→  /** lý do KHÔNG lật (khi ok=false) — log + status line, không âm thầm */
+   338→  why: string;
+   339→}
+   340→
+   341→/**
+   342→ * Đủ tin cậy để lật chiều lệnh `open` theo scan row `row` (CÙNG symbol+interval)?
+   343→ *  • row phải có bias NGƯỢC phía lệnh (NEUTRAL = model bỏ cuộc → không lật theo nhiễu)
+   344→ *  • cùng NGƯỠNG CHẤT LƯỢNG với vào lệnh: minAuc/minAcc/minScore (isTradeable)
+   345→ *  • không regressed vs champion (mỗi lần lật phải tín hiệu thật, không phải model hỏng)
+   346→ *  • ngoài noise band |P−0.5| ≥ NOISE_BAND — model dứt khoát, không coin-flip
+   347→ *  • whale filter (nếu bật): nến khối lượng ≥4σ là bẫy wick, không lật vào đó
+   348→ */
+   349→export function flipDecision(
+   350→  open: Pick<AutoTradeRow, "symbol" | "interval" | "side">,
+   351→  row: ScanRow | undefined,
+   352→  cfg: Pick<AutoConfig, "minAuc" | "minAcc" | "minScore" | "whaleFilter">,
+   353→): FlipDecision {
+   354→  if (!row) return { ok: false, why: "scan has no such combo" };
+   355→  if (row.bias === "NEUTRAL") return { ok: false, why: "model is NEUTRAL on the open combo" };
+   356→  if (row.bias === open.side) return { ok: false, why: "model still confirms the held side" };
+   357→  if (!isTradeable(row, cfg.minAuc, cfg.minAcc, cfg.minScore))
+   358→    return {
+   359→      ok: false,
+   360→      why: `opposite signal below the quality gate (AUC ${row.auc.toFixed(2)} / ACC ${row.acc.toFixed(1)}% / score ${row.score.toFixed(1)})`,
+   361→    };
+   362→  if (row.regressed) return { ok: false, why: "this combo's model is regressed vs its champion" };
+   363→  if (Math.abs(row.prob - 0.5) < pval("NOISE_BAND", NOISE_BAND)) return { ok: false, why: "signal inside the coin-flip noise band" };
+   364→  if (cfg.whaleFilter && row.whale?.tag === "whale") return { ok: false, why: "last candle is a whale bar — not flipping into a wick trap" };
+   365→  return { ok: true, why: "" };
+   366→}
+   367→
+   368→// ─── Kline fetch + full scan ──────────────────────────────────────────────────
+   369→
+   370→const sleep = (ms = 0) => new Promise((r) => globalThis.setTimeout(r, ms));
+   371→
+   372→/** `limit` optional — universe scan passes 240 (10 ngày × nến 1h). */
+   373→export async function fetchKlines(symbol: string, interval: string, limit?: number): Promise<Kline[]> {
+   374→  const q = limit && limit > 0 ? `&limit=${limit}` : "";
+   375→  const res = await fetch(`/api/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}${q}`);
+   376→  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+   377→  const json = (await res.json()) as { klines: Kline[] };
+   378→  return json.klines;
+   379→}
+   380→
+   381→export interface ScanProgress {
+   382→  done: number;
+   383→  total: number;
+   384→  current: string;
+   385→}
+   386→
+   387→/**
+   388→ * Train a model for EVERY pair × interval combo (sequential so the UI stays
+   389→ * alive) and return the ranked scan. Difficulty is pinned to 0 — a fair race.
+   390→ * Combos that fail (bad pair, starved dataset) are skipped silently.
+   391→ */
+   392→export async function scanAll(opts: {
+   393→  pairs: string[];
+   394→  intervals?: readonly string[];
+   395→  settings: EngineSettings;
+   396→  onProgress?: (p: ScanProgress) => void;
+   397→  shouldAbort?: () => boolean;
+   398→}): Promise<ScanRow[]> {
+   399→  const intervals = opts.intervals ?? INTERVALS;
+   400→  const total = opts.pairs.length * intervals.length;
+   401→  const rows: ScanRow[] = [];
+   402→  let done = 0;
+   403→  for (const symbol of opts.pairs) {
+   404→    for (const interval of intervals) {
+   405→      if (opts.shouldAbort?.()) return rankRows(rows);
+   406→      const label = `${symbol} ${interval}`;
+   407→      opts.onProgress?.({ done, total, current: label });
+   408→      try {
+   409→        const klines = await fetchKlines(symbol, interval);
+   410→        // below ~260 candles the model starves (WARMUP 110 + labels) — skip
+   411→        if (klines.length >= 260) {
+   412→          const res = await runXgb(klines, opts.settings, `${symbol}-${interval}`, interval, undefined, 0);
+   413→          rows.push(rowOf(res, symbol, interval));
+   414→        }
+   415→      } catch {
+   416→        // unreachable pair / not enough data → leave this combo out
+   417→      }
+   418→      done++;
+   419→      opts.onProgress?.({ done, total, current: label });
+   420→      await sleep(); // yield between combos
+   421→    }
+   422→  }
+   423→  return rankRows(rows);
+   424→}
+   425→
+   426→// ─── Position math ────────────────────────────────────────────────────────────
+   427→
+   428→/** Signed ROE % of a position at `price` (leverage applied). */
+   429→export function roeOf(side: string, entry: number, price: number, leverage: number): number {
+   430→  if (!entry || !price) return 0;
+   431→  const move = side === "SHORT" ? ((entry - price) / entry) * 100 : ((price - entry) / entry) * 100;
+   432→  return Math.round(move * leverage * 100) / 100;
+   433→}
+   434→
+   435→/** "sl" | "tp" | null — has the LIVE price crossed the SL/TP of the position? */
+   436→export function slTpHit(side: string, price: number, entry: number, slPct: number, tpPct: number): "sl" | "tp" | null {
+   437→  if (!entry || !price) return null;
+   438→  const roe = roeOf(side, entry, price, 1); // price-move % (no leverage)
+   439→  if (roe <= -Math.abs(slPct)) return "sl";
+   440→  if (roe >= Math.abs(tpPct)) return "tp";
+   441→  return null;
+   442→}
+   443→
+   444→/** Liquidation guard — adverse price move of 100/leverage % wipes the margin. */
+   445→export function liquidationHit(side: string, price: number, entry: number, leverage: number): boolean {
+   446→  if (leverage <= 1 || !entry || !price) return false;
+   447→  const move = side === "SHORT" ? ((entry - price) / entry) * 100 : ((price - entry) / entry) * 100;
+   448→  return move <= -(100 / leverage);
+   449→}
+   450→
+   451→/** Warn once the price has covered this share of the way to TP/SL (0..1) —
+   452→ *  giá trị sống ở ./params (re-export đầu file). */
+   453→
+   454→/** "tp" | "sl" | null — price is INSIDE the near-hit band but has NOT crossed yet. */
+   455→export function nearHit(side: string, price: number, entry: number, slPct: number, tpPct: number): "tp" | "sl" | null {
+   456→  if (!entry || !price) return null;
+   457→  const roe = roeOf(side, entry, price, 1); // price-move % (no leverage)
+   458→  const tp = Math.abs(tpPct);
+   459→  const sl = Math.abs(slPct);
+   460→  if (roe >= tp * NEAR_FRAC && roe < tp) return "tp";
+   461→  if (roe <= -sl * NEAR_FRAC && roe > -sl) return "sl";
+   462→  return null;
+   463→}
+   464→
+   465→// ─── Per-combo win-rate stats ────────────────────────────────────────────────
+   466→
+   467→export interface ComboStat {
+   468→  symbol: string;
+   469→  interval: string;
+   470→  closed: number;
+   471→  wins: number;
+   472→  /** wins / closed, % (1 decimal) */
+   473→  winRate: number;
+   474→  /** sum of ROE % over closed trades */
+   475→  netPnlPct: number;
+   476→  /** netPnlPct / closed */
+   477→  avgPnlPct: number;
+   478→}
+   479→
+   480→/** Aggregate closed trades into per (pair × timeframe) win-rate rows. */
+   481→export function comboStats(rows: Pick<AutoTradeRow, "symbol" | "interval" | "status" | "pnlPct">[]): ComboStat[] {
+   482→  const map = new Map<string, ComboStat>();
+   483→  for (const r of rows) {
+   484→    if (r.status !== "closed") continue;
+   485→    const key = `${r.symbol}|${r.interval}`;
+   486→    const s = map.get(key) ?? { symbol: r.symbol, interval: r.interval, closed: 0, wins: 0, winRate: 0, netPnlPct: 0, avgPnlPct: 0 };
+   487→    s.closed += 1;
+   488→    if ((r.pnlPct ?? 0) > 0) s.wins += 1;
+   489→    s.netPnlPct += r.pnlPct ?? 0;
+   490→    map.set(key, s);
+   491→  }
+   492→  const out = [...map.values()];
+   493→  for (const s of out) {
+   494→    s.netPnlPct = Math.round(s.netPnlPct * 100) / 100;
+   495→    s.winRate = s.closed > 0 ? Math.round((s.wins / s.closed) * 1000) / 10 : 0;
+   496→    s.avgPnlPct = s.closed > 0 ? Math.round((s.netPnlPct / s.closed) * 100) / 100 : 0;
+   497→  }
+   498→  return out.sort((a, b) => b.closed - a.closed || b.winRate - a.winRate);
+   499→}
+   500→
+   501→// ─── Position book (SQLite via /api/autotrade) ────────────────────────────────
+   502→
+   503→export interface AutoTradeRow {
+   504→  id: string;
+   505→  symbol: string;
+   506→  interval: string;
+   507→  side: string;
+   508→  entryPrice: number;
+   509→  entryTime: string;
+   510→  slPct: number;
+   511→  tpPct: number;
+   512→  leverage: number;
+   513→  /** share of equity staked on this trade, % (100 = all-in) */
+   514→  stakePct: number | null;
+   515→  status: string;
+   516→  exitPrice: number | null;
+   517→  exitTime: string | null;
+   518→  pnlPct: number | null;
+   519→  exitKind: string | null;
+   520→  prob: number | null;
+   521→  acc: number | null;
+   522→  auc: number | null;
+   523→  score: number | null;
+   524→  capitalBefore: number | null;
+   525→  capitalAfter: number | null;
+   526→  /** verdict LLM lúc vào lệnh — go | skip | unreachable (null = trước 0.2.28) */
+   527→  llmVerdict: string | null;
+   528→  /** lý do đầu tiên của verdict lúc vào lệnh */
+   529→  llmReason: string | null;
+   530→  /** JSON giải phẫu lệnh (autopsy) sau khi đóng — xem src/lib/autopsy.ts */
+   531→  autopsy: string | null;
+   532→  /** entry-policy fingerprint for self-improve agent */
+   533→  methodId: string | null;
+   534→  createdAt: string;
+   535→}
+   536→
+   537→export interface AutoStats {
+   538→  closed: number;
+   539→  wins: number;
+   540→  winRate: number;
+   541→  netPnlPct: number;
+   542→}
+   543→
+   544→export interface AutoState {
+   545→  trades: AutoTradeRow[];
+   546→  open: AutoTradeRow | null;
+   547→  capital: number | null;
+   548→  stats: AutoStats;
+   549→  /** win-rate table grouped by pair × timeframe (all closed history) */
+   550→  byCombo?: ComboStat[];
+   551→}
+   552→
+   553→const jsonHeaders = { "Content-Type": "application/json" };
+   554→
+   555→export async function fetchAutoState(): Promise<AutoState> {
+   556→  const res = await fetch("/api/autotrade");
+   557→  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+   558→  return (await res.json()) as AutoState;
+   559→}
+   560→
+   561→export async function openAutoTrade(payload: {
+   562→  symbol: string;
+   563→  interval: string;
+   564→  side: string;
+   565→  entryPrice: number;
+   566→  slPct: number;
+   567→  tpPct: number;
+   568→  leverage: number;
+   569→  /** equity share staked on this trade, % */
+   570→  stakePct: number;
+   571→  prob: number;
+   572→  acc: number;
+   573→  auc: number;
+   574→  score: number;
+   575→  capitalBefore: number;
+   576→}): Promise<AutoTradeRow | null> {
+   577→  try {
+   578→    const res = await fetch("/api/autotrade", {
+   579→      method: "POST",
+   580→      headers: jsonHeaders,
+   581→      body: JSON.stringify({ action: "open", ...payload }),
+   582→    });
+   583→    if (!res.ok) return null;
+   584→    const json = (await res.json()) as { trade: AutoTradeRow };
+   585→    return json.trade;
+   586→  } catch {
+   587→    return null;
+   588→  }
+   589→}
+   590→
+   591→export async function closeAutoTrade(id: string, exitPrice: number, exitKind: string): Promise<AutoTradeRow | null> {
+   592→  try {
+   593→    const res = await fetch("/api/autotrade", {
+   594→      method: "PATCH",
+   595→      headers: jsonHeaders,
+   596→      body: JSON.stringify({ action: "close", id, exitPrice, exitKind }),
+   597→    });
+   598→    if (!res.ok) return null;
+   599→    const json = (await res.json()) as { trade: AutoTradeRow };
+   600→    return json.trade;
+   601→  } catch {
+   602→    return null;
+   603→  }
+   604→}
+   605→
+   606→export async function resetAutoTrades(): Promise<boolean> {
+   607→  try {
+   608→    const res = await fetch("/api/autotrade", {
+   609→      method: "PATCH",
+   610→      headers: jsonHeaders,
+   611→      body: JSON.stringify({ action: "reset" }),
+   612→    });
+   613→    return res.ok;
+   614→  } catch {
+   615→    return false;
+   616→  }
+   617→}
+   618→
+   619→// ─── Telegram relay ───────────────────────────────────────────────────────────
+   620→
+   621→export async function telegramConfigured(): Promise<boolean> {
+   622→  try {
+   623→    const res = await fetch("/api/telegram");
+   624→    if (!res.ok) return false;
+   625→    const json = (await res.json()) as { configured: boolean };
+   626→    return json.configured;
+   627→  } catch {
+   628→    return false;
+   629→  }
+   630→}
+   631→
+   632→export interface TgStatus {
+   633→  configured: boolean;
+   634→  chatId: string | null;
+   635→  /** where the config came from — always "env" (or null when unset) */
+   636→  source: "env" | null;
+   637→}
+   638→
+   639→/** Current telegram wiring (effective chat id included). */
+   640→export async function telegramStatus(): Promise<TgStatus> {
+   641→  try {
+   642→    const res = await fetch("/api/telegram");
+   643→    if (!res.ok) return { configured: false, chatId: null, source: null };
+   644→    return (await res.json()) as TgStatus;
+   645→  } catch {
+   646→    return { configured: false, chatId: null, source: null };
+   647→  }
+   648→}
+   649→
+   650→/** Consume a one-time ?tg=<secret> connect link (POST /api/telegram/link/connect) —
+   651→ *  installs the bound bot token server-side; the link burns after one use. */
+   652→export async function telegramLinkConnect(
+   653→  secret: string,
+   654→): Promise<{ ok: boolean; bot?: string | null; detail?: string }> {
+   655→  try {
+   656→    const res = await fetch("/api/telegram/link/connect", {
+   657→      method: "POST",
+   658→      headers: jsonHeaders,
+   659→      body: JSON.stringify({ secret }),
+   660→    });
+   661→    const json = (await res.json().catch(() => null)) as { ok?: boolean; bot?: string | null; error?: string } | null;
+   662→    if (!res.ok) return { ok: false, detail: json?.error ?? `HTTP ${res.status}` };
+   663→    return { ok: json?.ok === true, bot: json?.bot ?? null };
+   664→  } catch (e) {
+   665→    return { ok: false, detail: e instanceof Error ? e.message : "fetch failed" };
+   666→  }
+   667→}
+   668→
+   669→/**
+   670→ * Fire-and-forget notification — resolves {ok:false, detail} instead of throwing.
+   671→ * `html: true` (default) sends with parse_mode HTML — templates must escape
+   672→ * raw < > & themselves (pair names / numbers never contain them).
+   673→ * `key` — semantic dedupe id (open:<tradeId>, near:<id>:tp, top:<5min-bucket>, …):
+   674→ * many tabs/devices share one Telegram channel, the SERVER suppresses repeats
+   675→ * of the same event (TG_DEDUPE_MS window) — 20 sessions → one message.
+   676→ * `dedupe: false` — bypass for manual sends (the "Kiểm tra" test button).
+   677→ */
+   678→export async function sendTelegram(
+   679→  text: string,
+   680→  opts?: { html?: boolean; key?: string; dedupe?: boolean },
+   681→): Promise<{ ok: boolean; detail?: string }> {
+   682→  try {
+   683→    const res = await fetch("/api/telegram", {
+   684→      method: "POST",
+   685→      headers: jsonHeaders,
+   686→      body: JSON.stringify({
+   687→        text,
+   688→        parse_mode: opts?.html === false ? undefined : "HTML",
+   689→        key: opts?.key,
+   690→        dedupe: opts?.dedupe,
+   691→      }),
+   692→    });
+   693→    if (!res.ok) {
+   694→      const json = (await res.json().catch(() => null)) as { detail?: string } | null;
+   695→      return { ok: false, detail: json?.detail ?? `HTTP ${res.status}` };
+   696→    }
+   697→    return { ok: true };
+   698→  } catch (e) {
+   699→    return { ok: false, detail: e instanceof Error ? e.message : "fetch failed" };
+   700→  }
+   701→}
+   702→
+   703→// ─── Periodic stats digest (hourly / daily Telegram reports) ────────────────
+   704→
+   705→const DIGEST_HR = "━━━━━━━━━━━━━━━━━━";
+   706→const sideTag = (side: string): string => (side === "LONG" ? "LONG 🟢" : side === "SHORT" ? "SHORT 🔴" : "NEUTRAL ⚪");
+   707→/** Số dòng tối đa của mục "Lệnh đã chạy" — giữ digest dưới trần 4096 ký tự Telegram */
+   708→const DIGEST_LIST_MAX = 40;
+   709→/** exitKind → icon kết quả (null/không rõ = ✋ đóng tay) */
+   710→const DIGEST_KIND: Record<string, string> = { tp: "✅", sl: "🔻", flip: "🔄", manual: "✋" };
+   711→
+   712→/**
+   713→ * Digest body — counts OPENS as well as closes inside the window (an hourly
+   714→ * report saying "0 lệnh" right after a fresh open reads as broken), and shows
+   715→ * "—" instead of a fake 0% win rate while nothing has settled yet.
+   716→ * Built server-side (see /api/autotrade/push) so every open tab/device shares
+   717→ * one exactly-once sender.
+   718→ */
+   719→export function statLines(st: AutoState, sinceMs: number, title: string, periodLabel: string): string[] {
+   720→  const recent = st.trades.filter((x) => x.status === "closed" && x.exitTime && new Date(x.exitTime).getTime() >= sinceMs);
+   721→  const opened = st.trades.filter((x) => new Date(x.entryTime).getTime() >= sinceMs);
+   722→  const wins = recent.filter((x) => (x.pnlPct ?? 0) > 0).length;
+   723→  const net = recent.reduce((a, x) => a + (x.pnlPct ?? 0), 0);
+   724→  const wr = recent.length ? `${Math.round((wins / recent.length) * 100)}%` : "—";
+   725→  const roe = recent.length ? `${net >= 0 ? "+" : ""}${net.toFixed(2)}%` : "—";
+   726→  const lines = [
+   727→    title,
+   728→    DIGEST_HR,
+   729→    `📊 ${periodLabel}: <b>${opened.length} opened</b> · <b>${recent.length} closed</b> · Win rate <b>${wr}</b> · Net ROE <b>${roe}</b>`,
+   730→  ];
+   731→  if (st.open) lines.push(`🔓 Holding: <b>#${st.open.symbol}</b> ${st.open.interval} ${sideTag(st.open.side)} @ ${fmtPrice(st.open.entryPrice)}`);
+   732→  lines.push(
+   733→    `💰 Equity: <b>${st.capital != null ? st.capital.toFixed(2) : "—"}</b> USDT · Total ${st.stats.closed} closed${st.open ? " · 1 still open" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(0)}%` : "—"}`,
+   734→  );
+   735→  const best = (st.byCombo ?? []).filter((c) => c.closed >= 3).sort((a, b) => b.winRate - a.winRate)[0];
+   736→  if (best) lines.push(`🏆 Best combo: <b>#${best.symbol}</b> ${best.interval} · WR ${best.winRate.toFixed(0)}% (${best.closed} trades)`);
+   737→
+   738→  // 📋 List tổng — MỌI lệnh đã đóng (mới nhất trước), mỗi lệnh một dòng kèm
+   739→  // kết quả (TP/SL/flip/đóng tay) + ROE + giờ đóng (giờ kênh Asia/Ho_Chi_Minh).
+   740→  // Giới hạn DIGEST_LIST_MAX dòng, phần cũ gộp một dòng để không vượt 4096 ký tự.
+   741→  // Lệnh đang mở không nằm đây — đã có dòng "🔓 Đang giữ" ở trên.
+   742→  const closedAll = st.trades
+   743→    .filter((x) => x.status === "closed")
+   744→    .sort((a, b) => new Date(b.exitTime ?? b.entryTime).getTime() - new Date(a.exitTime ?? a.entryTime).getTime());
+   745→  if (closedAll.length) {
+   746→    const fmtT = new Intl.DateTimeFormat("en-GB", {
+   747→      timeZone: "Asia/Ho_Chi_Minh",
+   748→      day: "2-digit",
+   749→      month: "2-digit",
+   750→      hour: "2-digit",
+   751→      minute: "2-digit",
+   752→      hour12: false,
+   753→    });
+   754→    lines.push(`📋 <b>Trades executed (${closedAll.length})</b> · newest first:`);
+   755→    for (const x of closedAll.slice(0, DIGEST_LIST_MAX)) {
+   756→      const pnl = x.pnlPct ?? 0;
+   757→      lines.push(
+   758→        `• #${x.symbol} ${x.interval} ${sideTag(x.side)} ${DIGEST_KIND[x.exitKind ?? ""] ?? "✋"} <b>${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}%</b> · ${fmtT.format(new Date(x.exitTime ?? x.entryTime))}`,
+   759→      );
+   760→    }
+   761→    if (closedAll.length > DIGEST_LIST_MAX) lines.push(`…and ${closedAll.length - DIGEST_LIST_MAX} older trades`);
+   762→  }
+   763→  return lines;
+   764→}
+   765→
+   766→/** Trigger the server-side digest sender — dedupe/boundary logic lives there. */
+   767→export async function pushAutoStats(body: { hourly?: boolean; daily?: boolean; force?: boolean }): Promise<boolean> {
+   768→  try {
+   769→    const res = await fetch("/api/autotrade/push", { method: "POST", headers: jsonHeaders, body: JSON.stringify(body) });
+   770→    return res.ok;
+   771→  } catch {
+   772→    return false;
+   773→  }
+   774→}
+   775→
+   776→// ─── Config (localStorage) ────────────────────────────────────────────────────
+   777→
+   778→export const AUTO_LS_KEY = "utp.auto";
+   779→
+   780→export interface AutoConfig {
+   781→  on: boolean;
+   782→  /** dry-run starting equity, USDT */
+   783→  capital: number;
+   784→  /** share of equity staked per trade, % (100 = all-in) */
+   785→  riskPct: number;
+   786→  /** TP/SL source: "atr" = live ATR × coef measured at entry time (default),
+   787→   *  "auto" = the scan row's train-time ATR levels, "manual" = fixed */
+   788→  tpMode: "atr" | "auto" | "manual";
+   789→  /** manual SL % (price move, before leverage) — used when tpMode = manual */
+   790→  slPct: number;
+   791→  /** manual TP % (price move, before leverage) — used when tpMode = manual */
+   792→  tpPct: number;
+   793→  /** ATR × multiplier for live entry levels — used when tpMode = "atr" and the
+   794→   *  scan row carries no retrained coef; 1.5 ≈ the classic ATR stop */
+   795→  atrCoef: number;
+   796→  /** cycle interval, minutes */
+   797→  cycleMin: number;
+   798→  /** các khung giờ engine CHẠY (scan + train + vào lệnh) — bật tắt trên panel;
+   799→   *  khung tắt bị bỏ hẳn khỏi vòng quét/train kế tiếp */
+   800→  runTf: string[];
+   801→  /** NGƯỠNG CHẤT LƯỢNG CHUNG — một bộ ba setpoint duy nhất áp cho MỌI tầng: mở
+   802→   *  lệnh, bù DCA và đăng broadcast (gateRow). Chỉnh một chỗ trên Auto panel. */
+   803→  minAuc: number;
+   804→  minAcc: number;
+   805→  /** min score (= (AUC−0.5)×100 + (ACC−50) + tin cậy×15) — lọc model đạt ngưỡng
+   806→   *  metrics nhưng thiếu tự tin */
+   807→  minScore: number;
+   808→  /** wait after an SL exit on the same combo, minutes (0 = off) */
+   809→  cooldownMin: number;
+   810→  /** max DCA adds into a losing position while the model still confirms the
+   811→   *  direction — each add averages the entry and re-anchors SL/TP on the new
+   812→   *  average (0 = off; the SL then closes the position as before) */
+   813→  dcaMax: number;
+   814→  /** auto-post a stats digest to Telegram at the top of every hour */
+   815→  statHourly: boolean;
+   816→  /** auto-post a stats digest to Telegram once a day */
+   817→  statDaily: boolean;
+   818→  /** base URL of the llama-server endpoint, e.g. http://127.0.0.8:8888 —
+   819→   *  the risk officer runs silently in the backend (no UI toggle) */
+   820→  llmUrl: string;
+   821→  /** model name sent with each request (informational — the server binds one model) */
+   822→  llmModel: string;
+   823→  /** seconds to wait for one LLM call (10–600). Overrides params LLM_TIMEOUT_MS when set. */
+   824→  llmTimeoutSec: number;
+   825→  /** true = skip entries when LLM is down; false = fail-OPEN (enter on XGB alone) */
+   826→  llmFailClosed: boolean;
+   827→  /** skip auto-entries whose last closed candle is a whale bar (≥4σ volume) */
+   828→  whaleFilter: boolean;
+   829→  /** broadcast the "TOP coin tiềm năng" scan digest to Telegram every 5 min */
+   830→  broadcast: boolean;
+   831→  /** LẬT CHIỀU TỰ ĐỘNG — khi lệnh đang mở và scan mới của CÙNG cặp/khung đảo
+   832→   *  chiều với tín hiệu đạt đủ ngưỡng chất lượng (cùng gate vào lệnh + noise band
+   833→   *  + không regressed), engine đóng lệnh cũ (exitKind "flip") và mở lệnh
+   834→   *  ngược chiều NGAY trong chu kỳ đó. Thị trường luôn biến động — dự báo chỉ
+   835→   *  là dự báo; flip là cách bot theo kịch. false = giữ lệnh tới TP/SL. */
+   836→  autoFlip: boolean;
+   837→}
+   838→
+   839→export const AUTO_DEFAULTS: AutoConfig = {
+   840→  on: false,
+   841→  capital: 1000,
+   842→  riskPct: 25,
+   843→  tpMode: "atr",
+   844→  slPct: 1,
+   845→  tpPct: 1.5,
+   846→  atrCoef: 1.5,
+   847→  cycleMin: 5,
+   848→  runTf: [...INTERVALS],
+   849→  // ngưỡng chung mặc định = setpoint broadcast 31/10 (60 / 0.8 / 70) — đồng bộ
+   850→  // BCAST_* trong bcast-gate.ts; migration từ 0.55/55 thời "no UI" nằm ở
+   851→  // loadAutoConfig + engine.loadEngine
+   852→  minAuc: 0.8,
+   853→  minAcc: 70,
+   854→  minScore: 60,
+   855→  cooldownMin: 30,
+   856→  dcaMax: 1,
+   857→  statHourly: true,
+   858→  statDaily: true,
+   859→  llmUrl: LLM_URL_DEFAULT,
+   860→  llmModel: LLM_MODEL_DEFAULT,
+   861→  llmTimeoutSec: 90,
+   862→  llmFailClosed: false,
+   863→  whaleFilter: true,
+   864→  broadcast: true,
+   865→  autoFlip: true,
+   866→};
+   867→export const COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
+   868→/** DCA adds allowed into a losing position (model still confirming) */
+   869→export const DCA_CHOICES = [0, 1, 2] as const;
+   870→export const RISK_CHOICES = [10, 25, 50, 100] as const;
+   871→export const TP_MODES = ["atr", "auto", "manual"] as const;
+   872→
+   873→/** auto-trade rescan cycle choices — minutes + display label ("1w" = 1 tuần) */
+   874→export const CYCLE_CHOICES = [
+   875→  { m: 5, label: "5" },
+   876→  { m: 10, label: "10" },
+   877→  { m: 15, label: "15" },
+   878→  { m: 30, label: "30" },
+   879→  { m: 60, label: "1h" },
+   880→  { m: 240, label: "4h" },
+   881→  { m: 1440, label: "1d" },
+   882→  { m: 10080, label: "1w" },
+   883→] as const;
+   884→
+   885→/** Chuẩn hoá danh sách khung giờ chạy: chỉ nhận member hợp lệ của INTERVALS,
+   886→ *  sắp theo thứ tự gốc, trùng thì gộp — rỗng/toàn sai thì trả về tất cả
+   887→ *  (không bao giờ để engine chạy 0 khung). */
+   888→export function sanitizeRunTf(v: unknown): string[] {
+   889→  const set = new Set(
+   890→    (Array.isArray(v) ? v : []).filter((x): x is string => typeof x === "string" && (INTERVALS as readonly string[]).includes(x)),
+   891→  );
+   892→  const list = INTERVALS.filter((i) => set.has(i));
+   893→  return list.length ? [...list] : [...INTERVALS];
+   894→}
+   895→
+   896→/** Kẹp bộ ba NGƯỠNG CHẤT LƯỢNG CHUNG vào vùng hợp lệ — dùng ở MỌI cửa nhận cfg
+   897→ *  (localStorage, engine.json, POST /api/engine sync) để không đường nào đánh
+   898→ *  lọt giá trị lệch. Migration: bộ 0.55/55 là default thời minAuc/minAcc còn
+   899→ *  "no UI" (trước 1/11) — chưa từng được chỉnh tay nên nâng thẳng lên ngưỡng
+   900→ *  chung mới thay vì giữ lại. */
+   901→export function sanitizeFloors(
+   902→  auc: unknown,
+   903→  acc: unknown,
+   904→  score: unknown,
+   905→): { minAuc: number; minAcc: number; minScore: number } {
+   906→  const legacy = auc === 0.55 && acc === 55;
+   907→  const num = (x: unknown, lo: number, hi: number, dflt: number): number =>
+   908→    typeof x === "number" && Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : dflt;
+   909→  return {
+   910→    minAuc: legacy ? AUTO_DEFAULTS.minAuc : num(auc, 0.5, 0.95, AUTO_DEFAULTS.minAuc),
+   911→    minAcc: legacy ? AUTO_DEFAULTS.minAcc : num(acc, 50, 90, AUTO_DEFAULTS.minAcc),
+   912→    minScore: num(score, 0, 95, AUTO_DEFAULTS.minScore),
+   913→  };
+   914→}
+   915→
+   916→export function loadAutoConfig(): AutoConfig {
+   917→  try {
+   918→    const raw = localStorage.getItem(AUTO_LS_KEY);
+   919→    if (!raw) return AUTO_DEFAULTS;
+   920→    const p = JSON.parse(raw) as Partial<AutoConfig>;
+   921→    return {
+   922→      on: p.on === true,
+   923→      capital: typeof p.capital === "number" && p.capital > 0 ? p.capital : AUTO_DEFAULTS.capital,
+   924→      riskPct: RISK_CHOICES.includes(p.riskPct as (typeof RISK_CHOICES)[number]) ? (p.riskPct as number) : AUTO_DEFAULTS.riskPct,
+   925→      tpMode: p.tpMode === "manual" ? "manual" : p.tpMode === "auto" ? "auto" : "atr",
+   926→      slPct: typeof p.slPct === "number" ? Math.min(20, Math.max(0.2, p.slPct)) : AUTO_DEFAULTS.slPct,
+   927→      tpPct: typeof p.tpPct === "number" ? Math.min(30, Math.max(0.2, p.tpPct)) : AUTO_DEFAULTS.tpPct,
+   928→      atrCoef: typeof p.atrCoef === "number" && p.atrCoef > 0 ? Math.min(5, Math.max(0.5, p.atrCoef)) : AUTO_DEFAULTS.atrCoef,
+   929→      cycleMin: CYCLE_CHOICES.some((c) => c.m === p.cycleMin) ? (p.cycleMin as number) : AUTO_DEFAULTS.cycleMin,
+   930→      // ngưỡng chung — kẹp + migration legacy trong sanitizeFloors (một nguồn)
+   931→      ...sanitizeFloors(p.minAuc, p.minAcc, p.minScore),
+   932→      cooldownMin: COOLDOWN_CHOICES.includes(p.cooldownMin as 0 | 15 | 30 | 60)
+   933→        ? (p.cooldownMin as number)
+   934→        : AUTO_DEFAULTS.cooldownMin,
+   935→      dcaMax: DCA_CHOICES.includes(p.dcaMax as 0 | 1 | 2) ? (p.dcaMax as number) : AUTO_DEFAULTS.dcaMax,
+   936→      runTf: sanitizeRunTf(p.runTf),
+   937→      statHourly: p.statHourly !== false,
+   938→      statDaily: p.statDaily !== false,
+   939→      llmUrl:
+   940→        typeof p.llmUrl === "string" && /^https?:\/\/\S{1,120}$/.test(p.llmUrl.trim()) ? p.llmUrl.trim() : AUTO_DEFAULTS.llmUrl,
+   941→      llmModel: typeof p.llmModel === "string" && p.llmModel.length <= 60 ? p.llmModel : AUTO_DEFAULTS.llmModel,
+   942→      llmTimeoutSec:
+   943→        typeof p.llmTimeoutSec === "number" && p.llmTimeoutSec >= 10 && p.llmTimeoutSec <= 600
+   944→          ? Math.round(p.llmTimeoutSec)
+   945→          : AUTO_DEFAULTS.llmTimeoutSec,
+   946→      llmFailClosed: p.llmFailClosed === true,
+   947→      whaleFilter: p.whaleFilter !== false,
+   948→      broadcast: p.broadcast !== false,
+   949→      autoFlip: p.autoFlip !== false,
+   950→    };
+   951→  } catch {
+   952→    return AUTO_DEFAULTS;
+   953→  }
+   954→}
+   955→
+   956→export function saveAutoConfig(cfg: AutoConfig): void {
+   957→  try {
+   958→    localStorage.setItem(AUTO_LS_KEY, JSON.stringify(cfg));
+   959→  } catch {
+   960→    // storage blocked — config lives for this session only
+   961→  }
+   962→}
+   963→

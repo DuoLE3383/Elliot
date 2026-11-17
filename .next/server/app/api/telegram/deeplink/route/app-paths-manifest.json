@@ -1,0 +1,3 @@
+{
+  "/api/telegram/deeplink/route": "app/api/telegram/deeplink/route.js"
+}

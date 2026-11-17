@@ -1,0 +1,34 @@
+0.2.45 — TIN QUÉT 8H: CHỈ POST COMBO ĐẠT CỔNG, 0 ĐẠT → IM LẶNG 🔇
+
+"điểm dưới điểm cài đặt thì khỏi post cho đỡ spam.. post những thứ cần
+thiết thôi, như thông tin thị trường, cập nhật tình hình phiên giao dịch"
+
+Tin "QUÉT LỆNH · TOP 10" 8h/lần (0.2.35) toàn entry dưới cổng vẫn đăng đủ
+10 mã kèm lý do chặn — ví dụ 04:24 02/11: 0/216 combo đạt cổng mà cả 10
+mã dưới ngưỡng vẫn post. Nay khoét gọn theo yêu cầu:
+
+• buildScanTop10Message (scan-broadcast.ts): pool chỉ lấy combo ĐẠT CỔNG
+  qua gateRow (mỗi symbol 1 combo, điểm giảm dần); enrich + coherence vẫn
+  chấm lại — combo tự mâu thuẫn bị chuyển reject và loại khỏi tin. 0
+  combo đạt → text null → engine KHÔNG gửi gì cả (verdict vẫn upsert đủ
+  bảng BcastVerdict cho panel web trước khi check text — panel không mất
+  dữ liệu phán quyết).
+• Đáy tin thêm 1 dòng "🌡 Thị trường" từ market-pulse (0.2.43): F&G (nhãn
+  tiếng Việt) · BTC.D · funding · long/short — fail-soft: nguồn ngoài
+  chết chỉ mất dòng này, tin quét vẫn gửi.
+• Header đổi thành "🔍 QUÉT LỆNH · N COIN ĐẠT CỔNG" + "N/216 combo đạt
+  cổng"; bỏ hẳn dòng ✗ lý do chặn (lý do xem trên panel web);
+  escHtml không còn cần → bỏ.
+• engine.scanDigestTick: cập nhật comment luồng mới (không đổi logic —
+  nhánh !built.text vốn đã im lặng sẵn).
+
+Test (scripts/test-scan-digest-0244.ts — tsc CommonJS + node thuần):
+- Kịch bản 3 passer + 3 bị chặn: tin chỉ liệt kê passer 🚀 kèm SL/TP,
+  không dòng ✗, combo bị chặn không xuất hiện, header đếm N/M đúng,
+  có dòng Thị trường (F&G 34 Sợ hãi · BTC.D 57.2% · L/S 69/31).
+- Kịch bản 0/216 đạt: text null, picked rỗng, verdict đủ cho panel.
+- Coherence verify riêng: SOL LONG giữa downtrend mạnh → reject đúng lý
+  do "kéo dao rơi" và rơi khỏi tin.
+Lưu ý: mạng sandbox có lúc cắt body Binance giữa chừng làm enrich null
+(verdict giữ pass, combo rơi khỏi tin lần đó) — test có retry; trên VPS
+engine join lane scan tươi nên gần như không gặp.

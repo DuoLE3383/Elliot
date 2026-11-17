@@ -1,0 +1,35 @@
+Elliott Paper Trading — Proprietary Software License
+
+Copyright (c) 2026 DuoLE3383. All rights reserved.
+
+1. OWNERSHIP
+   This software and its source code, design, documentation and associated
+   assets ("the Software") are the exclusive property of the copyright
+   holder above.
+
+2. RESTRICTIONS
+   You may NOT, without prior written permission from the copyright holder:
+   a) copy, reproduce, or redistribute the Software or any portion of it;
+   b) modify, adapt, translate, or create derivative works of the Software;
+   c) reverse engineer, decompile, or disassemble the production artifacts,
+      including obfuscated bundles;
+   d) sublicense, sell, rent, lease, or otherwise transfer the Software;
+   e) remove or alter any copyright, trademark, or proprietary notices.
+
+3. PERMITTED USE
+   The copyright holder grants no license to third parties by publishing
+   this repository. Any use beyond reading the code for personal review
+   requires an explicit, written grant from the copyright holder.
+
+4. NO WARRANTY
+   The Software is provided "AS IS", without warranty of any kind, express
+   or implied. In no event shall the author be liable for any claim,
+   damages, or other liability arising from the use of the Software.
+   This tool is for paper trading and research only — it is NOT financial
+   advice and places no real exchange orders.
+
+5. TERMINATION
+   Any breach of this license terminates your right to use the Software
+   immediately and retroactively.
+
+For licensing inquiries, contact the repository owner via GitHub.

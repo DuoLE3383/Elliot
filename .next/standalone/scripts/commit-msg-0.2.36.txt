@@ -1,0 +1,54 @@
+0.2.36 — STRATEGY LAB: A/B CHIẾN LƯỢC THEO FEATURE GAIN + LƯU BÀI PHÂN TÍCH LLM 🧪📊
+
+VẤN ĐỀ (hỏi thẳng từ user):
+- "ở trong source hiện tại có phần nào lưu những cái này và tự finetune A/B ko?
+  sau đó đưa ra thêm nhiều Suggested strategies dựa theo tất cả các yếu tố đang train"
+
+TRẢ LỜI (đã rà source):
+1) Bài phân tích LLM "Vạch lá tìm sâu" (stats-dive) chạy xong chỉ hiện trên UI
+   rồi MẤT — route ghi rõ "KHÔNG ghi DB", không soi dọc được.
+2) Finetune có champion–challenger (XGB_GRID) ở tầng HYPERPARAMS, và suggestion
+   có chấm outcome sau horizon — nhưng suggestFrom() greedy chỉ giữ TOP-1 mỗi
+   tầng (ATR coef → UT key×period → SMA gate): ~21 ứng viên bị vứt mỗi lần
+   train, KHÔNG có A/B chiến lược thật, KHÔNG có "nhiều strategies".
+
+GIẢI PHÁP — 2 bảng mới + Strategy Lab:
+
+▸ DiveReport: MỖI lần dive (kể cả fail) được LƯU (source/model/ok/ms/text).
+  POST /api/llm/stats-dive tự lưu nền sau khi chạy; GET ?limit → lịch sử.
+  Trang /ai thêm khối "Lịch sử phân tích đã lưu" — soi LLM có đổi ý theo thời gian.
+
+▸ StrategyVariant + src/lib/strategy-lab.ts — sinh NHIỀU ứng viên chiến lược
+  dựa THEO TẤT CẢ CÁC YẾU TỐ ĐANG TRAIN (34 feature của champion FinetuneRun):
+  · GRID không greedy: mốc so sánh (cfg đang chạy) + 5 ATR coef + 12 UT combo
+    + 4 SMA gate, khử trùng lặp config (coin ATR nhỏ nhiều coef ra cùng SL/TP).
+  · FEATURE-DRIVEN: 7 nhóm yếu tố (động lượng ret/rsi · biến động atrPct/
+    atrRank/bbwRank · UT utTrend/stopDist · MA sma/ema · dòng tiền volZ/whale/
+    body/wick · thời gian session/hour/dow/dom/qEnd · Wyckoff wy×6) — mỗi nhóm
+    có feature gain cao nhất trong champion sinh đúng 1 biến thể kèm GIẢ THUYẾT
+    tiếng Việt rõ ràng ("Model tin động lượng nhất (rsi14 gain cao): TP nới 1,6×SL…").
+  · Backtest TẤT CẢ bằng đúng thuật toán engine (signalsFrom→papersFrom→kpiFrom,
+    ROE×leverage) trên 500 nến thật: trades/winRate/netPnl/expectancy/avgWin/
+    avgLoss/TP/SL/flip/maxDd — cả thắng lẫn thua đều sống lại, xếp hạng theo
+    ROE mỗi lệnh (A/B thật, không còn greedy top-1).
+  · TỰ ĐỘNG: sau mỗi lượt train có lưu, engine chạy lab nền cho từng combo
+    (maybeAutoLab, throttle 12h/combo — không spam Binance, lỗi không làm fail train).
+  · API /api/strategies: GET list · POST generate (server-side thuần — 0.2.35
+    đã dọn compute khỏi trình duyệt) · PATCH apply · DELETE.
+  · UI tab "Lab" mới (bên cạnh Sổ giấy/Đề xuất/Phân tích): bảng xếp hạng desktop
+    + cards mobile, badge Mốc/Đã áp/🏆, nút Áp dụng nạp config thắng cuộc vào
+    settings engine (cùng cơ chế apply-best cũ) + toast xác nhận.
+
+KHÁC:
+- Schema: DiveReport + StrategyVariant vào prisma/schema.prisma + bootstrap
+  tự-heal db.ts (SCHEMA_SQL + MODEL_TABLES 9 bảng — CREATE IF NOT EXISTS nên
+  VPS chỉ cần pull + restart, không phải prisma db push).
+- i18n vi/en đầy đủ (sl.*, ai.dive.history*, tabs.lab).
+- Test: scripts/test-strategy-lab.mts — 30 pass/0 fail (grid khử dup, 7 nhóm
+  feature, sort expectancy, persist thay thế không nhân đôi, throttle 12h,
+  round-trip config/metrics).
+- Khôi phục .gitignore bị ghi đè (chỉ còn 2 dòng — rủi ro dính .env/db khi
+  add -A); trở lại bản chuẩn của HEAD.
+
+SỐ LIỆU THẬT (BTCUSDT 15m, 500 nến): 22 ứng viên chấm xong < 1s; top-1
+"UT 2·14" 21 lệnh · win 43% · +0.20 ROE/lệnh, so mốc cfg đang chạy.

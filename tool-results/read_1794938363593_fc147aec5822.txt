@@ -1,0 +1,1795 @@
+     1→// ─── engine — the backend auto engine (scan · train · universe · broadcast ·
+     2→// cycle · digests · resolve) ──────────────────────────────────────────────────
+     3→// Everything heavy that used to live in the BROWSER (auto-panel metronomes,
+     4→// the XGB worker pool, the paper-trade cycle runner) now runs HERE, in the
+     5→// standalone Node process, 24/7 with no tab open:
+     6→//
+     7→//   • every 20s  — watcher: SL/TP/liquidation of the open paper position +
+     8→//                  one-shot "sát TP/SL" warnings (was the intra-cycle interval)
+     9→//   • every 60s  — main tick:
+    10→//       · hourly/daily Telegram digests (marker-guarded, cfg-gated)
+    11→//       · 5-min bucket → refresh scan if stale + TOP-coin broadcast
+    12→//       · 8h bucket   → universe re-rank + broadcast
+    13→//       · cycle due   → paper-trade cycle (manage open position / enter best)
+    14→//       · every 5 min → resolve pending suggestions against live prices
+    15→//
+    16→// Heavy combos (scan/train) run through XgbPoolNode — worker_threads, real
+    17→// parallelism on the VPS. Job lanes (engine-jobs) give the "nhiều người bấm →
+    18→// bắt chờ" semantics: one lane per kind, FIFO, identical queued jobs coalesce.
+    19→//
+    20→// Config (cfg/settings/pairs/leverage) is SYNCED from the browser (localStorage
+    21→// stays the editing surface) via POST /api/engine {action:"sync"} and persisted
+    22→// to $DATA_DIR/engine.json — so a reboot resumes the exact same engine. Until
+    23→// the first sync the scheduler stays idle (a fresh deploy must not start
+    24→// scanning the whole universe uninvited).
+    25→//
+    26→// Never throws from ticks — a failed pass logs and waits for the next one.
+    27→
+    28→import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+    29→import path from "path";
+    30→import { db } from "./db";
+    31→import { dataFile } from "./data-dir";
+    32→import {
+    33→  AUTO_DEFAULTS,
+    34→  bestTradeableAvoid,
+    35→  flipDecision,
+    36→  liquidationHit,
+    37→  nearHit,
+    38→  passesChaseGuard,
+    39→  rankRows,
+    40→  roeOf,
+    41→  rowOf,
+    42→  scoreOf,
+    43→  slCooldownLeft,
+    44→  slTpHit,
+    45→  withChampion,
+    46→  confluenceBlend,
+    47→  sanitizeRunTf,
+    48→  sanitizeFloors,
+    49→  type AutoConfig,
+    50→  type AutoTradeRow,
+    51→  type ScanRow,
+    52→} from "./autotrade";
+    53→import { readAutoState, serialize } from "./autostate";
+    54→import { autopsyBackfill, autopsyClosedTrade, recentAutopsyLessons } from "./autopsy";
+    55→import { aliasFuturesSymbol, type EngineSettings, type Ticker } from "./types";
+    56→import { DEFAULT_SETTINGS } from "./types";
+    57→import { atrLevelsAtEntry } from "./indicators";
+    58→import { llmReview, resolveLlmEndpoint, type LlmVerdict } from "./llm";
+    59→import { methodIdOf, methodSnapshot } from "./method";
+    60→import { runAgentTick } from "./self-improve";
+    61→import { fetchKlinesDirect, fetchBoard24h } from "./klines-direct";
+    62→import { XgbPoolNode, xgbPoolAvailable, xgbPoolSize } from "./xgb-pool-node";
+    63→import { labCfgOf, maybeAutoLab } from "./strategy-lab";
+    64→import { evolveInfo, evolveRound, evolveWatch, type EvolveBridge } from "./evolve";
+    65→import {
+    66→  UNIVERSE,
+    67→  UNIVERSE_INTERVAL,
+    68→  UNIVERSE_LOOKBACK_CANDLES,
+    69→  UNIVERSE_SCAN_MS,
+    70→  rankUniverse,
+    71→  scorePair,
+    72→  universeBroadcastText,
+    73→  universeFingerprint,
+    74→  type UniverseRow,
+    75→} from "./universe";
+    76→import { buildTopCoinsMessage, buildScanTop10Message, loadBcastState, saveBcastState } from "./scan-broadcast";
+    77→import { loadScanState, saveScanState } from "./scan-state";
+    78→import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store";
+    79→import { pushAutoDigests } from "./autodigest";
+    80→import { msgClose, msgDca, msgLlmVeto, msgNear, msgOpen } from "./tg-msgs";
+    81→import { enqueueJob, jobViews } from "./engine-jobs";
+    82→import { directionalPnl, outcomeOf } from "./history";
+    83→import {
+    84→  AUTOPSY_BACKFILL_MS,
+    85→  AUTOPSY_ON,
+    86→  LLM_FAIL_CLOSED,
+    87→  LLM_TIMEOUT_MS,
+    88→  NOISE_BAND,
+    89→  SCAN_DIGEST_EVERY_MS,
+    90→  SCAN_DIGEST_OFFSET_MS,
+    91→  SCAN_FRESH_MS,
+    92→  SCAN_TTL,
+    93→  TICKERS_TTL,
+    94→  UNIVERSE_MIN_CANDLES,
+    95→  pval,
+    96→} from "./params";
+    97→import { hydrateParams } from "./params-store";
+    98→import { type TradeLesson, type XgbResult } from "./xgb";
+    99→
+   100→// ─── engine state (global + persisted) ───────────────────────────────────────
+   101→
+   102→interface EnginePersisted {
+   103→  cfg: AutoConfig;
+   104→  settings: EngineSettings;
+   105→  pairs: string[];
+   106→  leverage: number;
+   107→  syncedAt: number | null;
+   108→  /** next paper-trade cycle due at (epoch ms) */
+   109→  nextCycleAt: number;
+   110→  /** near-hit one-shot flags for the current position */
+   111→  warned: { id: string; tp: boolean; sl: boolean };
+   112→  /** DCA bookkeeping for the current position — tranche prices give the exact
+   113→   *  notional-weighted average entry; survives restarts via engine.json */
+   114→  dca: { id: string; count: number; stake0: number; prices: number[] };
+   115→  llmLast: { symbol: string; interval: string; side: string; verdict: string; reason: string; ms: number; at: number } | null;
+   116→}
+   117→
+   118→interface EngineVolatile {
+   119→  scan: { rows: ScanRow[]; at: number } | null;
+   120→  universe: { rows: UniverseRow[]; at: number } | null;
+   121→  tickers: Record<string, Ticker>;
+   122→  tickersAt: number;
+   123→  lastCycleStatus: string;
+   124→  lastCycleAt: number;
+   125→}
+   126→
+   127→interface EngineGlobal {
+   128→  __elliottEngine?: {
+   129→    p: EnginePersisted;
+   130→    v: EngineVolatile;
+   131→    loaded: boolean;
+   132→  };
+   133→}
+   134→
+   135→const g = globalThis as EngineGlobal;
+   136→
+   137→function defaults(): { p: EnginePersisted; v: EngineVolatile } {
+   138→  return {
+   139→    p: {
+   140→      cfg: { ...AUTO_DEFAULTS },
+   141→      settings: { ...DEFAULT_SETTINGS },
+   142→      pairs: [],
+   143→      leverage: 1,
+   144→      syncedAt: null,
+   145→      nextCycleAt: 0,
+   146→      warned: { id: "", tp: false, sl: false },
+   147→      dca: { id: "", count: 0, stake0: 0, prices: [] },
+   148→      llmLast: null,
+   149→    },
+   150→    v: {
+   151→      scan: null,
+   152→      universe: null,
+   153→      tickers: {},
+   154→      tickersAt: 0,
+   155→      lastCycleStatus: "",
+   156→      lastCycleAt: 0,
+   157→    },
+   158→  };
+   159→}
+   160→
+   161→function loadEngine(): void {
+   162→  if (g.__elliottEngine?.loaded) return;
+   163→  const d = defaults();
+   164→  g.__elliottEngine = { ...d, loaded: true };
+   165→  // last scan/universe snapshots from disk — a pm2 restart no longer blanks
+   166→  // the panel with "No scan data yet" until the next 5-min bucket re-scans
+   167→  Object.assign(g.__elliottEngine.v, loadScanState());
+   168→  try {
+   169→    const file = dataFile("engine.json");
+   170→    if (existsSync(file)) {
+   171→      const raw = JSON.parse(readFileSync(file, "utf8")) as Partial<EnginePersisted>;
+   172→      const p = g.__elliottEngine.p;
+   173→      if (raw.cfg) {
+   174→        p.cfg = { ...AUTO_DEFAULTS, ...raw.cfg };
+   175→        // ngưỡng chung — kẹp + migration legacy 0.55/55 (thời "no UI") trong một nguồn
+   176→        Object.assign(p.cfg, sanitizeFloors(p.cfg.minAuc, p.cfg.minAcc, p.cfg.minScore));
+   177→        p.cfg.runTf = sanitizeRunTf(p.cfg.runTf);
+   178→      }
+   179→      if (raw.settings) p.settings = { ...DEFAULT_SETTINGS, ...raw.settings };
+   180→      if (Array.isArray(raw.pairs)) p.pairs = raw.pairs.filter((x) => typeof x === "string").slice(0, 200);
+   181→      if (typeof raw.leverage === "number" && raw.leverage >= 1) p.leverage = raw.leverage;
+   182→      if (typeof raw.syncedAt === "number") p.syncedAt = raw.syncedAt;
+   183→      if (typeof raw.nextCycleAt === "number") p.nextCycleAt = raw.nextCycleAt;
+   184→      if (raw.warned && typeof raw.warned === "object") p.warned = raw.warned;
+   185→      if (raw.dca && typeof raw.dca === "object" && typeof raw.dca.id === "string") {
+   186→        p.dca = {
+   187→          id: raw.dca.id,
+   188→          count: typeof raw.dca.count === "number" ? Math.max(0, raw.dca.count) : 0,
+   189→          stake0: typeof raw.dca.stake0 === "number" && raw.dca.stake0 > 0 ? raw.dca.stake0 : 0,
+   190→          prices: Array.isArray(raw.dca.prices) ? raw.dca.prices.filter((x) => typeof x === "number" && x > 0) : [],
+   191→        };
+   192→      }
+   193→      if (raw.llmLast) p.llmLast = raw.llmLast;
+   194→    }
+   195→  } catch {
+   196→    // corrupt state — start from defaults, the next sync rewrites it
+   197→  }
+   198→}
+   199→
+   200→function persistEngine(): void {
+   201→  try {
+   202→    const file = dataFile("engine.json");
+   203→    mkdirSync(path.dirname(file), { recursive: true });
+   204→    writeFileSync(file, JSON.stringify(g.__elliottEngine!.p, null, 2) + "\n", "utf8");
+   205→  } catch {
+   206→    // unwritable DATA_DIR — engine config lives for this process only
+   207→  }
+   208→}
+   209→
+   210→const eng = (): { p: EnginePersisted; v: EngineVolatile } => {
+   211→  loadEngine();
+   212→  return g.__elliottEngine!;
+   213→};
+   214→
+   215→const tgReady = (): boolean => Boolean(effectiveToken().token && effectiveChatId().id);
+   216→
+   217→// ─── tickers (whole futures board, aliased to watchlist names) ───────────────
+   218→
+   219→async function getTickers(): Promise<Record<string, Ticker>> {
+   220→  const { p, v } = eng();
+   221→  if (Date.now() - v.tickersAt < TICKERS_TTL && Object.keys(v.tickers).length > 0) return v.tickers;
+   222→  const board = await fetchBoard24h();
+   223→  const map: Record<string, Ticker> = {};
+   224→  const want = new Set<string>([...p.pairs, ...(p.cfg.broadcast ? UNIVERSE : [])]);
+   225→  for (const name of want) {
+   226→    const perp = aliasFuturesSymbol(name) ?? (/^[A-Z0-9]{5,20}$/.test(name) ? name : null);
+   227→    if (!perp) continue;
+   228→    const row = board.get(perp);
+   229→    if (row) {
+   230→      map[name] = { symbol: name, price: row.price, changePct: row.changePct, high: row.high, low: row.low, quoteVolume: row.quoteVolume };
+   231→      map[perp] = map[name]; // alias both ways — scan rows may carry either
+   232→    }
+   233→  }
+   234→  v.tickers = map;
+   235→  v.tickersAt = Date.now();
+   236→  return map;
+   237→}
+   238→
+   239→// ─── DB helpers (mirror the /api/autotrade + /api/finetune routes) ───────────
+   240→
+   241→async function runCount(symbol: string, interval: string): Promise<number> {
+   242→  try {
+   243→    return await db.finetuneRun.count({ where: { symbol, interval } });
+   244→  } catch {
+   245→    return 0;
+   246→  }
+   247→}
+   248→
+   249→/** Persist one train result — Suggestion + FinetuneRun (kind auto train/finetune). */
+   250→async function persistTrainResult(
+   251→  sym: string,
+   252→  itv: string,
+   253→  res: XgbResult,
+   254→  entryPrice: number,
+   255→  lv: number,
+   256→): Promise<{ suggestionId: string | null; runId: string | null }> {
+   257→  const count = await runCount(sym, itv);
+   258→  const sug = await db.suggestion.create({
+   259→    data: {
+   260→      symbol: sym,
+   261→      interval: itv,
+   262→      bias: res.suggestion.bias,
+   263→      prob: res.suggestion.prob,
+   264→      confidence: res.suggestion.confidence,
+   265→      slPct: res.suggestion.slPct,
+   266→      tpPct: res.suggestion.tpPct,
+   267→      atrKey: res.suggestion.atrKey,
+   268→      atrPeriod: res.suggestion.atrPeriod,
+   269→      smaFilter: res.suggestion.smaFilter,
+   270→      smaPeriod: res.suggestion.smaPeriod,
+   271→      acc: res.acc,
+   272→      auc: res.auc,
+   273→      horizonBars: res.horizon,
+   274→      entryPrice,
+   275→    },
+   276→  });
+   277→  const run = await db.finetuneRun.create({
+   278→    data: {
+   279→      symbol: sym,
+   280→      interval: itv,
+   281→      kind: count > 0 ? "finetune" : "train",
+   282→      samples: res.samples,
+   283→      valSamples: res.valSamples,
+   284→      acc: res.acc,
+   285→      auc: res.auc,
+   286→      logloss: res.logloss,
+   287→      trees: res.trees,
+   288→      horizon: res.horizon,
+   289→      importance: JSON.stringify(res.importance ?? []),
+   290→      params: JSON.stringify({
+   291→        ...res.params,
+   292→        lv,
+   293→        marginAtr: Number(res.marginAtr.toFixed(3)),
+   294→        ...(res.platt ? { platt: { a: res.platt.a, b: res.platt.b, eceRaw: Number(res.platt.eceRaw.toFixed(4)), eceCal: Number(res.platt.eceCal.toFixed(4)) } } : {}),
+   295→        ...(res.reliability ? { reliability: res.reliability.map((r) => ({ ...r, avgP: Number(r.avgP.toFixed(4)), win: Number(r.win.toFixed(4)) })) } : {}),
+   296→        ...(res.lessons ? { lessons: res.lessons } : {}),
+   297→        ...(res.tuned ? { tuned: res.tuned } : {}),
+   298→      }),
+   299→    },
+   300→  });
+   301→  return { suggestionId: sug.id, runId: run.id };
+   302→}
+   303→
+   304→/** Close the open paper position — same math as PATCH /api/autotrade close.
+   305→ *  Sau khi chốt lời/cắt lỗ, lệnh được GIẢI PHẪU (autopsy — cả thắng lẫn thua)
+   306→ *  fire-and-forget: không chặn cycle/watcher, lỗi chỉ log. Bài học nằm lại DB,
+   307→ *  nạp lại vào lần duyệt lệnh sau của cùng cặp. exitKind "flip" = đóng vì
+   308→ *  AUTO-FLIP (model đảo chiều đủ tin cậy — xem tryFlip). */
+   309→async function closeTradeDirect(
+   310→  id: string,
+   311→  exitPrice: number,
+   312→  exitKind: "tp" | "sl" | "manual" | "flip",
+   313→): Promise<AutoTradeRow | null> {
+   314→  const row = await db.autoTrade.findUnique({ where: { id } });
+   315→  if (!row || row.status !== "open") return null;
+   316→  const movePct =
+   317→    row.side === "SHORT" ? ((row.entryPrice - exitPrice) / row.entryPrice) * 100 : ((exitPrice - row.entryPrice) / row.entryPrice) * 100;
+   318→  let pnlPct = Math.round(movePct * row.leverage * 100) / 100;
+   319→  const adverse = row.side === "SHORT" ? -movePct : movePct;
+   320→  if (row.leverage > 1 && adverse <= -(100 / row.leverage)) pnlPct = -100;
+   321→  const capitalBefore = row.capitalBefore ?? 1000;
+   322→  const stakePct = row.stakePct ?? 100;
+   323→  const delta = Math.round(capitalBefore * (stakePct / 100) * (pnlPct / 100) * 100) / 100;
+   324→  const capitalAfter = Math.max(0, Math.round((capitalBefore + delta) * 100) / 100);
+   325→  const updated = await db.autoTrade.update({
+   326→    where: { id },
+   327→    data: { status: "closed", exitPrice, exitTime: new Date(), pnlPct, exitKind, capitalAfter },
+   328→  });
+   329→  if (pval("AUTOPSY_ON", AUTOPSY_ON)) {
+   330→    const { p } = eng();
+   331→    void (() => { const ep = resolveLlmEndpoint({ url: p.cfg.llmUrl, model: p.cfg.llmModel }); void autopsyClosedTrade(updated, { url: ep.url, model: ep.model }); })();
+   332→  }
+   333→  return serialize(updated);
+   334→}
+   335→
+   336→// ─── Signal totals — đếm TÍCH LUỸ tín hiệu server đã quét thấy ──────────────
+   337→// Mỗi lượt quét (scanCore), combo nào model bật hướng LONG/SHORT (≠ NEUTRAL)
+   338→// được cộng 1. KPI "Signals this window" trên trang chính tính số trong KHUNG
+   339→// nến trình duyệt (signalsFrom) — số này là TỔNG suốt đời server, sống qua
+   340→// pm2 restart nhờ bảng SignalTotal. Cache module-scope vì engineSnapshot là
+   341→// hàm đồng bộ; refresh lúc boot + sau mỗi lần bump.
+   342→let signalTotals: Record<string, number> = {};
+   343→
+   344→async function refreshSignalTotals(): Promise<void> {
+   345→  try {
+   346→    const rows = await db.signalTotal.findMany();
+   347→    signalTotals = Object.fromEntries(rows.map((r) => [`${r.symbol}|${r.interval}`, r.total]));
+   348→  } catch {
+   349→    // DB chớp/không sẵn sàng — giữ cache cũ, lần quét kế sẽ ăn lại
+   350→  }
+   351→}
+   352→void refreshSignalTotals(); // boot — fire-and-forget, không chặn import
+   353→
+   354→async function bumpSignalTotals(rows: ScanRow[]): Promise<void> {
+   355→  const dirs = rows.filter((r) => r.bias !== "NEUTRAL");
+   356→  if (dirs.length === 0) return;
+   357→  try {
+   358→    for (const r of dirs) {
+   359→      await db.signalTotal.upsert({
+   360→        where: { symbol_interval: { symbol: r.symbol, interval: r.interval } },
+   361→        create: { symbol: r.symbol, interval: r.interval, total: 1 },
+   362→        update: { total: { increment: 1 } },
+   363→      });
+   364→    }
+   365→    await refreshSignalTotals();
+   366→  } catch {
+   367→    // đếm là best-effort — không được ảnh hưởng luồng quét
+   368→  }
+   369→}
+   370→
+   371→// ─── scan / train / universe cores (run inside job lanes) ────────────────────
+   372→
+   373→async function scanCore(
+   374→  report: (patch: { progress?: { done: number; total: number; current: string }; extra?: Record<string, unknown> }) => void,
+   375→  opts?: { pairs?: string[]; intervals?: string[] },
+   376→): Promise<Record<string, unknown>> {
+   377→  const { p, v } = eng();
+   378→  const pairs = opts?.pairs ?? p.pairs;
+   379→  const intervals = opts?.intervals ?? p.cfg.runTf;
+   380→  const pool = new XgbPoolNode();
+   381→  const combos = pairs.length * intervals.length;
+   382→  const collected: ScanRow[] = [];
+   383→  let done = 0;
+   384→  report({ progress: { done: 0, total: combos, current: "" }, extra: { workers: pool.parallelism } });
+   385→  try {
+   386→    await pool.runQueue(
+   387→      pairs.flatMap((sym) => intervals.map((itv) => ({ sym, itv, difficulty: 0 }))), // fair race — difficulty pinned 0
+   388→      p.settings,
+   389→      {
+   390→        onComboStart: (sym, itv) => report({ progress: { done, total: combos, current: `${sym} ${itv}` } }),
+   391→        onComboDone: (sym, itv, res) => {
+   392→          collected.push(rowOf(res, sym, itv));
+   393→          done += 1;
+   394→          report({ progress: { done, total: combos, current: "" } });
+   395→        },
+   396→        onComboFail: () => {
+   397→          done += 1;
+   398→          report({ progress: { done, total: combos, current: "" } });
+   399→        },
+   400→      },
+   401→    );
+   402→  } finally {
+   403→    pool.destroy();
+   404→  }
+   405→  // confluence — các model cùng symbol vote chung bằng log-odds (autotrade.ts):
+   406→  // khung giờ đồng thuận → prob/score đội lên, lệch nhau → xả về 0.5 → NEUTRAL
+   407→  const blended = confluenceBlend(collected);
+   408→  const nBlend = blended.filter((r, i) => r.prob !== collected[i].prob).length;
+   409→  if (nBlend > 0) console.log(`[engine] confluence — ${nBlend}/${blended.length} row ghép phiếu đa khung cùng symbol`);
+   410→  const ranked = rankRows(blended);
+   411→  // champion map — best-ever run per combo from the persisted history; a fresh
+   412→  // retrain that rolled measurably worse (auc < champ − 0.02) is flagged and
+   413→  // the auto-cycle skips it ("mỗi lần train phải tốt hơn" — no gambling on a
+   414→  // bad roll). One query, computed in JS — no schema change.
+   415→  try {
+   416→    const runs = await db.finetuneRun.findMany({
+   417→      select: { symbol: true, interval: true, acc: true, auc: true },
+   418→      orderBy: { createdAt: "desc" },
+   419→      take: 4000,
+   420→    });
+   421→    const champ = new Map<string, { auc: number; acc: number }>();
+   422→    for (const r of runs) {
+   423→      const k = `${r.symbol}|${r.interval}`;
+   424→      const cur = champ.get(k);
+   425→      if (!cur || r.auc > cur.auc || (r.auc === cur.auc && r.acc > cur.acc)) champ.set(k, { auc: r.auc, acc: r.acc });
+   426→    }
+   427→    for (const row of ranked) {
+   428→      const c = champ.get(`${row.symbol}|${row.interval}`);
+   429→      if (c) Object.assign(row, withChampion(row, c.auc, c.acc));
+   430→    }
+   431→    console.log(`[engine] scan enriched — ${ranked.filter((r) => r.regressed).length}/${ranked.length} regressed vs champion`);
+   432→  } catch {
+   433→    // no history yet → rows stay unflagged
+   434→  }
+   435→  v.scan = { rows: ranked, at: Date.now() };
+   436→  saveScanState({ scan: v.scan });
+   437→  // đếm tích luỹ — nền, không chặn/không hỏng quét nếu DB chớp
+   438→  void bumpSignalTotals(ranked);
+   439→  return { rows: ranked.length, workers: pool.parallelism };
+   440→}
+   441→
+   442→async function trainCore(
+   443→  report: (patch: { progress?: { done: number; total: number; current: string }; extra?: Record<string, unknown> }) => void,
+   444→  opts: { mode: "all" } | { mode: "single"; sym: string; itv: string; persist: boolean },
+   445→): Promise<Record<string, unknown>> {
+   446→  const { p } = eng();
+   447→  const tfs = p.cfg.runTf; // chỉ train các khung đang bật
+   448→  const list =
+   449→    opts.mode === "all" ? p.pairs.flatMap((sym) => tfs.map((itv) => ({ sym, itv }))) : [{ sym: opts.sym, itv: opts.itv }];
+   450→  if (list.length === 0) return { saved: 0, total: 0 };
+   451→
+   452→  const pool = new XgbPoolNode();
+   453→  const combos = list.length;
+   454→  let done = 0;
+   455→  let saved = 0;
+   456→  const ranked: { sym: string; itv: string; res: XgbResult }[] = [];
+   457→  let best: { symbol: string; interval: string; acc: number; auc: number; score: number } | null = null;
+   458→  let lastResult: Record<string, unknown> | null = null;
+   459→  const lessonTotals = { n: 0, wins: 0, agree: 0 };
+   460→  // pre-resolve every combo's difficulty from its persisted run count — the
+   461→  // worker needs it up-front (browser pool used to fetch it itself)
+   462→  const diffs = new Map<string, number>();
+   463→  for (const s of list) diffs.set(`${s.sym}|${s.itv}`, await runCount(s.sym, s.itv));
+   464→  // win/lose lessons — closed dry-run trades per combo, newest first (capped
+   465→  // per combo: recent trades matter, a year-old roll doesn't)
+   466→  const tradeMap = new Map<string, TradeLesson[]>();
+   467→  try {
+   468→    const closed = await db.autoTrade.findMany({
+   469→      where: { status: "closed" },
+   470→      orderBy: { exitTime: "desc" },
+   471→      take: 500,
+   472→    });
+   473→    for (const t of closed) {
+   474→      if (!t.exitTime) continue;
+   475→      const key = `${t.symbol}|${t.interval}`;
+   476→      const lst = tradeMap.get(key) ?? [];
+   477→      if (lst.length < 40) {
+   478→        lst.push({
+   479→          t: new Date(t.entryTime).getTime(),
+   480→          side: t.side === "SHORT" ? "SHORT" : "LONG",
+   481→          pnl: t.pnlPct ?? 0,
+   482→        });
+   483→      }
+   484→      tradeMap.set(key, lst);
+   485→    }
+   486→    if (tradeMap.size > 0) console.log(`[engine] trade lessons — ${[...tradeMap.values()].reduce((a, x) => a + x.length, 0)} closed trades across ${tradeMap.size} combo(s)`);
+   487→  } catch {
+   488→    // no trade history — trains run on klines only, as before
+   489→  }
+   490→  report({ progress: { done: 0, total: combos, current: "" }, extra: { workers: pool.parallelism } });
+   491→  try {
+   492→    await pool.runQueue(
+   493→      list.map((s) => ({
+   494→        sym: s.sym,
+   495→        itv: s.itv,
+   496→        difficulty: diffs.get(`${s.sym}|${s.itv}`) ?? 0,
+   497→        trades: tradeMap.get(`${s.sym}|${s.itv}`),
+   498→      })),
+   499→      p.settings,
+   500→      {
+   501→        onComboStart: (sym, itv) => report({ progress: { done, total: combos, current: `${sym} ${itv}` } }),
+   502→        onComboDone: async (sym, itv, res, entryPrice) => {
+   503→          if (opts.mode === "single" && !opts.persist) {
+   504→            // silent auto-retrain (pair/interval switch) — compute only, the
+   505→            // suggestion history stays user-driven (same as the old client flow)
+   506→            lastResult = { res, entryPrice };
+   507→            done += 1;
+   508→            report({ progress: { done, total: combos, current: "" } });
+   509→            return;
+   510→          }
+   511→          try {
+   512→            const ids = await persistTrainResult(sym, itv, res, entryPrice, diffs.get(`${sym}|${itv}`) ?? 0);
+   513→            saved += 1;
+   514→            ranked.push({ sym, itv, res });
+   515→            if (res.lessons) {
+   516→              lessonTotals.n += res.lessons.n;
+   517→              lessonTotals.wins += res.lessons.wins;
+   518→              lessonTotals.agree += res.lessons.agree;
+   519→            }
+   520→            if (opts.mode === "single") lastResult = { res, entryPrice, ...ids };
+   521→          } catch {
+   522→            // persist failure → combo counts as done but not saved
+   523→            if (opts.mode === "single") lastResult = { res, entryPrice };
+   524→          }
+   525→          done += 1;
+   526→          report({ progress: { done, total: combos, current: "" } });
+   527→        },
+   528→        onComboFail: () => {
+   529→          done += 1;
+   530→          report({ progress: { done, total: combos, current: "" } });
+   531→        },
+   532→      },
+   533→    );
+   534→  } finally {
+   535→    pool.destroy();
+   536→  }
+   537→  for (const r of ranked) {
+   538→    const sc = scoreOf(r.res);
+   539→    if (!best || sc > best.score) best = { symbol: r.sym, interval: r.itv, acc: r.res.acc, auc: r.res.auc, score: sc };
+   540→  }
+   541→  if (saved > 0) invalidateTrainSnapshot(); // panel train-history refreshes on the next poll
+   542→  // 0.2.36 — Strategy Lab TỰ chạy sau mỗi lượt train có lưu: sinh + backtest
+   543→  // lại ứng viên chiến lược (baseline cfg hiện tại + grid + biến thể theo
+   544→  // feature gain của champion). maybeAutoLab tự throttle 12h/combo nên pass
+   545→  // định kỳ không spam; chạy NỀN tuần tự, không chặn trả kết quả train.
+   546→  if (saved > 0) {
+   547→    void (async () => {
+   548→      for (const r of ranked) {
+   549→        await maybeAutoLab(r.sym, r.itv, labCfgOf(p.settings));
+   550→      }
+   551→      console.log(`[engine] strategy lab nền xong cho ${ranked.length} combo đã lưu`);
+   552→    })();
+   553→  }
+   554→  // channel summary for a full pass — same message the client trainer used to send
+   555→  if (opts.mode === "all" && saved > 0 && tgReady()) {
+   556→    try {
+   557→      const lines = [
+   558→        "🧠 <b>FULL TRAIN COMPLETE</b>",
+   559→        `${p.pairs.length} pair × ${p.cfg.runTf.length} TF (${p.cfg.runTf.join(",")}) · saved <b>${saved}/${combos}</b> combos`,
+   560→        best
+   561→          ? `🏆 Best: <b>#${best.symbol}</b> ${best.interval} · ACC ${best.acc.toFixed(1)}% · AUC ${best.auc.toFixed(2)} · Score ${best.score.toFixed(1)}`
+   562→          : "",
+   563→        lessonTotals.n > 0
+   564→          ? `🎓 Learned from <b>${lessonTotals.n}</b> real dry-run trades (${lessonTotals.wins} win · ${lessonTotals.n - lessonTotals.wins} lose) — model agrees on direction ${lessonTotals.agree}/${lessonTotals.n}`
+   565→          : "",
+   566→        `⚙️ ${pool.parallelism} backend workers${xgbPoolAvailable() ? "" : " (sequential fallback)"}`,
+   567→      ].filter(Boolean);
+   568→      void tgSendMessage(lines.join("\n"), "HTML");
+   569→    } catch {
+   570→      // summary is best-effort
+   571→    }
+   572→  }
+   573→  return { saved, total: combos, best, ...(opts.mode === "single" && lastResult ? { result: lastResult } : {}) };
+   574→}
+   575→
+   576→// ─── train history snapshot (GET /api/engine → train) ───────────────────────
+   577→// "lưu train history và có thể chọn bản tốt nhất" — the history IS the
+   578→// FinetuneRun table; the snapshot exposes total + latest runs and crowns the
+   579→// best run per combo (champion). Cached 60s — the panel polls every 3s and
+   580→// sqlite shouldn't aggregate the whole history per poll.
+   581→
+   582→export interface TrainRunLite {
+   583→  symbol: string;
+   584→  interval: string;
+   585→  kind: string;
+   586→  acc: number;
+   587→  auc: number;
+   588→  at: number;
+   589→  /** this run is its combo's champion (best-ever AUC → ACC) */
+   590→  best: boolean;
+   591→}
+   592→
+   593→export interface TrainSnapshot {
+   594→  at: number;
+   595→  total: number;
+   596→  latest: TrainRunLite[];
+   597→}
+   598→
+   599→let trainCache: TrainSnapshot | null = null;
+   600→
+   601→async function trainSnapshot(): Promise<TrainSnapshot> {
+   602→  if (trainCache && Date.now() - trainCache.at < 60_000) return trainCache;
+   603→  try {
+   604→    const [total, runs, hist] = await Promise.all([
+   605→      db.finetuneRun.count(),
+   606→      db.finetuneRun.findMany({ orderBy: { createdAt: "desc" }, take: 12 }),
+   607→      db.finetuneRun.findMany({
+   608→        select: { symbol: true, interval: true, acc: true, auc: true },
+   609→        orderBy: { createdAt: "desc" },
+   610→        take: 4000,
+   611→      }),
+   612→    ]);
+   613→    const champ = new Map<string, { auc: number; acc: number }>();
+   614→    for (const r of hist) {
+   615→      const k = `${r.symbol}|${r.interval}`;
+   616→      const cur = champ.get(k);
+   617→      if (!cur || r.auc > cur.auc || (r.auc === cur.auc && r.acc > cur.acc)) champ.set(k, { auc: r.auc, acc: r.acc });
+   618→    }
+   619→    const latest: TrainRunLite[] = runs.map((r) => {
+   620→      const c = champ.get(`${r.symbol}|${r.interval}`);
+   621→      return {
+   622→        symbol: r.symbol,
+   623→        interval: r.interval,
+   624→        kind: r.kind,
+   625→        acc: r.acc,
+   626→        auc: r.auc,
+   627→        at: new Date(r.createdAt).getTime(),
+   628→        best: c != null && r.auc >= c.auc && r.acc >= c.acc,
+   629→      };
+   630→    });
+   631→    trainCache = { at: Date.now(), total, latest };
+   632→  } catch {
+   633→    // DB down — keep whatever cache exists (or the empty snapshot)
+   634→    if (!trainCache) trainCache = { at: 0, total: 0, latest: [] };
+   635→  }
+   636→  return trainCache;
+   637→}
+   638→
+   639→function invalidateTrainSnapshot(): void {
+   640→  trainCache = null;
+   641→  void trainSnapshot();
+   642→}
+   643→
+   644→// ─── broadcast verdict snapshot (GET /api/engine → bcast) ────────────────────
+   645→// "phải dùng chung thuật toán và chung 1 database tại backend chứ!!" — bảng
+   646→// BcastVerdict là nguồn duy nhất: broadcast tick chấm mọi combo bằng
+   647→// bcast-gate.gateRow() và upsert vào đây; panel đọc snapshot này. Telegram
+   648→// chỉ đăng combo "pass" của CÙNG bảng đó. Cached 60s như trainSnapshot.
+   649→
+   650→export interface BcastVerdictLite {
+   651→  symbol: string;
+   652→  interval: string;
+   653→  side: string;
+   654→  score: number;
+   655→  auc: number;
+   656→  acc: number;
+   657→  verdict: string;
+   658→  reason: string;
+   659→  at: number;
+   660→}
+   661→
+   662→export interface BcastSnapshot {
+   663→  at: number;
+   664→  pass: number;
+   665→  total: number;
+   666→  cooldown: number;
+   667→  rows: BcastVerdictLite[];
+   668→}
+   669→
+   670→let bcastCache: BcastSnapshot | null = null;
+   671→
+   672→async function bcastSnapshot(): Promise<BcastSnapshot> {
+   673→  if (bcastCache && Date.now() - bcastCache.at < 60_000) return bcastCache;
+   674→  try {
+   675→    const rows = await db.bcastVerdict.findMany({
+   676→      orderBy: [{ verdict: "asc" }, { score: "desc" }],
+   677→      take: 200,
+   678→    });
+   679→    const lite: BcastVerdictLite[] = rows.map((r) => ({
+   680→      symbol: r.symbol,
+   681→      interval: r.interval,
+   682→      side: r.side,
+   683→      score: r.score,
+   684→      auc: r.auc,
+   685→      acc: r.acc,
+   686→      verdict: r.verdict,
+   687→      reason: r.reason,
+   688→      at: new Date(r.at).getTime(),
+   689→    }));
+   690→    bcastCache = {
+   691→      at: Date.now(),
+   692→      pass: lite.filter((r) => r.verdict === "pass").length,
+   693→      total: lite.length,
+   694→      cooldown: lite.filter((r) => r.reason.includes("cooldown")).length,
+   695→      rows: lite,
+   696→    };
+   697→  } catch {
+   698→    // DB down — keep whatever cache exists (or the empty snapshot)
+   699→    if (!bcastCache) bcastCache = { at: 0, pass: 0, total: 0, cooldown: 0, rows: [] };
+   700→  }
+   701→  return bcastCache;
+   702→}
+   703→
+   704→function invalidateBcastSnapshot(): void {
+   705→  bcastCache = null;
+   706→  void bcastSnapshot();
+   707→}
+   708→
+   709→async function universeCore(
+   710→  report: (patch: { progress?: { done: number; total: number; current: string }; extra?: Record<string, unknown> }) => void,
+   711→): Promise<Record<string, unknown>> {
+   712→  const { p, v } = eng();
+   713→  report({ progress: { done: 0, total: UNIVERSE.length, current: "" } });
+   714→  const out: UniverseRow[] = [];
+   715→  let i = 0;
+   716→  for (const sym of UNIVERSE) {
+   717→    try {
+   718→      const k = await fetchKlinesDirect(sym, UNIVERSE_INTERVAL, UNIVERSE_LOOKBACK_CANDLES);
+   719→      if (k.length >= UNIVERSE_MIN_CANDLES) out.push(scorePair(sym, k));
+   720→    } catch {
+   721→      // một pair lỗi không cản lần quét
+   722→    }
+   723→    i += 1;
+   724→    report({ progress: { done: i, total: UNIVERSE.length, current: sym } });
+   725→  }
+   726→  if (out.length === 0) return { top: 0 };
+   727→  const top = rankUniverse(out);
+   728→  // Previous ranking for Δ + anti-spam (identical top-N → skip Telegram)
+   729→  const prevRows = v.universe?.rows ?? [];
+   730→  const prevSyms = prevRows.slice(0, 10).map((r) => r.symbol.replace("USDT", ""));
+   731→  const prevFp = universeFingerprint(prevRows);
+   732→  const nextFp = universeFingerprint(top);
+   733→  const at = Date.now();
+   734→  v.universe = { rows: top, at };
+   735→  saveScanState({ universe: v.universe });
+   736→  // Universe Telegram: only when ranking changed OR first post after cold start
+   737→  if (tgReady() && p.cfg.broadcast) {
+   738→    try {
+   739→      if (prevFp && prevFp === nextFp) {
+   740→        console.log(`[engine] universe TG skipped — top-${nextFp.split("|").length} unchanged`);
+   741→      } else {
+   742→        await tgSendMessage(
+   743→          universeBroadcastText(top, { prevSyms, at }),
+   744→          "HTML",
+   745→        );
+   746→      }
+   747→    } catch (e) {
+   748→      console.error(`[engine] universe broadcast failed: ${e instanceof Error ? e.message : e}`);
+   749→    }
+   750→  }
+   751→  return { top: top.length };
+   752→}
+   753→
+   754→// ─── job lane submit helpers (used by /api/engine AND the scheduler) ─────────
+   755→
+   756→export function submitScan(opts?: { pairs?: string[]; intervals?: string[] }): { promise: Promise<Record<string, unknown>>; coalesced: boolean } {
+   757→  const { p } = eng();
+   758→  const label = `scan:${(opts?.pairs ?? p.pairs).length}p${opts?.intervals ? `·${opts.intervals.join("+")}` : ""}`;
+   759→  const j = enqueueJob("scan", label, (report) => scanCore(report, opts));
+   760→  return { promise: j.promise, coalesced: j.coalesced };
+   761→}
+   762→
+   763→export function submitTrainAll(): { promise: Promise<Record<string, unknown>>; coalesced: boolean } {
+   764→  const j = enqueueJob("train", "all", (report) => trainCore(report, { mode: "all" }));
+   765→  return { promise: j.promise, coalesced: j.coalesced };
+   766→}
+   767→
+   768→export function submitTrainSingle(sym: string, itv: string, persist = true): { promise: Promise<Record<string, unknown>>; coalesced: boolean } {
+   769→  const j = enqueueJob("train", `single:${sym} ${itv}${persist ? "" : "·view"}`, (report) =>
+   770→    trainCore(report, { mode: "single", sym, itv, persist }),
+   771→  );
+   772→  return { promise: j.promise, coalesced: j.coalesced };
+   773→}
+   774→
+   775→export function submitUniverse(): { promise: Promise<Record<string, unknown>>; coalesced: boolean } {
+   776→  const j = enqueueJob("universe", "8h", (report) => universeCore(report));
+   777→  return { promise: j.promise, coalesced: j.coalesced };
+   778→}
+   779→
+   780→// ─── broadcast tick — phán quyết "TOP coin" 5 phút (KHÔNG còn tự gửi Telegram) ─
+   781→// 0.2.35: "tin nhắn scan top 10 coin chỉ thông báo 8 tiếng 1 lần" — nhịp gửi
+   782→// Telegram của luồng scan chuyển hoàn toàn sang scanDigestTick (8h/lần, tin
+   783→// QUÉT LỆNH · TOP 10). Tick 5 phút này giữ nguyên NỘI DUNG phán quyết: quét
+   784→// tươi nếu già, chấm cổng mọi combo (kèm coherence) và ghi bảng BcastVerdict
+   785→// — panel web đọc mỗi nhịp, chỉ riêng TIN Telegram là 8h/lần.
+   786→
+   787→async function broadcastTick(): Promise<void> {
+   788→  const { p, v } = eng();
+   789→  if (!p.cfg.broadcast || !p.syncedAt) return; // chỉ chấm — không cần Telegram-ready
+   790→  // fresh scan first — join the running scan lane instead of stacking a new one
+   791→  if (!v.scan || Date.now() - v.scan.at > SCAN_FRESH_MS) {
+   792→    try {
+   793→      await submitScan().promise;
+   794→    } catch {
+   795→      return; // scan failed — skip this broadcast, the next bucket retries
+   796→    }
+   797→  }
+   798→  // universe top-30 — nếu watchlist ∩ top-30 = ∅ thì quét nhanh riêng top-30
+   799→  const uniSyms = (v.universe?.rows ?? []).map((r) => r.symbol);
+   800→  const uniSet = new Set(uniSyms);
+   801→  if (uniSyms.length > 0 && !(v.scan?.rows ?? []).some((r) => uniSet.has(r.symbol))) {
+   802→    try {
+   803→      await submitScan({ pairs: uniSyms.slice(0, 30), intervals: ["1h", "4h"] }).promise;
+   804→    } catch {
+   805→      // quét nhanh hỏng — vẫn chạy gate trên snapshot cũ, verdict sẽ nói rõ
+   806→    }
+   807→  }
+   808→  const rows = v.scan?.rows ?? [];
+   809→  if (rows.length === 0) return;
+   810→  const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
+   811→  const state = loadBcastState();
+   812→  let built: Awaited<ReturnType<typeof buildTopCoinsMessage>> | null = null;
+   813→  try {
+   814→    // MỘT thuật toán gate — uniSet truyền thẳng vào gateRow, mọi combo đều
+   815→    // được chấm (kể cả ngoài universe) và phán quyết được ghi vào DB;
+   816→    // sp = cùng bộ ba ngưỡng chung mà entry/DCA đang dùng (cfg — panel chỉnh một chỗ)
+   817→    built = await buildTopCoinsMessage(rows, tickers, state, uniSet, {
+   818→      score: p.cfg.minScore,
+   819→      auc: p.cfg.minAuc,
+   820→      acc: p.cfg.minAcc,
+   821→    });
+   822→  } catch (e) {
+   823→    console.error(`[engine] broadcast build failed: ${e instanceof Error ? e.message : e}`);
+   824→    return;
+   825→  }
+   826→  if (!built) return; // phòng thủ — catch đã return, nhánh này chỉ để TS thu hẹp kiểu
+   827→  // verdicts → bảng BcastVerdict (custom.db) — nguồn chung panel + Telegram
+   828→  try {
+   829→    for (const vd of built.verdicts) {
+   830→      await db.bcastVerdict.upsert({
+   831→        where: { symbol_interval: { symbol: vd.symbol, interval: vd.interval } },
+   832→        create: {
+   833→          symbol: vd.symbol,
+   834→          interval: vd.interval,
+   835→          side: vd.side,
+   836→          score: vd.score,
+   837→          auc: vd.auc,
+   838→          acc: vd.acc,
+   839→          verdict: vd.verdict,
+   840→          reason: vd.reason,
+   841→        },
+   842→        update: {
+   843→          side: vd.side,
+   844→          score: vd.score,
+   845→          auc: vd.auc,
+   846→          acc: vd.acc,
+   847→          verdict: vd.verdict,
+   848→          reason: vd.reason,
+   849→        },
+   850→      });
+   851→    }
+   852→    invalidateBcastSnapshot();
+   853→  } catch (e) {
+   854→    console.error(`[engine] verdict persist failed: ${e instanceof Error ? e.message : e}`);
+   855→  }
+   856→  // 0.2.35 — KHÔNG gửi built.text nữa: tin scan trên Telegram chỉ 8h/lần qua
+   857→  // scanDigestTick (dưới). state.n/seen/lastB cũng chuyển theo (⚡NEW + cooldown
+   858→  // đếm theo lần GỬI, không phải lần chấm).
+   859→}
+   860→
+   861→// ─── scan digest tick — tin "QUÉT LỆNH" ĐỀU ĐỊNH 8h/lần ──────────────────────
+   862→// "thêm tin nhắn scan lệnh vào telegram … tin nhắn scan top 10 coin chỉ thông
+   863→// báo 8 tiếng 1 lần". 0.2.45 — "điểm dưới điểm cài đặt thì khỏi post cho đỡ
+   864→// spam": chỉ gửi khi CÓ combo đạt cổng (kèm 1 dòng thị trường); 0 combo đạt →
+   865→// text null, im lặng — verdict vẫn ghi DB cho panel web trước khi check text.
+   866→// Lệch pha +4h so với bucket universe để hai tin dài không dồn một lúc.
+   867→async function scanDigestTick(): Promise<void> {
+   868→  const { p, v } = eng();
+   869→  if (!p.cfg.broadcast || !p.syncedAt || !tgReady()) return;
+   870→  // scan tươi trước — join lane đang chạy thay vì chồng thêm job mới
+   871→  if (!v.scan || Date.now() - v.scan.at > SCAN_FRESH_MS) {
+   872→    try {
+   873→      await submitScan().promise;
+   874→    } catch {
+   875→      return; // scan hỏng — bucket sau thử lại
+   876→    }
+   877→  }
+   878→  const rows = v.scan?.rows ?? [];
+   879→  if (rows.length === 0) return;
+   880→  const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
+   881→  const uniSet = new Set((v.universe?.rows ?? []).map((r) => r.symbol));
+   882→  const state = loadBcastState();
+   883→  let built: Awaited<ReturnType<typeof buildScanTop10Message>> | null = null;
+   884→  try {
+   885→    built = await buildScanTop10Message(rows, tickers, state, uniSet, {
+   886→      score: p.cfg.minScore,
+   887→      auc: p.cfg.minAuc,
+   888→      acc: p.cfg.minAcc,
+   889→    });
+   890→  } catch (e) {
+   891→    console.error(`[engine] scan digest build failed: ${e instanceof Error ? e.message : e}`);
+   892→    return;
+   893→  }
+   894→  if (!built) return;
+   895→  // phán quyết (kèm coherence) → bảng BcastVerdict — CÙNG một thuật toán
+   896→  try {
+   897→    for (const vd of built.verdicts) {
+   898→      await db.bcastVerdict.upsert({
+   899→        where: { symbol_interval: { symbol: vd.symbol, interval: vd.interval } },
+   900→        create: {
+   901→          symbol: vd.symbol,
+   902→          interval: vd.interval,
+   903→          side: vd.side,
+   904→          score: vd.score,
+   905→          auc: vd.auc,
+   906→          acc: vd.acc,
+   907→          verdict: vd.verdict,
+   908→          reason: vd.reason,
+   909→        },
+   910→        update: {
+   911→          side: vd.side,
+   912→          score: vd.score,
+   913→          auc: vd.auc,
+   914→          acc: vd.acc,
+   915→          verdict: vd.verdict,
+   916→          reason: vd.reason,
+   917→        },
+   918→      });
+   919→    }
+   920→    invalidateBcastSnapshot();
+   921→  } catch (e) {
+   922→    console.error(`[engine] digest verdict persist failed: ${e instanceof Error ? e.message : e}`);
+   923→  }
+   924→  if (!built.text) return; // scan rỗng sau enrich — im thay vì gửi tin rỗng
+   925→  const now = Date.now();
+   926→  state.n += 1;
+   927→  state.scan10 = now;
+   928→  for (const r of built.picked) {
+   929→    state.seen[`${r.symbol}-${r.interval}`] = now;
+   930→    state.lastB[r.symbol] = now;
+   931→  }
+   932→  saveBcastState(state);
+   933→  try {
+   934→    await tgSendMessage(built.text, "HTML");
+   935→    console.log(`[engine] scan digest sent — top ${built.picked.length} of ${rows.length} rows`);
+   936→  } catch (e) {
+   937→    console.error(`[engine] scan digest send failed: ${e instanceof Error ? e.message : e}`);
+   938→  }
+   939→}
+   940→
+   941→// ─── suggestions resolve — score pending suggestions against live prices ─────
+   942→
+   943→const intervalMs = (itv: string): number => {
+   944→  const map: Record<string, number> = {
+   945→    "1m": 60_000,
+   946→    "5m": 300_000,
+   947→    "15m": 900_000,
+   948→    "30m": 1_800_000,
+   949→    "1h": 3_600_000,
+   950→    "2h": 7_200_000,
+   951→    "4h": 14_400_000,
+   952→    "1d": 86_400_000,
+   953→    "1w": 604_800_000,
+   954→  };
+   955→  return map[itv] ?? 300_000;
+   956→};
+   957→
+   958→async function resolveTick(): Promise<void> {
+   959→  try {
+   960→    const pending = await db.suggestion.findMany({
+   961→      where: { outcome: null, entryPrice: { gt: 0 } },
+   962→      orderBy: { createdAt: "asc" },
+   963→      take: 300,
+   964→    });
+   965→    if (pending.length === 0) return;
+   966→    const board = await fetchBoard24h().catch(() => null);
+   967→    if (!board) return;
+   968→    const now = Date.now();
+   969→    let resolved = 0;
+   970→    for (const s of pending) {
+   971→      const deadline = new Date(s.createdAt).getTime() + s.horizonBars * intervalMs(s.interval);
+   972→      if (deadline > now) continue;
+   973→      // 0.2.35 — giá tra TRỰC TIẾP từ board 24h (toàn bộ futures board) cho
+   974→      // ĐÚNG symbol của suggestion, kể cả cặp ngoài watchlist/universe (client
+   975→      // từng nộp giá hộ mỗi 5 phút — luồng đó đã xoá, resolve phải tự đủ)
+   976→      const perp = (aliasFuturesSymbol(s.symbol) ?? s.symbol).toUpperCase();
+   977→      const row = board.get(perp);
+   978→      const exit = row && row.price > 0 ? row.price : 0;
+   979→      if (exit <= 0) continue;
+   980→      const bias = s.bias as "LONG" | "SHORT" | "NEUTRAL";
+   981→      await db.suggestion.update({
+   982→        where: { id: s.id },
+   983→        data: {
+   984→          outcome: outcomeOf(bias, s.entryPrice, exit),
+   985→          exitPrice: exit,
+   986→          pnlPct: directionalPnl(bias, s.entryPrice, exit),
+   987→          resolvedAt: new Date(),
+   988→        },
+   989→      });
+   990→      resolved += 1;
+   991→    }
+   992→    if (resolved > 0) console.log(`[engine] resolved ${resolved} pending suggestion(s)`);
+   993→  } catch (e) {
+   994→    console.error(`[engine] resolve tick failed: ${e instanceof Error ? e.message : e}`);
+   995→  }
+   996→}
+   997→
+   998→// ─── paper-trade cycle (port of the client runCycle) ──────────────────────────
+   999→
+  1000→/**
+  1001→ * LLM Risk Officer duyệt MỘT setup — dùng chung cho cả luồng vào lệnh thường
+  1002→ * (cycleTick §2.5) và luồng LẬT CHIỀU (tryFlip): nạp bài học autopsy của cặp,
+  1003→ * gọi llama, ghi llmLast (kể cả unreachable — hết "chốt chặn im lặng"), gửi
+  1004→ * tin veto. LLM CHẾT thì tuỳ tham số LLM_FAIL_CLOSED: fail-open (mặc định) cho
+  1005→ * qua đường XGBoost-only; fail-closed chặn (vetoed=true). Verdict trả về để
+  1006→ * caller ghi vào cột llmVerdict/llmReason của lệnh (autopsy đối chiếu sau).
+  1007→ * Setup kèm champ_check — champion–challenger: LLM thấy model đang đứng gần
+  1008→ * hay xa đỉnh best-ever của cặp này (dữ liệu champion ĐƯỢC ĐỌC vào prompt).
+  1009→ */
+  1010→async function llmGate(
+  1011→  row: ScanRow,
+  1012→  side: "LONG" | "SHORT",
+  1013→  slPct: number,
+  1014→  tpPct: number,
+  1015→  track?: string,
+  1016→): Promise<{ verdict: LlmVerdict | null; vetoed: boolean }> {
+  1017→  const { p, v } = eng();
+  1018→  const c = p.cfg;
+  1019→  let vetoed = false;
+  1020→  let lastVerdict: LlmVerdict | null = null;
+  1021→  try {
+  1022→    // vòng học: bài giải phẫu các lệnh đã đóng của CHÍNH cặp này (mới nhất
+  1023→    // trước, ≤5 bài) đi kèm setup — Risk Officer phán trên hậu quả thật.
+  1024→    const lessons = pval("AUTOPSY_ON", AUTOPSY_ON) ? await recentAutopsyLessons(row.symbol).catch(() => []) : [];
+  1025→    if (lessons.length > 0) console.log(`[engine] LLM review ${row.symbol} ${row.interval} — nạp ${lessons.length} bài học autopsy`);
+  1026→    const failClosed = c.llmFailClosed === true;
+  1027→    // Cap at 90s by default — user reports reviews finish in ~1 min; 300s only
+  1028→    // masked hangs from json_schema / wrong model id.
+  1029→    const timeoutMs = Math.max(15_000, Math.min(180_000, (c.llmTimeoutSec || 90) * 1000));
+  1030→    // SAME URL resolution as /ai ping — env wins so "Connected" matches review
+  1031→    const ep = resolveLlmEndpoint({ url: c.llmUrl, model: c.llmModel });
+  1032→    const verdict = await llmReview(
+  1033→      ep.url,
+  1034→      ep.model,
+  1035→      {
+  1036→        symbol: row.symbol,
+  1037→        interval: row.interval,
+  1038→        side,
+  1039→        prob: row.prob,
+  1040→        confidence: row.confidence,
+  1041→        auc: row.auc,
+  1042→        acc: row.acc,
+  1043→        slPct,
+  1044→        tpPct,
+  1045→        leverage: p.leverage,
+  1046→        stakePct: c.riskPct,
+  1047→        horizon: row.horizon,
+  1048→        samples: row.samples,
+  1049→        score: row.score,
+  1050→        gatePassed: true, // caller already passed gate + noise band
+  1051→        track,
+  1052→        ...(row.champAuc ? { champAuc: row.champAuc, champAcc: row.champAcc } : {}),
+  1053→        lessons: lessons.length > 0 ? lessons : undefined,
+  1054→      },
+  1055→      timeoutMs,
+  1056→    );
+  1057→    lastVerdict = verdict;
+  1058→    if (verdict) {
+  1059→      p.llmLast = {
+  1060→        symbol: row.symbol,
+  1061→        interval: row.interval,
+  1062→        side,
+  1063→        verdict: verdict.verdict,
+  1064→        reason: verdict.reasons[0] ?? "",
+  1065→        ms: verdict.ms ?? 0,
+  1066→        at: Date.now(),
+  1067→      };
+  1068→      persistEngine();
+  1069→    } else {
+  1070→      p.llmLast = {
+  1071→        symbol: row.symbol,
+  1072→        interval: row.interval,
+  1073→        side,
+  1074→        verdict: "unreachable",
+  1075→        reason: failClosed
+  1076→          ? "llama-server unreachable — fail-CLOSED blocks this entry"
+  1077→          : "llama-server unreachable — fail-OPEN lets XGB entry through (default)",
+  1078→        ms: timeoutMs,
+  1079→        at: Date.now(),
+  1080→      };
+  1081→      persistEngine();
+  1082→      if (failClosed) {
+  1083→        vetoed = true;
+  1084→        v.lastCycleStatus = `LLM unreachable — fail-closed blocks ${row.symbol} ${row.interval}`;
+  1085→      }
+  1086→    }
+  1087→    if (verdict && verdict.verdict === "skip") {
+  1088→      vetoed = true;
+  1089→      v.lastCycleStatus = `LLM veto ${row.symbol} ${row.interval}`;
+  1090→      if (tgReady()) void tgSendMessage(msgLlmVeto(row, verdict), "HTML");
+  1091→    }
+  1092→  } catch {
+  1093→    if (c.llmFailClosed === true) {
+  1094→      vetoed = true;
+  1095→      v.lastCycleStatus = `LLM error — fail-closed blocks ${row.symbol} ${row.interval}`;
+  1096→    }
+  1097→  }
+  1098→  return { verdict: lastVerdict, vetoed };
+  1099→}
+  1100→
+  1101→async function cycleTick(): Promise<void> {
+  1102→  const { p, v } = eng();
+  1103→  const c = p.cfg;
+  1104→  if (!c.on || !p.syncedAt) return;
+  1105→  v.lastCycleAt = Date.now();
+  1106→  try {
+  1107→    const st = await readAutoState();
+  1108→
+  1109→    // 1) manage the open position against the live price
+  1110→    if (st.open) {
+  1111→      const open = st.open;
+  1112→      const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
+  1113→      const price = tickers[open.symbol]?.price ?? 0;
+  1114→      if (price > 0) {
+  1115→        const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
+  1116→        const liq = liquidationHit(open.side, price, open.entryPrice, open.leverage);
+  1117→        if (kind || liq) {
+  1118→          const closed = await closeTradeDirect(open.id, price, liq ? "sl" : (kind ?? "sl"));
+  1119→          if (closed) {
+  1120→            v.lastCycleStatus = `${closed.symbol} ${closed.interval} closed ${closed.exitKind ?? ""}`;
+  1121→            if (tgReady()) {
+  1122→              const s2 = await readAutoState();
+  1123→              void tgSendMessage(msgClose(closed, s2.stats.closed, s2.stats.winRate, s2.stats.netPnlPct), "HTML");
+  1124→            }
+  1125→          }
+  1126→          return; // one position at a time — the next cycle re-evaluates entry
+  1127→        }
+  1128→        const roe = roeOf(open.side, open.entryPrice, price, open.leverage);
+  1129→        const base = `${open.symbol} ${open.interval} ${open.side} · ROE ${roe >= 0 ? "+" : ""}${roe.toFixed(2)}%`;
+  1130→        // 1.5) AUTO-FLIP — thị trường luôn biến động, dự báo chỉ là dự báo:
+  1131→        // scan (5 phút/lần) thấy tín hiệu NGƯỢC phía lệnh đủ tin cậy trên
+  1132→        // CÙNG cặp/khung → đóng lệnh cũ + mở lệnh đảo chiều NGAY chu kỳ này
+  1133→        // (flipDecision quyết định "đủ tin cậy"; tryFlip thực hiện đóng/mở).
+  1134→        if (!c.autoFlip) {
+  1135→          v.lastCycleStatus = base;
+  1136→          return;
+  1137→        }
+  1138→        const scan = v.scan && Date.now() - v.scan.at <= SCAN_TTL ? v.scan : null;
+  1139→        const row = scan?.rows.find((r) => r.symbol === open.symbol && r.interval === open.interval);
+  1140→        const d = flipDecision(open, row, c);
+  1141→        if (d.ok && row) {
+  1142→          // tryFlip tự ghi status mọi nhánh (lật xong / LLM chặn / lỗi) —
+  1143→          // trả xong là chu kỳ này xong, lệnh mới sống độc lập từ chu kỳ sau
+  1144→          await tryFlip(open, row, price);
+  1145→          return;
+  1146→        }
+  1147→        // có tín hiệu ngược chiều nhưng chưa đạt ngưỡng → hiện rõ LÝ DO chờ,
+  1148→        // không âm thầm; model đồng thuận/NEUTRAL → giữ status ROE như cũ
+  1149→        v.lastCycleStatus =
+  1150→          row && row.bias !== "NEUTRAL" && row.bias !== open.side ? `${base} · flip chờ: ${d.why}` : base;
+  1151→      }
+  1152→      return;
+  1153→    }
+  1154→
+  1155→    // 2) no open position → rank the scan and enter the best tradeable row
+  1156→    let rows = v.scan?.rows ?? [];
+  1157→    if (rows.length === 0 || Date.now() - (v.scan?.at ?? 0) > SCAN_TTL) {
+  1158→      v.lastCycleStatus = "scanning…";
+  1159→      try {
+  1160→        await submitScan().promise;
+  1161→        rows = v.scan?.rows ?? [];
+  1162→      } catch {
+  1163→        v.lastCycleStatus = "scan failed";
+  1164→        return;
+  1165→      }
+  1166→    }
+  1167→    if (rows.length === 0) {
+  1168→      v.lastCycleStatus = "scan empty";
+  1169→      return;
+  1170→    }
+  1171→    const { allInCooldown, cands, regressedCount } = bestTradeableAvoid(
+  1172→      rows,
+  1173→      c.minAuc,
+  1174→      c.minAcc,
+  1175→      st.trades,
+  1176→      c.cooldownMin,
+  1177→      c.whaleFilter,
+  1178→      pval("NOISE_BAND", NOISE_BAND),
+  1179→      c.minScore,
+  1180→    );
+  1181→    // walk the ranked candidates: regressed/cooldown-blocked combos are skipped,
+  1182→    // then the chase guard rejects same-side re-entries until price has reversed
+  1183→    // back through the level that stopped us ("SL xong vào lại giá cao hơn" → hết)
+  1184→    const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
+  1185→    let best: ScanRow | null = null;
+  1186→    let price = 0;
+  1187→    let guardBlocked = 0;
+  1188→    for (const cand of cands) {
+  1189→      const px = tickers[cand.symbol]?.price ?? 0;
+  1190→      if (px <= 0) continue;
+  1191→      if (slCooldownLeft(st.trades, cand.symbol, cand.interval, c.cooldownMin) !== 0) continue;
+  1192→      if (!passesChaseGuard(st.trades, cand.symbol, cand.interval, cand.bias, px)) {
+  1193→        guardBlocked++;
+  1194→        continue;
+  1195→      }
+  1196→      best = cand;
+  1197→      price = px;
+  1198→      break;
+  1199→    }
+  1200→    if (!best) {
+  1201→      v.lastCycleStatus =
+  1202→        guardBlocked > 0
+  1203→          ? `chase guard — chờ giá quay đầu (${guardBlocked} combo)`
+  1204→          : allInCooldown
+  1205→            ? regressedCount > 0
+  1206→              ? `all in cooldown · ${regressedCount} combo regress`
+  1207→              : "all in cooldown"
+  1208→            : regressedCount > 0
+  1209→              ? `no tradeable combo · ${regressedCount} regress`
+  1210→              : "no tradeable combo";
+  1211→      return;
+  1212→    }
+  1213→
+  1214→    // 2.2) live ATR levels at entry (tpMode "atr")
+  1215→    const coef = best.atrCoef > 0 ? best.atrCoef : c.atrCoef;
+  1216→    let live: { slPct: number; tpPct: number; atrPct: number } | null = null;
+  1217→    if (c.tpMode === "atr") {
+  1218→      try {
+  1219→        live = atrLevelsAtEntry(await fetchKlinesDirect(best.symbol, best.interval), coef);
+  1220→      } catch {
+  1221→        // fail-open — keep the train-time scan-row levels
+  1222→      }
+  1223→    }
+  1224→    const entrySl = c.tpMode === "manual" ? c.slPct : c.tpMode === "atr" && live ? live.slPct : best.slPct;
+  1225→    const entryTp = c.tpMode === "manual" ? c.tpPct : c.tpMode === "atr" && live ? live.tpPct : best.tpPct;
+  1226→
+  1227→    // 2.5) LLM risk officer — silent. LLM CHẾT thì tuỳ tham số LLM_FAIL_CLOSED:
+  1228→    //  • fail-open (mặc định)  → lệnh vẫn vào đường XGBoost-only, nhưng lượt
+  1229→    //    duyệt bị bỏ qua được ghi llmLast "unreachable" (trang /ai hiện rõ —
+  1230→    //    hết cảnh "chốt chặn cuối im lặng vô hình").
+  1231→    //  • fail-closed (bật) → không duyệt được = không mở lệnh.
+  1232→    // Track record thật của bot (st.stats) đi kèm setup — LLM phán trên bằng
+  1233→    // chứng vận hành, không chỉ metrics của một run train đơn lẻ.
+  1234→    const closedN = st.stats.closed;
+  1235→    const track =
+  1236→      closedN > 0
+  1237→        ? `${st.stats.wins}W/${closedN - st.stats.wins}L · win rate ${st.stats.winRate.toFixed(0)}% · net ${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(1)}% ROE (${closedN} paper trades)`
+  1238→        : undefined;
+  1239→    const { verdict: lastVerdict, vetoed } = await llmGate(
+  1240→      best,
+  1241→      best.bias as "LONG" | "SHORT",
+  1242→      entrySl,
+  1243→      entryTp,
+  1244→      track,
+  1245→    );
+  1246→    if (vetoed) return;
+  1247→
+  1248→    // 3) open the position (DB race-safe — reject while another is open)
+  1249→    const existing = await db.autoTrade.findFirst({ where: { status: "open" } });
+  1250→    if (existing) return; // a watcher/other tab won the race
+  1251→    const stNow = await readAutoState();
+  1252→    const capitalNow = stNow.capital ?? c.capital;
+  1253→    const created = await db.autoTrade.create({
+  1254→      data: {
+  1255→        symbol: best.symbol,
+  1256→        interval: best.interval,
+  1257→        side: best.bias === "SHORT" ? "SHORT" : "LONG",
+  1258→        entryPrice: price,
+  1259→        slPct: entrySl,
+  1260→        tpPct: entryTp,
+  1261→        leverage: p.leverage,
+  1262→        stakePct: c.riskPct,
+  1263→        prob: best.prob,
+  1264→        acc: best.acc,
+  1265→        auc: best.auc,
+  1266→        score: best.score,
+  1267→        capitalBefore: capitalNow,
+  1268→        methodId: methodIdOf(methodSnapshot(c, p.leverage)),
+  1269→        // verdict LLM LÚC VÀO LỆNH — đi kèm lệnh để autopsy đối chiếu "risk
+  1270→        // officer duyệt go mà lệnh vẫn thua" một cách khách quan (0.2.28).
+  1271→        // null (lỗi bất ngờ trước khi gọi) cũng ghi rõ, không đoán mò.
+  1272→        llmVerdict: lastVerdict ? lastVerdict.verdict : "unreachable",
+  1273→        llmReason: lastVerdict?.reasons[0] ? lastVerdict.reasons[0].slice(0, 180) : null,
+  1274→      },
+  1275→    });
+  1276→    const trade = serialize(created);
+  1277→    v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice}`;
+  1278→    p.warned = { id: trade.id, tp: false, sl: false };
+  1279→    p.dca = { id: trade.id, count: 0, stake0: trade.stakePct ?? c.riskPct, prices: [trade.entryPrice] };
+  1280→    persistEngine();
+  1281→    if (tgReady()) {
+  1282→      void tgSendMessage(
+  1283→        msgOpen(
+  1284→          trade,
+  1285→          capitalNow,
+  1286→          c.tpMode === "atr" && live ? `📏 SL/TP = ATR ${live.atrPct.toFixed(2)}% × ${coef} — measured at entry` : undefined,
+  1287→        ),
+  1288→        "HTML",
+  1289→      );
+  1290→    }
+  1291→  } catch (e) {
+  1292→    console.error(`[engine] cycle tick failed: ${e instanceof Error ? e.message : e}`);
+  1293→    v.lastCycleStatus = `cycle error: ${e instanceof Error ? e.message : "unknown"}`;
+  1294→  }
+  1295→}
+  1296→
+  1297→// ─── auto-flip — đóng lệnh cũ (exitKind "flip") + mở lệnh đảo chiều ngay ─────
+  1298→//
+  1299→// "Thị trường luôn biến động nên dự báo chỉ là dự báo; 5 phút scan một lần —
+  1300→// scan thấy tín hiệu thay đổi đủ tin cậy để lật là LẬP TỨC lật ngay." Luồng:
+  1301→//   1. Đóng lệnh cũ với exitKind "flip" (autopsy tự chạy fire-and-forget;
+  1302→//      không rơi vào SL-cooldown/chase guard — flip là luận điểm MỚI, không
+  1303→//      phải đu theo lỗ cũ).
+  1304→//   2. SL/TP của lệnh mới đo lại tại giá bây giờ (tpMode "atr") — y hệt luồng
+  1305→//      vào lệnh thường.
+  1306→//   3. Risk Officer duyệt lệnh đảo chiều qua llmGate (chung luồng vào lệnh):
+  1307→//      veto → đứng ngoài chờ chu kỳ sau; unreachable → fail-open/closed theo
+  1308→//      tham số như entry thường.
+  1309→//   4. Mở lệnh ngược chiều trên CÙNG combo (race-safe như luồng thường) +
+  1310→//      Telegram. Trả true = lệnh cũ đã xử lý xong (kể cả khi không mở lệnh mới).
+  1311→
+  1312→async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise<boolean> {
+  1313→  const { p, v } = eng();
+  1314→  const c = p.cfg;
+  1315→  const from = open.side;
+  1316→  const to = row.bias === "SHORT" ? "SHORT" : "LONG";
+  1317→
+  1318→  // 1) đóng lệnh cũ
+  1319→  const closed = await closeTradeDirect(open.id, price, "flip");
+  1320→  if (!closed) return false; // lệnh đã đóng bởi watcher/luồng khác — bỏ qua
+  1321→  console.log(
+  1322→    `[engine] FLIP ${open.symbol} ${open.interval} ${from}→${to} @ ${price} — đóng lệnh cũ ROE ${(closed.pnlPct ?? 0) >= 0 ? "+" : ""}${(closed.pnlPct ?? 0).toFixed(2)}%`,
+  1323→  );
+  1324→  v.lastCycleStatus = `${open.symbol} ${open.interval} LẬT CHIỀU ${from}→${to}`;
+  1325→  if (tgReady()) {
+  1326→    const s2 = await readAutoState();
+  1327→    void tgSendMessage(msgClose(closed, s2.stats.closed, s2.stats.winRate, s2.stats.netPnlPct), "HTML");
+  1328→  }
+  1329→
+  1330→  // 2) SL/TP mới đo tại giá lật (tpMode "atr") — fail-open giữ mức scan row
+  1331→  const coef = row.atrCoef > 0 ? row.atrCoef : c.atrCoef;
+  1332→  let live: { slPct: number; tpPct: number; atrPct: number } | null = null;
+  1333→  if (c.tpMode === "atr") {
+  1334→    try {
+  1335→      live = atrLevelsAtEntry(await fetchKlinesDirect(row.symbol, row.interval), coef);
+  1336→    } catch {
+  1337→      // fail-open — keep the scan-row levels
+  1338→    }
+  1339→  }
+  1340→  const slPct = c.tpMode === "manual" ? c.slPct : c.tpMode === "atr" && live ? live.slPct : row.slPct;
+  1341→  const tpPct = c.tpMode === "manual" ? c.tpPct : c.tpMode === "atr" && live ? live.tpPct : row.tpPct;
+  1342→
+  1343→  // 3) Risk Officer duyệt lệnh đảo chiều — Y HỆT luồng vào lệnh (kể cả track record)
+  1344→  const st = await readAutoState();
+  1345→  const track =
+  1346→    st.stats.closed > 0
+  1347→      ? `${st.stats.wins}W/${st.stats.closed - st.stats.wins}L · win rate ${st.stats.winRate.toFixed(0)}% · net ${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(1)}% ROE (${st.stats.closed} paper trades)`
+  1348→      : undefined;
+  1349→  const { verdict: lastVerdict, vetoed } = await llmGate(row, to, slPct, tpPct, track);
+  1350→  if (vetoed) {
+  1351→    v.lastCycleStatus = `flip ${from}→${to} bị chặn — đứng ngoài, chu kỳ sau xét lại`;
+  1352→    return true; // lệnh cũ ĐÃ đóng — không ôm chiều cũ, cũng không mở mới
+  1353→  }
+  1354→
+  1355→  // 4) mở lệnh ngược chiều (DB race-safe như luồng thường)
+  1356→  const existing = await db.autoTrade.findFirst({ where: { status: "open" } });
+  1357→  if (existing) return true; // watcher/luồng khác vừa mở — đừng đụng vào
+  1358→  const stNow = await readAutoState();
+  1359→  const capitalNow = stNow.capital ?? c.capital;
+  1360→  const created = await db.autoTrade.create({
+  1361→    data: {
+  1362→      symbol: row.symbol,
+  1363→      interval: row.interval,
+  1364→      side: to,
+  1365→      entryPrice: price,
+  1366→      slPct,
+  1367→      tpPct,
+  1368→      leverage: p.leverage,
+  1369→      stakePct: c.riskPct,
+  1370→      prob: row.prob,
+  1371→      acc: row.acc,
+  1372→      auc: row.auc,
+  1373→      score: row.score,
+  1374→      capitalBefore: capitalNow,
+  1375→      methodId: methodIdOf(methodSnapshot(c, p.leverage)),
+  1376→      // verdict LLM LÚC LẬT — đi kèm lệnh để autopsy đối chiếu sau này
+  1377→      llmVerdict: lastVerdict ? lastVerdict.verdict : "unreachable",
+  1378→      llmReason: lastVerdict?.reasons[0] ? lastVerdict.reasons[0].slice(0, 180) : null,
+  1379→    },
+  1380→  });
+  1381→  const trade = serialize(created);
+  1382→  v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice} (lật từ ${from})`;
+  1383→  p.warned = { id: trade.id, tp: false, sl: false };
+  1384→  p.dca = { id: trade.id, count: 0, stake0: trade.stakePct ?? c.riskPct, prices: [trade.entryPrice] };
+  1385→  persistEngine();
+  1386→  if (tgReady()) {
+  1387→    void tgSendMessage(
+  1388→      msgOpen(
+  1389→        trade,
+  1390→        capitalNow,
+  1391→        c.tpMode === "atr" && live ? `📏 SL/TP = ATR ${live.atrPct.toFixed(2)}% × ${coef} — đo lúc LẬT CHIỀU 🔄` : undefined,
+  1392→      ),
+  1393→      "HTML",
+  1394→    );
+  1395→  }
+  1396→  return true;
+  1397→}
+  1398→
+  1399→// ─── DCA rescue — average in + re-anchor SL/TP while the model still confirms ─
+  1400→//
+  1401→// The old flow died exactly at the stop and instantly re-entered the same side
+  1402→// at a worse price (the "SL xong vào lại giá cao hơn" bleed). Now, when price
+  1403→// pushes against the position — at 70% of the way to the stop (near) or right
+  1404→// at it (cross) — and the freshest scan still backs the original side with a
+  1405→// decisive probability, the engine adds ONE more tranche of the original stake
+  1406→// instead: entryPrice becomes the notional-weighted average of the tranches,
+  1407→// and SL/TP re-anchor on that average automatically (they are % distances, the
+  1408→// absolute levels always derive from entryPrice). Model stale, flipped, in
+  1409→// the coin-flip band or below the DCA quality floor (AUC 0.6 · ACC 70,
+  1410→// never looser than the panel's entry floors) → fail-safe: no DCA, the stop
+  1411→// does its job. Hard caps:
+  1412→// cfg.dcaMax adds per position; liquidation is never rescued.
+  1413→
+  1414→async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "cross"): Promise<boolean> {
+  1415→  const { p, v } = eng();
+  1416→  const c = p.cfg;
+  1417→  if (c.dcaMax <= 0) return false;
+  1418→  if (p.dca.id !== open.id) {
+  1419→    // state from an older process / manual open — rebuild from the row itself
+  1420→    p.dca = { id: open.id, count: 0, stake0: open.stakePct ?? c.riskPct, prices: [open.entryPrice] };
+  1421→    persistEngine();
+  1422→  }
+  1423→  if (p.dca.count >= c.dcaMax) return false;
+  1424→  // fail-safe: a FRESH scan must still confirm the original side decisively
+  1425→  const scan = v.scan;
+  1426→  if (!scan || Date.now() - scan.at > SCAN_TTL) return false;
+  1427→  const row = scan.rows.find((r) => r.symbol === open.symbol && r.interval === open.interval);
+  1428→  if (!row || row.bias !== open.side || Math.abs(row.prob - 0.5) < pval("NOISE_BAND", NOISE_BAND)) return false;
+  1429→  // model-quality floor — NGƯỠNG CHUNG (cùng bộ ba với broadcast gate): model dưới
+  1430→  // ngưỡng thì không bù thêm — để SL làm việc
+  1431→  if (row.auc < c.minAuc || row.acc < c.minAcc || row.score < c.minScore) {
+  1432→    console.info(
+  1433→      `[engine] DCA ${open.symbol} ${open.interval} bỏ: model thoái hóa AUC ${row.auc.toFixed(2)} / ACC ${row.acc.toFixed(1)}% / điểm ${row.score.toFixed(1)} dưới ngưỡng chung ${c.minAuc.toFixed(2)} / ${c.minAcc.toFixed(0)}% / ${c.minScore} — để SL làm việc`,
+  1434→    );
+  1435→    return false;
+  1436→  }
+  1437→
+  1438→  const stake0 = p.dca.stake0 || open.stakePct || c.riskPct;
+  1439→  const tranchePrices = p.dca.prices.length > 0 ? p.dca.prices : [open.entryPrice];
+  1440→  const count = p.dca.count;
+  1441→  // equal-notional tranches (each = stake0 % of the entry-time capital) → the
+  1442→  // average entry is the plain mean of the tranche prices
+  1443→  const avgEntry =
+  1444→    Math.round(([...tranchePrices, price].reduce((a, x) => a + x, 0) / (tranchePrices.length + 1)) * 1e8) / 1e8;
+  1445→  const newStakePct = Math.round(((open.stakePct ?? c.riskPct) + stake0) * 100) / 100;
+  1446→  try {
+  1447→    const updated = await db.autoTrade.update({
+  1448→      where: { id: open.id },
+  1449→      data: { entryPrice: avgEntry, stakePct: newStakePct },
+  1450→    });
+  1451→    const trade = serialize(updated);
+  1452→    p.dca = { id: open.id, count: count + 1, stake0, prices: [...tranchePrices, price] };
+  1453→    p.warned = { id: open.id, tp: false, sl: false }; // new levels → fresh warns
+  1454→    persistEngine();
+  1455→    v.lastCycleStatus = `${open.symbol} ${open.interval} DCA #${count + 1}/${c.dcaMax} @ ${price}`;
+  1456→    if (tgReady()) {
+  1457→      void tgSendMessage(
+  1458→        msgDca(trade, price, open.entryPrice, { prob: row.prob, auc: row.auc, acc: row.acc }, count + 1, c.dcaMax, trigger),
+  1459→        "HTML",
+  1460→      );
+  1461→    }
+  1462→    console.log(
+  1463→      `[engine] DCA ${open.symbol} ${open.interval} #${count + 1}/${c.dcaMax} @ ${price} — avg ${avgEntry}, stake ${newStakePct}%`,
+  1464→    );
+  1465→    return true;
+  1466→  } catch (e) {
+  1467→    console.error(`[engine] DCA failed: ${e instanceof Error ? e.message : e}`);
+  1468→    return false;
+  1469→  }
+  1470→}
+  1471→
+  1472→// ─── watcher tick — intra-cycle SL/TP/liquidation + near-hit warnings ────────
+  1473→
+  1474→async function watcherTick(): Promise<void> {
+  1475→  const { p, v } = eng();
+  1476→  const c = p.cfg;
+  1477→  if (!c.on || !p.syncedAt) return;
+  1478→  try {
+  1479→    const st = await readAutoState();
+  1480→    const open = st.open;
+  1481→    if (!open) return;
+  1482→    const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
+  1483→    const price = tickers[open.symbol]?.price ?? 0;
+  1484→    if (price <= 0) return;
+  1485→    const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
+  1486→    const liq = liquidationHit(open.side, price, open.entryPrice, open.leverage);
+  1487→    // last-chance DCA at the stop itself — model still confirms → average in,
+  1488→    // re-anchor and keep riding instead of locking the loss (never on liquidation)
+  1489→    if (kind === "sl" && !liq && (await dcaRescue(open, price, "cross"))) return;
+  1490→    if (kind || liq) {
+  1491→      const closed = await closeTradeDirect(open.id, price, liq ? "sl" : (kind ?? "sl"));
+  1492→      if (closed) {
+  1493→        if (tgReady()) {
+  1494→          const s2 = await readAutoState();
+  1495→          void tgSendMessage(msgClose(closed, s2.stats.closed, s2.stats.winRate, s2.stats.netPnlPct), "HTML");
+  1496→        }
+  1497→        // book the fresh entry a few seconds later — same as the client flow
+  1498→        if (c.on) {
+  1499→          setTimeout(() => {
+  1500→            void cycleTick();
+  1501→          }, 3_000);
+  1502→        }
+  1503→      }
+  1504→      return;
+  1505→    }
+  1506→    // near-hit warning — once per side per position
+  1507→    if (p.warned.id !== open.id) {
+  1508→      p.warned = { id: open.id, tp: false, sl: false };
+  1509→      persistEngine();
+  1510→    }
+  1511→    const near = nearHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
+  1512→    if (near && !p.warned[near]) {
+  1513→      p.warned[near] = true;
+  1514→      persistEngine();
+  1515→      if (tgReady()) void tgSendMessage(msgNear(open, price, near), "HTML");
+  1516→    }
+  1517→    // price inside the near-SL band and the model still confident → DCA now,
+  1518→    // before the stop ever fires (the warn above already announced the risk)
+  1519→    if (near === "sl") await dcaRescue(open, price, "near");
+  1520→  } catch (e) {
+  1521→    console.error(`[engine] watcher tick failed: ${e instanceof Error ? e.message : e}`);
+  1522→  }
+  1523→}
+  1524→
+  1525→// ─── config sync (the browser pushes its localStorage config here) ───────────
+  1526→
+  1527→export function syncEngine(input: {
+  1528→  cfg?: Partial<AutoConfig>;
+  1529→  settings?: Partial<EngineSettings>;
+  1530→  pairs?: string[];
+  1531→  leverage?: number;
+  1532→}): void {
+  1533→  const { p } = eng();
+  1534→  if (input.cfg) {
+  1535→    p.cfg = { ...p.cfg, ...input.cfg };
+  1536→    // ngưỡng chung — browser gửi gì cũng bị kẹp về vùng hợp lệ (một nguồn với
+  1537→    // engine.json/localStorage); migration legacy nằm trong sanitizeFloors
+  1538→    Object.assign(p.cfg, sanitizeFloors(p.cfg.minAuc, p.cfg.minAcc, p.cfg.minScore));
+  1539→    p.cfg.runTf = sanitizeRunTf(p.cfg.runTf);
+  1540→  }
+  1541→  if (input.settings) p.settings = { ...p.settings, ...input.settings };
+  1542→  if (Array.isArray(input.pairs)) {
+  1543→    p.pairs = input.pairs
+  1544→      .map((s) => String(s).toUpperCase().slice(0, 20))
+  1545→      .filter((s) => /^[A-Z0-9]{5,20}$/.test(s))
+  1546→      .filter((s, i, arr) => arr.indexOf(s) === i)
+  1547→      .slice(0, 200);
+  1548→  }
+  1549→  if (typeof input.leverage === "number" && input.leverage >= 1 && input.leverage <= 125) p.leverage = input.leverage;
+  1550→  p.syncedAt = Date.now();
+  1551→  // Auto just turned ON (or first sync with Auto already on) → fire the first
+  1552→  // cycle shortly (mirrors the client's "immediate tick on enable")
+  1553→  if (p.cfg.on && p.nextCycleAt === 0) p.nextCycleAt = Date.now() + 2_000;
+  1554→  if (!p.cfg.on) p.nextCycleAt = 0;
+  1555→  persistEngine();
+  1556→  console.log(
+  1557→    `[engine] synced — pairs ${p.pairs.length} · TF ${p.cfg.runTf.join("/")} · ngưỡng ${p.cfg.minScore}/${p.cfg.minAuc}/${p.cfg.minAcc} (điểm/AUC/ACC) · auto ${p.cfg.on ? "ON" : "off"} · broadcast ${p.cfg.broadcast ? "ON" : "off"} · cycle ${p.cfg.cycleMin}m`,
+  1558→  );
+  1559→}
+  1560→
+  1561→// ─── snapshot for GET /api/engine ─────────────────────────────────────────────
+  1562→
+  1563→export function engineSnapshot(): {
+  1564→  synced: boolean;
+  1565→  syncedAt: number | null;
+  1566→  cfg: AutoConfig;
+  1567→  /** đòn bẩy engine đang dùng (p.leverage — KHÔNG nằm trong AutoConfig) */
+  1568→  leverage: number;
+  1569→  pairs: number;
+  1570→  scan: { rows: ScanRow[]; at: number } | null;
+  1571→  universe: { rows: UniverseRow[]; at: number } | null;
+  1572→  train: TrainSnapshot;
+  1573→  bcast: BcastSnapshot;
+  1574→  cycle: { lastAt: number; status: string; nextAt: number };
+  1575→  llmLast: EnginePersisted["llmLast"];
+  1576→  jobs: ReturnType<typeof jobViews>;
+  1577→  workers: { pool: number; bundled: boolean };
+  1578→  telegram: boolean;
+  1579→  /** tổng tín hiệu tích luỹ per combo `SYM|TF` (bảng SignalTotal — 0.2.32) */
+  1580→  signalTotals: Record<string, number>;
+  1581→} {
+  1582→  const { p, v } = eng();
+  1583→  return {
+  1584→    synced: p.syncedAt != null,
+  1585→    syncedAt: p.syncedAt,
+  1586→    cfg: p.cfg,
+  1587→    leverage: p.leverage,
+  1588→    pairs: p.pairs.length,
+  1589→    scan: v.scan,
+  1590→    universe: v.universe,
+  1591→    train: trainCache ?? { at: 0, total: 0, latest: [] },
+  1592→    bcast: bcastCache ?? { at: 0, pass: 0, total: 0, cooldown: 0, rows: [] },
+  1593→    cycle: { lastAt: v.lastCycleAt, status: v.lastCycleStatus, nextAt: p.nextCycleAt },
+  1594→    llmLast: p.llmLast,
+  1595→    jobs: jobViews(),
+  1596→    workers: { pool: xgbPoolSize(), bundled: xgbPoolAvailable() },
+  1597→    telegram: tgReady(),
+  1598→    signalTotals: { ...signalTotals },
+  1599→  };
+  1600→}
+  1601→
+  1602→// ─── scheduler ────────────────────────────────────────────────────────────────
+  1603→
+  1604→let started = false;
+  1605→
+  1606→// ─── Tự tiến hoá (0.2.54) — bridge + lịch chạy ────────────────────────────────
+  1607→// Vòng khép kín: Strategy Lab + LLM đề xuất → backtest nến thật → áp kẻ thắng
+  1608→// vào settings → theo dõi lệnh giấy thật → tự hoàn tác nếu tệ hơn mốc. Chi
+  1609→// tiết thuật toán ở evolve.ts; nơi này chỉ giữ state engine và đặt lịch.
+  1610→const evolveBridge: EvolveBridge = {
+  1611→  settings: () => eng().p.settings,
+  1612→  universe: () => ({ pairs: eng().p.pairs, runTf: eng().p.cfg.runTf }),
+  1613→  applyLab: (cfg) => {
+  1614→    const { p } = eng();
+  1615→    p.settings = {
+  1616→      ...p.settings,
+  1617→      slPct: cfg.slPct,
+  1618→      tpPct: cfg.tpPct,
+  1619→      atrKey: cfg.atrKey,
+  1620→      atrPeriod: Math.round(cfg.atrPeriod),
+  1621→      smaPeriod: Math.round(cfg.smaPeriod),
+  1622→      smaFilter: cfg.smaFilter === true,
+  1623→    };
+  1624→    persistEngine();
+  1625→  },
+  1626→  closedSince: async (at) => {
+  1627→    const rows = await db.autoTrade.findMany({
+  1628→      where: { status: "closed", exitTime: { gte: at } },
+  1629→      select: { pnlPct: true },
+  1630→    });
+  1631→    const n = rows.length;
+  1632→    return { n, expectancy: n ? rows.reduce((s, r) => s + (r.pnlPct ?? 0), 0) / n : 0 };
+  1633→  },
+  1634→  llmEndpoint: () => {
+  1635→    const { p } = eng();
+  1636→    const ep = resolveLlmEndpoint({ url: p.cfg.llmUrl, model: p.cfg.llmModel });
+  1637→    return { url: ep.url, model: ep.model, timeoutMs: Math.max(15_000, Math.min(180_000, (p.cfg.llmTimeoutSec || 90) * 1000)) };
+  1638→  },
+  1639→  tg: (html) => {
+  1640→    if (tgReady()) void tgSendMessage(html, "HTML");
+  1641→  },
+  1642→  log: (msg) => console.log(`[evolve] ${msg}`),
+  1643→};
+  1644→
+  1645→/** Chạy MỘT vòng tiến hoá ngay (nút trên /ai + lần đầu sau boot). */
+  1646→export async function runEvolveRoundNow(): Promise<{ decision: string; combo: string; note: string }> {
+  1647→  const out = await evolveRound(evolveBridge);
+  1648→  console.log(`[evolve] round → ${out.decision}: ${out.note}`);
+  1649→  return out;
+  1650→}
+  1651→
+  1652→/** Quét theo dõi sau khi áp (tự hoàn tác nếu tệ hơn mốc). */
+  1653→export async function runEvolveWatchNow(): Promise<{ decision: string; combo: string; note: string }> {
+  1654→  const out = await evolveWatch(evolveBridge);
+  1655→  console.log(`[evolve] watch → ${out.decision}: ${out.note}`);
+  1656→  return out;
+  1657→}
+  1658→
+  1659→/** Thông tin tiến hoá cho /api/evolve — kèm tiến độ theo dõi. */
+  1660→export async function getEvolveInfo() {
+  1661→  return evolveInfo(evolveBridge);
+  1662→}
+  1663→
+  1664→/** Idempotent — global flag survives dev-mode module reloads. */
+  1665→export function startEngineScheduler(): void {
+  1666→  const gg = globalThis as { __elliottEngineSched?: boolean };
+  1667→  if (started || gg.__elliottEngineSched) return;
+  1668→  started = true;
+  1669→  gg.__elliottEngineSched = true;
+  1670→  // Runtime param overrides (db/params-override.json) — hydrate BEFORE any
+  1671→  // scheduler tick reads pval(); changing a value on /ai takes effect on the
+  1672→  // very next tick with no pm2 restart needed.
+  1673→  try {
+  1674→    hydrateParams();
+  1675→  } catch {
+  1676→    // override unavailable — params.ts defaults keep working
+  1677→  }
+  1678→  loadEngine();
+  1679→
+  1680→  // train/broadcast-verdict snapshots for GET /api/engine — warm now, refresh every minute
+  1681→  void trainSnapshot();
+  1682→  const trainIv = setInterval(() => void trainSnapshot(), 60_000);
+  1683→  trainIv.unref?.();
+  1684→  void bcastSnapshot();
+  1685→  const bcastIv = setInterval(() => void bcastSnapshot(), 60_000);
+  1686→  bcastIv.unref?.();
+  1687→
+  1688→  const lastBcast = { bucket: 0 };
+  1689→  const lastUni = { bucket: 0 };
+  1690→  // bucket 8h LỆCH PHA +4h cho tin "QUÉT LỆNH · TOP 10" — universe rơi 0/8/16h,
+  1691→  // digest rơi 4/12/20h (giờ máy chủ) để hai tin dài không dồn một lúc
+  1692→  const lastDigest = { bucket: 0 };
+  1693→  const lastImprove = { bucket: -1 };
+  1694→  const lastResolve = { at: 0 };
+  1695→  // at=0 → lượt mổ bổ sung đầu tiên chạy ngay tick đầu tiên (~15s sau boot);
+  1696→  // sau đó mỗi lượt cách nhau 6h (AUTOPSY_BACKFILL_MS)
+  1697→  const lastAutopsyBf = { at: 0 };
+  1698→
+  1699→  const tick = async (): Promise<void> => {
+  1700→    const { p } = eng();
+  1701→    // autopsy backfill — nằm TRƯỚC cổng syncedAt: mổ bổ sung chỉ cần DB +
+  1702→    // klines + LLM, không phụ thuộc cfg engine sync từ trình duyệt (0.2.33)
+  1703→    if (Date.now() - lastAutopsyBf.at >= AUTOPSY_BACKFILL_MS) {
+  1704→      lastAutopsyBf.at = Date.now();
+  1705→      void autopsyBackfill(3).catch((e) =>
+  1706→        console.error(`[autopsy] backfill: ${e instanceof Error ? e.message : e}`),
+  1707→      );
+  1708→    }
+  1709→    if (!p.syncedAt) return; // idle until the first browser sync
+  1710→    try {
+  1711→      // hourly / daily stat digests (marker-guarded inside the lib) — 0.2.35:
+  1712→      // KHÔNG còn đòi cfg.on: thống kê là báo cáo, không phải phần của auto
+  1713→      // trading — bật chế độ Giờ/Ngày là chảy, auto tắt vẫn chảy
+  1714→      if (p.cfg.statHourly || p.cfg.statDaily) {
+  1715→        await pushAutoDigests({ hourly: p.cfg.statHourly, daily: p.cfg.statDaily }).catch(() => undefined);
+  1716→      }
+  1717→      // 5-min bucket — verdicts "TOP coin" (scan refresh included; KHÔNG gửi TG)
+  1718→      const b5 = Math.floor(Date.now() / (5 * 60_000));
+  1719→      if ((p.cfg.broadcast || p.cfg.on) && b5 !== lastBcast.bucket) {
+  1720→        lastBcast.bucket = b5;
+  1721→        await broadcastTick().catch((e) => console.error(`[engine] broadcast tick: ${e instanceof Error ? e.message : e}`));
+  1722→      }
+  1723→      // 8h bucket — universe re-rank
+  1724→      const b8 = Math.floor(Date.now() / UNIVERSE_SCAN_MS);
+  1725→      if (b8 !== lastUni.bucket) {
+  1726→        lastUni.bucket = b8;
+  1727→        if (tgReady() || p.cfg.on) await submitUniverse().promise.catch(() => undefined);
+  1728→      }
+  1729→      // 8h bucket lệch +4h — tin Telegram "QUÉT LỆNH · TOP 10" (0.2.35)
+  1730→      const d8 = Math.floor((Date.now() - SCAN_DIGEST_OFFSET_MS) / pval("SCAN_DIGEST_EVERY_MS", SCAN_DIGEST_EVERY_MS));
+  1731→      if (d8 !== lastDigest.bucket) {
+  1732→        lastDigest.bucket = d8;
+  1733→        await scanDigestTick().catch((e) => console.error(`[engine] scan digest: ${e instanceof Error ? e.message : e}`));
+  1734→      }
+  1735→      // suggestions resolve — every 5 min
+  1736→      if (Date.now() - lastResolve.at > 5 * 60_000) {
+  1737→        lastResolve.at = Date.now();
+  1738→        await resolveTick();
+  1739→      }
+  1740→
+  1741→      // 6h self-improve agent (P1–P4) — measure methods, tighten/restore gates
+  1742→      const bImp = Math.floor(Date.now() / (6 * 60 * 60_000));
+  1743→      if (bImp !== lastImprove.bucket) {
+  1744→        lastImprove.bucket = bImp;
+  1745→        try {
+  1746→          await runAgentTick(p.cfg, p.leverage, (patch) => {
+  1747→            p.cfg = { ...p.cfg, ...patch };
+  1748→            persistEngine();
+  1749→          });
+  1750→        } catch (e) {
+  1751→          console.error(`[engine] self-improve: ${e instanceof Error ? e.message : e}`);
+  1752→        }
+  1753→      }
+  1754→
+  1755→      // paper-trade cycle due?
+  1756→      if (p.cfg.on && p.nextCycleAt > 0 && Date.now() >= p.nextCycleAt) {
+  1757→        p.nextCycleAt = Date.now() + p.cfg.cycleMin * 60_000;
+  1758→        persistEngine();
+  1759→        await cycleTick();
+  1760→      }
+  1761→    } catch (e) {
+  1762→      console.error(`[engine] tick error: ${e instanceof Error ? e.message : e}`);
+  1763→    }
+  1764→  };
+  1765→
+  1766→  const watcher = (): void => {
+  1767→    void watcherTick();
+  1768→  };
+  1769→
+  1770→  // one visible line per boot — its ABSENCE in server logs means this module
+  1771→  // never loaded (stale build) and the backend engine is NOT running
+  1772→  const { p } = eng();
+  1773→  console.log(
+  1774→    `[engine] scheduler armed — scan/train/universe/cycle run on the server (synced: ${p.syncedAt ? "yes" : "waiting for first client sync"}, workers: ${xgbPoolAvailable() ? "threads" : "inline fallback"})`,
+  1775→  );
+  1776→
+  1777→  const boot = setTimeout(() => {
+  1778→    void tick();
+  1779→  }, 15_000);
+  1780→  boot.unref?.();
+  1781→  const iv = setInterval(() => void tick(), 60_000);
+  1782→  iv.unref?.();
+  1783→  const ivw = setInterval(watcher, 20_000);
+  1784→  ivw.unref?.();
+  1785→
+  1786→  // 0.2.54 — nhịp tự tiến hoá: vòng đầu sau 10 phút boot, sau đó mỗi
+  1787→  // EVOLVE_ROUND_MIN phút (mặc định 6h); theo dõi sau-áp mỗi 30 phút.
+  1788→  const evBoot = setTimeout(() => void runEvolveRoundNow(), 10 * 60_000);
+  1789→  evBoot.unref?.();
+  1790→  const evIv = setInterval(() => void runEvolveRoundNow(), 6 * 3_600_000);
+  1791→  evIv.unref?.();
+  1792→  const evWatchIv = setInterval(() => void runEvolveWatchNow(), 30 * 60_000);
+  1793→  evWatchIv.unref?.();
+  1794→}
+  1795→

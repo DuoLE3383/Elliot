@@ -1,0 +1,76 @@
+0.2.35 — DỌN HẾT COMPUTE KHỎI TRÌNH DUYỆT VỀ SERVER + TELEGRAM 8H/LẦN 🖥️📡
+
+User yêu cầu: (1) "dọn hết những gì đang chạy trên web về chạy ở server trừ
+chart"; (2) "thêm những tin nhắn thống kê và vào lệnh, scan lệnh vào telegram
+thông báo, tin nhắn scan top 10 coin chỉ thông báo 8 tiếng 1 lần".
+
+═══ 1. /api/view — TRÌNH DUYỆT KHÔNG CÒN TÍNH GÌ NỮA ═══
+
+Còn sót lại trên web (mỗi tick SSE một lượt, điện thoại quạt cấp):
+signalsFrom + papersFrom (engine 500 nến), wyckoffFrom, analyze, 3× pies
+(replay engine theo preset), sessionStats/whaleDelta, cycleStats (fetch BTC
+1d), signalsFrom×N cặp watchlist, resolve suggestions (nộp giá mỗi 5 phút).
+
+• Route MỚI src/app/api/view/route.ts: tính TẤT CẢ MỘT LẦN ở server — klines
+  chung revalidate 10s, mini 48 nến cache 60s (hỏng 20s), BTC daily cache 1h,
+  payload cache 1.5s (nhiều tab cùng combo chia nhau một lượt tính). Int8Array
+  wyckoff → mảng thường + EMA làm tròn 10 chữ số; payload ~38KB.
+• Types dùng chung src/lib/view.ts (ViewPayload + fetchView + WyckoffView).
+• page.tsx: bỏ engine/wyckoff/kpi/gate useMemo + loop minis + resolveStale;
+  poll /api/view 2s (NGỪNG khi tab ẩn — visibilitychange), snapshot combo cũ
+  bị bỏ khi đổi cặp/khung; chart giữ nguyên /api/klines + SSE (phần "trừ
+  chart"); toast entry/flip/wyckoff diff trên papers/wyckoff của server.
+• Components nhận kết quả tính sẵn, chỉ render: analysis.tsx (a), pies.tsx
+  (pies+n), sessions.tsx (stats/whale/cycles — hết fetch BTC daily ở client),
+  rail-context.tsx (a/stats/whale), watchlist.tsx (watch rows + sparkline 0..1
+  chuẩn hoá — hết N request klines/phút). WatchStatus chuyển sang view.ts.
+• /stats: 2 section journal + analysis cũng qua /api/view (hết papersFrom ở
+  trình duyệt), i18n stats.journalNote nói đúng chỗ tính.
+• resolveTick (server): giá tra TRỰC TIẾP board 24h cho ĐÚNG symbol của từng
+  suggestion (kể cả cặp ngoài watchlist/universe) — bù luồng client đã xoá.
+• Test MỚI scripts/test-view-digest.mts — 33 PASS: payload đủ shape, Int8Array
+  hoá mảng, cache 1.5s, sparkline 48 điểm, pies 3, cycles… (mock Binance cục
+  bộ — scripts/mock-binance.mjs, chạy được nhờ KLINES_HOSTS override 0.2.34).
+
+═══ 2. TELEGRAM — SCAN 8H/LẦN, THỐNG KÊ KHÔNG CẦN AUTO ON ═══
+
+• MỚI scanDigestTick (engine.ts, bucket 8h LỆCH PHA +4h so với universe):
+  tin "🔍 QUÉT LỆNH · TOP 10 COIN (theo điểm model)" — 10 combo tốt nhất KỂ CẢ
+  chưa đạt cổng (kèm ✗ lý do chặn), combo đạt cổng tô 🚀 + SL/TP/Prob; mọi
+  phán quyết (kèm coherence) vẫn ghi đủ bảng BcastVerdict cho panel. Định kỳ,
+  không phụ thuộc "có combo đạt cổng hay không" — đó là cái giá của tin tổng
+  hợp. Params mới: SCAN_DIGEST_EVERY_MS/OFFSET_MS/TOP_N/POOL.
+• broadcastTick 5 phút: KHÔNG còn tgSendMessage(built.text) — chỉ quét tươi +
+  chấm cổng + persist verdicts (panel web vẫn tươi mỗi nhịp). Hết spam
+  "Lần #6689" mỗi 5 phút; state.n/seen/lastB chuyển sang digest (⚡NEW + cooldown
+  đếm theo lần GỬI).
+• buildScanTop10Message (scan-broadcast.ts): builder tin digest, tự sort theo
+  điểm, esc HTML, ≤4000 ký tự; BcastState thêm scan10 (last send, persist).
+• Thống kê giờ/ngày: bỏ cổng cfg.on — bật knob Giờ/Ngày là chảy, auto tắt vẫn
+  báo (statHourly/statDaily giữ nguyên vai trò knob trên Auto panel).
+• Vào lệnh: msgOpen/msgClose/msgDca/msgNear/msgLlmVeto giữ nguyên (đã có sẵn,
+  gửi khi mở/đóng/bù/nhắc sàn/veto).
+
+═══ 3. KIỂM CHỨNG ═══
+
+• tsc --noEmit toàn project: 0 lỗi.
+• Build production OK — route /api/view nằm trong danh sách ƒ (dynamic).
+• 12/12 test suite PASS: view-digest 33 (MỚI) · autoflip 31 · autopsy 42 ·
+  autopsy-sync 14 · calibration 46 · stats 31 · train-lessons 25 · tune-grid 25
+  · wyck-universe 38 · net-resilience · tg-msgs · champ-distinct.
+• Browser thật (production build + mock Binance qua KLINES_HOSTS — IP sandbox
+  đang bị Binance ban, dịp này kiểm chứng luôn báo lỗi "empty body (connection
+  cut mid-response)" có tên host của 0.2.34): / render đủ KPI + watchlist
+  sparkline + chart SSE + phiên + dock; 0 lỗi console; mobile 375px scrollWidth
+  375 (không tràn); /stats đủ section, journal hiện số từ server; /ai OK.
+• build-id: v0.2.35.
+
+═══ SAU DEPLOY ═══
+
+• Hard refresh (Ctrl+Shift+R) — chunk client đổi gần như toàn bộ trang chính.
+• Telegram sẽ nhận: tin phiên (như cũ) + thống kê giờ/ngày (không cần Auto ON)
+  + train-all summary (như cũ) + mở/đóng/DCA/veto (như cũ) + MỖI 8 GIỜ một tin
+  "QUÉT LỆNH · TOP 10" (rơi vào ~4h/12h/20h UTC+7, lệch pha tin universe).
+  Muốn tắt tin quét: Auto panel → tắt knob Broadcast.
+• Server nhè hơn: điện thoại không còn chạy engine 3× preset mỗi tick; tab ẩn
+  ngừng poll view; watchlist hết bắn N request klines mỗi phút.

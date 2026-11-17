@@ -1,0 +1,104 @@
+0.2.34 — CHỐNG ĐƯỜNG MẠNG HỎNG: JSON CẮT CỤT, HOST OVERRIDE, GỢI Ý PROXY TELEGRAM 🌐🛡️
+
+User gửi 15 dòng cuối elliott-error.log (VPS):
+
+  [telegram] sendMessage via https://api.telegram.org failed after 3
+             attempt(s): fetch failed (ETIMEDOUT)
+  [session-bcast] kline fetch failed: Unexpected end of JSON input  (×12)
+
+═══ CHẨN ĐOÁN ═══
+
+Cả hai là LỖI ĐƯỜNG MẠNG từ VPS ra ngoài, KHÔNG phải crash app:
+
+• Telegram ETIMEDOUT — VPS không mở nổi kết nối tới api.telegram.org
+  (bị chặn/throttle). App đã retry 3 lần rồi mới log; tin phiên sẽ tự gửi
+  lại ở tick kế (60s) trong cửa sổ −5p/+10p quanh giờ mở — dedupe state chỉ
+  ghi khi gửi THÀNH CÔNG nên không mất tin, chỉ trễ.
+
+• kline "Unexpected end of JSON input" — fetch tới fapi*.binance.com trả
+  200 nhưng body RỖNG/CẮT GIỮA ĐƯỜNG (reset mạng), res.json() chết với câu
+  cryptic. Lặp ~1 lần/phút trong cửa sổ phiên vì tick 60s thử lại và cả 3
+  host đều bị cắt cùng lúc.
+
+Bài học: log cryptic không chỉ ra host/ triệu chứng → không biết đường nào
+chết, phải đoán. Bản này biến mọi lỗi fetch Binance thành thông điệp có TÊN
+HOST + triệu chứng thật, và mở lối thoát (proxy) khi đường bị chặn hẳn.
+
+═══ 1. binanceJson() — PARSE PHÒNG THỦ, LỖI NÊU HOST ═══
+
+klines-direct.ts xuất 2 helper mới (dependency-free, dùng chung):
+
+• binanceHosts() — danh sách host Binance Futures, đọc KLINES_HOSTS env
+  (phẩy phân cách, trim, bỏ slash đuôi, lọc rác). Env rác/rỗng → về mặc
+  định 4 host fapi*. Đọc MỖI LẦN GỌI → sửa .env + pm2 restart --update-env
+  là ăn, không cần build lại.
+• binanceJson(res, host) — đọc TEXT trước, body rỗng → Error("<host>:
+  empty body (connection cut mid-response)"); JSON.parse fail → Error
+  ("<host>: truncated/non-JSON body (NB: \"<48 ký tự đầu>\")"). Hết câu
+  "Unexpected end of JSON input" vô nghĩa.
+
+Áp dụng tại 4 nơi fetch Binance: fetchKlinesDirect / fetchBoard24h /
+fetchTicker24Direct (klines-direct.ts), getJson (squeeze.ts — radar đòn
+bẩy), GET /api/ticker (route). Tất cả cùng ăn KLINES_HOSTS.
+
+═══ 2. session-broadcast — VÒNG 2 + KLINES_HOSTS ═══
+
+fetchKlinesDirect của tin phiên (bản copy riêng vì "zero-risk isolation")
+nâng cấp tương tự: binanceHosts() + binanceJson() + VÒNG 2 host-fallback
+sau 1.2s — đường cắt cụt thường sống lại sau vài giây, vòng 2 tăng cơ hội
+tin "SẮP MỞ PHIÊN −5p" kịp gửi đúng giờ thay vì nhường cho tick 60s sau.
+
+═══ 3. TELEGRAM — GỢI Ý PROXY 1 LẦN/BOOT ═══
+
+tgApi() chết vì LỚP MẠNG (không phải 4xx) ở base mặc định → log thêm MỘT
+dòng duy nhất mỗi boot:
+
+  [telegram] VPS không với tới api.telegram.org (fetch failed (ETIMEDOUT)).
+  Chẩn đoán: curl -m 8 https://api.telegram.org/ từ VPS. Nếu hụt → dựng
+  Worker proxy (deploy/tg-proxy-worker.js) rồi ghi TELEGRAM_API_BASE=... —
+  xem DEPLOY.md §6b.
+
+Không lặp (flag module) → không spam log mỗi tick. Có TELEGRAM_API_BASE env
+thì không gợi ý (proxy tự lo). Giải pháp gốc nằm sẵn trong repo từ 0.2.26:
+deploy/tg-proxy-worker.js + deploy/set-telegram-env.sh.
+
+═══ 4. KLINES_HOSTS — LỐI THOÁT KHI BỊ CHẶN VĨNH VIỄN ═══
+
+Nếu VPS bị chặn Binance triệt để (mọi host đều cắt), set:
+
+  KLINES_HOSTS=https://<proxy-passthrough>.workers.dev
+
+→ mọi fetch klines/ticker/oi/ls/funding của app (engine, chart, tin phiên,
+radar) đi qua proxy. DEPLOY.md §3 có ghi env mới; §6b có mục MỚI "Hai dòng
+log hay gặp trong elliott-error.log — nghĩa là gì?" giải thích đúng 2 dòng
+user vừa gặp + 2 lệnh curl chẩn đoán không cần token:
+
+  curl -sS -m 8 https://api.telegram.org/
+  curl -sS -m 8 "https://fapi.binance.com/fapi/v1/ping"
+
+═══ KIỂM CHỨNG ═══
+
+• scripts/test-net-resilience.mts (MỚI) 13/13 PASS: body rỗng/cắt cụt/HTML
+  → lỗi nêu host; KLINES_HOSTS 1 host / nhiều host / rác / xoá env; mock
+  fetch 2 host hỏng + 1 host khoẻ → failover lấy được nến đúng 3 lần fetch;
+  cả 2 host hỏng → ném lỗi "truncated" có tên host.
+• Regression: test-session-broadcast ALL_SESSION_BCAST_OK (fetch mới đi qua
+  binanceJson với JSON hợp lệ + mock 404 radar) · test-squeeze 26/26 (có
+  live fetch Binance thật) · test-bcast-gates 40/40.
+• tsc --noEmit: 0 lỗi toàn project. Production build OK.
+• Smoke thật standalone: /api/build-id v0.2.34 · /api/ticker trả giá Binance
+  thật qua binanceHosts/binanceJson mới · /stats HTTP 200.
+• Lưu ý môi trường sandbox: .gitignore bị tool nào xén còn 2 dòng (rủi ro
+  commit .env/db) — ĐÃ KHÔI PHỤC nguyên bản từ HEAD trước khi commit.
+
+═══ SAU DEPLOY ═══
+
+• pm2 log sạch câu cryptic; khi đường hỏng sẽ thấy "fapi.binance.com: empty
+  body..." (biết ngay host nào chết) và tối đa 1 dòng gợi ý proxy Telegram.
+• Nếu Telegram vẫn ETIMEDOUT mãi → dựng Worker proxy theo DEPLOY.md §6b
+  (5 phút, miễn phí Cloudflare account sẵn có).
+• Nếu Binance bị chặn hẳn → KLINES_HOSTS trỏ proxy (§3). Không chặn thì
+  KHÔNG cần làm gì — host-fallback + vòng 2 tự xử.
+• Deploy: cd ~/Elliot && git pull && npm run build && pm2 restart elliott
+  --update-env && pm2 flush (mang theo cả 0.2.33 chưa deploy: fix /stats
+  crash + autopsy backfill + favicon).

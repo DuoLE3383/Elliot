@@ -1,0 +1,29 @@
+{
+  "lastTickAt": 1794938408373,
+  "activeMethodId": "ef465e82d6e3",
+  "activeSnap": {
+    "minScore": 60,
+    "minAuc": 0.8,
+    "minAcc": 70,
+    "riskPct": 25,
+    "leverage": 1,
+    "tpMode": "atr",
+    "slPct": 1,
+    "tpPct": 1.5,
+    "atrCoef": 1.5,
+    "runTf": [
+      "15m",
+      "1d",
+      "1h",
+      "1m",
+      "1w",
+      "30m",
+      "4h",
+      "5m"
+    ],
+    "autoFlip": true,
+    "whaleFilter": true
+  },
+  "lastPromoteAt": 0,
+  "lastNote": "need ≥10 closed on active method (have 0) · lab best \"UT 1.5·10\" exp 0.10 (n=30)"
+}

@@ -1,0 +1,76 @@
+0.2.32 — TRANG THỐNG KÊ /stats: ĐỐI CHIẾU CƠ SỞ LOGIC + LLM "VẠCH LÁ TÌM SÂU" 📊🔍
+
+Yêu cầu user (01/11): "thêm 1 trang thống kê những phần này: Trading sessions,
+Win rate by pair/TF, Universe scan — 10-day lookback · re-ranks every 8h (ATR
++ trending), Auto Trade — Dry-run, Signal dock, Open auto position, Auto
+history, Trade journal, Suggestion history, Deep analysis — và đối chiếu cơ sở
+logic nào để đưa ra, đã nhất quán với logic của ứng dụng elliott chưa và đã
+chuẩn xác được bao nhiêu % từ đó có thể dùng llm để vạch lá tìm sâu tại trang
+ai" + "phần Signals this window (trên chart) hãy thêm total signals, phần đó
+quá trống và to... có thể làm nhỏ lại".
+
+═══ 1. TRANG /stats — MỖI PHẦN 3 CÂU TRẢ LỜI ═══
+
+Mỗi section hiển thị số liệu THẬT + 3 dòng kiểm toán:
+  • 📌 CƠ SỞ LOGIC — số liệu từ nguồn nào, công thức nào (i18n stats.basis.*,
+    khớp chữ với code thật: comboStats, outcomeOf, papersFrom, analyze,
+    isTradeable, SESSIONS, công thức 60% trend + 40% ATR% của universe…).
+  • ⚖️ NHẤT QUAN — kiểm chéo chạy THẬT trên server, không phải chữ suông:
+      − combo: đếm thắng bằng count() độc lập đối với tổng comboStats cộng tay;
+      − sg: chấm LẠI mọi outcome bằng outcomeOf(entry, exit) — lệch ⇒ warn;
+      − auto: capitalBefore lệnh mở phải == capitalAfter lệnh đóng mới nhất;
+      − hist: tổng theo exitKind phải == tổng lệnh đã đóng;
+      − dock/universe: tuổi scan vs SCAN_TTL / chu kỳ re-rank 8h;
+      − open: lệnh treo > 24h ⇒ warn.
+  • 🎯 CHUẨN XÁC ≈% — Wilson 95% CẬN DƯỚI cho mọi tỉ lệ (win-rate 60% trên 5
+    lệnh chỉ "chuẩn xác ≈ 27%", trên 100 lệnh mới ≈ 50%): trả lời trung thực
+    câu "đã chuẩn xác được bao nhiêu %" thay vì nêu % trần nghe oai. Số đếm/
+    cấu hình tĩnh = 100% (đúng theo định nghĩa).
+
+8 section server (src/lib/stats.ts — buildStatsSnapshot, read-only 100%):
+sessions / combo / universe / auto / dock / open / hist / sg qua /api/stats.
+2 section client: Trade journal + Deep analysis cho combo người dùng CHỌN
+(picker 6 cặp × 4 khung) — chạy ngay trong trình duyệt bằng ĐÚNG hàm
+papersFrom/signalsFrom/analyze của app trên nến /api/klines với THIẾT LẬP
+MẶC ĐỊNH, note ⚠️ nói rõ không đối chiếu 1-1 được với setting browser riêng.
+Trang chính + /ai + /stats liên kết chéo.
+
+═══ 2. LLM "VẠCH LÁ TÌM SÂU" TẠI /ai ═══
+
+Card 5b mới: bắn TOÀN BỘ StatsSnapshot (cùng nguồn /api/stats — MỘT nguồn nên
+không thể lệch bảng) vào Risk Officer qua /api/llm/stats-dive mới
+(llm.ts: llmStatsDive — chat thuần, temperature 0.2, max_tokens 900, timeout
+LLM_TIMEOUT_MS 300s). System prompt cấm bịa số (chỉ dùng số trong JSON),
+phải: đối chiếu cơ sở logic từng section với cách engine vận hành (gate,
+champion-regression, flip 5m, LLM veto, dry-run), xếp phát hiện theo mức độ
+nghiêm trọng, kết luận độ tin cậy, 3–5 hành động cụ thể gắn số. Lỗi LLM trả
+detail (http-*/timeout/error) — fail-open như mọi đường LLM khác.
+
+═══ 3. KPI "SIGNALS THIS WINDOW": THÊM TỔNG + THU GỌN ═══
+
+Thêm bảng SignalTotal (schema.prisma + mirror CREATE IF NOT EXISTS trong
+db.ts — bảng MỚI nên VPS không cần ALTER, tạo tự động lúc boot): mỗi lượt
+quét engine (scanCore), combo nào model bật hướng ≠ NEUTRAL được cộng 1 —
+ĐẾM TÍCH LUỸ suốt đời server, sống qua pm2 restart, khác con số trong KHUNG
+nến (signalsFrom) của card. engineSnapshot trả signalTotals map; poller 2s
+của trang chính đã fetch sẵn nên KPI nhận số không tốn thêm request; card 1
+hiện "tổng N" màu amber ngay cạnh L/S/chờ. Thu gọn dải KPI (py-1.5→1,
+gap-y giảm, value text-sm→13px) — "quá trống và to" → phần cao trả lại chart.
+
+═══ 4. KIỂM CHỨNG ═══
+
+scripts/test-stats.mts mới — 31 PASS: wilsonLB đúng tính chất (0/0→0, 3/5→~27%
+KHÔNG nghe như 60%, 60/100→~50%, 100/100→~96%, đơn điệu theo cỡ mẫu);
+buildStatsSnapshot trên DB thật đủ 8 section, hình dạng đầy đủ, biên DB rỗng
+đúng (combo ok/acc 0, open na, hist ok, sg ok); JSON serialize được cho LLM.
+Suite cũ toàn xanh: autoflip 31/31, calibration 46/46, db-migrate PASS,
+bootstrap phase 1–3 PASS (log sạch giữ nguyên), factcheck/tg-msgs PASS.
+Build production: /stats ○ + /api/stats ƒ + /api/llm/stats-dive ƒ; smoke
+runtime /api/stats trả JSON chuẩn (sessions đúng giờ UTC thật), /stats 200.
+
+═══ 5. SAU DEPLOY ═══
+
+• Vào /stats xem từng phần: badge "nhất quan/cần soi" + "Chuẩn xác ≈%".
+• Vào /ai bấm "Vạch lá tìm sâu" — LLM kiểm toán thống kê, trả tiếng Việt.
+• Lần quét đầu tiên sau deploy, card "Tín hiệu khung này" bắt đầu có "tổng N"
+  tích luỹ; con số sống qua mọi lần restart.

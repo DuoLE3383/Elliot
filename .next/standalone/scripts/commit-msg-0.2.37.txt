@@ -1,0 +1,53 @@
+0.2.37 — CHUẨN HOÁ THUẬT NGỮ TOÀN APP: BỎ TỪ SUỒNG SÃ, DÙNG NGÔN NGỮ CHUYÊN MÔN 📚
+
+Yêu cầu: "đổi lại toàn bộ từ ngữ chuyên môn hoá hơn... bỏ những từ như
+vũ trụ hay vạch lá gì đi".
+
+Danh sách đổi chính (bản dịch VI — i18n.ts, đủ cả VI lẫn EN):
+
+• "Vạch lá tìm sâu" → "Phân tích nguyên nhân gốc" (root-cause dive):
+  nút chạy, tiêu đề card, hint, lịch sử dive, link /stats → /ai, prompt
+  hệ thống gửi LLM (llm.ts STATS_DIVE_SYSTEM) và toàn bộ comment code.
+• "vũ trụ" → "universe (danh mục quét)": tip broadcast, comment page.tsx,
+  params.ts (nhịp re-rank), stats.basis.universe ("Bể quét cứng" →
+  "Danh mục quét UNIVERSE cố định"), nhãn "Bể quét" → "Danh mục quét".
+• "Sàn chung / SÀN CHẤT LƯỢNG / sàn engine" → "Ngưỡng chung /
+  NGƯỠNG CHẤT LƯỢNG / ngưỡng engine": 3 nhãn slider Auto panel, tips
+  bcast/flip/DCA, reason lật chiều (autotrade.ts), log pm2
+  [engine] synced / [engine] DCA bỏ, comment bcast-gate.ts,
+  scan-broadcast.ts, params.ts §2, sanitizeFloors.
+• "Sổ giấy" → "Sổ lệnh": tab Journal, tiêu đề journal, analysis.pies.sub,
+  dock.ut.offNote, stats.pick, stats.section.journal, comment page.tsx.
+• "nhất quan" → "nhất quán" (sai chính tả gốc): stats.ok/consist/summary,
+  sub /stats, note kiểm chéo stats.ts, comment NHẤT QUAN → NHẤT QUÁN.
+• "cần soi / soi dọc / soi đổi ý" → "cần rà soát / đối chiếu theo thời
+  gian" (stats.warn, summary, dive history, route stats-dive).
+• "nói phét / prob HỨA / model hứa" → "sai lệch / prob dự báo": tip
+  calibration XGBoost (VI+EN), comment xgb.ts, xgb-panel.tsx.
+• "nói thật (prob)" → "sát thực tế": comment calibration params.ts §6c,
+  xgb.ts, ai.prob.d (VI+EN: "to be honest" → "for reliability").
+• "mổ xẻ" → "phân tích chuyên sâu": ai.autopsy.sub, tg-msgs.ts,
+  params.ts (autopsy + backfill).
+• "Bắn (snapshot/lệnh giả)" → "Gửi": ai.dive.hint, ai.llm.test.hint
+  (VI+EN "fake setup" → "simulated setup"), comment route test/autopsy.
+• "hên xui / may rủi" → "quyết định theo ngẫu nhiên / tính ngẫu nhiên":
+  xgb.applyBest.tip (VI+EN), auto.trainhist.hint (VI+EN).
+• "Engine đang NGỦ / ASLEEP" → "chế độ chờ (idle) / IDLE" (VI+EN).
+• "knob" → "tham số": ai.sub, ai.knobs.title/sub (VI+EN),
+  auto.best.flip.tip (EN "knob" → "toggle"), comment params.ts,
+  engine.ts, strategy-lab.ts, auto-panel.tsx, ai-info route.
+• "Chặn đuổi giá" → "Chống đuổi giá" (chase guard: guard + status).
+• "coin nóng/lặng" → "coin biến động cao/thấp" (auto.cfg.tpAtrDesc).
+• "whale động thái" → "whale có biến động" (auto.whale.tip).
+• "quét stop" → "quét stop-loss"; "ăn stakePct/ăn phiên/ăn theo" →
+  "sử dụng/nhận biến phiên/dùng chung" (stats.basis, params.ts).
+• "backtest giấy / THUẦN GIẤY" → "backtest mô phỏng / thuần mô phỏng"
+  (sl.note, stats.basis.auto, prompt dive).
+• "thắng rõ mốc" → "thắng vượt trội so với mốc" (sl.baselineNote, sl.note).
+• EN dọn cùng bản: "needs a look" → "needs review", "PROMISES/lies" →
+  "predicts/miscalibrated", "gambling on the latest roll" → "randomness".
+
+Không đổi logic: chỉ chuỗi hiển thị (i18n), chuỗi log pm2 và comment.
+API/DB/engine behaviour giữ nguyên 100%. Build production sạch.
+
+Commit dọn .gitignore bị ghi đè nhầm về 2 dòng (restore từ HEAD).

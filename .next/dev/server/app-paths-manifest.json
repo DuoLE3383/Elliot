@@ -1,0 +1,12 @@
+{
+  "/api/autotrade/route": "app/api/autotrade/route.js",
+  "/api/engine/route": "app/api/engine/route.js",
+  "/api/finetune/route": "app/api/finetune/route.js",
+  "/api/klines/route": "app/api/klines/route.js",
+  "/api/market-pulse/route": "app/api/market-pulse/route.js",
+  "/api/stream/route": "app/api/stream/route.js",
+  "/api/telegram/route": "app/api/telegram/route.js",
+  "/api/ticker/route": "app/api/ticker/route.js",
+  "/api/view/route": "app/api/view/route.js",
+  "/page": "app/page.js"
+}

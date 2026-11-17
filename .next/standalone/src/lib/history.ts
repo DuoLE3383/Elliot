@@ -1,0 +1,366 @@
+// ─── Suggestion & finetune history — shared client/server types + helpers ───
+// The terminal persists every XGBoost train run (finetune) and its strategy
+// suggestion per (pair, interval, time) to SQLite via /api/suggestions and
+// /api/finetune. Outcomes are scored once the prediction horizon expires.
+
+export type XgbBiasRow = "LONG" | "SHORT" | "NEUTRAL";
+export type Outcome = "win" | "loss" | "flat";
+
+/** A saved strategy suggestion (one row per train per pair per time). */
+export interface SuggestionRow {
+  id: string;
+  symbol: string;
+  interval: string;
+  bias: XgbBiasRow;
+  prob: number;
+  confidence: number;
+  slPct: number;
+  tpPct: number;
+  atrKey: number;
+  atrPeriod: number;
+  smaFilter: boolean;
+  smaPeriod: number;
+  /** model accuracy at train time, % */
+  acc: number;
+  /** model AUC at train time, 0..1 */
+  auc: number;
+  horizonBars: number;
+  entryPrice: number;
+  applied: boolean;
+  /** null = horizon not reached yet */
+  outcome: Outcome | null;
+  exitPrice: number | null;
+  pnlPct: number | null;
+  resolvedAt: string | null;
+  createdAt: string;
+}
+
+/** A saved XGBoost train / finetune run. */
+export interface RunRow {
+  id: string;
+  symbol: string;
+  interval: string;
+  kind: "train" | "finetune";
+  samples: number;
+  valSamples: number;
+  acc: number;
+  auc: number;
+  logloss: number;
+  trees: number;
+  horizon: number;
+  importance: { name: string; gain: number }[];
+  /** hyperparams JSON + difficulty extras (lv, marginAtr) stored with the run */
+  params?: { lv?: number; marginAtr?: number } & Record<string, unknown>;
+  applied: boolean;
+  createdAt: string;
+}
+
+/** Bar duration in ms per supported timeframe (mirrors Binance intervals). */
+export const INTERVAL_MS: Record<string, number> = {
+  "1m": 60_000,
+  "5m": 300_000,
+  "15m": 900_000,
+  "30m": 1_800_000,
+  "1h": 3_600_000,
+  "4h": 14_400_000,
+  "1d": 86_400_000,
+  "1w": 604_800_000,
+};
+
+/** When the outcome of a suggestion can be scored: createdAt + horizon bars. */
+export function resolveDeadline(s: Pick<SuggestionRow, "createdAt" | "horizonBars" | "interval">): number {
+  return new Date(s.createdAt).getTime() + s.horizonBars * (INTERVAL_MS[s.interval] ?? 300_000);
+}
+
+/** Signed % move in the suggested direction (LONG up = win, SHORT down = win). */
+export function directionalPnl(bias: XgbBiasRow, entry: number, exit: number): number {
+  if (!entry || !exit) return 0;
+  const raw = bias === "SHORT" ? ((entry - exit) / entry) * 100 : ((exit - entry) / entry) * 100;
+  return Math.round(raw * 100) / 100;
+}
+
+export function outcomeOf(bias: XgbBiasRow, entry: number, exit: number): Outcome {
+  if (bias === "NEUTRAL") return "flat";
+  const pnl = directionalPnl(bias, entry, exit);
+  return pnl > 0 ? "win" : pnl < 0 ? "loss" : "flat";
+}
+
+// ─── Client helpers (fetch wrappers) ─────────────────────────────────────────
+
+const jsonHeaders = { "Content-Type": "application/json" };
+
+export async function fetchSuggestions(params: { symbol?: string; interval?: string; limit?: number }): Promise<SuggestionRow[]> {
+  const q = new URLSearchParams();
+  if (params.symbol) q.set("symbol", params.symbol);
+  if (params.interval) q.set("interval", params.interval);
+  q.set("limit", String(params.limit ?? 100));
+  const res = await fetch(`/api/suggestions?${q.toString()}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = (await res.json()) as { suggestions: SuggestionRow[] };
+  return json.suggestions;
+}
+
+export async function saveSuggestion(payload: Omit<SuggestionRow, "id" | "applied" | "appliedAt" | "outcome" | "exitPrice" | "pnlPct" | "resolvedAt" | "createdAt">): Promise<SuggestionRow | null> {
+  try {
+    const res = await fetch("/api/suggestions", { method: "POST", headers: jsonHeaders, body: JSON.stringify(payload) });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { suggestion: SuggestionRow };
+    return json.suggestion;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveRun(payload: {
+  symbol: string;
+  interval: string;
+  samples: number;
+  valSamples: number;
+  acc: number;
+  auc: number;
+  logloss: number;
+  trees: number;
+  horizon: number;
+  importance: { name: string; gain: number }[];
+  params?: unknown;
+}): Promise<RunRow | null> {
+  try {
+    const res = await fetch("/api/finetune", { method: "POST", headers: jsonHeaders, body: JSON.stringify(payload) });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { run: RunRow };
+    return json.run;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchRuns(params: { symbol?: string; interval?: string; limit?: number }): Promise<RunRow[]> {
+  const q = new URLSearchParams();
+  if (params.symbol) q.set("symbol", params.symbol);
+  if (params.interval) q.set("interval", params.interval);
+  q.set("limit", String(params.limit ?? 20));
+  const res = await fetch(`/api/finetune?${q.toString()}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = (await res.json()) as { runs: RunRow[] };
+  return json.runs;
+}
+
+/** Total persisted runs for a combo — drives the difficulty level of the next train. */
+export async function fetchRunCount(symbol: string, interval: string): Promise<number> {
+  try {
+    const res = await fetch(`/api/finetune?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=1&count=1`);
+    if (!res.ok) return 0;
+    const json = (await res.json()) as { count?: number };
+    return typeof json.count === "number" ? json.count : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Best-ever run of a combo (auc → acc → newest) — the "champion" model. */
+export async function fetchChampionRun(symbol: string, interval: string): Promise<RunRow | null> {
+  try {
+    const res = await fetch(`/api/finetune?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=1`);
+    if (!res.ok) return null;
+    const json = (await res.json()) as { champion?: RunRow | null };
+    return json.champion ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * "Chọn bản tốt nhất" — the server picks the combo's best-ever suggestion
+ * (auc → acc → newest), marks it applied and returns it; the caller loads its
+ * SL/TP/ATR settings into the strategy. null = the combo has no suggestion yet.
+ */
+export async function applyBestSuggestion(symbol: string, interval: string): Promise<SuggestionRow | null> {
+  try {
+    const res = await fetch("/api/suggestions", {
+      method: "PATCH",
+      headers: jsonHeaders,
+      body: JSON.stringify({ action: "apply-best", symbol, interval }),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { suggestion: SuggestionRow | null };
+    return json.suggestion;
+  } catch {
+    return null;
+  }
+}
+
+export async function markApplied(kind: "suggestion" | "run", id: string): Promise<boolean> {
+  try {
+    const res = await fetch(kind === "suggestion" ? "/api/suggestions" : "/api/finetune", {
+      method: "PATCH",
+      headers: jsonHeaders,
+      body: JSON.stringify({ id, action: "apply" }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Ask the server to score every pending suggestion whose horizon has elapsed. */
+export async function resolveBatch(prices: Record<string, number>): Promise<number> {
+  try {
+    const res = await fetch("/api/suggestions", {
+      method: "PATCH",
+      headers: jsonHeaders,
+      body: JSON.stringify({ action: "resolve-batch", prices }),
+    });
+    if (!res.ok) return 0;
+    const json = (await res.json()) as { resolved: number };
+    return json.resolved;
+  } catch {
+    return 0;
+  }
+}
+
+// ─── CSV export (lịch sử đề xuất) ────────────────────────────────────────────
+
+/** Stable column order for the suggestion-history CSV. */
+const CSV_COLUMNS: { key: string; get: (s: SuggestionRow) => string | number }[] = [
+  { key: "createdAt", get: (s) => s.createdAt },
+  { key: "resolvedAt", get: (s) => s.resolvedAt ?? "" },
+  { key: "pair", get: (s) => s.symbol },
+  { key: "interval", get: (s) => s.interval },
+  { key: "bias", get: (s) => s.bias },
+  { key: "prob", get: (s) => s.prob },
+  { key: "confidence", get: (s) => s.confidence },
+  { key: "slPct", get: (s) => s.slPct },
+  { key: "tpPct", get: (s) => s.tpPct },
+  { key: "atrKey", get: (s) => s.atrKey },
+  { key: "atrPeriod", get: (s) => s.atrPeriod },
+  { key: "smaFilter", get: (s) => (s.smaFilter ? 1 : 0) },
+  { key: "smaPeriod", get: (s) => s.smaPeriod },
+  { key: "accPct", get: (s) => s.acc },
+  { key: "auc", get: (s) => s.auc },
+  { key: "horizonBars", get: (s) => s.horizonBars },
+  { key: "entryPrice", get: (s) => s.entryPrice },
+  { key: "applied", get: (s) => (s.applied ? 1 : 0) },
+  { key: "outcome", get: (s) => s.outcome ?? "" },
+  { key: "exitPrice", get: (s) => s.exitPrice ?? "" },
+  { key: "pnlPct", get: (s) => s.pnlPct ?? "" },
+  { key: "id", get: (s) => s.id },
+];
+
+function csvCell(v: string | number): string {
+  const s = String(v);
+  return /[",\n\r;]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
+}
+
+/** Serialize suggestion rows to RFC-4180 CSV — BOM prefix so Excel keeps UTF-8. */
+export function suggestionsToCsv(rows: SuggestionRow[]): string {
+  const header = CSV_COLUMNS.map((c) => c.key).join(",");
+  const body = rows.map((r) => CSV_COLUMNS.map((c) => csvCell(c.get(r))).join(",")).join("\r\n");
+  return `\uFEFF${header}\r\n${body}\r\n`;
+}
+
+/** Trigger a client-side CSV download (browser only). */
+export function downloadCsv(filename: string, csv: string): void {
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// ─── Strategy Lab — ứng viên chiến lược A/B (0.2.36) ──────────────────────────
+
+export interface LabConfigRow {
+  slPct: number;
+  tpPct: number;
+  atrKey: number;
+  atrPeriod: number;
+  smaFilter: boolean;
+  smaPeriod: number;
+  leverage: number;
+}
+
+export interface LabMetricsRow {
+  trades: number;
+  wins: number;
+  winRate: number;
+  netPnl: number;
+  expectancy: number;
+  avgWin: number;
+  avgLoss: number;
+  tpCount: number;
+  slCount: number;
+  flipCount: number;
+  maxDd: number;
+}
+
+export interface VariantRow {
+  id: string;
+  symbol: string;
+  interval: string;
+  name: string;
+  hypothesis: string;
+  sourceFeature: string;
+  baseline: boolean;
+  applied: boolean;
+  config: LabConfigRow;
+  metrics: LabMetricsRow | null;
+  scoredAt: string | null;
+  createdAt: string;
+}
+
+export async function fetchVariants(symbol: string, interval: string): Promise<VariantRow[]> {
+  const q = new URLSearchParams({ symbol, interval });
+  const res = await fetch(`/api/strategies?${q.toString()}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = (await res.json()) as { variants: VariantRow[] };
+  return json.variants;
+}
+
+/** Server sinh ứng viên mới (grid + feature-driven) + backtest hết → số lưu. */
+export async function generateVariants(symbol: string, interval: string): Promise<number> {
+  const res = await fetch("/api/strategies", {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify({ action: "generate", symbol, interval }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = (await res.json()) as { count: number };
+  return json.count;
+}
+
+/** Đánh dấu biến thể đã áp dụng trong DB (config nạp settings ở caller). */
+export async function markVariantApplied(id: string): Promise<boolean> {
+  try {
+    const res = await fetch("/api/strategies", {
+      method: "PATCH",
+      headers: jsonHeaders,
+      body: JSON.stringify({ id, action: "apply" }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Lịch sử các lần LLM dive đã lưu (GET /api/llm/stats-dive). */
+export interface DiveReportRow {
+  id: string;
+  source: string;
+  model: string;
+  ok: boolean;
+  ms: number;
+  text: string;
+  detail: string | null;
+  createdAt: string;
+}
+
+export async function fetchDiveReports(limit = 8): Promise<DiveReportRow[]> {
+  const res = await fetch(`/api/llm/stats-dive?limit=${limit}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = (await res.json()) as { reports: DiveReportRow[] };
+  return json.reports;
+}

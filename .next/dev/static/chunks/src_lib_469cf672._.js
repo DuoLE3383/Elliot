@@ -1,0 +1,6161 @@
+(globalThis.TURBOPACK || (globalThis.TURBOPACK = [])).push([typeof document === "object" ? document.currentScript : undefined,
+"[project]/src/lib/i18n.ts [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "DICTS",
+    ()=>DICTS,
+    "fmtPct",
+    ()=>fmtPct,
+    "fmtPrice",
+    ()=>fmtPrice,
+    "fmtTime",
+    ()=>fmtTime,
+    "symbolLabel",
+    ()=>symbolLabel,
+    "t",
+    ()=>t
+]);
+const vi = {
+    "app.title": "Elliott Paper Trading",
+    "app.subtitle": "Mô phỏng lệnh theo tín hiệu UT Bot + cổng SMA",
+    "header.refresh": "Làm mới",
+    "header.settings": "Cài đặt",
+    "header.lang": "EN",
+    "header.updated": "Cập nhật",
+    "header.loading": "Đang tải…",
+    "symbol.addPh": "PEPE / PEPEUSDT",
+    "symbol.add": "Thêm pair",
+    "symbol.remove": "Xóa pair {sym}",
+    "chart.title": "Biểu đồ giá",
+    "chart.legend.candles": "Nến",
+    "chart.legend.sma": "SMA",
+    "chart.legend.smaOff": "SMA (cổng)",
+    "chart.legend.signals": "Tín hiệu",
+    "chart.legend.trades": "Lệnh",
+    "chart.line.entry": "VÀO",
+    "chart.line.flipEntry": "ĐẢO",
+    "chart.line.sl": "SL",
+    "chart.line.tp": "TP",
+    "chart.mark.buy": "BUY",
+    "chart.mark.sell": "SELL",
+    "chart.mark.blocked": "bị chặn cổng",
+    "chart.hint.pin": "Nhấp tam giác để ghim tín hiệu",
+    "chart.hint.pinned": "Đã ghim — nhấp nến khác để đổi, nhấp lần nữa để bỏ",
+    "chart.empty": "Chưa có dữ liệu",
+    "dock.title": "Bảng tín hiệu",
+    "dock.gate": "Cổng SMA",
+    "dock.gate.open": "Đang mở",
+    "dock.gate.blocked": "Bị chặn",
+    "dock.gate.off": "Tắt",
+    "dock.gate.tip": "Cổng theo hướng: BUY cần nến đóng TRÊN SMA, SELL cần nến đóng DƯỚI SMA. Đảo chiều không bao giờ bị chặn.",
+    "dock.gate.needAbove": "Đợi 1 nến đóng TRÊN SMA {p} ({sma})",
+    "dock.gate.needBelow": "Đợi 1 nến đóng DƯỚI SMA {p} ({sma})",
+    "dock.gate.dist": "giá cách cổng {pct}",
+    "dock.gate.offBtn": "Tắt cổng SMA — vào lệnh ngay",
+    "dock.leverage": "Đòn bẩy",
+    "dock.latest": "Tín hiệu mới nhất",
+    "dock.forming": "chờ nến đóng",
+    "dock.confirmed": "đã xác nhận",
+    "dock.entryPlan": "Kế hoạch vào lệnh",
+    "dock.row.entry": "Vào",
+    "dock.row.sl": "Stop loss",
+    "dock.row.tp": "Take profit",
+    "dock.row.flip": "Thoát đảo chiều",
+    "dock.nextOpen": "khớp ở giá mở nến tiếp theo",
+    "dock.openPos": "Virtual position (simulated)",
+    "dock.pending": "Chờ vào lệnh",
+    "dock.pendingNote": "sẽ vào khi qua hết cổng",
+    "dock.noSignal": "Không có tín hiệu nào trên khung này",
+    "dock.flipBanner": "Đảo chiều vị thế",
+    "dock.flipClose": "Đóng",
+    "dock.flipInto": "vào",
+    "dock.flipPnl": "PnL lệnh đóng",
+    "dock.uPnl": "PnL tạm tính",
+    "dock.flippedFrom": "mở bằng đảo chiều từ",
+    "dock.pinHint": "Ghim tín hiệu trên biểu đồ để xem chi tiết",
+    "dock.pinnedAt": "Ghim tín hiệu",
+    "dock.unpin": "Bỏ ghim",
+    "dock.thatFlip": "Lệnh đóng bởi đảo chiều",
+    "dock.ut": "UT Bot",
+    "dock.ut.desc": "Bật → engine UT Bot sinh tín hiệu vào lệnh. Tắt → dừng mô phỏng: không tín hiệu, không lệnh mới.",
+    "dock.ut.tip": "Bật/tắt engine UT Bot — tắt thì dừng mô phỏng, không sinh lệnh mới",
+    "dock.ut.offNote": "UT Bot đang TẮT — engine dừng vào lệnh: sổ lệnh khung này sẽ trống cho đến khi bật lại.",
+    "strat.title": "Chiến lược đề xuất",
+    "strat.safe": "An toàn",
+    "strat.safe.tip": "Cổng SMA 200 BẬT · SL 4% · TP 2% · ATR chậm 3/14 — ít lệnh, lọc nhiễu tốt",
+    "strat.balanced": "Cân bằng",
+    "strat.balanced.tip": "Cổng SMA tắt · SL 6% · TP 3.2% · ATR 2/10 — cấu hình mặc định",
+    "strat.aggressive": "Mạo hiểm",
+    "strat.aggressive.tip": "SMA 50 · SL 2% · TP 4% · ATR nhanh 1/7 — đảo chiều liên tục, theo sóng ngắn",
+    "strat.ai": "AI",
+    "strat.ai.tip": "Áp dụng bộ tham số XGBoost vừa train cho pair/khung này",
+    "strat.aiNone": "Chưa có đề xuất AI — hãy train XGBoost trước",
+    "kpi.open": "Virtual",
+    "kpi.closed": "Đã đóng",
+    "kpi.signals": "Tín hiệu khung này",
+    "kpi.total": "tổng {n}",
+    "kpi.signalsSub": "{lo} LONG · {sh} SHORT · {bl} chờ",
+    "kpi.signalsOff": "{lo} LONG · {sh} SHORT",
+    "kpi.flips": "Lệnh đảo chiều",
+    "kpi.flipsSub": "thắng {w} · thua {l} · {pnl}",
+    "kpi.winRate": "Tỷ lệ thắng",
+    "kpi.winRateNote": "kể cả đảo chiều",
+    "kpi.breakdown": "TP {tp} · SL {sl} · đảo {fw}/{fl}",
+    "kpi.netPnl": "PnL đã đóng",
+    "kpi.levNote": "đòn bẩy ×{lev}",
+    "kpi.flipCount": "{n} lệnh đảo chiều",
+    "journal.title": "Sổ lệnh",
+    "journal.all": "Tất cả",
+    "journal.tp": "TP",
+    "journal.sl": "SL",
+    "journal.flip": "Đảo",
+    "journal.openF": "Đang mở",
+    "journal.col.side": "Lệnh",
+    "journal.col.entry": "Vào",
+    "journal.col.exit": "Thoát",
+    "journal.col.exitAt": "Thoát lúc",
+    "journal.col.pnl": "PnL",
+    "journal.col.result": "Kết quả",
+    "journal.csv": "Xuất CSV",
+    "journal.empty": "Chưa có lệnh nào — đợi tín hiệu UT đầu tiên",
+    "journal.mobileEntry": "vào {entry} · thoát {exit}",
+    "journal.mobileOpen": "đang mở · vào {entry}",
+    "journal.count": "{n} lệnh",
+    "result.tp": "TP",
+    "result.sl": "SL",
+    "result.flip": "Đảo",
+    "result.liq": "Thanh lý",
+    "result.open": "Mở",
+    "settings.title": "Cài đặt engine",
+    "settings.preset": "Preset SL/TP",
+    "settings.presetWide": "Mặc định rộng — SL 6% · TP 3.2%",
+    "settings.presetPine": "Đặt theo Pine gốc — SL 1.5% · TP 3%",
+    "settings.presetCustom": "Tùy chỉnh",
+    "settings.sl": "Stop loss %",
+    "settings.tp": "Take profit %",
+    "settings.leverage": "Đòn bẩy (1–125x)",
+    "settings.smaFilter": "Cổng SMA",
+    "settings.smaFilterDesc": "Bật → chỉ vào lệnh theo phía SMA. Tắt → mọi tín hiệu đều vào lệnh ngay.",
+    "settings.atrKey": "ATR key value",
+    "settings.atrPeriod": "ATR period",
+    "settings.smaPeriod": "SMA cổng (nến)",
+    "settings.apply": "Áp dụng",
+    "settings.note": "SL/TP tính theo giá — ROE = biến động giá × đòn bẩy, thanh lý ước tính khi lỗ ~100%/đòn bẩy. Đảo chiều luôn đóng lệnh cũ và vào lệnh mới ngay; cổng SMA chỉ chặn lệnh mới khi đang trống vị thế.",
+    "settings.language": "Ngôn ngữ / Language",
+    "settings.lang.en": "English",
+    "settings.lang.vi": "Tiếng Việt",
+    "stats.j.trades": "Trades (200 candles)",
+    "stats.j.flips": "Reversals",
+    "stats.j.net": "Net ROE sum",
+    "pulse.title": "Nhịp thị trường",
+    "pulse.fg": "Fear & Greed",
+    "pulse.fg.note": "Chỉ số Alternative.me (biến động, volume, social, khảo sát, dominance, xu hướng).",
+    "pulse.phase": "Pha chu kỳ",
+    "pulse.phase.capitulation": "Đầu hàng",
+    "pulse.phase.fear": "Sợ hãi / tích lũy",
+    "pulse.phase.neutral": "Trung lập",
+    "pulse.phase.greed": "Tham lam / mở rộng",
+    "pulse.phase.euphoria": "Hưng phấn / rủi ro phân phối",
+    "pulse.btcDom": "BTC dominance",
+    "pulse.mcap": "Tổng vốn hóa",
+    "pulse.vol": "Volume 24h",
+    "pulse.fromAth": "Mcap so với ATH",
+    "pulse.deriv": "Phái sinh",
+    "pulse.longShort": "Tài khoản L/S",
+    "pulse.topLong": "Top trader long",
+    "pulse.oi": "Open interest",
+    "pulse.funding": "Funding rate",
+    "pulse.deriv.note": "Snapshot Binance USDT-M — long đông + funding cao thường đi trước đợt thanh lý.",
+    "pulse.note": "Bối cảnh tâm lý & chu kỳ cho chọn phiên. Không phải tín hiệu vào lệnh.",
+    "toast.newEntry": "Lệnh mới {sym} {side} — vào @{price}",
+    "toast.flip": "Đảo chiều {sym} {from} → {to} — đóng @{exit} ({pnl}) · vào @{entry}",
+    "toast.badPair": "Không tìm thấy pair {sym} trên Binance Futures (USDT-M)",
+    "toast.pairReplaced": "Danh sách đầy — đã thay {old} bằng {sym}",
+    "toast.refreshed": "Đã làm mới dữ liệu",
+    "toast.error": "Không tải được dữ liệu Binance",
+    "toast.xgbDone": "XGBoost train xong — Acc {acc}% · AUC {auc}",
+    "toast.xgbFail": "Train XGBoost thất bại — thử lại",
+    // ─── XGBoost panel ───
+    "xgb.title": "XGBoost Tinh chỉnh",
+    "xgb.subtitle": "Cây tăng cường dự đoán hướng giá + fine-tune tham số",
+    "xgb.desc": "Train mô hình gradient boosting trên {n} nến gần nhất của pair/khung này, chấm điểm 13 đặc trưng (RSI, ATR, SMA, volume, UT trend…) rồi đề xuất hướng và tham số chiến thuật.",
+    "xgb.train": "Train mô hình",
+    "xgb.retrain": "Train lại",
+    "xgb.training": "Đang train… {p}%",
+    "xgb.needData": "Cần ít nhất ~200 nến dữ liệu để train",
+    "xgb.acc": "Chính xác",
+    "xgb.trees": "Số cây",
+    "xgb.samples": "Mẫu train/kiểm tra",
+    "xgb.importance": "Đặc trưng quan trọng",
+    "xgb.cal": "Độ tin cậy prob (Platt)",
+    "xgb.cal.tip": "Thanh: tỉ lệ thắng thực tế theo bucket prob trên tập val. Vạch teal: prob model dự báo. Vạch lệch xa thanh = prob ở bucket đó còn sai lệch so với thực tế (đo trước/sau hiệu chỉnh Platt bằng ECE).",
+    "xgb.suggest": "Đề xuất chiến thuật",
+    "xgb.bias": "Thiên hướng",
+    "xgb.bias.long": "LONG",
+    "xgb.bias.short": "SHORT",
+    "xgb.bias.neutral": "Trung tính",
+    "xgb.prob": "P(tăng)",
+    "xgb.sug.sl": "SL đề xuất",
+    "xgb.sug.tp": "TP đề xuất",
+    "xgb.sug.ut": "UT Bot (key/ATR)",
+    "xgb.apply": "Áp dụng đề xuất",
+    "xgb.applyBest": "🏆 Dùng bản tốt nhất (ACC {acc}% · AUC {auc})",
+    "xgb.applyBest.tip": "Chọn bản tốt nhất từng train của cặp coin + khung này (theo AUC → ACC) và áp dụng mức SL/TP/ATR của nó — không còn phụ thuộc tính ngẫu nhiên của lần train mới nhất",
+    "xgb.applyBest.busy": "Đang áp dụng bản tốt nhất…",
+    "xgb.applyBest.none": "Chưa có đề xuất nào được lưu cho combo này",
+    "xgb.applyBest.done": "Đã áp dụng bản tốt nhất — ACC {acc}% · AUC {auc}",
+    "xgb.champ": "Champion — bản train tốt nhất của combo này (AUC cao nhất)",
+    "xgb.applied": "Đã áp dụng tham số XGBoost đề xuất",
+    "xgb.stale": "Mô hình đã train cho pair/khung khác — hãy train lại cho cặp này.",
+    "xgb.diff": "Độ khó",
+    "xgb.diff.tip": "Sau mỗi lần train lại: dự đoán xa hơn (+1 nến mỗi 2 cấp) và thêm biên độ nhiễu +5%/cấp — bỏ qua nến đi ngang, chỉ học biến động mạnh (tối đa Lv12)",
+    "xgb.disclaimer": "Mô hình chạy hoàn toàn trong trình duyệt trên dữ liệu gần nhất — kết quả mang tính tham khảo, không phải khuyến nghị đầu tư.",
+    "xgb.trainAll": "Train tất cả ({n} pair × {m} khung)",
+    "xgb.trainAll.tip": "Một lần bấm: train + lưu lịch sử cho mọi pair × mọi khung đang theo dõi — độ khó tăng riêng cho từng combo, xong sẽ báo vào kênh Telegram",
+    "xgb.trainAll.busy": "{done}/{total} · {current}",
+    "xgb.trainAll.workers": "· {w} luồng song song",
+    "xgb.trainAll.done": "Train tất cả xong — đã lưu {saved}/{total} combo",
+    "xgb.trainAll.last": "Lần trước: lưu {saved}/{total} combo",
+    "xgb.history.sub": "Mỗi lần train được lưu vào database theo pair + khung + thời điểm",
+    "xgb.history.empty": "Chưa có lần train nào cho pair/khung này",
+    "xgb.kind.train": "Train",
+    "xgb.kind.finetune": "Fine-tune",
+    "xgb.run.applied": "đã áp dụng",
+    "sg.title": "Lịch sử đề xuất",
+    "sg.subtitle": "Đề xuất XGBoost lưu theo từng thời điểm · từng pair — tự chấm kết quả khi hết horizon",
+    "sl.title": "Strategy Lab — A/B chiến lược",
+    "sl.subtitle": "Server sinh ứng viên (mốc + quét SL/TP·UT·SMA + biến thể theo feature gain của model), backtest bằng đúng engine giấy trên 500 nến thật rồi xếp hạng theo ROE mỗi lệnh.",
+    "sl.generate": "Sinh + chấm ứng viên",
+    "sl.generating": "Đang backtest…",
+    "sl.count": "{n} biến thể",
+    "sl.empty": "Chưa có ứng viên cho {sym} {itv} — bấm “Sinh + chấm ứng viên”. Nên train model trước để có biến thể theo feature gain.",
+    "sl.error": "Sinh ứng viên thất bại — kiểm tra kết nối Binance / log server.",
+    "sl.col.rank": "#",
+    "sl.col.name": "Biến thể",
+    "sl.col.config": "SL/TP · UT · Gate",
+    "sl.col.result": "Lệnh · Win · ROE/lệnh",
+    "sl.col.action": "Áp",
+    "sl.baseline": "Mốc",
+    "sl.baselineNote": "Mốc so sánh (cfg đang chạy) tích lũy {v}% ROE trên cửa sổ backtest — chỉ áp biến thể thắng vượt trội so với mốc này.",
+    "sl.featureTag": "yếu tố dẫn: {f}",
+    "sl.apply": "Áp dụng",
+    "sl.applied": "Đã áp",
+    "sl.applyToast": "Đã áp “{name}”: SL {sl}% / TP {tp}% · UT {key}·{period}",
+    "sl.maxDd": "DD {v}%",
+    "sl.avgWin": "thắng TB {v}%",
+    "sl.avgLoss": "thua TB {v}%",
+    "sl.note": "Tự chạy nền sau mỗi lượt train (tối đa 1 lần/12h mỗi cặp). Số liệu là backtest mô phỏng — quá khứ không bảo đảm tương lai; chỉ áp biến thể thắng vượt mốc với đủ số lệnh.",
+    "ai.dive.history": "Lịch sử phân tích đã lưu",
+    "ai.dive.history.empty": "Chưa có bài phân tích nào được lưu — mỗi lần “Phân tích nguyên nhân gốc” (kể cả khi LLM lỗi) sẽ được lưu lại ở đây để đối chiếu theo thời gian.",
+    "ai.dive.history.show": "Xem {n} bài đã lưu",
+    "ai.dive.history.hide": "Ẩn lịch sử",
+    "ai.dive.history.fail": "LLM lỗi",
+    "tabs.lab": "Lab",
+    "sg.col.time": "Thời điểm",
+    "sg.col.pair": "Pair",
+    "sg.col.bias": "Thiên hướng",
+    "sg.col.prob": "P(tăng)",
+    "sg.col.sltp": "SL / TP",
+    "sg.col.ut": "UT Bot",
+    "sg.col.result": "Kết quả",
+    "sg.scope.pair": "Pair này",
+    "sg.scope.all": "Tất cả pair",
+    "sg.filter.all": "Tất cả",
+    "sg.filter.pending": "Chờ chấm",
+    "sg.filter.win": "Đúng",
+    "sg.filter.loss": "Sai",
+    "sg.filter.flat": "Đi ngang",
+    "sg.filter.empty": "Không có đề xuất nào khớp bộ lọc",
+    "sg.outcome.win": "Đúng hướng",
+    "sg.outcome.loss": "Sai hướng",
+    "sg.outcome.flat": "Đi ngang",
+    "sg.outcome.pending": "Chờ chấm",
+    "sg.winrate": "Đúng {pct}",
+    "sg.scored": "{n} đã chấm",
+    "sg.pending": "{n} chờ chấm",
+    "sg.appliedN": "{n} đã áp dụng",
+    "sg.count": "{n} đề xuất",
+    "sg.empty": "Chưa có đề xuất nào — train XGBoost để lưu đề xuất đầu tiên",
+    "sg.saved": "Đã lưu đề xuất vào database",
+    "sg.saveFail": "Lưu database thất bại — đề xuất chỉ còn trong phiên này",
+    "sg.appliedBadge": "Đã áp dụng",
+    "sg.horizonAt": "chấm sau {n} nến",
+    "sg.export": "Xuất CSV",
+    "sg.export.empty": "Không có đề xuất để xuất",
+    "error.title": "Lỗi tải dữ liệu",
+    "error.retry": "Thử lại",
+    "footer.note": "Dữ liệu Binance Futures (USDT-M) công khai · Mô phỏng paper trading — không phải khuyến nghị đầu tư.",
+    "ui.showExtra": "Hiện vùng ít dùng (Watchlist · Phiên · Bối cảnh)",
+    "ui.hideExtra": "Ẩn vùng ít dùng",
+    "analysis.title": "Phân tích chuyên sâu",
+    "analysis.note": "đọc từ nến đã đóng gần nhất",
+    "analysis.pies.title": "Tiềm năng chiến lược",
+    "analysis.pies.sub": "Mô phỏng sổ lệnh trên {n} nến · đòn bẩy {lev}x",
+    "analysis.pies.trades": "{n} lệnh đóng",
+    "analysis.pies.empty": "Chưa có lệnh đóng",
+    "analysis.pies.tp": "Chạm TP",
+    "analysis.pies.sl": "Cắt lỗ",
+    "analysis.pies.liq": "Thanh lý",
+    "analysis.pies.flip": "Đảo chiều",
+    "analysis.trend": "Xu hướng (EMA)",
+    "analysis.trend.up": "Tăng",
+    "analysis.trend.down": "Giảm",
+    "analysis.trend.neutral": "Trung tính",
+    "analysis.rsi": "RSI (14)",
+    "analysis.rsi.ob": "Quá mua",
+    "analysis.rsi.os": "Quá bán",
+    "analysis.rsi.neutral": "Trung tính",
+    "analysis.vol": "Khối lượng",
+    "analysis.vol.low": "Thấp",
+    "analysis.vol.normal": "Bình thường",
+    "analysis.vol.high": "Cao",
+    "analysis.atr": "ATR (biên độ)",
+    "analysis.atr.low": "Thấp hơn thường lệ",
+    "analysis.atr.high": "Cao hơn thường lệ",
+    "analysis.atr.normal": "Ngang thường lệ",
+    "analysis.structure": "Cấu trúc vùng",
+    "analysis.structure.breakout": "Phá lên",
+    "analysis.structure.inside": "Trong vùng",
+    "analysis.structure.breakdown": "Phá xuống",
+    "analysis.hi": "Đỉnh",
+    "analysis.lo": "Đáy",
+    "common.price": "Giá",
+    "common.time": "Thời gian",
+    "wy.title": "Wyckoff Schematic",
+    "wy.subtitle": "Tự động nhận diện Tích lũy / Phân phối",
+    "wy.off": "Đang tắt — bật trong Cài đặt",
+    "wy.structure": "Cấu trúc",
+    "wy.none": "Không có cấu trúc",
+    "wy.rsi": "RSI (14)",
+    "wy.rsi.os": "Quá bán",
+    "wy.rsi.ob": "Quá mua",
+    "wy.rsi.neutral": "Trung tính",
+    "wy.vol": "Khối lượng",
+    "wy.vol.climax": "CLIMAX",
+    "wy.vol.high": "Cao",
+    "wy.vol.low": "Thấp",
+    "wy.vol.normal": "Thường",
+    "wy.trend": "Xu hướng (EMA)",
+    "wy.trend.bull": "Tăng (EMA)",
+    "wy.trend.bear": "Giảm (EMA)",
+    "wy.events": "Sự kiện gần đây",
+    "wy.noEvents": "Chưa có sự kiện nào trên khung này",
+    "wy.eventsHint": "SC/AR/ST/Spring/SOS/LPS = tích lũy · BC/AR/ST/UT/SOW/LPSY = phân phối · hộp = vùng tích lũy/phân phối (TR)",
+    "wy.mode": "Chế độ",
+    "wy.modeAuto": "Tự động (theo khung giá)",
+    "wy.modeManual": "Thủ công",
+    "wy.speed": "Tốc độ pivot",
+    "wy.speedAuto": "Theo khung",
+    "wy.speedFast": "Nhanh",
+    "wy.speedNormal": "Chuẩn",
+    "wy.speedSafe": "An toàn",
+    "wy.sens": "Độ nhạy RSI (5–45)",
+    "wy.phaseC": "Cần Spring/UT trước SOS/SOW",
+    "wy.phaseCDesc": "Tắt → SOS/SOW có thể đến ngay sau ST",
+    "wy.showOnChart": "Hiện trên biểu đồ",
+    "wy.showOnChartDesc": "Nhãn sự kiện, hộp TR, tô màu nến, EMA50/200 và pivot cam",
+    "chart.legend.wyckoff": "Wyckoff",
+    "chart.legend.wyacc": "Tích lũy",
+    "chart.legend.wydist": "Phân phối",
+    "chart.legend.wyphc": "Phase C",
+    "chart.legend.wypivot": "Pivot",
+    "chart.legend.wyema": "EMA 50/200",
+    "toast.wyckoff": "Wyckoff: {event} — {sym} · {itv}",
+    "ticker.aria": "Giá trực tiếp các cặp",
+    "watch.title": "Cặp theo dõi",
+    "watch.cap": "{n}/{m}",
+    "watch.empty": "Chưa có cặp nào",
+    "watch.wait": "ĐỢI",
+    "watch.loading": "…",
+    "watch.add": "Thêm pair",
+    "watch.remove": "Xóa {sym}",
+    "watch.hint": "Nhấp vào cặp để mở biểu đồ — dữ liệu mini theo khung hiện tại",
+    "sess.title": "Phiên giao dịch",
+    "sess.in": "opens in {t}",
+    "sess.utc": "UTC",
+    "sess.open": "mở",
+    "sess.closed": "đóng",
+    "sess.sydney": "Sydney",
+    "sess.tokyo": "Tokyo",
+    "sess.london": "London",
+    "sess.newyork": "New York",
+    "sess.bull": "Bull {p}% · drift {d}%",
+    "sess.nodata": "Chưa có nến trong phiên",
+    "sess.note": "Bull % / drift tính từ nến đã đóng trong cửa sổ dữ liệu (giờ mở nến UTC)",
+    "sess.forecast.title": "Dự đoán phiên",
+    "sess.forecast.next": "Phiên tới: {sess} — mở sau {in} —",
+    "sess.forecast.lean": "thiên {dir} · P≈{p}% ({n} nến lịch sử)",
+    "sess.forecast.best": "Lịch sử: {hi} mạnh nhất ({hip}% nến tăng) · {lo} yếu nhất ({lop}%)",
+    "sess.forecast.note": "P(↑) = tỷ lệ nến của phiên đó đóng tăng trong cửa sổ dữ liệu — thống kê lịch sử, không phải bảo đảm. Model XGBoost cũng đã nhận thêm 6 feature phiên/giờ để tự học hiệu ứng phiên của từng cặp.",
+    "sess.cycle.title": "Chu kỳ lịch — nến 1d · {days} ngày",
+    "sess.cycle.next": "{dow} ({in}) · {n} ngày lịch sử:",
+    "sess.cycle.dir": "Chiều: {dir} {p}%",
+    "sess.cycle.vol": "Volume: {vol} {p}%",
+    "sess.cycle.volFlat": "Volume: trung tính",
+    "sess.cycle.special": "{label} (n={n}): chiều {dir} {p}% · volume {vol} {vp}%",
+    "sess.cycle.extremes": "Thứ mạnh nhất: {hi} ({hip}%) · yếu nhất: {lo} ({lop}%)",
+    "sess.cycle.note": "Tần suất lịch sử theo thứ / đầu–cuối tháng / cuối quý từ nến ngày BTCUSDT (giờ UTC) — xu hướng tham khảo, không phải bảo đảm.",
+    "dow.0": "Chủ nhật",
+    "dow.1": "Thứ 2",
+    "dow.2": "Thứ 3",
+    "dow.3": "Thứ 4",
+    "dow.4": "Thứ 5",
+    "dow.5": "Thứ 6",
+    "dow.6": "Thứ 7",
+    "cycle.monthStart": "Đầu tháng",
+    "cycle.monthEnd": "Cuối tháng",
+    "cycle.quarterEnd": "Cuối quý",
+    "dir.up": "TĂNG",
+    "dir.down": "GIẢM",
+    "vol.up": "tăng",
+    "vol.down": "giảm",
+    "whale.title": "Cá voi — delta taker",
+    "whale.net": "Delta ròng {n} nến",
+    "whale.strongBuy": "mua mạnh",
+    "whale.strongSell": "bán mạnh",
+    "whale.last": "nến gần nhất",
+    "whale.none": "Không có dữ liệu taker volume",
+    "whale.note": "Delta = khối lượng mua thị trường − bán thị trường (cân đối >55% = mạnh)",
+    "equity.title": "Đường cong vốn",
+    "equity.peak": "đỉnh",
+    "equity.trough": "đáy",
+    "equity.now": "hiện tại",
+    "equity.empty": "Chưa có lệnh đã đóng — đường cong vốn sẽ xuất hiện sau lệnh đầu tiên",
+    "chart.legend.vp": "Volume theo giá",
+    "vp.buy": "mua taker",
+    "vp.sell": "bán taker",
+    "itv.5m": "5 phút",
+    "itv.15m": "15 phút",
+    "itv.30m": "30 phút",
+    "itv.1h": "1 giờ",
+    "itv.4h": "4 giờ",
+    "itv.1d": "1 ngày",
+    "itv.1w": "1 tuần",
+    "header.live": "Trực tiếp Binance",
+    "live.badge": "LIVE",
+    "live.off": "OFF",
+    "live.tip": "Giá trực tiếp — server bám websocket nến của Binance, nến hiện tại nhảy từng tick",
+    "live.tipPoll": "Giá trực tiếp (poll ~2.5s) — server Node không có WebSocket nên đi đường REST",
+    "live.offTip": "Luồng trực tiếp đang gián đoạn — tự nối lại trong giây lát",
+    "ai.title": "AI & Cài đặt",
+    "ai.sub": "Model suy nghĩ thế nào, đã học bao nhiêu dữ liệu, và toàn bộ tham số cấu hình của hệ thống",
+    "ai.back": "Về dashboard",
+    "ai.refresh": "Làm mới",
+    "ai.updated": "Cập nhật",
+    "ai.layers.title": "Hai lớp AI trong app",
+    "ai.layers.xgb.t": "1 · XGBoost — dự đoán giá (train trong app)",
+    "ai.layers.xgb.d": "Tự train trên nến Binance của từng cặp × khung giờ: sinh Prob (xác suất giá đi lên), gợi ý bias LONG/SHORT, SL/TP theo ATR. Sau mỗi lần train lại nó tự tốt hơn (hoặc bị giữ lại nếu thoái hoá). Đây là model RA QUYẾT ĐỊNH mở lệnh.",
+    "ai.layers.llm.t": "2 · Qwen 7B (llama-server) — giám sát rủi ro",
+    "ai.layers.llm.d": "Model ngôn ngữ local đọc bối cảnh lệnh sắp mở (prob, R:R, khung giờ, whale) và chỉ VETO hay CHO PHÉP — không dự đoán giá, không train lại. Nó là 'risk officer' chốt chặn cuối.",
+    "ai.finetune.q": "llama-server (Qwen2.5-7B) có được dùng để finetune?",
+    "ai.finetune.a": "KHÔNG. llama-server chỉ chạy inference duyệt rủi ro. 'Finetune' trong app là XGBoost tự train lại trên dữ liệu nến mới + bài học từ lệnh dry-run đã đóng (champion–challenger: 4 ứng viên hyper đấu nhau, giữ bộ thắng). Qwen không được fine-tune trọng số nào cả.",
+    "ai.data.title": "AI đã học bao nhiêu dữ liệu?",
+    "ai.data.sub": "Mỗi lần train/finetune được lưu một dòng. samples = số mẫu train (nến + bài học), val = số mẫu kiểm tra out-of-sample (nến thuần, không bài học).",
+    "ai.data.lessons": "Kinh nghiệm dry-run: {closed} lệnh đã đóng × lặp {w} lần trong train = {n} mẫu bài học (thắng {wins})",
+    "ai.data.empty": "Chưa có lần train nào được lưu trong DB server này — bấm Train trên dashboard. Lưu ý: lịch sử train là theo TỪNG deployment (localhost và elliott.huyenbao.com có DB riêng, git chỉ đồng bộ code).",
+    "ai.db.error": "Đọc DB server LỖI — không phải rỗng. Xem log pm2/systemd.",
+    "ai.build": "Build",
+    "ai.reliab.title": "Độ tin cậy của Prob — đo trên dữ liệu THẬT",
+    "ai.reliab.sub": "Đối chiếu prob hiển thị với tỉ lệ thắng thật — không phải acc trên tập val (val chỉ ~100 mẫu nến thuần nên đường Platt cũng nhiễu).",
+    "ai.reliab.trades": "Lệnh dry-run đã đóng",
+    "ai.reliab.phe": "PHE — đề xuất đã chấm kết quả",
+    "ai.reliab.bucket": "Prob (theo phía)",
+    "ai.reliab.n": "Mẫu",
+    "ai.reliab.wr": "Thắng thật",
+    "ai.reliab.empty": "Chưa đủ dữ liệu thật — bảng tự đầy khi có lệnh đóng / PHE được chấm.",
+    "ai.reliab.note": "Prob đã lật THEO PHÍA (SHORT → 1−p) nên bucket gom cả hai chiều. Mẫu ít (<30/bucket) chỉ tham khảo; đây là thước đo calibration ngoài val.",
+    "ai.autopsy.title": "Giải phẫu lệnh — tại sao thắng, tại sao thua",
+    "ai.autopsy.sub": "Mỗi lệnh paper ĐÓNG (thắng LẪN thua) được LLM phân tích chuyên sâu trên đường giá thật (MFE/MAE/nhiễu/R). Bài học được nạp lại vào lần duyệt lệnh sau của cùng cặp — vòng học khép kín.",
+    "ai.autopsy.count": "{n} lệnh đã được giải phẫu · {win}win/{loss}loss · 8 bài gần nhất:",
+    "ai.autopsy.empty": "Chưa có bài giải phẫu nào — tự xuất hiện sau lệnh paper đầu tiên đóng (timeout LLM 300s/lệnh, chạy nền không chặn engine).",
+    "ai.autopsy.lesson": "Bài học",
+    "ai.prob.title": "Prob là gì — và nên hiểu thế nào?",
+    "ai.prob.d": "Prob gốc = xác suất GIÁ ĐI LÊN (P up) do XGBoost suy ra trên tập kiểm tra, đã qua hiệu chỉnh Platt để sát thực tế. Model nghiêng về phía nào thì prob hiển thị THEO PHÍA ĐÓ: SHORT Prob 79.9% nghĩa là tin 79.9% giá giảm (không phải 20.1% đi lên).",
+    "ai.prob.warn": "Đừng đọc prob = xác suất thắng thật. Hãy đối chiếu bảng độ tin cậy NGAY DƯỚI ĐÂY (tính trên lệnh dry-run đã đóng + PHE đã chấm kết quả — không phải tập val): bucket 80%+ thắng thật bao nhiêu % thì đó mới là kỳ vọng hợp lý. Prob cao chỉ nghĩa là model QUYẾT ĐOÁN, không phải ĐÚNG.",
+    "ai.runs.title": "Lịch sử train (mới nhất trước)",
+    "ai.runs.pair": "Cặp",
+    "ai.runs.kind": "Loại",
+    "ai.runs.samples": "Train/Val",
+    "ai.runs.metrics": "ACC / AUC / Logloss",
+    "ai.runs.hyper": "Hyper thắng cuộc",
+    "ai.runs.at": "Thời điểm",
+    "ai.champ.title": "Champion mỗi cặp × khung (best-ever AUC)",
+    "ai.champ.empty": "Chưa có",
+    "ai.llm.title": "LLM Risk Officer — trạng thái",
+    "ai.llm.setup": "Cấu hình LLM (Risk Officer)",
+    "ai.llm.url": "URL endpoint",
+    "ai.llm.urlHint": "Chỉ hiện local/remote trên badge — URL đầy đủ không public.",
+    "ai.llm.model": "Model name",
+    "ai.llm.timeout": "Timeout (giây)",
+    "ai.llm.failClosedLabel": "Fail-CLOSED — chặn lệnh khi LLM chết",
+    "ai.llm.save": "Cập nhật",
+    "ai.llm.saving": "Đang lưu…",
+    "ai.llm.saveOk": "Đã đồng bộ engine",
+    "ai.llm.saveFail": "Lỗi — kiểm tra URL",
+    "ai.llm.saveNote": "Lưu vào engine + localStorage",
+    "sess.forecast.conf": "độ lệch {p}%",
+    "sess.forecast.rule": "Quy tắc: Bull < 40% → BEAR · Bull > 60% → BULL · còn lại NEUTRAL (thống kê lịch sử phiên, không phải đảm bảo).",
+    "ai.llm.ok": "Kết nối OK",
+    "ai.llm.down": "KHÔNG kết nối được",
+    "ai.llm.last": "Lượt duyệt gần nhất",
+    "ai.llm.none": "Chưa có lượt duyệt LLM nào được ghi.",
+    "tgboot.ok": "Đã kết nối Telegram {bot} — thông báo giao dịch sẽ gửi vào chat này.",
+    "tgboot.fail": "Kết nối Telegram thất bại — link đã hết hạn hoặc đã được dùng.",
+    "ai.evo.title": "Tự tiến hoá chiến lược",
+    "ai.evo.sub": "Lab sinh ứng viên từ dữ liệu đang tích hợp (feature importance + grid) và LLM đề xuất thêm → backtest nến thật bằng đúng thuật toán engine → áp kẻ thắng vào engine → theo dõi lệnh giấy thật → tệ hơn mốc thì tự hoàn tác.",
+    "ai.evo.off": "Vòng đang TẮT (EVOLVE_ON=0)",
+    "ai.evo.run": "Chạy 1 vòng ngay",
+    "ai.evo.running": "Đang chạy vòng…",
+    "ai.evo.active": "Đang áp",
+    "ai.evo.watch": "theo dõi {n}/{need} lệnh giấy tới",
+    "ai.evo.none": "Chưa có vòng tiến hoá nào — vòng đầu tự chạy 10 phút sau khi deploy.",
+    "ai.llm.failopen": "fail-open — LLM chết → lệnh vẫn vào",
+    "ai.llm.failclosed": "fail-closed — LLM chết → chặn mở lệnh",
+    "ai.champ.more": "Xem tất cả {{n}} combo",
+    "ai.champ.less": "Thu gọn — hiện top 10",
+    "ai.llm.test": "Duyệt thử (test)",
+    "ai.llm.test.hint": "Gửi 1 lệnh mô phỏng qua đúng luồng duyệt production — không mở lệnh thật.",
+    "ai.llm.test.busy": "đang gọi llama-server (tối đa 300s — model chạy nền, không gấp)…",
+    "ai.llm.test.fail": "không có verdict",
+    "ai.llm.test.prompt": "Prompt gửi đi:",
+    "ai.llm.test.raw": "Phản hồi thô của model:",
+    "ai.llm.test.h404": "404 = server đang chạy bản build CŨ (route chưa được nạp). Chạy lại: git pull → npm run build → pm2 restart elliott, rồi Ctrl+F5.",
+    "ai.llm.test.h404llm": "404 TỪ LLM server (không phải từ app): endpoint /v1/chat/completions không tồn tại trên LLM_URL đã cấu hình. Server ở cổng đó có phải llama.cpp llama-server không? (ollama/LM Studio/vLLM hoặc wrapper riêng thì path/port khác — xem dòng ↳ bên dưới để nhận diện).",
+    "ai.knobs.title": "Cài đặt hệ thống (tham số)",
+    "ai.knobs.sub": "Ô trắng = chỉnh ngay tại đây (lưu vào db/params-override.json, hiệu lực tick kế tiếp, không cần deploy). Khóa = hằng cấu trúc — chỉ đổi qua repo → build → deploy.",
+    "ai.knobs.edited": "đã chỉnh",
+    "ai.knobs.reset": "Đặt lại mặc định",
+    "ai.knobs.saved": "Đã lưu — hiệu lực ngay",
+    "ai.knobs.invalid": "Giá trị ngoài khoảng cho phép",
+    "ai.knobs.fail": "Lưu thất bại",
+    "ai.knobs.loading": "Đang tải tham số…",
+    "ai.engine.title": "Engine hiện hành",
+    "ai.engine.synced": "Config đã sync từ trình duyệt",
+    "ai.engine.notsynced": "Chưa sync — bấm nút bên trên hoặc mở dashboard một lần để sync",
+    "ai.engine.idle": "Engine server đang ở chế độ chờ (idle): chưa từng nhận sync từ trình duyệt → không quét, không vào lệnh, không gửi Telegram. Cấu hình dưới đây là MẶC ĐỊNH, KHÔNG phải cfg đang chạy.",
+    "ai.engine.syncbtn": "Sync cfg từ trình duyệt này",
+    "ai.engine.syncing": "Đang sync…",
+    "ai.engine.syncok": "Đã sync — engine dùng cfg của trình duyệt này ✓",
+    "ai.engine.syncfail": "Sync lỗi — thử lại",
+    "ai.engine.status": "Trạng thái gần nhất",
+    "ai.engine.syncedAt": "Sync lần cuối",
+    "ai.workers": "XGB workers",
+    "header.clockVN": "VN",
+    "header.clockUTC": "UTC",
+    "chart.legend.stop": "UT stop",
+    "chart.legend.band": "Dải SMA",
+    "chart.legend.whale": "Cá voi",
+    "chart.zoom.in": "Phóng to",
+    "chart.zoom.out": "Thu nhỏ",
+    "chart.zoom.latest": "Mới nhất",
+    "chart.refresh": "Làm mới biểu đồ",
+    "chart.candle.style": "Kiểu nến",
+    "chart.candle.normal": "Nến thường",
+    "chart.candle.neon": "Nến neon",
+    "chart.candle.toNormal": "Chuyển sang nến thường — xanh tăng, đỏ giảm (kể cả đoạn tô màu Wyckoff)",
+    "chart.candle.toNeon": "Chuyển sang nến neon — thân rỗng, nến tô màu theo Wyckoff",
+    "chart.ohlc.high": "Cao",
+    "chart.ohlc.low": "Thấp",
+    "chart.ohlc.vol": "KL",
+    "chart.hint.terminal": "kéo để pan · lăn để zoom",
+    "tabs.equity": "Vốn",
+    "tabs.journal": "Sổ lệnh",
+    "tabs.suggest": "Đề xuất",
+    "tabs.analysis": "Phân tích",
+    "tabs.context": "Bối cảnh",
+    "tabs.wyckoff": "Sóng Wyckoff",
+    "tabs.ai": "AI / XGB",
+    "rail.status": "Tình trạng",
+    "rail.wait": "ĐỢI",
+    "rail.phaseWait": "chờ nến đóng để xác nhận",
+    "rail.context": "Bối cảnh",
+    "rail.sessOpen": "Phiên đang mở",
+    "rail.sessNone": "Ngoài phiên chính",
+    "rail.whaleNear": "Cá voi quanh giá",
+    "rail.trendUp": "Xu hướng tăng (EMA50>EMA200)",
+    "rail.trendDown": "Xu hướng giảm (EMA50<EMA200)",
+    "kpi.openPnl": "PnL mở {pnl}",
+    "kpi.closedBase": "trên {n} lệnh chốt (kể cả đảo chiều)",
+    "kpi.openNewest": "mới nhất {time}",
+    "kpi.netNote": "sau {n} lệnh · chưa trừ phí",
+    "kpi.flipsNote": "UT ngược hướng: thoát lệnh cũ + vào lệnh mới",
+    "auto.title": "Auto Trade — Dry-run",
+    "auto.sub": "Auto tự quét mọi pair × khung, chọn setup tốt nhất và vào lệnh theo % vốn bạn đặt — TP/SL tự tính theo ATR cho từng đề xuất hoặc đặt thủ công",
+    "auto.on": "Bật tự động",
+    "auto.off": "Tắt",
+    "auto.cfg.capital": "Vốn ảo (USDT)",
+    "auto.cfg.risk": "% vốn/lệnh",
+    "auto.cfg.lev": "Đòn bẩy",
+    "auto.cfg.levTip": "SL/TP tính theo % GIÁ (khoảng cách giá không đổi theo đòn bẩy). ROE = %giá × đòn bẩy: ×10 → SL −0.5% giá = −5% ROE, TP +0.7% giá = +7% ROE. ×20 → gấp đôi",
+    "auto.cfg.tpmode": "Nguồn TP/SL",
+    "auto.cfg.tpAtr": "ATR lúc entry",
+    "auto.cfg.tpAtrDesc": "SL = ATR% × hệ số · TP = SL × 1.4 — đo biến động thật của coin ngay trước khi vào lệnh: coin biến động thấp thì SL hẹp, coin biến động cao thì SL rộng. Hệ số 1.5 là chuẩn kinh điển; quét (retrain) sẽ tự chọn hệ số tối ưu cho từng coin.",
+    "auto.cfg.tpAuto": "Mức lúc quét",
+    "auto.cfg.tpManual": "Thủ công",
+    "auto.cfg.atrCoef": "Hệ số ATR",
+    "auto.cfg.cycle": "Chu kỳ",
+    "auto.cfg.tf": "TF chạy",
+    "auto.cfg.tfTip": "Bật/tắt từng khung giờ engine chạy — quét, train và vào lệnh chỉ dùng khung đang BẬT; khung tắt bị bỏ hẳn khỏi vòng kế (tiết kiệm thời gian train). Cần giữ ít nhất 1 khung.",
+    "auto.cfg.floor": "Ngưỡng chung",
+    "auto.cfg.floorTip": "Ngưỡng chất lượng CHUNG — MỘT bộ ba áp cho mọi tầng: model phải đạt Điểm ≥ {s} · AUC ≥ {a} · ACC ≥ {c}% mới được MỞ LỆNH, được BÙ DCA và được ĐĂNG broadcast. Kéo xuống = nhiều lệnh hơn nhưng lỏng; kéo lên = sạch nhưng thưa.",
+    "auto.cfg.floorAuc": "Ngưỡng AUC model",
+    "auto.cfg.floorAcc": "Ngưỡng ACC model (%)",
+    "auto.cfg.floorScore": "Ngưỡng điểm model",
+    "auto.cfg.cooldown": "Chờ sau lỗ",
+    "auto.cfg.cooldownUnit": "phút",
+    "auto.cfg.cooldownOff": "Tắt",
+    "auto.cfg.dca": "DCA khi lỗ",
+    "auto.cfg.dcaUnit": "lần",
+    "auto.cfg.dcaOff": "Tắt",
+    "auto.cfg.dcaTip": "Khi giá đi ngược và model vẫn xác nhận hướng cũ: bù thêm 1 lệnh cùng stake, entry bình quân mới, SL/TP dời theo avg — thay vì cắt lỗ rồi vào lại giá xấu hơn",
+    "auto.chase.guard": "Chống đuổi giá: combo vừa cắt lỗ chỉ được vào lại khi giá đã quay qua mức SL cũ",
+    "auto.cooldown.all": "Mọi combo đủ điều kiện đang chờ hết thời gian chờ sau khi cắt lỗ",
+    "auto.cfg.cycleUnit": "phút",
+    "auto.cfg.stats": "Báo TG",
+    "auto.cfg.statHourly": "Giờ",
+    "auto.cfg.statDaily": "Ngày",
+    "auto.cfg.statNow": "Gửi ngay",
+    "auto.cfg.statNowTip": "Gửi ngay một báo cáo thống kê vào kênh Telegram (24h qua + tổng cộng)",
+    "auto.near.tp": "Sắp chạm TP: {pair} {tf} · ROE {roe}%",
+    "auto.near.sl": "Sắp chạm SL: {pair} {tf} · ROE {roe}%",
+    "auto.combo.title": "Win rate theo pair/khung",
+    "auto.combo.col.trades": "Lệnh",
+    "auto.combo.col.win": "Win",
+    "auto.combo.col.net": "Net ROE",
+    "auto.combo.hint": "Tổng hợp từ toàn bộ lịch sử auto đã đóng — bấm một dòng để mở pair + khung đó trên đồ thị",
+    "auto.scan": "Quét tất cả",
+    "auto.scan.busy": "Đang quét {done}/{total} · {current}",
+    "auto.scan.done": "Quét xong {total} combo",
+    "auto.scan.empty": "Chưa có dữ liệu quét — bấm “Quét tất cả” (backend sẽ giữ kết quả qua restart)",
+    "auto.universe": "Dữ liệu 10 ngày qua · lặp mỗi 8h (ATR + trending)",
+    "auto.universe.empty": "Chưa có xếp hạng — lần quét đầu đang chạy (dữ liệu 10 ngày qua, lặp lại mỗi 8h)…",
+    "auto.trainhist.title": "Lịch sử train (backend)",
+    "auto.trainhist.total": "đã lưu {n} lần",
+    "auto.trainhist.champ": "Bản tốt nhất của combo này — champion hiện tại",
+    "auto.trainhist.hint": "Champion–challenger: model mới chỉ được vào lệnh khi AUC ≥ champion − 0.02 — thua thì giữ model cũ, không quyết định theo ngẫu nhiên. Bấm 1 dòng để mở combo đó.",
+    "auto.bcast.pass": "đạt cổng",
+    "auto.bcast.hint": "Mỗi 5 phút mọi combo quét được chấm bằng MỘT hàm gate và lưu vào custom.db — Telegram chỉ đăng combo ✅ của bảng này; ❌ kèm lý do loại. Bấm 1 dòng để mở combo đó.",
+    "auto.noiseBand": "Khử nhiễu XGB: chỉ vào lệnh khi |P−0.5| ≥ {band} — model chưa quyết đoán = nhiễu",
+    "auto.scan.ago": "Quét lúc {time}",
+    "auto.best": "Tốt nhất",
+    "auto.best.flip": "model đã lật chiều",
+    "auto.best.flip.tip": "Tín hiệu tốt nhất hiện NGƯỢC phía lệnh đang mở trên cùng cặp/khung. Khi chế độ 🔄 Lật chiều tự động BẬT, engine sẽ đóng lệnh cũ (🔄) và mở lệnh ngược chiều ngay ở chu kỳ kế tiếp (5 phút/lần, LLM vẫn duyệt lệnh mới); khi TẮT, lệnh chạy đến SL/TP và DCA tự tắt vì model flipped.",
+    "auto.flip.title": "Lật chiều tự động",
+    "auto.flip.tip": "Thị trường luôn biến động — dự báo chỉ là dự báo. Lệnh đang mở mà scan mới (5 phút/lần) của CÙNG cặp/khung đảo chiều đủ tin cậy (đạt ngưỡng Điểm≥{s} · AUC≥{a} · ACC≥{c}% + ngoài dải nhiễu + không thoái hoá vs champion + không nến whale) → engine đóng lệnh cũ và mở lệnh ngược chiều NGAY chu kỳ đó, LLM Risk Officer vẫn duyệt lệnh mới. Tắt = giữ lệnh tới TP/SL.",
+    "auto.col.prob.tip": "Prob hiển thị THEO PHÍA: SHORT 57% = tin 57% giá giảm (P(up) gốc = 43%).",
+    "auto.col.pair": "Pair",
+    "auto.col.tf": "Khung",
+    "auto.col.side": "Hướng",
+    "auto.col.prob": "Prob",
+    "auto.col.auc": "AUC",
+    "auto.col.acc": "ACC",
+    "auto.col.score": "Điểm",
+    "auto.rank": "Xếp hạng (top {n})",
+    "auto.rank.hint": "Điểm = (AUC−0.5)×100 + (ACC−50) + tin cậy×15 — chỉ các dòng đạt ngưỡng mới được vào lệnh",
+    "auto.regress.tip": "Regress: lần train này AUC thấp hơn champion ({auc}) quá 0.02 — auto-trade bỏ qua combo cho tới khi train đạt lại",
+    "auto.chase.status": "Chống đuổi giá: đang chờ giá quay đầu",
+    "auto.pick": "Bấm vào một dòng để mở pair + khung đó trên đồ thị",
+    "auto.pos.open": "Auto dry-run",
+    "auto.pos.entry": "Entry",
+    "auto.pos.stake": "Stake",
+    "auto.pos.notional": "Notional",
+    "auto.pos.uroe": "ROE tạm thời",
+    "auto.pos.close": "Đóng lệnh",
+    "auto.pos.none": "Không có lệnh auto nào đang mở",
+    "kpi.paperLabel": "Vị trí ảo",
+    "kpi.autoLabel": "Auto position",
+    "kpi.paperTip": "Lệnh ảo UT Bot trên cặp đang xem — bộ giả lập độc lập với Auto dry-run",
+    "kpi.conflict": "Vị trí ảo {paper} vs Auto {auto} trên cùng cặp — hai bộ giả lập độc lập, KHÔNG phải lỗi",
+    "auto.capital.now": "Vốn hiện tại",
+    "auto.capital.start": "vốn gốc {n} USDT",
+    "auto.stats.trades": "{n} lệnh",
+    "auto.stats.win": "win {pct}%",
+    "auto.hist": "Lịch sử auto",
+    "auto.hist.empty": "Chưa có lệnh auto nào được ghi",
+    "auto.tg.ok": "Telegram đã kết nối",
+    "auto.tg.check": "Kiểm tra Telegram",
+    "auto.tg.none": "Chưa cấu hình token/kênh",
+    "auto.llm.checking": "LLM đang soát {pair} {tf}…",
+    "auto.llm.veto": "LLM chặn: {pair} {tf} — {reason}",
+    "auto.llm.down": "LLM không phản hồi — vào lệnh theo XGBoost",
+    "auto.llm.go": "DUYỆT",
+    "auto.llm.skip": "CHẶN",
+    "auto.whale.title": "Whale filter",
+    "auto.whale.tip": "Bỏ qua combo có nến khối lượng ≥4σ (quỹ/whale đang quét stop-loss) khi tự mở lệnh. Tắt nếu muốn tiếp tục giao dịch cả khi whale có biến động.",
+    "auto.bcast.title": "Tín hiệu 5p",
+    "auto.bcast.tip": "Quét toàn bộ watchlist mỗi 5 phút và gửi tin 'TOP coin tiềm năng' vào Telegram — chỉ chọn coin thuộc top-30 universe 8h (danh mục quét), đạt NGƯỠNG CHUNG Điểm≥{s} · AUC≥{a} · ACC≥{c}% (cùng bộ ba với vào lệnh + DCA) và Vol≥$7M · PL1≥5% (dưới ngưỡng là nhiễu, không gửi).",
+    "auto.bcast.none": "Không coin nào trong top-30 đạt ngưỡng chung Điểm≥{s} · AUC≥{a} · ACC≥{c}% (+ Vol≥$7M · PL1≥5%) — không gửi tin lần này",
+    "auto.tg.sent": "Đã gửi tin nhắn kiểm tra vào kênh",
+    "engine.queued": "⏳ Đang có job chạy — yêu cầu đã vào hàng đợi, chờ tới lượt",
+    "engine.queuedAt": "⏳ Đang chờ hàng đợi (vị trí #{n}) — job trước đang chạy trên backend",
+    "engine.submitFail": "Không gửi được lệnh tới backend engine — thử lại",
+    "engine.backend": "backend · {w} luồng",
+    "engine.backendTip": "Scan/train chạy trên server (worker_threads) — không cần tab mở. Nếu '1 luồng' = fallback tuần tự (thiếu bundle worker)",
+    "auto.tg.err": "Gửi Telegram lỗi: {detail}",
+    "auto.tg.busy": "Telegram đang quá tải / đường truyền tới Telegram bị chặn — đã thử lại 3 lần. Nếu lặp lại mãi: xem log server (dòng [telegram] … sẽ ghi rõ mã lỗi), hoặc dùng proxy Worker miễn phí 5 phút (DEPLOY.md §6b) rồi ghi URL Worker vào TELEGRAM_API_BASE trong .env.",
+    "auto.err.chat": "Bot chưa thấy kênh — hãy thêm bot của bạn làm quản trị viên của kênh rồi thử lại",
+    "auto.tg.help.title": "Kết nối bot với kênh",
+    "auto.tg.current": "Kênh: {id}",
+    "auto.tg.env.hint": "Cấu hình gọn trong .env trên server: TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (lệnh: sudo bash deploy/set-telegram-env.sh <token> <chat>) rồi restart app. Đổi token/kênh cũng làm đúng 1 chỗ đó — app chỉ gửi thông báo vào kênh này.",
+    "auto.cycle.next": "Chu kỳ kế tiếp sau {s}s",
+    "auto.cycle.nextH": "Chu kỳ kế tiếp sau {t}",
+    "auto.standby": "Bot đang chạy ở tab khác — tab này chỉ hiển thị, không train/quét/gửi tin",
+    "auto.opened": "Auto mở {side} {pair} {tf} @ {price}",
+    "auto.closed": "Auto đóng {pair} {tf} · ROE {pnl}%",
+    "auto.posOpenBlock": "Đang có lệnh auto mở — chỉ vào lệnh mới sau khi lệnh này chốt",
+    // ─── /stats — thống kê + đối chiếu logic (0.2.32) ──────────────────────
+    "stats.title": "Thống kê & đối chiếu logic",
+    "stats.sub": "Số liệu thật từ DB + engine — mỗi phần kèm cơ sở logic, kiểm tra tính nhất quán và độ tin cậy Wilson của con số",
+    "stats.refresh": "Làm mới",
+    "stats.updated": "Chốt số lúc",
+    "stats.ok": "nhất quán",
+    "stats.warn": "cần rà soát",
+    "stats.na": "không đối chiếu được",
+    "stats.basis": "Cơ sở logic",
+    "stats.consist": "Nhất quán với logic engine",
+    "stats.acc": "Chuẩn xác",
+    "stats.summary": "{ok} nhất quán · {warn} cần rà soát · {na} không đối chiếu được",
+    "stats.pick": "Cặp/khung (cho Sổ lệnh + Phân tích)",
+    "stats.pick.all": "Tất cả cặp",
+    "stats.journalNote": "0.2.52: tính Ở SERVER bằng đúng hàm papersFrom của app với thiết lập MẶC ĐỊNH (SL 6% / TP 3.2% / đòn 1 / gate tắt) trên cửa sổ 200 nến — 1 cặp lẫn “Tất cả cặp” đều qua /api/journal (trước 0.2.52: 500 nến, 1 cặp qua /api/view). Có thể khác thiết lập đang dùng trên trang chính của bạn nên KHÔNG đối chiếu 1-1 với Sổ lệnh trên trang chính được.",
+    "stats.journal.per": "Chi tiết theo từng cặp",
+    "stats.journal.perPair": "Cặp",
+    "stats.journal.perClosed": "Đóng",
+    "stats.journal.perWr": "WR",
+    "stats.journal.perNet": "Net ROE",
+    "stats.journal.perNote": "Sắp theo số lệnh đóng giảm dần — WR ≥ 50% màu xanh lục.",
+    "stats.journal.failed": "Bỏ qua (lỗi nến): {pairs}",
+    "stats.analysisAll": "Phân tích sâu tính trên nến của MỘT cặp — chọn một cặp cụ thể ở bộ chọn phía trên để xem.",
+    "open.strip.tip": "Bấm để mở cặp + khung của lệnh này trên đồ thị",
+    "stats.section.sessions": "Trading sessions — phiên giao dịch",
+    "stats.section.combo": "Win rate theo pair/TF",
+    "stats.section.universe": "Universe scan — 10 ngày · re-rank 8h (ATR + trending)",
+    "stats.section.auto": "Auto Trade — Dry-run",
+    "stats.section.dock": "Signal dock — quét gần nhất + cổng chất lượng",
+    "stats.section.open": "Open auto position — lệnh đang mở",
+    "stats.section.hist": "Auto history — sổ lệnh",
+    "stats.section.sg": "Suggestion history — đề xuất PHE",
+    "stats.section.journal": "Trade journal — sổ lệnh",
+    "stats.section.analysis": "Deep analysis — chỉ số kỹ thuật",
+    "stats.basis.sessions": "SESSIONS cố định theo khung giờ UTC trong market.ts (Sydney 21–06, Tokyo 00–09, London 07–16, New York 12–21). Model nhận biến phiên qua one-hot (sessionOneHot) khi train nên thống kê này là cùng hệ quy chiếu với model.",
+    "stats.basis.combo": "Từ bảng AutoTrade: lệnh ĐÃ ĐÓNG, thắng = ROE (pnlPct) > 0 — cùng định nghĩa comboStats của autotrade.ts hiển thị trên panel Auto. Kiểm chéo: đếm thắng bằng query count() độc lập rồi đối với tổng cộng tay theo combo.",
+    "stats.basis.universe": "Danh mục quét UNIVERSE cố định trong universe.ts; mỗi 8h chấm lại toàn bộ bằng 240 nến 1h (~10 ngày, nến đã đóng): điểm = 60% trend (EMA20/50 spread + vị trí Donchian 20 nến) + 40% ATR% (bão hoà 5%). Khớp đúng mô tả '10-day lookback · re-ranks every 8h (ATR + trending)'.",
+    "stats.basis.auto": "Bảng AutoTrade + cấu hình engine đã sync (cfg.on). Dry-run thuần mô phỏng — không có lệnh thật nào; vốn ảo $1000, mỗi lệnh sử dụng stakePct vốn. Số mẫu kinh nghiệm model nhận = lệnh đóng × LESSON_WEIGHT (8). Kiểm chéo: capitalBefore lệnh mở phải bằng capitalAfter lệnh đóng mới nhất.",
+    "stats.basis.dock": "Snapshot scan gần nhất của engine (v.scan). 'Ứng viên đạt cổng' đếm ĐÚNG bộ lọc auto-cycle: isTradeable (AUC≥minAuc ∧ ACC≥minAcc ∧ điểm≥minScore, ≠ NEUTRAL) + không regressed vs champion + ngoài dải nhiễu ±6%. Bcast 5m dùng CÙNG một thuật toán gate (bcast-gate.ts) cho panel và Telegram.",
+    "stats.basis.open": "Bảng AutoTrade status=open (một lệnh duy nhất tại mọi thời điểm — thiết kế engine). ROE tạm tính từ giá live Binance futures × đòn bẩy — cùng công thức closeTradeDirect dùng khi chốt lệnh.",
+    "stats.basis.hist": "Toàn bộ bảng AutoTrade. Mọi lệnh đều đi qua closeTradeDirect nên luôn có nhãn exitKind (tp/sl/flip/manual) — kiểm chéo: tổng theo nhãn phải bằng tổng lệnh đã đóng.",
+    "stats.basis.sg": "Bảng Suggestion: mỗi lượt train lưu một đề xuất; khi hết horizon thì chấm outcome = giá đi đúng phía bias (win) hay ngược phía (loss); flat (±0) loại khỏi hit-rate. Kiểm chéo: chấm lại TẤT CẢ bằng outcomeOf(entry, exit) — cùng hàm lúc ghi.",
+    "stats.basis.journal": "papersFrom chạy trên nến thật (/api/klines) + tín hiệu UT-Bot (signalsFrom): vào lệnh ở giá MỞ nến sau tín hiệu đạt gate, SL/TP đối chiếu trong biên nến (SL ưu tiên), lật chiều luôn đóng + mở ngược. Định nghĩa thắng giống KPI trang chính: ROE > 0 trên lệnh đã đóng.",
+    "stats.basis.analysis": "analyze() chỉ đọc nến ĐÃ ĐÓNG (không nhấp nháy giữa nến): trend = chồng EMA50/EMA200; RSI(14) Wilder; volRatio = khối lượng nến cuối / TB 20 nến; ATR% đối chiếu TB 50 nến; cấu trúc = phá/vẫn trong vùng swing high-low (pivot 5).",
+    "ai.dive.title": "Phân tích nguyên nhân gốc — LLM kiểm toán thống kê",
+    "ai.dive.hint": "Gửi TOÀN BỘ snapshot thống kê (/stats) tới Risk Officer: đối chiếu cơ sở logic từng phần với cách engine vận hành, chỉ ra mẫu quá nhỏ để tin, scan stale, mâu thuẫn số liệu và đề xuất hành động cụ thể.",
+    "ai.dive.run": "Phân tích nguyên nhân gốc",
+    "ai.dive.statsLink": "Xem bảng thống kê → /stats",
+    "ai.dive.hint2": "Phân tích tiếng Anh · thường 1–5 phút (7B CPU) — nền, không đụng engine.",
+    "ai.dive.busy": "LLM đang đọc số liệu…",
+    "ai.dive.ok": "xong",
+    "ai.dive.fail": "thất bại"
+};
+const en = {
+    "app.title": "Elliott Paper Trading",
+    "app.subtitle": "Paper trading on UT Bot signals + SMA gate",
+    "header.refresh": "Refresh",
+    "header.settings": "Settings",
+    "header.lang": "VI",
+    "header.updated": "Updated",
+    "header.loading": "Loading…",
+    "symbol.addPh": "PEPE / PEPEUSDT",
+    "symbol.add": "Add pair",
+    "symbol.remove": "Remove pair {sym}",
+    "chart.title": "Price chart",
+    "chart.legend.candles": "Candles",
+    "chart.legend.sma": "SMA",
+    "chart.legend.smaOff": "SMA (gate)",
+    "chart.legend.signals": "Signals",
+    "chart.legend.trades": "Trades",
+    "chart.line.entry": "ENTRY",
+    "chart.line.flipEntry": "FLIP",
+    "chart.line.sl": "SL",
+    "chart.line.tp": "TP",
+    "chart.mark.buy": "BUY",
+    "chart.mark.sell": "SELL",
+    "chart.mark.blocked": "gate blocked",
+    "chart.hint.pin": "Click a triangle to pin the signal",
+    "chart.hint.pinned": "Pinned — click another candle to switch, click again to unpin",
+    "chart.empty": "No data yet",
+    "dock.title": "Signal dock",
+    "dock.gate": "SMA gate",
+    "dock.gate.open": "Open",
+    "dock.gate.blocked": "Blocked",
+    "dock.gate.off": "Off",
+    "dock.gate.tip": "Directional gate: BUY needs a close ABOVE the SMA, SELL a close BELOW. Reversals are never blocked.",
+    "dock.gate.needAbove": "Waiting for a close ABOVE SMA {p} ({sma})",
+    "dock.gate.needBelow": "Waiting for a close BELOW SMA {p} ({sma})",
+    "dock.gate.dist": "price is {pct} from the gate",
+    "dock.gate.offBtn": "Disable SMA gate — enter now",
+    "dock.leverage": "Leverage",
+    "dock.latest": "Latest signal",
+    "dock.forming": "waiting for candle close",
+    "dock.confirmed": "confirmed",
+    "dock.entryPlan": "Entry plan",
+    "dock.row.entry": "Entry",
+    "dock.row.sl": "Stop loss",
+    "dock.row.tp": "Take profit",
+    "dock.row.flip": "Reversal exit",
+    "dock.nextOpen": "fills at the next candle open",
+    "dock.openPos": "Virtual position (simulated)",
+    "dock.pending": "Pending entry",
+    "dock.pendingNote": "will enter once the gate passes",
+    "dock.noSignal": "No signal on this timeframe yet",
+    "dock.flipBanner": "Reversal",
+    "dock.flipClose": "Close",
+    "dock.flipInto": "enter",
+    "dock.flipPnl": "Closed trade PnL",
+    "dock.uPnl": "Unrealized PnL",
+    "dock.flippedFrom": "opened by reversal of",
+    "dock.pinHint": "Pin a signal on the chart to see details",
+    "dock.pinnedAt": "Pinned signal",
+    "dock.unpin": "Unpin",
+    "dock.thatFlip": "Trade closed by reversal",
+    "dock.ut": "UT Bot",
+    "dock.ut.desc": "On → the UT Bot engine produces entry signals. Off → simulation pauses: no signals, no new trades.",
+    "dock.ut.tip": "Toggle the UT Bot engine — off pauses the simulation, no new trades",
+    "dock.ut.offNote": "UT Bot is OFF — entries are paused: the journal stays empty until you turn it back on.",
+    "strat.title": "Suggested strategies",
+    "strat.safe": "Safe",
+    "strat.safe.tip": "SMA 200 gate ON · SL 4% · TP 2% · slow ATR 3/14 — fewer trades, less noise",
+    "strat.balanced": "Balanced",
+    "strat.balanced.tip": "SMA gate off · SL 6% · TP 3.2% · ATR 2/10 — the default setup",
+    "strat.aggressive": "Aggressive",
+    "strat.aggressive.tip": "SMA 50 · SL 2% · TP 4% · fast ATR 1/7 — constant flips, short swings",
+    "strat.ai": "AI",
+    "strat.ai.tip": "Apply the XGBoost-tuned parameters trained on this pair/interval",
+    "strat.aiNone": "No AI suggestion yet — train XGBoost first",
+    "kpi.open": "Virtual",
+    "kpi.closed": "Closed",
+    "kpi.signals": "Signals (window)",
+    "kpi.total": "total {n}",
+    "kpi.signalsSub": "{lo} LONG · {sh} SHORT · {bl} waiting",
+    "kpi.signalsOff": "{lo} LONG · {sh} SHORT",
+    "kpi.flips": "Reversal trades",
+    "kpi.flipsSub": "wins {w} · losses {l} · {pnl}",
+    "kpi.winRate": "Win rate",
+    "kpi.winRateNote": "reversals included",
+    "kpi.breakdown": "TP {tp} · SL {sl} · flip {fw}/{fl}",
+    "kpi.netPnl": "Closed PnL",
+    "kpi.levNote": "leverage ×{lev}",
+    "kpi.flipCount": "{n} flip trades",
+    "journal.title": "Trade journal",
+    "journal.all": "All",
+    "journal.tp": "TP",
+    "journal.sl": "SL",
+    "journal.flip": "Flip",
+    "journal.openF": "Open",
+    "journal.col.side": "Side",
+    "journal.col.entry": "Entry",
+    "journal.col.exit": "Exit",
+    "journal.col.exitAt": "Exit at",
+    "journal.col.pnl": "PnL",
+    "journal.col.result": "Result",
+    "journal.csv": "Export CSV",
+    "journal.empty": "No trades yet — waiting for the first UT signal",
+    "journal.mobileEntry": "in {entry} · out {exit}",
+    "journal.mobileOpen": "open · in {entry}",
+    "journal.count": "{n} trades",
+    "result.tp": "TP",
+    "result.sl": "SL",
+    "result.flip": "Flip",
+    "result.liq": "Liquidated",
+    "result.open": "Open",
+    "settings.title": "Engine settings",
+    "settings.preset": "SL/TP preset",
+    "settings.presetWide": "Wide default — SL 6% · TP 3.2%",
+    "settings.presetPine": "Original Pine — SL 1.5% · TP 3%",
+    "settings.presetCustom": "Custom",
+    "settings.sl": "Stop loss %",
+    "settings.tp": "Take profit %",
+    "settings.leverage": "Leverage (1–125x)",
+    "settings.smaFilter": "SMA gate",
+    "settings.smaFilterDesc": "On → entries follow the SMA side only. Off → every signal trades immediately.",
+    "settings.atrKey": "ATR key value",
+    "settings.atrPeriod": "ATR period",
+    "settings.smaPeriod": "SMA gate (candles)",
+    "settings.apply": "Apply",
+    "settings.note": "SL/TP are price distances — ROE = price move × leverage, liquidation estimated at ~100%/leverage loss. A reversal always closes the old trade AND opens the new one; the SMA gate only blocks fresh entries when flat.",
+    "settings.language": "Language",
+    "settings.lang.en": "English",
+    "settings.lang.vi": "Tiếng Việt",
+    "stats.j.trades": "Trades (200 candles)",
+    "stats.j.flips": "Reversals",
+    "stats.j.net": "Net ROE sum",
+    "pulse.title": "Market pulse",
+    "pulse.fg": "Fear & Greed",
+    "pulse.fg.note": "Alternative.me index (volatility, volume, social, surveys, dominance, trends).",
+    "pulse.phase": "Cycle phase",
+    "pulse.phase.capitulation": "Capitulation",
+    "pulse.phase.fear": "Fear / accumulation",
+    "pulse.phase.neutral": "Neutral",
+    "pulse.phase.greed": "Greed / expansion",
+    "pulse.phase.euphoria": "Euphoria / distribution risk",
+    "pulse.btcDom": "BTC dominance",
+    "pulse.mcap": "Total market cap",
+    "pulse.vol": "24h volume",
+    "pulse.fromAth": "Mcap vs ATH",
+    "pulse.deriv": "Derivatives",
+    "pulse.longShort": "Accounts L/S",
+    "pulse.topLong": "Top traders long",
+    "pulse.oi": "Open interest",
+    "pulse.funding": "Funding rate",
+    "pulse.deriv.note": "Binance USDT-M snapshot — crowded longs + high funding often precede liquidations.",
+    "pulse.note": "Sentiment & cycle context for session timing. Not a trade signal.",
+    "toast.newEntry": "New {sym} {side} — in @{price}",
+    "toast.flip": "Reversal {sym} {from} → {to} — closed @{exit} ({pnl}) · in @{entry}",
+    "toast.badPair": "Pair {sym} not found on Binance Futures (USDT-M)",
+    "toast.pairReplaced": "List full — replaced {old} with {sym}",
+    "toast.refreshed": "Data refreshed",
+    "toast.error": "Failed to load Binance data",
+    "toast.xgbDone": "XGBoost trained — Acc {acc}% · AUC {auc}",
+    "toast.xgbFail": "XGBoost training failed — try again",
+    // ─── XGBoost panel ───
+    "xgb.title": "XGBoost Tuner",
+    "xgb.subtitle": "Gradient-boosted trees for direction + parameter tuning",
+    "xgb.desc": "Trains a gradient boosting model on the latest {n} candles of this pair/interval, scores 13 features (RSI, ATR, SMA, volume, UT trend…) and suggests direction + strategy parameters.",
+    "xgb.train": "Train model",
+    "xgb.retrain": "Retrain",
+    "xgb.training": "Training… {p}%",
+    "xgb.needData": "Needs at least ~200 candles of data",
+    "xgb.acc": "Accuracy",
+    "xgb.trees": "Trees",
+    "xgb.samples": "Train/val samples",
+    "xgb.importance": "Feature importance",
+    "xgb.cal": "Prob reliability (Platt)",
+    "xgb.cal.tip": "Bar: ACTUAL win rate per prob bucket on the val split. Teal tick: the prob the model predicts. A tick far from its bar = the prob is miscalibrated in that bucket (measured before/after Platt calibration by ECE).",
+    "xgb.suggest": "Strategy suggestion",
+    "xgb.bias": "Bias",
+    "xgb.bias.long": "LONG",
+    "xgb.bias.short": "SHORT",
+    "xgb.bias.neutral": "Neutral",
+    "xgb.prob": "P(up)",
+    "xgb.sug.sl": "Suggested SL",
+    "xgb.sug.tp": "Suggested TP",
+    "xgb.sug.ut": "UT Bot (key/ATR)",
+    "xgb.apply": "Apply suggestion",
+    "xgb.applyBest": "🏆 Use best run (ACC {acc}% · AUC {auc})",
+    "xgb.applyBest.tip": "Pick the best-ever train of this pair + timeframe (by AUC → ACC) and load its SL/TP/ATR levels — no longer dependent on the randomness of the latest run",
+    "xgb.applyBest.busy": "Applying best run…",
+    "xgb.applyBest.none": "No suggestion saved for this combo yet",
+    "xgb.applyBest.done": "Best run applied — ACC {acc}% · AUC {auc}",
+    "xgb.champ": "Champion — this combo's best train run (highest AUC)",
+    "xgb.applied": "XGBoost-tuned parameters applied",
+    "xgb.stale": "Model was trained on another pair/interval — retrain for this one.",
+    "xgb.diff": "Difficulty",
+    "xgb.diff.tip": "Each retrain predicts further ahead (+1 bar per 2 levels) and adds a +5%/level noise margin — flat bars are dropped so only decisive moves are learned (max Lv12)",
+    "xgb.disclaimer": "The model runs fully in your browser on recent data — informational only, not investment advice.",
+    "xgb.trainAll": "Train all ({n} pairs × {m} TFs)",
+    "xgb.trainAll.tip": "One click: train + persist every watched pair × every timeframe — difficulty grows per combo, the result is posted to your Telegram channel",
+    "xgb.trainAll.busy": "{done}/{total} · {current}",
+    "xgb.trainAll.workers": "· {w} threads",
+    "xgb.trainAll.done": "Train-all finished — {saved}/{total} combos saved",
+    "xgb.trainAll.last": "Last pass: {saved}/{total} combos saved",
+    "xgb.history.sub": "Every training run is stored per pair + interval + time",
+    "xgb.history.empty": "No training runs for this pair/interval yet",
+    "xgb.kind.train": "Train",
+    "xgb.kind.finetune": "Fine-tune",
+    "xgb.run.applied": "applied",
+    "sg.title": "Suggestion history",
+    "sg.subtitle": "XGBoost suggestions stored per time · per pair — outcomes auto-scored once the horizon expires",
+    "sl.title": "Strategy Lab — A/B strategies",
+    "sl.subtitle": "The server builds candidates (baseline + SL/TP·UT·SMA grid + feature-gain driven variants), backtests every one with the real paper engine on 500 real candles and ranks by ROE per trade.",
+    "sl.generate": "Generate & score",
+    "sl.generating": "Backtesting…",
+    "sl.count": "{n} variants",
+    "sl.empty": "No candidates for {sym} {itv} yet — hit “Generate & score”. Train the model first to get feature-driven variants.",
+    "sl.error": "Generate failed — check Binance connectivity / server log.",
+    "sl.col.rank": "#",
+    "sl.col.name": "Variant",
+    "sl.col.config": "SL/TP · UT · Gate",
+    "sl.col.result": "Trades · Win · ROE/trade",
+    "sl.col.action": "Apply",
+    "sl.baseline": "Base",
+    "sl.baselineNote": "Baseline (current cfg) accumulated {v}% ROE over the backtest window — only apply a variant that beats it clearly.",
+    "sl.featureTag": "lead feature: {f}",
+    "sl.apply": "Apply",
+    "sl.applied": "applied",
+    "sl.applyToast": "Applied “{name}”: SL {sl}% / TP {tp}% · UT {key}·{period}",
+    "sl.maxDd": "DD {v}%",
+    "sl.avgWin": "avg win {v}%",
+    "sl.avgLoss": "avg loss {v}%",
+    "sl.note": "Runs in the background after every train (max once per 12h per pair). Numbers are paper backtests — the past does not guarantee the future; only apply variants that beat the baseline with enough trades.",
+    "ai.dive.history": "Saved analysis history",
+    "ai.dive.history.empty": "No saved analyses yet — every “Root-cause dive” (even a failed one) will be stored here so you can track how conclusions change over time.",
+    "ai.dive.history.show": "Show {n} saved reports",
+    "ai.dive.history.hide": "Hide history",
+    "ai.dive.history.fail": "LLM failed",
+    "tabs.lab": "Lab",
+    "sg.col.time": "Time",
+    "sg.col.pair": "Pair",
+    "sg.col.bias": "Bias",
+    "sg.col.prob": "P(up)",
+    "sg.col.sltp": "SL / TP",
+    "sg.col.ut": "UT Bot",
+    "sg.col.result": "Outcome",
+    "sg.scope.pair": "This pair",
+    "sg.scope.all": "All pairs",
+    "sg.filter.all": "All",
+    "sg.filter.pending": "Pending",
+    "sg.filter.win": "Hit",
+    "sg.filter.loss": "Miss",
+    "sg.filter.flat": "Flat",
+    "sg.filter.empty": "No suggestions match this filter",
+    "sg.outcome.win": "Right call",
+    "sg.outcome.loss": "Wrong call",
+    "sg.outcome.flat": "Flat",
+    "sg.outcome.pending": "Pending",
+    "sg.winrate": "{pct} right",
+    "sg.scored": "{n} scored",
+    "sg.pending": "{n} pending",
+    "sg.appliedN": "{n} applied",
+    "sg.count": "{n} suggestions",
+    "sg.empty": "No suggestions yet — train XGBoost to save the first one",
+    "sg.saved": "Suggestion saved to database",
+    "sg.saveFail": "Database save failed — suggestion kept for this session only",
+    "sg.appliedBadge": "Applied",
+    "sg.horizonAt": "scored after {n} bars",
+    "sg.export": "Export CSV",
+    "sg.export.empty": "Nothing to export",
+    "error.title": "Data loading error",
+    "error.retry": "Retry",
+    "footer.note": "Public Binance Futures (USDT-M) data · Paper-trading simulation — not investment advice.",
+    "ui.showExtra": "Show extra areas (Watchlist · Sessions · Context)",
+    "ui.hideExtra": "Hide extra areas",
+    "analysis.title": "Deep analysis",
+    "analysis.note": "readings from the last closed candle",
+    "analysis.pies.title": "Strategy potential",
+    "analysis.pies.sub": "Paper simulation on {n} candles · {lev}x leverage",
+    "analysis.pies.trades": "{n} closed",
+    "analysis.pies.empty": "No closed trades",
+    "analysis.pies.tp": "Take profit",
+    "analysis.pies.sl": "Stop loss",
+    "analysis.pies.liq": "Liquidated",
+    "analysis.pies.flip": "Reversal",
+    "analysis.trend": "Trend (EMA)",
+    "analysis.trend.up": "Bullish",
+    "analysis.trend.down": "Bearish",
+    "analysis.trend.neutral": "Neutral",
+    "analysis.rsi": "RSI (14)",
+    "analysis.rsi.ob": "Overbought",
+    "analysis.rsi.os": "Oversold",
+    "analysis.rsi.neutral": "Neutral",
+    "analysis.vol": "Volume",
+    "analysis.vol.low": "Low",
+    "analysis.vol.normal": "Normal",
+    "analysis.vol.high": "High",
+    "analysis.atr": "ATR (range)",
+    "analysis.atr.low": "Below usual",
+    "analysis.atr.high": "Above usual",
+    "analysis.atr.normal": "About usual",
+    "analysis.structure": "Range structure",
+    "analysis.structure.breakout": "Breakout",
+    "analysis.structure.inside": "In range",
+    "analysis.structure.breakdown": "Breakdown",
+    "analysis.hi": "High",
+    "analysis.lo": "Low",
+    "common.price": "Price",
+    "common.time": "Time",
+    "wy.title": "Wyckoff Schematic",
+    "wy.subtitle": "Automatic Accumulation / Distribution detection",
+    "wy.off": "Off — enable it in Settings",
+    "wy.structure": "Structure",
+    "wy.none": "No active structure",
+    "wy.rsi": "RSI (14)",
+    "wy.rsi.os": "Oversold",
+    "wy.rsi.ob": "Overbought",
+    "wy.rsi.neutral": "Neutral",
+    "wy.vol": "Volume",
+    "wy.vol.climax": "CLIMAX",
+    "wy.vol.high": "High",
+    "wy.vol.low": "Low",
+    "wy.vol.normal": "Normal",
+    "wy.trend": "Trend (EMA)",
+    "wy.trend.bull": "Bullish (EMA)",
+    "wy.trend.bear": "Bearish (EMA)",
+    "wy.events": "Recent events",
+    "wy.noEvents": "No events on this timeframe yet",
+    "wy.eventsHint": "SC/AR/ST/Spring/SOS/LPS = accumulation · BC/AR/ST/UT/SOW/LPSY = distribution · box = trading range",
+    "wy.mode": "Mode",
+    "wy.modeAuto": "Auto (per timeframe)",
+    "wy.modeManual": "Manual",
+    "wy.speed": "Pivot speed",
+    "wy.speedAuto": "Auto-TF",
+    "wy.speedFast": "Fast",
+    "wy.speedNormal": "Normal",
+    "wy.speedSafe": "Safe",
+    "wy.sens": "RSI sensitivity (5–45)",
+    "wy.phaseC": "Require Spring/UT before SOS/SOW",
+    "wy.phaseCDesc": "Off → SOS/SOW may follow ST directly",
+    "wy.showOnChart": "Show on chart",
+    "wy.showOnChartDesc": "Event labels, TR boxes, bar coloring, EMA50/200 and orange pivots",
+    "chart.legend.wyckoff": "Wyckoff",
+    "chart.legend.wyacc": "Accumulation",
+    "chart.legend.wydist": "Distribution",
+    "chart.legend.wyphc": "Phase C",
+    "chart.legend.wypivot": "Pivot",
+    "chart.legend.wyema": "EMA 50/200",
+    "toast.wyckoff": "Wyckoff: {event} — {sym} · {itv}",
+    "ticker.aria": "Live pair prices",
+    "watch.title": "Watchlist",
+    "watch.cap": "{n}/{m}",
+    "watch.empty": "No pairs yet",
+    "watch.wait": "WAIT",
+    "watch.loading": "…",
+    "watch.add": "Add pair",
+    "watch.remove": "Remove {sym}",
+    "watch.hint": "Click a pair to open its chart — mini data follows the current timeframe",
+    "sess.title": "Sessions",
+    "sess.in": "opens in {t}",
+    "sess.utc": "UTC",
+    "sess.open": "open",
+    "sess.closed": "closed",
+    "sess.sydney": "Sydney",
+    "sess.tokyo": "Tokyo",
+    "sess.london": "London",
+    "sess.newyork": "New York",
+    "sess.bull": "Bull {p}% · drift {d}%",
+    "sess.nodata": "No candles in this session yet",
+    "sess.note": "Bull % / drift from closed candles in the data window (UTC open hour)",
+    "sess.forecast.title": "Session forecast",
+    "sess.forecast.next": "Next: {sess} — opens in {in} —",
+    "sess.forecast.lean": "lean {dir} · P≈{p}% ({n} historical candles)",
+    "sess.forecast.best": "History: {hi} strongest ({hip}% up candles) · {lo} weakest ({lop}%)",
+    "sess.forecast.note": "P(↑) = share of that session's candles closing up in the data window — historical statistics, not a guarantee. The XGBoost model also received 6 session/hour features to learn per-pair session effects.",
+    "sess.cycle.title": "Calendar cycles — 1d candles · {days} days",
+    "sess.cycle.next": "{dow} ({in}) · {n} historical days:",
+    "sess.cycle.dir": "Direction: {dir} {p}%",
+    "sess.cycle.vol": "Volume: {vol} {p}%",
+    "sess.cycle.volFlat": "Volume: flat",
+    "sess.cycle.special": "{label} (n={n}): direction {dir} {p}% · volume {vol} {vp}%",
+    "sess.cycle.extremes": "Strongest day: {hi} ({hip}%) · weakest: {lo} ({lop}%)",
+    "sess.cycle.note": "Historical frequencies by weekday / month start–end / quarter end from BTCUSDT daily candles (UTC) — reference statistics, not a guarantee.",
+    "dow.0": "Sunday",
+    "dow.1": "Monday",
+    "dow.2": "Tuesday",
+    "dow.3": "Wednesday",
+    "dow.4": "Thursday",
+    "dow.5": "Friday",
+    "dow.6": "Saturday",
+    "cycle.monthStart": "Month start",
+    "cycle.monthEnd": "Month end",
+    "cycle.quarterEnd": "Quarter end",
+    "dir.up": "UP",
+    "dir.down": "DOWN",
+    "vol.up": "up",
+    "vol.down": "down",
+    "whale.title": "Whales — taker delta",
+    "whale.net": "Net delta {n} candles",
+    "whale.strongBuy": "strong buy",
+    "whale.strongSell": "strong sell",
+    "whale.last": "last candle",
+    "whale.none": "No taker volume data",
+    "whale.note": "Delta = taker buy − taker sell volume (>55% imbalance = strong)",
+    "equity.title": "Equity curve",
+    "equity.peak": "peak",
+    "equity.trough": "trough",
+    "equity.now": "now",
+    "equity.empty": "No closed trades yet — the curve appears after the first one",
+    "chart.legend.vp": "Volume by price",
+    "vp.buy": "taker buy",
+    "vp.sell": "taker sell",
+    "itv.5m": "5 min",
+    "itv.15m": "15 min",
+    "itv.30m": "30 min",
+    "itv.1h": "1 hour",
+    "itv.4h": "4 hours",
+    "itv.1d": "1 day",
+    "itv.1w": "1 week",
+    "header.live": "Live Binance",
+    "live.badge": "LIVE",
+    "live.off": "OFF",
+    "live.tip": "Live price — server follows Binance's kline websocket, current candle ticks in real time",
+    "live.tipPoll": "Live price (~2.5s poll) — server Node lacks WebSocket so it falls back to REST",
+    "live.offTip": "Live feed interrupted — reconnecting in a moment",
+    "ai.title": "AI & Settings",
+    "ai.sub": "How the model thinks, how much data it has learned from, and every system parameter",
+    "ai.back": "Back to dashboard",
+    "ai.refresh": "Refresh",
+    "ai.updated": "Updated",
+    "ai.layers.title": "Two AI layers in the app",
+    "ai.layers.xgb.t": "1 · XGBoost — price prediction (trained in-app)",
+    "ai.layers.xgb.d": "Trains itself on Binance candles per pair × timeframe: outputs Prob (probability of price going UP), bias LONG/SHORT, ATR-based SL/TP. Each retrain improves it (or is rejected if it regressed). This is the model that DECIDES to open trades.",
+    "ai.layers.llm.t": "2 · Qwen 7B (llama-server) — risk supervisor",
+    "ai.layers.llm.d": "A local language model reads the pending trade context (prob, R:R, timeframe, whale) and only VETOES or APPROVES — no price prediction, no retraining. It is the final 'risk officer' checkpoint.",
+    "ai.finetune.q": "Is llama-server (Qwen2.5-7B) used for finetuning?",
+    "ai.finetune.a": "NO. llama-server only runs inference for risk review. 'Finetune' in this app means XGBoost retraining itself on fresh candles + lessons from closed dry-run trades (champion–challenger: 4 hyper candidates compete, winner kept). Qwen never gets its weights tuned.",
+    "ai.data.title": "How much data has the AI learned?",
+    "ai.data.sub": "Every train/finetune run is persisted. samples = training rows (candles + lessons), val = out-of-sample check rows (pure candles, no lessons).",
+    "ai.data.lessons": "Dry-run experience: {closed} closed trades × {w} repeats in train = {n} lesson samples ({wins} wins)",
+    "ai.data.empty": "No persisted run in THIS server's DB yet — press Train on the dashboard. Note: train history is per DEPLOYMENT (localhost and elliott.huyenbao.com have separate DBs; git syncs code only).",
+    "ai.db.error": "Server DB read ERROR — not empty. Check pm2/systemd logs.",
+    "ai.build": "Build",
+    "ai.reliab.title": "Prob reliability — measured on REAL data",
+    "ai.reliab.sub": "Displayed prob vs realized win rate — not val-split accuracy (val is only ~100 pure-candle rows, so the Platt curve itself is noisy and optimistic).",
+    "ai.reliab.trades": "Closed dry-run trades",
+    "ai.reliab.phe": "PHE — scored suggestions",
+    "ai.reliab.bucket": "Prob (side-adjusted)",
+    "ai.reliab.n": "n",
+    "ai.reliab.wr": "Real win %",
+    "ai.reliab.empty": "Not enough real data yet — the table fills as trades close / PHE outcomes score.",
+    "ai.reliab.note": "Prob is flipped ALONG THE SIDE (SHORT → 1−p), so buckets merge both directions. Small samples (<30/bucket) are indicative only; this is the out-of-val calibration gauge.",
+    "ai.autopsy.title": "Trade autopsy — why wins, why losses",
+    "ai.autopsy.sub": "Every CLOSED paper trade (win AND loss) is dissected by the LLM on real candle paths (MFE/MAE/noise/R). Lessons are fed back into future reviews of the same pair — a closed learning loop.",
+    "ai.autopsy.count": "{n} trades dissected · {win}win/{loss}loss · 8 most recent:",
+    "ai.autopsy.empty": "No autopsies yet — they appear after the first paper trade closes (LLM timeout 300s each, runs in background).",
+    "ai.autopsy.lesson": "Lesson",
+    "ai.prob.title": "What is Prob — and how to read it?",
+    "ai.prob.d": "Raw prob = probability of price going UP (P up) from XGBoost on the validation split, Platt-calibrated for reliability against realized outcomes. Prob is displayed ALONG THE LEANED SIDE: SHORT Prob 79.9% means 79.9% confidence price goes DOWN (not 20.1% up).",
+    "ai.prob.warn": "Do not read prob as true win probability. Compare the reliability table RIGHT BELOW (computed on closed dry-run trades + scored PHE suggestions — not the val split): whatever win rate the 80%+ bucket really achieves is the honest expectation. High prob means the model is DECISIVE, not RIGHT.",
+    "ai.runs.title": "Train history (newest first)",
+    "ai.runs.pair": "Pair",
+    "ai.runs.kind": "Kind",
+    "ai.runs.samples": "Train/Val",
+    "ai.runs.metrics": "ACC / AUC / Logloss",
+    "ai.runs.hyper": "Winning hyper",
+    "ai.runs.at": "When",
+    "ai.champ.title": "Champion per pair × timeframe (best-ever AUC)",
+    "ai.champ.empty": "None yet",
+    "ai.llm.title": "LLM Risk Officer",
+    "ai.llm.setup": "LLM setup (Risk Officer)",
+    "ai.llm.url": "Endpoint URL",
+    "ai.llm.urlHint": "Badges only show local/remote — full URL is not public.",
+    "ai.llm.model": "Model name",
+    "ai.llm.timeout": "Timeout (seconds)",
+    "ai.llm.failClosedLabel": "Fail-CLOSED — block entries when LLM is down",
+    "ai.llm.save": "Update",
+    "ai.llm.saving": "Saving…",
+    "ai.llm.saveOk": "Synced to engine",
+    "ai.llm.saveFail": "Failed — check URL",
+    "ai.llm.saveNote": "Saves to engine + localStorage",
+    "sess.forecast.conf": "edge {p}%",
+    "sess.forecast.rule": "Rule: Bull < 40% → BEAR · Bull > 60% → BULL · else NEUTRAL (historical session stats, not a guarantee).",
+    "ai.llm.ok": "Connected",
+    "ai.llm.down": "NOT reachable",
+    "ai.llm.last": "Latest review",
+    "ai.llm.none": "No LLM review recorded yet.",
+    "tgboot.ok": "Telegram {bot} connected — trade alerts will arrive in this chat.",
+    "tgboot.fail": "Telegram connect failed — the link expired or was already used.",
+    "ai.evo.title": "Strategy self-evolution",
+    "ai.evo.sub": "The lab builds candidates from integrated data (feature importance + grid) and the LLM adds one more → backtests them on real candles with the engine's own algorithm → applies the winner → watches real paper trades → auto-reverts if worse than baseline.",
+    "ai.evo.off": "Evolution is OFF (EVOLVE_ON=0)",
+    "ai.evo.run": "Run one round now",
+    "ai.evo.running": "Running…",
+    "ai.evo.active": "Active",
+    "ai.evo.watch": "watching next {n}/{need} paper trades",
+    "ai.evo.none": "No evolution round yet — the first one runs 10 minutes after deploy.",
+    "ai.llm.failopen": "fail-open — LLM down → trade proceeds",
+    "ai.llm.failclosed": "fail-closed — LLM down → entry blocked",
+    "ai.champ.more": "Show all {{n}} combos",
+    "ai.champ.less": "Collapse — top 10 only",
+    "ai.llm.test": "Dry review (test)",
+    "ai.llm.test.hint": "Sends a simulated setup through the real review path — opens nothing.",
+    "ai.llm.test.busy": "calling llama-server (up to 300s — background model, no rush)…",
+    "ai.llm.test.fail": "no verdict",
+    "ai.llm.test.prompt": "Prompt sent:",
+    "ai.llm.test.raw": "Raw model response:",
+    "ai.llm.test.h404": "404 = the server is running an OLDER build (route not loaded). Re-deploy: git pull → npm run build → pm2 restart, then hard-refresh.",
+    "ai.llm.test.h404llm": "404 FROM the LLM server (not from the app): /v1/chat/completions doesn't exist on the configured LLM_URL. Is that port really llama.cpp's llama-server? (ollama/LM Studio/vLLM or a custom wrapper use different paths/ports — see the ↳ line below to identify it).",
+    "ai.knobs.title": "System parameters",
+    "ai.knobs.sub": "White input = edit right here (persisted to db/params-override.json, effective on the engine's next tick — no deploy needed). Locked = structural constant — change via repo → build → deploy only.",
+    "ai.knobs.edited": "edited",
+    "ai.knobs.reset": "Reset to default",
+    "ai.knobs.saved": "Saved — effective immediately",
+    "ai.knobs.invalid": "Value out of the allowed range",
+    "ai.knobs.fail": "Save failed",
+    "ai.knobs.loading": "Loading parameters…",
+    "ai.engine.title": "Live engine config",
+    "ai.engine.synced": "Config synced from browser",
+    "ai.engine.notsynced": "Not synced yet — press the button above or open the dashboard once to sync",
+    "ai.engine.idle": "Server engine is IDLE: it has never received a browser sync → no scan, no entries, no Telegram. The config below is the DEFAULT, NOT what the engine runs.",
+    "ai.engine.syncbtn": "Sync cfg from this browser",
+    "ai.engine.syncing": "Syncing…",
+    "ai.engine.syncok": "Synced — the engine now runs this browser's cfg ✓",
+    "ai.engine.syncfail": "Sync failed — retry",
+    "ai.engine.status": "Last cycle status",
+    "ai.engine.syncedAt": "Last sync",
+    "ai.workers": "XGB workers",
+    "header.clockVN": "VN",
+    "header.clockUTC": "UTC",
+    "chart.legend.stop": "UT stop",
+    "chart.legend.band": "SMA band",
+    "chart.legend.whale": "Whales",
+    "chart.zoom.in": "Zoom in",
+    "chart.zoom.out": "Zoom out",
+    "chart.zoom.latest": "Latest",
+    "chart.refresh": "Refresh chart",
+    "chart.candle.style": "Candle style",
+    "chart.candle.normal": "Normal candles",
+    "chart.candle.neon": "Neon candles",
+    "chart.candle.toNormal": "Switch to normal candles — green up, red down (also over Wyckoff-tinted stretches)",
+    "chart.candle.toNeon": "Switch to neon candles — hollow up-bodies, Wyckoff bar colors",
+    "chart.ohlc.high": "High",
+    "chart.ohlc.low": "Low",
+    "chart.ohlc.vol": "Vol",
+    "chart.hint.terminal": "drag to pan · wheel to zoom",
+    "tabs.equity": "Equity",
+    "tabs.journal": "Journal",
+    "tabs.suggest": "Suggestions",
+    "tabs.analysis": "Analysis",
+    "tabs.context": "Context",
+    "tabs.wyckoff": "Wyckoff",
+    "tabs.ai": "AI / XGB",
+    "rail.status": "Status",
+    "rail.wait": "WAIT",
+    "rail.phaseWait": "waiting for candle close",
+    "rail.context": "Context",
+    "rail.sessOpen": "Sessions open",
+    "rail.sessNone": "Between main sessions",
+    "rail.whaleNear": "Whales near price",
+    "rail.trendUp": "Uptrend (EMA50>EMA200)",
+    "rail.trendDown": "Downtrend (EMA50<EMA200)",
+    "kpi.openPnl": "Open PnL {pnl}",
+    "kpi.closedBase": "over {n} closed trades (reversals incl.)",
+    "kpi.openNewest": "newest {time}",
+    "kpi.netNote": "over {n} trades · fees excluded",
+    "kpi.flipsNote": "UT opposite: exit old trade + enter new one",
+    "auto.title": "Auto Trade — Dry-run",
+    "auto.sub": "Auto scans every pair × timeframe, picks the best setup and trades your chosen equity share — TP/SL derived from ATR per proposal, or set manually",
+    "auto.on": "Auto on",
+    "auto.off": "Off",
+    "auto.cfg.capital": "Virtual capital (USDT)",
+    "auto.cfg.risk": "Risk per trade",
+    "auto.cfg.lev": "Leverage",
+    "auto.cfg.levTip": "SL/TP are PRICE distances — they do NOT change with leverage. ROE = price% × leverage: ×10 turns a −0.5% price SL into −5% ROE and +0.7% price TP into +7% ROE; ×20 doubles that",
+    "auto.cfg.tpmode": "TP/SL source",
+    "auto.cfg.tpAtr": "ATR at entry",
+    "auto.cfg.tpAtrDesc": "SL = ATR% × factor · TP = SL × 1.4 — measured from the pair's live volatility right before entry: a quiet coin gets a tight stop, a hot coin a wide one. 1.5 is the classic ATR stop; the finetuner retrain picks the best factor per coin.",
+    "auto.cfg.tpAuto": "Scan-time levels",
+    "auto.cfg.tpManual": "Manual",
+    "auto.cfg.atrCoef": "ATR factor",
+    "auto.cfg.cycle": "Cycle",
+    "auto.cfg.tf": "Run TF",
+    "auto.cfg.tfTip": "Toggle which timeframes the engine runs — scan, train and entries only use the ENABLED ones; disabled ones are skipped entirely next round (faster training). Keep at least one on.",
+    "auto.cfg.floor": "Quality floor",
+    "auto.cfg.floorTip": "The ONE quality floor — a single triplet applied to EVERY layer: a model needs Score ≥ {s} · AUC ≥ {a} · ACC ≥ {c}% to OPEN a trade, to DCA-rescue it and to be broadcast. Lower = more trades but looser; higher = cleaner but rarer.",
+    "auto.cfg.floorAuc": "Model AUC floor",
+    "auto.cfg.floorAcc": "Model ACC floor (%)",
+    "auto.cfg.floorScore": "Model score floor",
+    "auto.cfg.cooldown": "Cooldown after SL",
+    "auto.cfg.cooldownUnit": "min",
+    "auto.cfg.cooldownOff": "Off",
+    "auto.cfg.dca": "DCA when losing",
+    "auto.cfg.dcaUnit": "add",
+    "auto.cfg.dcaOff": "Off",
+    "auto.cfg.dcaTip": "While price pushes against the position AND the model still confirms the original side: add one tranche of the same stake, average the entry, re-anchor SL/TP on the new average — instead of stopping out and re-entering at a worse price",
+    "auto.chase.guard": "Chase guard: a combo that just stopped out may only re-enter once price has crossed back through the old stop",
+    "auto.cooldown.all": "Every eligible combo is waiting out its post-stop-loss cooldown",
+    "auto.cfg.cycleUnit": "min",
+    "auto.cfg.stats": "TG reports",
+    "auto.cfg.statHourly": "Hourly",
+    "auto.cfg.statDaily": "Daily",
+    "auto.cfg.statNow": "Send now",
+    "auto.cfg.statNowTip": "Post a stats digest to the Telegram channel right away (last 24h + totals)",
+    "auto.near.tp": "Near TP: {pair} {tf} · ROE {roe}%",
+    "auto.near.sl": "Near SL: {pair} {tf} · ROE {roe}%",
+    "auto.combo.title": "Win rate by pair/TF",
+    "auto.combo.col.trades": "Trades",
+    "auto.combo.col.win": "Win",
+    "auto.combo.col.net": "Net ROE",
+    "auto.combo.hint": "Aggregated from the whole closed auto history — click a row to open that pair + TF on the chart",
+    "auto.scan": "Scan all",
+    "auto.scan.busy": "Scanning {done}/{total} · {current}",
+    "auto.scan.done": "Scanned {total} combos",
+    "auto.scan.empty": "No scan data yet — hit “Scan all” (the backend keeps results across restarts)",
+    "auto.universe": "Universe scan — 10-day lookback · re-ranks every 8h (ATR + trending)",
+    "auto.universe.empty": "No ranking yet — first scan running (10-day lookback, repeats every 8h)…",
+    "auto.trainhist.title": "Train history (backend)",
+    "auto.trainhist.total": "{n} runs saved",
+    "auto.trainhist.champ": "Best run of this combo — current champion",
+    "auto.trainhist.hint": "Champion–challenger: a fresh model only trades when its AUC ≥ champion − 0.02 — otherwise the old one stays (no randomness in the decision). Click a row to open that combo.",
+    "auto.bcast.pass": "pass gate",
+    "auto.bcast.hint": "Every 5 min every scan combo is scored by ONE gate function and stored in custom.db — Telegram only posts the ✅ rows of this table; ❌ shows the rejection reason. Click a row to open that combo.",
+    "auto.noiseBand": "XGB denoiser: enter only when |P−0.5| ≥ {band} — undecided model = noise",
+    "auto.scan.ago": "Scanned at {time}",
+    "auto.best": "Best",
+    "auto.best.flip": "model flipped",
+    "auto.best.flip.tip": "The best signal now points AGAINST your open position on the same pair/timeframe. With the 🔄 Auto-flip toggle ON, the engine closes the old trade and opens the reverse one on the next cycle (5-min cadence, LLM still reviews the new trade); with it OFF, the trade runs to SL/TP and DCA is disabled while the model stays flipped.",
+    "auto.flip.title": "Auto-flip",
+    "auto.flip.tip": "Markets always move — a forecast is just a forecast. While a position is open, if the fresh scan (every 5 min) of the SAME pair/timeframe flips with a reliable signal (passes Score≥{s} · AUC≥{a} · ACC≥{c}% + outside the noise band + not regressed vs champion + no whale bar), the engine closes the old trade and opens the reverse one in that same cycle; the LLM Risk Officer still reviews the new trade. Off = hold to TP/SL.",
+    "auto.col.prob.tip": "Prob is shown ALONG THE SIDE: SHORT 57% = believes 57% down (raw P(up) = 43%).",
+    "auto.col.pair": "Pair",
+    "auto.col.tf": "TF",
+    "auto.col.side": "Side",
+    "auto.col.prob": "Prob",
+    "auto.col.auc": "AUC",
+    "auto.col.acc": "ACC",
+    "auto.col.score": "Score",
+    "auto.rank": "Ranking (top {n})",
+    "auto.rank.hint": "Score = (AUC−0.5)×100 + (ACC−50) + confidence×15 — only rows above thresholds are traded",
+    "auto.regress.tip": "Regressed: this train's AUC is >0.02 below the champion ({auc}) — auto-trade skips the combo until a train matches it again",
+    "auto.chase.status": "Chase guard waiting for price to reverse",
+    "auto.pick": "Click a row to open that pair + timeframe on the chart",
+    "auto.pos.open": "Auto dry-run",
+    "auto.pos.entry": "Entry",
+    "auto.pos.stake": "Stake",
+    "auto.pos.notional": "Notional",
+    "auto.pos.uroe": "Floating ROE",
+    "auto.pos.close": "Close",
+    "auto.pos.none": "No open auto position",
+    "kpi.paperLabel": "Virtual position",
+    "kpi.autoLabel": "Auto position",
+    "kpi.paperTip": "UT Bot virtual trade on the chart pair — an independent simulator, separate from the Auto dry-run",
+    "kpi.conflict": "Virtual {paper} vs Auto {auto} on the same pair — two independent simulators, NOT a bug",
+    "auto.capital.now": "Current capital",
+    "auto.capital.start": "base {n} USDT",
+    "auto.stats.trades": "{n} trades",
+    "auto.stats.win": "win {pct}%",
+    "auto.hist": "Auto history",
+    "auto.hist.empty": "No auto trades recorded yet",
+    "auto.tg.ok": "Telegram connected",
+    "auto.tg.check": "Test Telegram",
+    "auto.tg.none": "Token/channel not configured",
+    "auto.llm.checking": "LLM reviewing {pair} {tf}…",
+    "auto.llm.veto": "LLM veto: {pair} {tf} — {reason}",
+    "auto.llm.down": "LLM unreachable — entering per XGBoost",
+    "auto.llm.go": "PASS",
+    "auto.llm.skip": "VETO",
+    "auto.whale.title": "Whale filter",
+    "auto.whale.tip": "Skip combos whose last closed candle is a whale bar (≥4σ volume — funds sweeping stops). Turn off to trade through whale activity too.",
+    "auto.bcast.title": "5-min signals",
+    "auto.bcast.tip": "Scans the whole watchlist every 5 minutes and posts the 'TOP potential coins' digest to Telegram — top-30 universe pairs only, passing the SHARED floor Score≥{s} · AUC≥{a} · ACC≥{c}% (same triplet as entries + DCA) plus Vol≥$7M · PL1≥5% (below the gate is noise, nothing is sent).",
+    "auto.bcast.none": "No top-30 coin passed the shared floor Score≥{s} · AUC≥{a} · ACC≥{c}% (+ Vol≥$7M · PL1≥5%) — nothing sent this round",
+    "auto.tg.sent": "Test message sent to the channel",
+    "engine.queued": "⏳ A job is already running — your request joined the queue",
+    "engine.queuedAt": "⏳ Waiting in queue (position #{n}) — previous job still running on the backend",
+    "engine.submitFail": "Could not reach the backend engine — try again",
+    "engine.backend": "backend · {w} threads",
+    "engine.backendTip": "Scan/train run on the server (worker_threads) — no tab needed. '1 thread' = sequential fallback (worker bundle missing)",
+    "auto.tg.err": "Telegram error: {detail}",
+    "auto.tg.busy": "Telegram is overloaded / the network path to Telegram is blocked — retried 3×. If this keeps happening: check the server log (the [telegram] … line shows the exact error code), or deploy the free 5-min Cloudflare Worker proxy (DEPLOY.md §6b) and put its URL into TELEGRAM_API_BASE in .env.",
+    "auto.err.chat": "Bot cannot see the channel — add your bot as a channel admin, then retry",
+    "auto.tg.help.title": "Connect the bot to your channel",
+    "auto.tg.current": "Channel: {id}",
+    "auto.tg.env.hint": "Configure once in the server's .env: TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (run: sudo bash deploy/set-telegram-env.sh <token> <chat>) then restart. That single spot is also where you change the token/channel later — notifications only ever go to that channel.",
+    "auto.cycle.next": "Next cycle in {s}s",
+    "auto.cycle.nextH": "Next cycle in {t}",
+    "auto.standby": "Bot is running in another tab — this one is display-only (no training/scans/notifications)",
+    "auto.opened": "Auto opened {side} {pair} {tf} @ {price}",
+    "auto.closed": "Auto closed {pair} {tf} · ROE {pnl}%",
+    "auto.posOpenBlock": "An auto position is open — the next one waits until it settles",
+    // ─── /stats — statistics + logic audit (0.2.32) ──────────────────────────
+    "stats.title": "Statistics & logic audit",
+    "stats.sub": "Real numbers from DB + engine — each section with its logical basis, an automated consistency check and the Wilson confidence of the figure",
+    "stats.refresh": "Refresh",
+    "stats.updated": "Numbers taken at",
+    "stats.ok": "consistent",
+    "stats.warn": "needs review",
+    "stats.na": "cannot cross-check",
+    "stats.basis": "Logical basis",
+    "stats.consist": "Consistency with engine logic",
+    "stats.acc": "Confidence",
+    "stats.summary": "{ok} consistent · {warn} need review · {na} not cross-checkable",
+    "stats.pick": "Pair/TF (for Journal + Analysis)",
+    "stats.pick.all": "All pairs",
+    "stats.journalNote": "0.2.52: computed ON THE SERVER with the app's own papersFrom on DEFAULT settings (SL 6% / TP 3.2% / 1× leverage / gate off) over a 200-candle window — both single pair and “All pairs” via /api/journal (before 0.2.52: 500 candles, single pair via /api/view). May differ from the settings on your main page, so do NOT compare 1-1 with the main-page journal.",
+    "stats.journal.per": "Per-pair breakdown",
+    "stats.journal.perPair": "Pair",
+    "stats.journal.perClosed": "Closed",
+    "stats.journal.perWr": "WR",
+    "stats.journal.perNet": "Net ROE",
+    "stats.journal.perNote": "Sorted by closed trades, descending — WR ≥ 50% shown green.",
+    "stats.journal.failed": "Skipped (kline error): {pairs}",
+    "stats.analysisAll": "Deep analysis runs on ONE pair's candles — pick a specific pair in the selector above to view it.",
+    "open.strip.tip": "Click to open this position's pair + timeframe on the chart",
+    "stats.section.sessions": "Trading sessions",
+    "stats.section.combo": "Win rate by pair/TF",
+    "stats.section.universe": "Universe scan — 10-day lookback · re-ranks every 8h (ATR + trending)",
+    "stats.section.auto": "Auto Trade — Dry-run",
+    "stats.section.dock": "Signal dock — last scan + quality gate",
+    "stats.section.open": "Open auto position",
+    "stats.section.hist": "Auto history",
+    "stats.section.sg": "Suggestion history",
+    "stats.section.journal": "Trade journal",
+    "stats.section.analysis": "Deep analysis",
+    "stats.basis.sessions": "SESSIONS are fixed UTC hour ranges in market.ts (Sydney 21–06, Tokyo 00–09, London 07–16, New York 12–21). The model consumes them via one-hot encoding (sessionOneHot) at train time, so this statistic shares the model's frame of reference.",
+    "stats.basis.combo": "From AutoTrade: CLOSED trades only, a win = ROE (pnlPct) > 0 — the exact comboStats definition shown on the Auto panel. Cross-check: wins recounted via an independent count() query and compared with the per-combo sum.",
+    "stats.basis.universe": "Hardcoded UNIVERSE pool in universe.ts; every 8h the whole pool is re-scored over 240 1h candles (~10 days, closed only): score = 60% trend (EMA20/50 spread + 20-bar Donchian position) + 40% ATR% (saturating at 5%). Matches the advertised '10-day lookback · re-ranks every 8h (ATR + trending)'.",
+    "stats.basis.auto": "AutoTrade table + synced engine config (cfg.on). Dry-run is PAPER-ONLY — no real orders; virtual capital $1000, each trade stakes stakePct of it. Model lessons = closed trades × LESSON_WEIGHT (8). Cross-check: open trade's capitalBefore must equal the newest closed trade's capitalAfter.",
+    "stats.basis.dock": "The engine's latest scan snapshot (v.scan). 'Candidates' are counted with the EXACT auto-cycle filter: isTradeable (AUC≥minAuc ∧ ACC≥minAcc ∧ score≥minScore, ≠ NEUTRAL) + not regressed vs champion + outside the ±6% noise band. The 5m broadcast shares ONE gate algorithm (bcast-gate.ts) for panel and Telegram.",
+    "stats.basis.open": "AutoTrade rows with status=open (ONE position at any time — engine design). Live ROE = Binance futures last price × leverage — the same closeTradeDirect formula that settles the trade.",
+    "stats.basis.hist": "The whole AutoTrade table. Every close goes through closeTradeDirect, so exitKind (tp/sl/flip/manual) is always written — cross-check: label totals must equal total closed.",
+    "stats.basis.sg": "Suggestion table: one row per train; when the horizon elapses the outcome is scored as with-bias (win) vs against-bias (loss); flat (±0) is excluded from hit-rate. Cross-check: every outcome re-scored via outcomeOf(entry, exit) — the same function used when writing.",
+    "stats.basis.journal": "papersFrom runs on real candles (/api/klines) + UT-Bot signals (signalsFrom): entry at the OPEN of the candle after a gate-passing signal, SL/TP evaluated intrabar (SL first), reversal always closes + reopens. Win definition matches the main-page KPI: ROE > 0 on closed papers.",
+    "stats.basis.analysis": "analyze() reads CLOSED candles only (no mid-candle flicker): trend = EMA50/EMA200 stack; Wilder RSI(14); volRatio = last closed volume ÷ 20-candle mean; ATR% vs its 50-candle mean; structure = breakout/inside/breakdown of the pivot-5 swing range.",
+    "ai.dive.title": "Root-cause analysis",
+    "ai.dive.hint": "Sends the full /stats snapshot to the Risk Officer. Output is English-only: consistency, ranked risks, verdict, and up to 3 concrete parameter actions (gates, stake, TF).",
+    "ai.dive.run": "Root-cause dive",
+    "ai.dive.statsLink": "Open the stats page → /stats",
+    "ai.dive.hint2": "English RCA · often 1–5 min on 7B CPU — background only, never touches the engine.",
+    "ai.dive.busy": "LLM is reading the numbers…",
+    "ai.dive.ok": "done",
+    "ai.dive.fail": "failed"
+};
+const DICTS = {
+    vi,
+    en
+};
+function t(lang, key, vars) {
+    let s = DICTS[lang][key] ?? DICTS.vi[key] ?? key;
+    if (vars) {
+        for (const [k, v] of Object.entries(vars)){
+            s = s.replace(`{${k}}`, String(v));
+        }
+    }
+    return s;
+}
+function fmtPrice(n) {
+    const abs = Math.abs(n);
+    // dynamic precision so sub-cent pairs (PEPE, SHIB…) stay readable
+    const max = abs >= 100 ? 2 : abs >= 1 ? 4 : abs >= 0.01 ? 5 : abs >= 0.0001 ? 6 : 8;
+    return new Intl.NumberFormat("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: max
+    }).format(n);
+}
+function symbolLabel(sym) {
+    const base = sym.replace(/(USDT|USDC|FDUSD|TUSD|BUSD)$/i, "");
+    return base || sym;
+}
+function fmtPct(n) {
+    return `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
+}
+function fmtTime(t, lang) {
+    return new Date(t).toLocaleString(lang === "vi" ? "vi-VN" : "en-US", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+    });
+}
+if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
+    __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
+}
+}),
+"[project]/src/lib/types.ts [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+// ─── Core domain types for the UT paper-trading engine ──────────────────────
+__turbopack_context__.s([
+    "DEFAULT_SETTINGS",
+    ()=>DEFAULT_SETTINGS,
+    "DEFAULT_WYCKOFF",
+    ()=>DEFAULT_WYCKOFF,
+    "FUTURES_ALIASES",
+    ()=>FUTURES_ALIASES,
+    "INTERVALS",
+    ()=>INTERVALS,
+    "JOURNAL_KLINES",
+    ()=>JOURNAL_KLINES,
+    "KLINE_LIMIT",
+    ()=>KLINE_LIMIT,
+    "MAX_CUSTOM_PAIRS",
+    ()=>MAX_CUSTOM_PAIRS,
+    "MAX_LEVERAGE",
+    ()=>MAX_LEVERAGE,
+    "PRESET_AGGRESSIVE",
+    ()=>PRESET_AGGRESSIVE,
+    "PRESET_BALANCED",
+    ()=>PRESET_BALANCED,
+    "PRESET_PINE",
+    ()=>PRESET_PINE,
+    "PRESET_SAFE",
+    ()=>PRESET_SAFE,
+    "PRESET_WIDE",
+    ()=>PRESET_WIDE,
+    "STRATEGY_PRESETS",
+    ()=>STRATEGY_PRESETS,
+    "SYMBOLS",
+    ()=>SYMBOLS,
+    "aliasFuturesSymbol",
+    ()=>aliasFuturesSymbol,
+    "matchPreset",
+    ()=>matchPreset,
+    "migratePairsTo",
+    ()=>migratePairsTo,
+    "thousandVariant",
+    ()=>thousandVariant
+]);
+const DEFAULT_SETTINGS = {
+    slPct: 6,
+    tpPct: 3.2,
+    atrKey: 2,
+    atrPeriod: 10,
+    smaPeriod: 200,
+    leverage: 1,
+    smaFilter: false,
+    utOn: true
+};
+const PRESET_WIDE = {
+    slPct: 6,
+    tpPct: 3.2,
+    atrKey: 2,
+    atrPeriod: 10,
+    smaPeriod: 200,
+    leverage: 1,
+    smaFilter: false,
+    utOn: true
+};
+const PRESET_PINE = {
+    slPct: 1.5,
+    tpPct: 3,
+    atrKey: 2,
+    atrPeriod: 10,
+    smaPeriod: 200,
+    leverage: 1,
+    smaFilter: false,
+    utOn: true
+};
+const PRESET_SAFE = {
+    slPct: 4,
+    tpPct: 2,
+    atrKey: 3,
+    atrPeriod: 14,
+    smaPeriod: 200,
+    smaFilter: true,
+    utOn: true
+};
+const PRESET_BALANCED = {
+    slPct: 6,
+    tpPct: 3.2,
+    atrKey: 2,
+    atrPeriod: 10,
+    smaPeriod: 200,
+    smaFilter: false,
+    utOn: true
+};
+const PRESET_AGGRESSIVE = {
+    slPct: 2,
+    tpPct: 4,
+    atrKey: 1,
+    atrPeriod: 7,
+    smaPeriod: 50,
+    smaFilter: false,
+    utOn: true
+};
+const STRATEGY_PRESETS = [
+    {
+        key: "safe",
+        settings: PRESET_SAFE
+    },
+    {
+        key: "balanced",
+        settings: PRESET_BALANCED
+    },
+    {
+        key: "aggressive",
+        settings: PRESET_AGGRESSIVE
+    }
+];
+function matchPreset(s) {
+    for (const p of STRATEGY_PRESETS){
+        const v = p.settings;
+        if (s.slPct === v.slPct && s.tpPct === v.tpPct && s.atrKey === v.atrKey && s.atrPeriod === v.atrPeriod && s.smaPeriod === v.smaPeriod && s.smaFilter === v.smaFilter && s.utOn === v.utOn) {
+            return p.key;
+        }
+    }
+    return null;
+}
+const SYMBOLS = [
+    "BTCUSDT",
+    "ETHUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "SOLUSDT",
+    "TRXUSDT",
+    "ZECUSDT",
+    "DOGEUSDT",
+    "XMRUSDT",
+    "ADAUSDT",
+    "BCHUSDT"
+];
+const FUTURES_ALIASES = {
+    PEPEUSDT: "1000PEPEUSDT",
+    SHIBUSDT: "1000SHIBUSDT",
+    FLOKIUSDT: "1000FLOKIUSDT",
+    BONKUSDT: "1000BONKUSDT",
+    LUNCUSDT: "1000LUNCUSDT",
+    DAIUSDT: null,
+    TONUSDT: null
+};
+function aliasFuturesSymbol(symbol) {
+    const known = FUTURES_ALIASES[symbol];
+    if (known !== undefined) return known;
+    return symbol;
+}
+function thousandVariant(symbol) {
+    if (!/^[A-Z0-9]{5,20}USDT$/.test(symbol) || symbol.startsWith("1000")) return null;
+    const v = `1000${symbol}`;
+    return FUTURES_ALIASES[symbol] === undefined ? v : null; // table already decided
+}
+function migratePairsTo(pairList) {
+    const out = [];
+    for (const raw of pairList){
+        if (typeof raw !== "string" || !/^[A-Z0-9]{5,20}$/.test(raw)) continue;
+        const alias = aliasFuturesSymbol(raw);
+        if (alias == null) continue; // no perp — drop (DAIUSDT, TONUSDT…)
+        if (!out.includes(alias)) out.push(alias);
+    }
+    return out;
+}
+const INTERVALS = [
+    "1m",
+    "5m",
+    "15m",
+    "30m",
+    "1h",
+    "4h",
+    "1d",
+    "1w"
+];
+const KLINE_LIMIT = 500;
+const JOURNAL_KLINES = 200;
+const MAX_CUSTOM_PAIRS = 60;
+const MAX_LEVERAGE = 125;
+const DEFAULT_WYCKOFF = {
+    enabled: true,
+    mode: "auto",
+    speed: "auto-tf",
+    sens: 25,
+    reqPhaseC: true
+};
+if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
+    __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
+}
+}),
+"[project]/src/lib/indicators.ts [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "atr",
+    ()=>atr,
+    "atrLevelsAtEntry",
+    ()=>atrLevelsAtEntry,
+    "ema",
+    ()=>ema,
+    "macd",
+    ()=>macd,
+    "rsi",
+    ()=>rsi,
+    "sma",
+    ()=>sma,
+    "utTrail",
+    ()=>utTrail
+]);
+function sma(klines, period) {
+    const out = new Array(klines.length).fill(null);
+    let sum = 0;
+    for(let i = 0; i < klines.length; i++){
+        sum += klines[i].c;
+        if (i >= period) sum -= klines[i - period].c;
+        if (i >= period - 1) out[i] = sum / period;
+    }
+    return out;
+}
+function ema(klines, period) {
+    const out = new Array(klines.length).fill(null);
+    if (klines.length < period) return out;
+    let sum = 0;
+    for(let i = 0; i < period; i++)sum += klines[i].c;
+    let prev = sum / period;
+    out[period - 1] = prev;
+    const k = 2 / (period + 1);
+    for(let i = period; i < klines.length; i++){
+        prev = klines[i].c * k + prev * (1 - k);
+        out[i] = prev;
+    }
+    return out;
+}
+/** EMA over a raw number series (used by MACD), same seeding rule as ema(). */ function emaSeries(values, period) {
+    const out = new Array(values.length).fill(null);
+    if (values.length < period) return out;
+    let sum = 0;
+    for(let i = 0; i < period; i++)sum += values[i];
+    let prev = sum / period;
+    out[period - 1] = prev;
+    const k = 2 / (period + 1);
+    for(let i = period; i < values.length; i++){
+        prev = values[i] * k + prev * (1 - k);
+        out[i] = prev;
+    }
+    return out;
+}
+function macd(klines, fast = 12, slow = 26, signal = 9) {
+    const closes = klines.map((k)=>k.c);
+    const f = emaSeries(closes, fast);
+    const s = emaSeries(closes, slow);
+    const macdLine = klines.map((_, i)=>f[i] != null && s[i] != null ? f[i] - s[i] : null);
+    // signal EMA runs on the compacted macd series (nulls dropped, order kept)
+    const compact = macdLine.filter((x)=>x != null);
+    const sigCompact = emaSeries(compact, signal);
+    const sigLine = new Array(klines.length).fill(null);
+    let ci = 0;
+    for(let i = 0; i < klines.length; i++){
+        if (macdLine[i] == null) continue;
+        sigLine[i] = sigCompact[ci];
+        ci++;
+    }
+    const hist = klines.map((_, i)=>macdLine[i] != null && sigLine[i] != null ? macdLine[i] - sigLine[i] : null);
+    return {
+        macd: macdLine,
+        sig: sigLine,
+        hist
+    };
+}
+function rsi(klines, period) {
+    const out = new Array(klines.length).fill(null);
+    if (klines.length <= period) return out;
+    let gain = 0;
+    let loss = 0;
+    for(let i = 1; i <= period; i++){
+        const d = klines[i].c - klines[i - 1].c;
+        if (d >= 0) gain += d;
+        else loss -= d;
+    }
+    let avgG = gain / period;
+    let avgL = loss / period;
+    out[period] = avgL === 0 ? 100 : 100 - 100 / (1 + avgG / avgL);
+    for(let i = period + 1; i < klines.length; i++){
+        const d = klines[i].c - klines[i - 1].c;
+        const g = d > 0 ? d : 0;
+        const l = d < 0 ? -d : 0;
+        avgG = (avgG * (period - 1) + g) / period;
+        avgL = (avgL * (period - 1) + l) / period;
+        out[i] = avgL === 0 ? 100 : 100 - 100 / (1 + avgG / avgL);
+    }
+    return out;
+}
+function atr(klines, period) {
+    const out = new Array(klines.length).fill(null);
+    if (klines.length === 0) return out;
+    const tr = klines.map((k, i)=>i === 0 ? k.h - k.l : Math.max(k.h - k.l, Math.abs(k.h - klines[i - 1].c), Math.abs(k.l - klines[i - 1].c)));
+    let acc = 0;
+    for(let i = 0; i < klines.length; i++){
+        if (i < period) {
+            acc += tr[i];
+            if (i === period - 1) out[i] = acc / period;
+        } else {
+            const prev = out[i - 1];
+            out[i] = (prev * (period - 1) + tr[i]) / period;
+        }
+    }
+    return out;
+}
+function atrLevelsAtEntry(klines, coef = 1.5, tpRatio = 1.4) {
+    const arr = atr(klines, 14);
+    const i = klines.length - 2; // last CLOSED candle (final row may be forming)
+    const a = arr[i];
+    const close = klines[i]?.c ?? 0;
+    if (a == null || a <= 0 || !close) return null;
+    const atrPct = a / close * 100;
+    const clamp = (v, lo, hi)=>Math.min(hi, Math.max(lo, v));
+    const r1 = (v)=>Math.round(v * 10) / 10;
+    const slPct = r1(clamp(atrPct * coef, 0.3, 20));
+    const tpPct = r1(clamp(slPct * tpRatio, 0.4, 28));
+    return {
+        slPct,
+        tpPct,
+        atrPct
+    };
+}
+function utTrail(klines, key, period) {
+    const a = atr(klines, period);
+    const n = klines.length;
+    const stop = new Array(n).fill(null);
+    const trend = new Array(n).fill(0);
+    let prevStop = 0;
+    let prevTrend = 0;
+    let prevClose = 0;
+    for(let i = 0; i < n; i++){
+        const aVal = a[i];
+        if (aVal == null) continue;
+        const close = klines[i].c;
+        const loss = key * aVal;
+        if (prevTrend === 0) {
+            // seed
+            prevStop = close - loss;
+            prevTrend = 1;
+            prevClose = close;
+            stop[i] = prevStop;
+            trend[i] = prevTrend;
+            continue;
+        }
+        let s = prevStop;
+        let t = prevTrend;
+        if (t === 1) {
+            s = Math.max(prevStop, close - loss);
+            if (close < s) {
+                t = -1;
+                s = close + loss;
+            }
+        } else {
+            s = Math.min(prevStop, close + loss);
+            if (close > s) {
+                t = 1;
+                s = close - loss;
+            }
+        }
+        stop[i] = s;
+        trend[i] = t;
+        prevStop = s;
+        prevTrend = t;
+        prevClose = close;
+    }
+    void prevClose;
+    return {
+        stop,
+        trend
+    };
+}
+if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
+    __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
+}
+}),
+"[project]/src/lib/market.ts [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+// ─── Market context: sessions, whale (taker) delta, volume profile ───────────
+//
+// Pure helpers powering the Elliott-style panels:
+//  - "Phiên giao dịch"  → which global session is open + Bull% / drift per session
+//  - "Cá voi"           → net taker delta (buy volume − sell volume) recent candles
+//  - volume profile     → volume-by-price histogram with a taker buy/sell split
+//
+// Everything reads ONLY closed candles so values never flicker mid-candle.
+__turbopack_context__.s([
+    "SESSIONS",
+    ()=>SESSIONS,
+    "SESSION_ORDER",
+    ()=>SESSION_ORDER,
+    "calendarFlags",
+    ()=>calendarFlags,
+    "dowFeatures",
+    ()=>dowFeatures,
+    "fmtCompact",
+    ()=>fmtCompact,
+    "gmtLabel",
+    ()=>gmtLabel,
+    "hourFeatures",
+    ()=>hourFeatures,
+    "nextSessionOpen",
+    ()=>nextSessionOpen,
+    "sessionAge",
+    ()=>sessionAge,
+    "sessionBar",
+    ()=>sessionBar,
+    "sessionHours",
+    ()=>sessionHours,
+    "sessionHoursLocal",
+    ()=>sessionHoursLocal,
+    "sessionOf",
+    ()=>sessionOf,
+    "sessionOneHot",
+    ()=>sessionOneHot,
+    "sessionOverlap",
+    ()=>sessionOverlap,
+    "sessionStats",
+    ()=>sessionStats,
+    "volumeProfile",
+    ()=>volumeProfile,
+    "whaleDelta",
+    ()=>whaleDelta
+]);
+const SESSIONS = [
+    {
+        key: "sydney",
+        from: 21,
+        to: 6
+    },
+    {
+        key: "tokyo",
+        from: 0,
+        to: 9
+    },
+    {
+        key: "london",
+        from: 7,
+        to: 16
+    },
+    {
+        key: "newyork",
+        from: 12,
+        to: 21
+    }
+];
+const SESSION_ORDER = [
+    "sydney",
+    "tokyo",
+    "london",
+    "newyork"
+];
+const inRange = (h, from, to)=>from <= to ? h >= from && h < to : h >= from || h < to;
+function sessionOf(now) {
+    const h = new Date(now).getUTCHours();
+    return SESSIONS.filter((s)=>inRange(h, s.from, s.to)).map((s)=>s.key);
+}
+function sessionOneHot(t) {
+    const h = new Date(t).getUTCHours();
+    return SESSION_ORDER.map((key)=>{
+        const s = SESSIONS.find((d)=>d.key === key);
+        return s && inRange(h, s.from, s.to) ? 1 : 0;
+    });
+}
+function hourFeatures(t) {
+    const frac = (t / 60_000 % 1440 + 1440) % 1440 / 1440;
+    const a = 2 * Math.PI * frac;
+    return [
+        Math.sin(a),
+        Math.cos(a)
+    ];
+}
+function sessionOverlap(t) {
+    const h = new Date(t).getUTCHours();
+    const london = SESSIONS.find((s)=>s.key === "london");
+    const newyork = SESSIONS.find((s)=>s.key === "newyork");
+    const inLon = london && inRange(h, london.from, london.to);
+    const inNy = newyork && inRange(h, newyork.from, newyork.to);
+    return inLon && inNy ? 1 : 0;
+}
+function sessionAge(t) {
+    const d = new Date(t);
+    const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
+    const opens = SESSIONS.map((s)=>s.from * 60).sort((a, b)=>a - b);
+    let best = -1;
+    for (const o of opens)if (o <= mins) best = o;
+    const age = best >= 0 ? mins - best : mins + 1440 - opens[opens.length - 1];
+    return Math.min(1, age / 480);
+}
+function dowFeatures(t) {
+    const sun0 = new Date(t).getUTCDay();
+    const idx = (sun0 + 6) % 7; // Mon=0 … Sun=6
+    const a = 2 * Math.PI * (idx / 7);
+    return [
+        Math.sin(a),
+        Math.cos(a)
+    ];
+}
+function calendarFlags(t) {
+    const d = new Date(t);
+    const day = d.getUTCDate();
+    const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+    const domStart = day <= 3 ? 1 : 0;
+    const domEnd = last - day < 3 ? 1 : 0;
+    const qEnd = domEnd && d.getUTCMonth() % 3 === 2 ? 1 : 0; // Mar/Jun/Sep/Dec
+    return [
+        domStart,
+        domEnd,
+        qEnd
+    ];
+}
+function nextSessionOpen(now) {
+    const d = new Date(now);
+    const nowMin = d.getUTCHours() * 60 + d.getUTCMinutes();
+    let best = null;
+    for (const s of SESSIONS){
+        const start = s.from * 60;
+        const delta = (start - nowMin + 1440) % 1440 || 1440; // exactly on open → not "next" yet
+        if (inRange(d.getUTCHours(), s.from, s.to)) continue; // already open
+        if (!best || delta < best.inMin) best = {
+            key: s.key,
+            inMin: delta
+        };
+    }
+    return best;
+}
+function sessionBar(s) {
+    const span = s.from > s.to ? 24 - s.from + s.to : s.to - s.from;
+    return {
+        left: s.from / 24,
+        width: span / 24
+    };
+}
+const pad2 = (n)=>String(n).padStart(2, "0");
+function sessionHours(s) {
+    return `${pad2(s.from)}:00–${pad2(s.to)}:00`;
+}
+function sessionHoursLocal(s, tzOffsetMin) {
+    const shift = (h)=>{
+        const mins = ((h * 60 - tzOffsetMin) % 1440 + 1440) % 1440;
+        return `${pad2(Math.floor(mins / 60))}:00`;
+    };
+    return `${shift(s.from)}–${shift(s.to)}`;
+}
+function gmtLabel(tzOffsetMin) {
+    const abs = Math.abs(tzOffsetMin);
+    const h = Math.floor(abs / 60);
+    const m = abs % 60;
+    return `GMT${tzOffsetMin <= 0 ? "+" : "-"}${h}${m ? `:${pad2(m)}` : ""}`;
+}
+function sessionStats(klines) {
+    const lastClosed = klines.length - 2;
+    const acc = {
+        sydney: {
+            up: 0,
+            n: 0,
+            drift: 0
+        },
+        tokyo: {
+            up: 0,
+            n: 0,
+            drift: 0
+        },
+        london: {
+            up: 0,
+            n: 0,
+            drift: 0
+        },
+        newyork: {
+            up: 0,
+            n: 0,
+            drift: 0
+        }
+    };
+    for(let i = 0; i <= lastClosed; i++){
+        const k = klines[i];
+        const h = new Date(k.t).getUTCHours();
+        for (const s of SESSIONS){
+            if (!inRange(h, s.from, s.to)) continue;
+            const a = acc[s.key];
+            a.n++;
+            if (k.c > k.o) a.up++;
+            a.drift += k.o > 0 ? (k.c - k.o) / k.o * 100 : 0;
+        }
+    }
+    return SESSION_ORDER.map((key)=>{
+        const a = acc[key];
+        return {
+            key,
+            bullPct: a.n > 0 ? a.up / a.n * 100 : null,
+            driftPct: a.n > 0 ? a.drift / a.n : null,
+            candles: a.n
+        };
+    });
+}
+/** ±55% imbalance marks a "strong" one-sided candle. */ const STRONG = 0.55;
+function whaleDelta(klines, lookback = 20) {
+    const lastClosed = klines.length - 2;
+    if (lastClosed < 0) return null;
+    const from = Math.max(0, lastClosed - lookback + 1);
+    let net = 0;
+    let strongBuy = 0;
+    let strongSell = 0;
+    let n = 0;
+    for(let i = from; i <= lastClosed; i++){
+        const k = klines[i];
+        if (k.tb == null) return null; // no taker data → panel shows a hint instead
+        const delta = 2 * k.tb - k.v; // buy − sell
+        net += delta;
+        if (delta > STRONG * k.v) strongBuy += delta;
+        else if (delta < -STRONG * k.v) strongSell += -delta;
+        n++;
+    }
+    const lastK = klines[lastClosed];
+    return {
+        net,
+        strongBuy,
+        strongSell,
+        n,
+        last: lastK.tb != null ? 2 * lastK.tb - lastK.v : 0
+    };
+}
+function fmtCompact(n) {
+    const abs = Math.abs(n);
+    const sign = n < 0 ? "-" : "";
+    if (abs >= 1e9) return `${sign}${(abs / 1e9).toFixed(2)}B`;
+    if (abs >= 1e6) return `${sign}${(abs / 1e6).toFixed(2)}M`;
+    if (abs >= 1e3) return `${sign}${(abs / 1e3).toFixed(1)}K`;
+    if (Math.round(abs) === 0) return "0";
+    return `${sign}${Math.round(abs)}`;
+}
+function volumeProfile(klines, start, end, buckets = 26) {
+    let minP = Infinity;
+    let maxP = -Infinity;
+    for(let i = start; i <= end && i < klines.length; i++){
+        if (klines[i].l < minP) minP = klines[i].l;
+        if (klines[i].h > maxP) maxP = klines[i].h;
+    }
+    if (!isFinite(minP) || !isFinite(maxP) || maxP <= minP) return null;
+    const step = (maxP - minP) / buckets;
+    const rows = Array.from({
+        length: buckets
+    }, (_, b)=>({
+            low: minP + b * step,
+            mid: minP + (b + 0.5) * step,
+            high: minP + (b + 1) * step,
+            buy: 0,
+            sell: 0
+        }));
+    for(let i = start; i <= end && i < klines.length; i++){
+        const k = klines[i];
+        if (k.v <= 0) continue;
+        const b0 = Math.min(buckets - 1, Math.max(0, Math.floor((k.l - minP) / step)));
+        const b1 = Math.min(buckets - 1, Math.max(0, Math.floor((k.h - minP) / step)));
+        const per = k.v / (b1 - b0 + 1);
+        const buyRatio = k.tb != null && k.v > 0 ? Math.min(1, Math.max(0, k.tb / k.v)) : 0.5;
+        for(let b = b0; b <= b1; b++){
+            rows[b].buy += per * buyRatio;
+            rows[b].sell += per * (1 - buyRatio);
+        }
+    }
+    let max = 0;
+    let poc = rows[0]?.mid ?? minP;
+    for (const r of rows){
+        const tot = r.buy + r.sell;
+        if (tot > max) {
+            max = tot;
+            poc = r.mid;
+        }
+    }
+    if (max <= 0) return null;
+    return {
+        rows,
+        max,
+        poc,
+        minP,
+        maxP
+    };
+}
+if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
+    __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
+}
+}),
+"[project]/src/lib/papers.ts [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "kpiFrom",
+    ()=>kpiFrom,
+    "papersFrom",
+    ()=>papersFrom
+]);
+const sideOf = (dir)=>dir === "BUY" ? "LONG" : "SHORT";
+function papersFrom(klines, signals, smaArr, symbol, interval, slPct, tpPct, leverage = 1, smaFilter = true) {
+    const papers = [];
+    let open;
+    let pending;
+    const sigByIndex = new Map();
+    for (const s of signals)sigByIndex.set(s.i, s);
+    const last = klines.length - 1;
+    const gateOkAt = (side, index)=>{
+        if (!smaFilter) return true; // gate disabled → every entry passes
+        const smaVal = smaArr[index];
+        if (smaVal == null) return true; // insufficient SMA data must not block
+        const c = klines[index].c;
+        return side === "LONG" ? c > smaVal : c < smaVal;
+    };
+    const closeAt = (p, price, index, kind, liquidated = false)=>{
+        p.status = "closed";
+        p.exit = price;
+        p.exitIndex = index;
+        p.exitTime = klines[index].t;
+        p.exitKind = kind;
+        const pricePct = p.side === "LONG" ? (price - p.entry) / p.entry * 100 : (p.entry - price) / p.entry * 100;
+        p.pricePnlPct = pricePct;
+        if (liquidated) {
+            p.liquidated = true;
+            p.pnlPct = -100; // margin wiped
+        } else {
+            p.pnlPct = pricePct * p.leverage;
+        }
+        open = undefined;
+    };
+    const enterAt = (side, price, index, flippedFrom)=>{
+        const p = {
+            // entryTime is stable across the sliding 500-candle window, so ids survive refreshes
+            id: `${symbol}-${interval}-${side}-${klines[index].t}`,
+            symbol,
+            interval,
+            side,
+            entry: price,
+            entryTime: klines[index].t,
+            entryIndex: index,
+            leverage,
+            sl: side === "LONG" ? price * (1 - slPct / 100) : price * (1 + slPct / 100),
+            tp: side === "LONG" ? price * (1 + tpPct / 100) : price * (1 - tpPct / 100),
+            status: "open",
+            flippedFrom
+        };
+        papers.push(p);
+        open = p;
+        pending = undefined;
+        return p;
+    };
+    for(let i = 0; i < klines.length; i++){
+        const k = klines[i];
+        // A. Pending entry fires at the open of candle i when the PREVIOUS close
+        //    passed the gate for the pending side.
+        if (pending && !open && i > pending.signalIndex) {
+            if (gateOkAt(pending.side, i - 1)) {
+                enterAt(pending.side, k.o, i);
+            }
+        }
+        // B. Intrabar SL / liquidation / TP on the open position.
+        //    Adverse stop = the closer of SL and liquidation price (SL-first on ties).
+        if (open && open.entryIndex <= i) {
+            // isolated-margin estimate: liq at ~100%/leverage adverse move
+            const liqPrice = open.side === "LONG" ? open.entry * (1 - 1 / open.leverage) : open.entry * (1 + 1 / open.leverage);
+            if (open.side === "LONG") {
+                const stopLevel = Math.max(open.sl, liqPrice);
+                const isLiq = liqPrice > open.sl + 1e-12;
+                if (k.l <= stopLevel) closeAt(open, stopLevel, i, "sl", isLiq);
+                else if (k.h >= open.tp) closeAt(open, open.tp, i, "tp");
+            } else {
+                const stopLevel = Math.min(open.sl, liqPrice);
+                const isLiq = liqPrice < open.sl - 1e-12;
+                if (k.h >= stopLevel) closeAt(open, stopLevel, i, "sl", isLiq);
+                else if (k.l <= open.tp) closeAt(open, open.tp, i, "tp");
+            }
+        }
+        // C. Signal confirmed at the close of candle i (ignore the forming candle).
+        const sig = sigByIndex.get(i);
+        if (!sig || i >= last) continue;
+        const newSide = sideOf(sig.dir);
+        if (open && open.side !== newSide) {
+            // ── REVERSAL: ALWAYS close current position AND open the opposite entry.
+            //    The SMA gate never blocks a flip — only fresh entries are gated.
+            const old = open;
+            const flipIndex = i + 1;
+            const flipPrice = klines[flipIndex].o;
+            closeAt(old, flipPrice, flipIndex, "flip");
+            enterAt(newSide, flipPrice, flipIndex, old.id);
+        } else if (open) {
+        // same direction → pyramiding=0, ignore
+        } else if (pending && pending.side !== newSide) {
+            // direction changed while queued → replace the queued entry
+            pending = {
+                side: newSide,
+                signalIndex: i
+            };
+        } else if (pending) {
+            pending = {
+                ...pending,
+                signalIndex: i
+            };
+        } else if (gateOkAt(newSide, i)) {
+            enterAt(newSide, klines[i + 1].o, i + 1);
+        } else {
+            pending = {
+                side: newSide,
+                signalIndex: i
+            };
+        }
+    }
+    return {
+        papers,
+        open,
+        pending
+    };
+}
+function kpiFrom(papers) {
+    const closedPapers = papers.filter((p)=>p.status === "closed");
+    const flipPapers = closedPapers.filter((p)=>p.exitKind === "flip");
+    const wins = closedPapers.filter((p)=>(p.pnlPct ?? 0) > 0).length;
+    const flipWins = flipPapers.filter((p)=>(p.pnlPct ?? 0) > 0).length;
+    const tp = closedPapers.filter((p)=>p.exitKind === "tp").length;
+    const sl = closedPapers.filter((p)=>p.exitKind === "sl").length;
+    const flipNet = flipPapers.reduce((acc, p)=>acc + (p.pnlPct ?? 0), 0);
+    const net = closedPapers.reduce((acc, p)=>acc + (p.pnlPct ?? 0), 0);
+    return {
+        total: papers.length,
+        closed: closedPapers.length,
+        open: papers.length - closedPapers.length,
+        wins,
+        losses: closedPapers.length - wins,
+        winRate: closedPapers.length ? wins / closedPapers.length * 100 : 0,
+        tpCount: tp,
+        slCount: sl,
+        flipCount: flipPapers.length,
+        flipWins,
+        flipLosses: flipPapers.length - flipWins,
+        flipNetPnl: flipNet,
+        netPnl: net
+    };
+}
+if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
+    __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
+}
+}),
+"[project]/src/lib/signals.ts [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "signalsFrom",
+    ()=>signalsFrom
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$indicators$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/lib/indicators.ts [app-client] (ecmascript)");
+;
+function signalsFrom(klines, atrKey, atrPeriod, smaPeriod) {
+    const { stop, trend } = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$indicators$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["utTrail"])(klines, atrKey, atrPeriod);
+    const smaArr = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$indicators$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["sma"])(klines, smaPeriod);
+    const signals = [];
+    for(let i = 1; i < klines.length; i++){
+        if (trend[i - 1] === 0) continue;
+        const k = klines[i];
+        const smaVal = smaArr[i];
+        if (trend[i] === 1 && trend[i - 1] === -1) {
+            signals.push({
+                i,
+                t: k.t,
+                dir: "BUY",
+                // SMA unavailable (start of the window) must NOT block — in Pine the
+                // SMA is computed over full history, so a null here is an artifact
+                smaOk: smaVal == null || k.c > smaVal,
+                price: k.c
+            });
+        } else if (trend[i] === -1 && trend[i - 1] === 1) {
+            signals.push({
+                i,
+                t: k.t,
+                dir: "SELL",
+                smaOk: smaVal == null || k.c < smaVal,
+                price: k.c
+            });
+        }
+    }
+    return {
+        signals,
+        sma: smaArr,
+        stop,
+        trend
+    };
+}
+if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
+    __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
+}
+}),
+"[project]/src/lib/wyck-features.ts [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+// ─── Wyckoff Schematic → numeric model features (pure, NO lookahead) ─────────
+// "Khử nhiễu bằng XGBoost, chú trọng Wyckoff Schematic" — encoding of the
+// classic schematic as bounded per-bar numbers the XGBoost model can learn:
+//   • trading-range context      → wyRangePos / wyRangeW  (PS·SC·AR·ST territory)
+//   • Phase C events             → wySpring (Spring / Upthrust proxy, decays)
+//   • climactic action           → wyClimax (Selling/Buying Climax proxy, decays)
+//   • effort vs result           → wyEffort (big volume, tiny net move = absorption)
+//   • markup / markdown          → wyTrend  (EMA50 slope confirmed vs SMA100)
+// Every value is a pure function of bars ≤ i (rebuilding the past state the
+// schematic reader would have had at that bar) — test scripts assert the
+// no-lookahead property by mutating the future and expecting identical output.
+__turbopack_context__.s([
+    "wyckFeatureAt",
+    ()=>wyckFeatureAt
+]);
+/** event features decay over this many bars — a Spring "is Phase C" for a while */ const EVENT_DECAY = 8;
+/** rolling range window (bars) — the schematic's trading range */ const RANGE_WIN = 60;
+/** lookback for the Spring/Upthrust poke check */ const POKE_WIN = 20;
+/** climax threshold on volume z-score (matches the detector's climaxMult 1.5) */ const CLIMAX_Z = 1.5;
+/** a climax bar is WIDE: range ≥ 1.2 × ATR */ const CLIMAX_WIDE = 1.2;
+const clamp = (v, lo, hi)=>Math.min(hi, Math.max(lo, v));
+function wyckFeatureAt(k, i, ctx) {
+    const cur = k[i];
+    const c = cur.c;
+    // ── trading range over the last RANGE_WIN bars (inclusive of i) ──
+    let hi = -Infinity;
+    let lo = Infinity;
+    for(let j = Math.max(0, i - RANGE_WIN + 1); j <= i; j++){
+        if (k[j].h > hi) hi = k[j].h;
+        if (k[j].l < lo) lo = k[j].l;
+    }
+    const rng = hi - lo;
+    const rangePos = rng > 0 ? clamp((c - lo) / rng, 0, 1) : 0.5;
+    const rangeW = c > 0 ? rng / c : 0;
+    // ── climax + spring scanning the decay window (each past bar re-tested with
+    //    only ITS OWN past → stateless recomputation, no lookahead by design) ──
+    let climax = 0;
+    let spring = 0;
+    for(let j = Math.max(0, i - EVENT_DECAY + 1); j <= i; j++){
+        const w = 1 - (i - j) / EVENT_DECAY;
+        const a = ctx.atr14[j];
+        const vm = ctx.volMean[j];
+        const vs = ctx.volStd[j];
+        const volZ = vm != null && vs != null && vs > 0 ? (k[j].v - vm) / vs : 0;
+        const b = k[j];
+        const bRange = b.h - b.l;
+        const bDen = bRange > 0 ? bRange : b.c * 1e-9;
+        const clv = (b.c - b.l - (b.h - b.c)) / bDen; // +1 closes at high, −1 at low
+        // climax: loud + wide bar, signed by where it closed (SC down / BC up)
+        if (a != null && volZ >= CLIMAX_Z && bRange >= CLIMAX_WIDE * a) {
+            climax += w * clamp(clv, -1, 1);
+        }
+        // Phase C: poke outside the prior POKE_WIN range that FAILS to hold —
+        // low breaks down but close recovers inside (Spring, +) or high pokes up
+        // but close falls back (Upthrust, −)
+        if (j >= POKE_WIN) {
+            let pHi = -Infinity;
+            let pLo = Infinity;
+            for(let u = j - POKE_WIN; u < j; u++){
+                if (k[u].h > pHi) pHi = k[u].h;
+                if (k[u].l < pLo) pLo = k[u].l;
+            }
+            if (b.l < pLo && b.c > pLo) spring += w; // spring — accumulation Phase C
+            if (b.h > pHi && b.c < pHi) spring -= w; // upthrust — distribution Phase C
+        }
+    }
+    climax = clamp(climax, -1, 1);
+    spring = clamp(spring, -1, 1);
+    // ── effort vs result over the last 5 bars: loud aggregate volume that moves
+    //    price nowhere = absorption (signed by the net move's direction) ──
+    let zSum = 0;
+    let zN = 0;
+    for(let j = Math.max(0, i - 4); j <= i; j++){
+        const vm = ctx.volMean[j];
+        const vs = ctx.volStd[j];
+        if (vm != null && vs != null && vs > 0) {
+            zSum += (k[j].v - vm) / vs;
+            zN++;
+        }
+    }
+    const a = ctx.atr14[i];
+    const move5 = a != null && a > 0 && i >= 5 && k[i - 5].c > 0 ? (c - k[i - 5].c) / (a * Math.sqrt(5)) : 0;
+    const effort = zN > 0 ? Math.tanh(zSum / zN / 2) * Math.max(0, 1 - Math.abs(move5)) * (move5 === 0 ? 1 : Math.sign(move5)) : 0;
+    // ── markup / markdown: EMA50 rising AND price above SMA100 → markup, the
+    //    mirror → markdown, anything else = undecided (0) ──
+    const e50 = ctx.ema50[i];
+    const e50old = i >= 10 ? ctx.ema50[i - 10] : null;
+    const s100 = ctx.sma100[i];
+    let trend = 0;
+    if (e50 != null && e50old != null && s100 != null) {
+        if (e50 > e50old && c > s100) trend = 1;
+        else if (e50 < e50old && c < s100) trend = -1;
+    }
+    return [
+        rangePos,
+        rangeW,
+        climax,
+        spring,
+        effort,
+        trend
+    ];
+}
+if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
+    __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
+}
+}),
+"[project]/src/lib/params.ts [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+// ─── PARAMS — MỘT file config dùng chung cho toàn bộ app ─────────────────────
+// "các tham số nên đưa vào 1 file config riêng dùng chung cho toàn bộ"
+//
+// Mọi hằng số tinh chỉnh (tham số) của engine sống ở đây, chia nhóm rõ ràng để
+// finetune mà không phải rà soát 6-7 file. File này là NGUỒN ĐỊNH NGHĨA duy
+// nhất; các module (bcast-gate, universe, xgb, engine, llm…) import từ đây
+// và re-export để chỗ cũ không đổi import — re-export không tạo bản sao,
+// nên vẫn đúng nguyên tắc "một thuật toán + một database".
+//
+// Cách finetune an toàn: chỉnh giá trị → `npx tsx scripts/test-*.ts` chạy bộ
+// test liên quan → `npm run build` → deploy. Mỗi tham số có comment nói rõ nó
+// kéo Prob/chất lượng theo hướng nào.
+// ── 1 · BROADCAST — tin "TOP coin tiềm năng" 5 phút lên Telegram ─────────────
+/** $7M 24h quote volume — dưới mức này coin là sa mạc, không đáng đăng. */ __turbopack_context__.s([
+    "AUTOPSY_BACKFILL_MS",
+    ()=>AUTOPSY_BACKFILL_MS,
+    "AUTOPSY_ON",
+    ()=>AUTOPSY_ON,
+    "BCAST_ACC_MIN",
+    ()=>BCAST_ACC_MIN,
+    "BCAST_AUC_MIN",
+    ()=>BCAST_AUC_MIN,
+    "BCAST_PL1_MIN",
+    ()=>BCAST_PL1_MIN,
+    "BCAST_REPEAT_MS",
+    ()=>BCAST_REPEAT_MS,
+    "BCAST_SCORE_MIN",
+    ()=>BCAST_SCORE_MIN,
+    "BCAST_TOP_N",
+    ()=>BCAST_TOP_N,
+    "BCAST_VOL_MIN",
+    ()=>BCAST_VOL_MIN,
+    "CALIBRATE",
+    ()=>CALIBRATE,
+    "CONF_W",
+    ()=>CONF_W,
+    "FLOOR_EVERY_MS",
+    ()=>FLOOR_EVERY_MS,
+    "FLOOR_HARD_MIN",
+    ()=>FLOOR_HARD_MIN,
+    "FLOOR_MIN_SAMPLES",
+    ()=>FLOOR_MIN_SAMPLES,
+    "FLOOR_STEP",
+    ()=>FLOOR_STEP,
+    "FLOW_MIN",
+    ()=>FLOW_MIN,
+    "LESSON_WEIGHT",
+    ()=>LESSON_WEIGHT,
+    "LIVE_FLUSH_MS",
+    ()=>LIVE_FLUSH_MS,
+    "LIVE_HEARTBEAT_MS",
+    ()=>LIVE_HEARTBEAT_MS,
+    "LIVE_MAX_AGE_MS",
+    ()=>LIVE_MAX_AGE_MS,
+    "LIVE_POLL_MS",
+    ()=>LIVE_POLL_MS,
+    "LIVE_REPAIR_MS",
+    ()=>LIVE_REPAIR_MS,
+    "LIVE_TICKER_MS",
+    ()=>LIVE_TICKER_MS,
+    "LIVE_WS_PROBE_MS",
+    ()=>LIVE_WS_PROBE_MS,
+    "LIVE_WS_STALE_MS",
+    ()=>LIVE_WS_STALE_MS,
+    "LLM_FAIL_CLOSED",
+    ()=>LLM_FAIL_CLOSED,
+    "LLM_MODEL_DEFAULT",
+    ()=>LLM_MODEL_DEFAULT,
+    "LLM_TIMEOUT_MS",
+    ()=>LLM_TIMEOUT_MS,
+    "LLM_URL_DEFAULT",
+    ()=>LLM_URL_DEFAULT,
+    "MAX_DIFFICULTY",
+    ()=>MAX_DIFFICULTY,
+    "NEAR_FRAC",
+    ()=>NEAR_FRAC,
+    "NOISE_BAND",
+    ()=>NOISE_BAND,
+    "PLATT_MIN_VAL",
+    ()=>PLATT_MIN_VAL,
+    "PRESSURE_CAP_SHORT",
+    ()=>PRESSURE_CAP_SHORT,
+    "PRESSURE_FLOOR_LONG",
+    ()=>PRESSURE_FLOOR_LONG,
+    "PROB_CAP",
+    ()=>PROB_CAP,
+    "REGRESS_EPS",
+    ()=>REGRESS_EPS,
+    "SCAN_DIGEST_EVERY_MS",
+    ()=>SCAN_DIGEST_EVERY_MS,
+    "SCAN_DIGEST_OFFSET_MS",
+    ()=>SCAN_DIGEST_OFFSET_MS,
+    "SCAN_DIGEST_POOL",
+    ()=>SCAN_DIGEST_POOL,
+    "SCAN_DIGEST_TOP_N",
+    ()=>SCAN_DIGEST_TOP_N,
+    "SCAN_FRESH_MS",
+    ()=>SCAN_FRESH_MS,
+    "SCAN_TTL",
+    ()=>SCAN_TTL,
+    "SESS_BULL_LONG_MIN",
+    ()=>SESS_BULL_LONG_MIN,
+    "SESS_BULL_SHORT_MAX",
+    ()=>SESS_BULL_SHORT_MAX,
+    "SESS_EARLY_MIN",
+    ()=>SESS_EARLY_MIN,
+    "SESS_INTERVAL",
+    ()=>SESS_INTERVAL,
+    "SESS_KLINE_COUNT",
+    ()=>SESS_KLINE_COUNT,
+    "SESS_LATE_WINDOW_MIN",
+    ()=>SESS_LATE_WINDOW_MIN,
+    "SESS_SYMBOL",
+    ()=>SESS_SYMBOL,
+    "SESS_TICK_MS",
+    ()=>SESS_TICK_MS,
+    "SIBLING_DISCOUNT",
+    ()=>SIBLING_DISCOUNT,
+    "TICKERS_TTL",
+    ()=>TICKERS_TTL,
+    "TUNE_GRID",
+    ()=>TUNE_GRID,
+    "UNIVERSE_BCAST_TOP",
+    ()=>UNIVERSE_BCAST_TOP,
+    "UNIVERSE_INTERVAL",
+    ()=>UNIVERSE_INTERVAL,
+    "UNIVERSE_LOOKBACK_CANDLES",
+    ()=>UNIVERSE_LOOKBACK_CANDLES,
+    "UNIVERSE_MIN_CANDLES",
+    ()=>UNIVERSE_MIN_CANDLES,
+    "UNIVERSE_SCAN_MS",
+    ()=>UNIVERSE_SCAN_MS,
+    "UNIVERSE_TOP",
+    ()=>UNIVERSE_TOP,
+    "XGB_BASE",
+    ()=>XGB_BASE,
+    "XGB_GRID",
+    ()=>XGB_GRID,
+    "pval",
+    ()=>pval,
+    "xgbBase",
+    ()=>xgbBase
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$build$2f$polyfills$2f$process$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = /*#__PURE__*/ __turbopack_context__.i("[project]/node_modules/next/dist/build/polyfills/process.js [app-client] (ecmascript)");
+const BCAST_VOL_MIN = 7e6;
+const BCAST_PL1_MIN = 5;
+const BCAST_TOP_N = 2;
+const BCAST_REPEAT_MS = 3 * 60 * 60_000;
+const PRESSURE_FLOOR_LONG = 42; // BUY bị chặn khi áp lực mua ≤ 42%
+const PRESSURE_CAP_SHORT = 58; // SELL bị chặn khi áp lực mua ≥ 58%
+const SCAN_DIGEST_EVERY_MS = 8 * 3_600_000;
+const SCAN_DIGEST_OFFSET_MS = 4 * 3_600_000;
+const SCAN_DIGEST_TOP_N = 10;
+const SCAN_DIGEST_POOL = 14;
+const BCAST_SCORE_MIN = 60;
+const BCAST_AUC_MIN = 0.8;
+const BCAST_ACC_MIN = 70;
+const UNIVERSE_INTERVAL = "1h";
+const UNIVERSE_SCAN_MS = 8 * 3_600_000;
+const UNIVERSE_LOOKBACK_CANDLES = 10 * 24;
+const UNIVERSE_TOP = 30;
+const UNIVERSE_BCAST_TOP = 10;
+const UNIVERSE_MIN_CANDLES = 55;
+const SESS_SYMBOL = "BTCUSDT";
+const SESS_INTERVAL = "1h";
+const SESS_KLINE_COUNT = 5000;
+const SESS_EARLY_MIN = 5;
+const SESS_LATE_WINDOW_MIN = 10;
+const SESS_TICK_MS = 60_000;
+const SESS_BULL_LONG_MIN = 60; // Bull% ≥ 60 → LONG
+const SESS_BULL_SHORT_MAX = 40; // Bull% ≤ 40 → SHORT
+const SCAN_FRESH_MS = 4.5 * 60_000;
+const SCAN_TTL = 30 * 60_000;
+const TICKERS_TTL = 30_000;
+const LIVE_FLUSH_MS = 1_000;
+const LIVE_POLL_MS = 2_500;
+const LIVE_TICKER_MS = 60_000;
+const LIVE_HEARTBEAT_MS = 15_000;
+const LIVE_MAX_AGE_MS = 30 * 60_000;
+const LIVE_REPAIR_MS = 90_000;
+const LIVE_WS_STALE_MS = 60_000;
+const LIVE_WS_PROBE_MS = 10_000;
+const MAX_DIFFICULTY = 12;
+const NOISE_BAND = 0.06;
+const LESSON_WEIGHT = 8;
+const XGB_BASE = {
+    trees: 120,
+    lr: 0.1,
+    depth: 3,
+    lambda: 1,
+    rowSub: 0.85,
+    colSub: 0.85,
+    minChild: 8,
+    bins: 32
+};
+const XGB_GRID = [
+    {
+        name: "base",
+        patch: {}
+    },
+    {
+        name: "deep",
+        patch: {
+            depth: 4,
+            lr: 0.08
+        }
+    },
+    {
+        name: "smooth",
+        patch: {
+            lr: 0.05,
+            lambda: 3,
+            minChild: 16
+        }
+    },
+    {
+        name: "stumps",
+        patch: {
+            depth: 2,
+            lr: 0.12,
+            minChild: 12
+        }
+    }
+];
+const TUNE_GRID = true;
+function xgbBase() {
+    return {
+        trees: pval("XGB_TREES", XGB_BASE.trees),
+        lr: pval("XGB_LR", XGB_BASE.lr),
+        depth: pval("XGB_DEPTH", XGB_BASE.depth),
+        lambda: pval("XGB_LAMBDA", XGB_BASE.lambda),
+        rowSub: pval("XGB_ROWSUB", XGB_BASE.rowSub),
+        colSub: pval("XGB_COLSUB", XGB_BASE.colSub),
+        minChild: pval("XGB_MINCHILD", XGB_BASE.minChild),
+        bins: pval("XGB_BINS", XGB_BASE.bins)
+    };
+}
+const CALIBRATE = true;
+const PLATT_MIN_VAL = 40;
+const FLOOR_EVERY_MS = 6 * 3_600_000;
+const FLOOR_MIN_SAMPLES = 30;
+const FLOW_MIN = 0.12;
+const FLOOR_HARD_MIN = {
+    auc: 0.55,
+    acc: 55,
+    score: 20
+};
+const FLOOR_STEP = {
+    auc: 0.08,
+    acc: 8,
+    score: 15
+};
+const REGRESS_EPS = 0.02;
+const NEAR_FRAC = 0.7;
+const SIBLING_DISCOUNT = 0.5;
+const PROB_CAP = 0.95;
+const CONF_W = 15;
+const LLM_URL_DEFAULT = "http://127.0.0.8:8888";
+const LLM_MODEL_DEFAULT = "local";
+const LLM_TIMEOUT_MS = (()=>{
+    const n = Number(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$build$2f$polyfills$2f$process$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["default"].env.LLM_TIMEOUT_MS);
+    if (Number.isFinite(n) && n >= 10_000) return Math.min(Math.floor(n), 600_000);
+    return 300_000;
+})();
+const AUTOPSY_ON = true;
+const AUTOPSY_BACKFILL_MS = 6 * 3_600_000;
+const LLM_FAIL_CLOSED = false;
+function pval(key, def) {
+    try {
+        const m = globalThis.__elliotParams;
+        const v = m?.[key];
+        if (v === undefined || v === null) return def;
+        if (typeof def === "number") {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : def;
+        }
+        if (typeof def === "boolean") return Boolean(v);
+        return v;
+    } catch  {
+        return def;
+    }
+}
+if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
+    __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
+}
+}),
+"[project]/src/lib/xgb.ts [app-client] (ecmascript) <locals>", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "BIAS_LONG_MIN",
+    ()=>BIAS_LONG_MIN,
+    "BIAS_SHORT_MAX",
+    ()=>BIAS_SHORT_MAX,
+    "FEATURE_NAMES",
+    ()=>FEATURE_NAMES,
+    "applyPlatt",
+    ()=>applyPlatt,
+    "biasFrom",
+    ()=>biasFrom,
+    "buildCtx",
+    ()=>buildCtx,
+    "buildDataset",
+    ()=>buildDataset,
+    "donchianPos",
+    ()=>donchianPos,
+    "eceSide",
+    ()=>eceSide,
+    "fitPlatt",
+    ()=>fitPlatt,
+    "logitOf",
+    ()=>logitOf,
+    "predictProb",
+    ()=>predictProb,
+    "reliabilityTable",
+    ()=>reliabilityTable,
+    "rocAuc",
+    ()=>rocAuc,
+    "runXgb",
+    ()=>runXgb,
+    "suggestFrom",
+    ()=>suggestFrom,
+    "tradeLessonsToSamples",
+    ()=>tradeLessonsToSamples,
+    "trailingRank",
+    ()=>trailingRank,
+    "volZAt",
+    ()=>volZAt,
+    "whaleOf",
+    ()=>whaleOf
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$build$2f$polyfills$2f$process$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = /*#__PURE__*/ __turbopack_context__.i("[project]/node_modules/next/dist/build/polyfills/process.js [app-client] (ecmascript)");
+// ─── XGBoost-style gradient boosted trees — strategy trainer & tuner ─────────
+//
+// A compact, dependency-free implementation of XGBoost's core algorithm that
+// runs entirely in the browser:
+//   • logistic objective, second-order (Newton) leaf weights
+//   • histogram-binned exact splits (32 quantile bins), depth-limited trees
+//   • row/column subsampling with a seeded RNG (reproducible)
+//   • L2 leaf regularization (lambda) — the "reg_lambda" of real XGBoost
+//   • gain-accumulated feature importance
+//
+// It trains on the current kline window (≤500 candles) to predict whether the
+// close `H` bars ahead will be higher than today's close, then translates the
+// trained model into concrete strategy suggestions (direction bias, ATR-scaled
+// SL/TP, UT Bot key/period and SMA gate settings) by greedy expectancy scans
+// over the real paper-trading engine.
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$indicators$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/lib/indicators.ts [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$market$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/lib/market.ts [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$papers$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/lib/papers.ts [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$signals$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/lib/signals.ts [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$wyck$2d$features$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/lib/wyck-features.ts [app-client] (ecmascript)");
+// Progressive difficulty — every retrain makes the task harder so the model
+// must earn its accuracy instead of fitting candle noise:
+//   • +1 bar of horizon every 2 levels (predicting further ahead is harder)
+//   • a label dead-zone of marginAtr × ATR: bars whose future move stays
+//     inside the noise band are dropped, so classes only contain decisive moves
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/lib/params.ts [app-client] (ecmascript)");
+;
+;
+;
+;
+;
+// XgbParams + bộ hyper gốc (XGB_BASE) + grid finetune (XGB_GRID/TUNE_GRID)
+// sống ở ./params (section 6b) — MỘT file config dùng chung; import + re-export
+// ngay dưới (khối "Knob train/Prob"). Type dùng ở XgbResult phía trên vẫn hợp
+// lệ: interface không cần khai báo trước điểm nhắc tới.
+/** Forward horizon per timeframe — "how many bars ahead do we predict". */ const HORIZON = {
+    "1m": 6,
+    "5m": 6,
+    "15m": 5,
+    "30m": 4,
+    "1h": 4,
+    "4h": 3,
+    "1d": 2,
+    "1w": 1
+};
+const WARMUP = 110; // longest lookback indicator is SMA100 (+ safety margin)
+const VAL_FRAC = 0.25; // chronological hold-out share
+;
+;
+const HORIZON_STEP = 2; // one extra bar per N difficulty levels
+const HORIZON_CAP = 3; // never extend the horizon by more than this
+const MARGIN_STEP = 0.05; // dead-zone growth per level (× ATR)
+const MARGIN_CAP = 0.3; // dead-zone ceiling (× ATR)
+const MIN_ROWS_WITH_MARGIN = 150; // fall back to no dead-zone below this
+const BIAS_LONG_MIN = 0.56;
+const BIAS_SHORT_MAX = 0.44;
+const biasFrom = (prob)=>prob >= BIAS_LONG_MIN ? "LONG" : prob <= BIAS_SHORT_MAX ? "SHORT" : "NEUTRAL";
+const FEATURE_NAMES = [
+    "ret1",
+    "ret3",
+    "ret10",
+    "rsi14",
+    "atrPct",
+    "sma20",
+    "sma100",
+    "ema50",
+    "volZ",
+    "body",
+    "wick",
+    "whaleVol",
+    "whaleAbsorb",
+    "whaleClv",
+    "utTrend",
+    "stopDist",
+    // trading-session context (UTC open hour of the bar — no lookahead)
+    "sessSydney",
+    "sessTokyo",
+    "sessLondon",
+    "sessNewyork",
+    "hourSin",
+    "hourCos",
+    // calendar cycles (weekday / month windows) + volatility regime — the
+    // trained counterpart of the 📅 "Chu kỳ lịch" frequency block
+    "dowSin",
+    "dowCos",
+    "domStart",
+    "domEnd",
+    "qEnd",
+    // pre-explosion regime: where today's ATR% and Bollinger width sit in their
+    // trailing 100-bar distribution (low = nén biến động → tiền đề bùng nổ) and
+    // where price sits in the 20-bar range (0=đáy, 1=đỉnh — breakout context)
+    "atrRank",
+    "bbwRank",
+    "donchian",
+    // Wyckoff Schematic encoding (pure, no-lookahead — see wyck-features.ts):
+    // range context (PS/SC/AR/ST), Phase C spring/upthrust, climax, effort-vs-
+    // result absorption and the markup/markdown state of the schematic
+    "wyRangePos",
+    "wyRangeW",
+    "wyClimax",
+    "wySpring",
+    "wyEffort",
+    "wyTrend",
+    // deeper trading-session context: London∩New York overlap (deepest books)
+    // and minutes since the last session open (thin open, stop-runs)
+    "sessOverlap",
+    "sessAge"
+];
+function buildCtx(klines, atrKey, atrPeriod) {
+    const n = klines.length;
+    const s20 = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$indicators$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["sma"])(klines, 20);
+    const s100 = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$indicators$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["sma"])(klines, 100);
+    const e50 = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$indicators$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["ema"])(klines, 50);
+    const r14 = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$indicators$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["rsi"])(klines, 14);
+    const a14 = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$indicators$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["atr"])(klines, 14);
+    const ut = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$indicators$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["utTrail"])(klines, atrKey, atrPeriod);
+    // rolling volume mean/std over 20 bars
+    const volMean = new Array(n).fill(null);
+    const volStd = new Array(n).fill(null);
+    let sum = 0;
+    let sumSq = 0;
+    for(let i = 0; i < n; i++){
+        const v = klines[i].v;
+        sum += v;
+        sumSq += v * v;
+        if (i >= 20) {
+            const old = klines[i - 20].v;
+            sum -= old;
+            sumSq -= old * old;
+        }
+        if (i >= 19) {
+            const m = sum / 20;
+            volMean[i] = m;
+            volStd[i] = Math.sqrt(Math.max(0, sumSq / 20 - m * m));
+        }
+    }
+    // ATR% of close — regime feature input (ranked over a trailing window later)
+    const atrPct = new Array(n).fill(null);
+    for(let i = 0; i < n; i++){
+        const a = a14[i];
+        const c = klines[i].c;
+        if (a != null && c > 0) atrPct[i] = a / c;
+    }
+    // Bollinger bandwidth = (2σ up + 2σ down) / SMA20 — rolling σ over 20 closes.
+    // Narrow band = "nén biến động" — the classic pre-explosion state.
+    const bbw = new Array(n).fill(null);
+    let cSum = 0;
+    let cSumSq = 0;
+    for(let i = 0; i < n; i++){
+        const c = klines[i].c;
+        cSum += c;
+        cSumSq += c * c;
+        if (i >= 20) {
+            const old = klines[i - 20].c;
+            cSum -= old;
+            cSumSq -= old * old;
+        }
+        if (i >= 19) {
+            const m = cSum / 20;
+            const sd = Math.sqrt(Math.max(0, cSumSq / 20 - m * m));
+            const sm = s20[i];
+            if (sm != null && sm > 0) bbw[i] = 4 * sd / sm;
+        }
+    }
+    return {
+        sma20: s20,
+        sma100: s100,
+        ema50: e50,
+        rsi14: r14,
+        atr14: a14,
+        stop: ut.stop,
+        trend: ut.trend,
+        volMean,
+        volStd,
+        atrPct,
+        bbw
+    };
+}
+function trailingRank(arr, i, win = 100) {
+    const v = arr[i];
+    if (v == null || i <= 0) return 0.5;
+    let le = 0;
+    let cnt = 0;
+    for(let j = Math.max(0, i - win); j < i; j++){
+        const u = arr[j];
+        if (u == null) continue;
+        cnt++;
+        if (u <= v) le++;
+    }
+    return cnt < 20 ? 0.5 : le / cnt;
+}
+function donchianPos(k, i, win = 20) {
+    if (i < win) return 0.5;
+    let hi = -Infinity;
+    let lo = Infinity;
+    for(let j = i - win; j < i; j++){
+        if (k[j].h > hi) hi = k[j].h;
+        if (k[j].l < lo) lo = k[j].l;
+    }
+    const rng = hi - lo;
+    return rng > 0 ? Math.min(1, Math.max(0, (k[i].c - lo) / rng)) : 0.5;
+}
+/**
+ * Feature vector at bar i — uses ONLY data up to and including i's close
+ * (no lookahead), so training labels y_i = c[i+H] > c[i] are honest.
+ */ function featuresAt(k, i, ctx) {
+    const cur = k[i];
+    const range = cur.h - cur.l;
+    const denom = range > 0 ? range : cur.c * 1e-9;
+    const ret = (back)=>i >= back && k[i - back].c > 0 ? Math.log(cur.c / k[i - back].c) : null;
+    const r1 = ret(1);
+    const r3 = ret(3);
+    const r10 = ret(10);
+    const rsiV = ctx.rsi14[i];
+    const atrV = ctx.atr14[i];
+    const s20 = ctx.sma20[i];
+    const s100 = ctx.sma100[i];
+    const e50 = ctx.ema50[i];
+    const vm = ctx.volMean[i];
+    const vs = ctx.volStd[i];
+    const trend = ctx.trend[i];
+    const stop = ctx.stop[i];
+    if (r1 == null || r3 == null || r10 == null || rsiV == null || atrV == null || s20 == null || s100 == null || e50 == null || vm == null || vs == null) {
+        return null;
+    }
+    const stopDist = trend === 1 && stop != null ? (cur.c - stop) / cur.c : trend === -1 && stop != null ? (stop - cur.c) / cur.c : 0;
+    const volZ = vs > 0 ? (cur.v - vm) / vs : 0;
+    // ── whale footprint features (all bounded, no lookahead) ──
+    // spike: volume z-score squeezed to 0..1 (5σ ≈ 0.63, 8σ+ = 1)
+    const spike = Math.min(Math.max(volZ, 0), 8) / 8;
+    // absorption: huge volume that produces almost NO body — a big player
+    // absorbing orders against the move (effort ≠ result)
+    const bodyAbs = Math.min(Math.abs((cur.c - cur.o) / denom), 1);
+    // close-location on high volume: +1 = closes at the high on a spike
+    // (accumulation), −1 = closes at the low on a spike (distribution)
+    const clv = (cur.c - cur.l - (cur.h - cur.c)) / denom;
+    return [
+        r1,
+        r3,
+        r10,
+        rsiV / 100 - 0.5,
+        atrV / cur.c,
+        (cur.c - s20) / cur.c,
+        (cur.c - s100) / cur.c,
+        (cur.c - e50) / cur.c,
+        volZ,
+        (cur.c - cur.o) / denom,
+        (cur.h - Math.max(cur.o, cur.c) - (Math.min(cur.o, cur.c) - cur.l)) / denom,
+        spike,
+        spike * (1 - bodyAbs),
+        spike * clv,
+        trend,
+        stopDist,
+        ...(0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$market$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["sessionOneHot"])(cur.t),
+        ...(0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$market$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["hourFeatures"])(cur.t),
+        ...(0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$market$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["dowFeatures"])(cur.t),
+        ...(0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$market$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["calendarFlags"])(cur.t),
+        trailingRank(ctx.atrPct, i),
+        trailingRank(ctx.bbw, i),
+        donchianPos(k, i),
+        ...(0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$wyck$2d$features$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["wyckFeatureAt"])(k, i, ctx),
+        (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$market$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["sessionOverlap"])(cur.t),
+        (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$market$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["sessionAge"])(cur.t)
+    ];
+}
+const WHALE_WATCH_Z = 2.5; // ≥ → "watch"
+const WHALE_HIT_Z = 4; // ≥ → "whale" — auto-entry skips these combos
+function whaleOf(volZ) {
+    const risk = Math.min(1, Math.max(0, (volZ - WHALE_WATCH_Z) / (WHALE_HIT_Z - WHALE_WATCH_Z)));
+    const tag = volZ >= WHALE_HIT_Z ? "whale" : volZ >= WHALE_WATCH_Z ? "watch" : "calm";
+    return {
+        volZ,
+        risk,
+        tag
+    };
+}
+function volZAt(klines, i, ctx) {
+    const vm = ctx.volMean[i];
+    const vs = ctx.volStd[i];
+    if (vm == null || vs == null || vs <= 0 || i < 0 || i >= klines.length) return 0;
+    return (klines[i].v - vm) / vs;
+}
+function buildDataset(klines, horizon, atrKey, atrPeriod, marginAtr = 0) {
+    const n = klines.length;
+    if (n < WARMUP + horizon + 60) return null;
+    const ctx = buildCtx(klines, atrKey, atrPeriod);
+    const rows = [];
+    const y = [];
+    const idx = [];
+    // last closed candle is n-2; need its label → i + horizon ≤ n-2
+    for(let i = WARMUP; i + horizon <= n - 2; i++){
+        const f = featuresAt(klines, i, ctx);
+        if (!f) continue;
+        if (marginAtr > 0) {
+            const a = ctx.atr14[i];
+            if (a == null) continue;
+            const fut = (klines[i + horizon].c - klines[i].c) / klines[i].c;
+            if (Math.abs(fut) <= marginAtr * a / klines[i].c) continue; // noise band → drop
+            rows.push(f);
+            y.push(fut > 0 ? 1 : 0);
+        } else {
+            rows.push(f);
+            y.push(klines[i + horizon].c > klines[i].c ? 1 : 0);
+        }
+        idx.push(i);
+    }
+    if (rows.length < 120) return null;
+    if (marginAtr > 0 && rows.length < MIN_ROWS_WITH_MARGIN) {
+        // dead-zone starved the dataset — fall back to the plain labeling
+        return buildDataset(klines, horizon, atrKey, atrPeriod, 0);
+    }
+    return {
+        rows,
+        y,
+        idx,
+        ctx,
+        horizon
+    };
+}
+const ITV_MS = {
+    "1m": 60_000,
+    "5m": 300_000,
+    "15m": 900_000,
+    "30m": 1_800_000,
+    "1h": 3_600_000,
+    "2h": 7_200_000,
+    "4h": 14_400_000,
+    "1d": 86_400_000,
+    "1w": 604_800_000
+};
+function tradeLessonsToSamples(klines, ctx, interval, trades) {
+    const step = ITV_MS[interval] ?? 0;
+    if (step <= 0 || klines.length < 10) return [];
+    const out = [];
+    for (const tr of trades){
+        if (!tr || typeof tr.t !== "number" || tr.t <= 0) continue;
+        if (tr.side !== "LONG" && tr.side !== "SHORT") continue;
+        if (typeof tr.pnl !== "number" || tr.pnl === 0) continue;
+        // last bar whose CLOSE happened at/before the entry — a mid-bar entry
+        // must not see its own bar's close (that would be lookahead)
+        let j = -1;
+        for(let i = klines.length - 2; i >= 0; i--){
+            if (klines[i].t + step <= tr.t) {
+                j = i;
+                break;
+            }
+        }
+        if (j < WARMUP) continue; // indicators not warmed up — no honest features
+        const feats = featuresAt(klines, j, ctx);
+        if (!feats) continue;
+        const win = tr.pnl > 0;
+        const y = tr.side === "LONG" ? win ? 1 : 0 : win ? 0 : 1;
+        out.push({
+            feats,
+            y,
+            win
+        });
+    }
+    return out;
+}
+const LEAF = (w, n)=>({
+        f: -1,
+        thr: 0,
+        left: null,
+        right: null,
+        w,
+        n
+    });
+_c = LEAF;
+/** mulberry32 — small seeded PRNG so a train run is reproducible. */ function rng(seed) {
+    let a = seed >>> 0;
+    return ()=>{
+        a |= 0;
+        a = a + 0x6d2b79f5 | 0;
+        let t = Math.imul(a ^ a >>> 15, 1 | a);
+        t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+}
+/** Quantile bin thresholds per feature (≤ bins−1 cut points). */ function makeBins(rows, bins) {
+    const nf = rows[0].length;
+    const out = [];
+    for(let f = 0; f < nf; f++){
+        const col = rows.map((r)=>r[f]).sort((a, b)=>a - b);
+        const cuts = [];
+        for(let b = 1; b < bins; b++){
+            const v = col[Math.floor(b / bins * col.length)];
+            if (cuts.length === 0 || v > cuts[cuts.length - 1]) cuts.push(v);
+        }
+        out.push(cuts);
+    }
+    return out;
+}
+const binOf = (v, cuts)=>{
+    let lo = 0;
+    let hi = cuts.length;
+    while(lo < hi){
+        const mid = lo + hi >> 1;
+        if (v > cuts[mid]) lo = mid + 1;
+        else hi = mid;
+    }
+    return lo;
+};
+const sigmoid = (z)=>1 / (1 + Math.exp(-Math.max(-30, Math.min(30, z))));
+function trainTrees(rows, y, bins, params, seed, onProgress) {
+    const nf = rows[0].length;
+    const N = rows.length;
+    const rnd = rng(seed);
+    const binned = [];
+    for(let f = 0; f < nf; f++){
+        const cuts = bins[f];
+        const col = new Uint8Array(N);
+        for(let i = 0; i < N; i++)col[i] = binOf(rows[i][f], cuts);
+        binned.push(col);
+    }
+    const posRate = Math.min(0.999, Math.max(0.001, y.reduce((a, b)=>a + b, 0) / N));
+    const f0 = Math.log(posRate / (1 - posRate));
+    const F = new Float64Array(N).fill(f0);
+    const imp = new Float64Array(nf);
+    const buildTree = (treeRows)=>{
+        const colFeat = params.colSub >= 1 ? [
+            ...Array(nf).keys()
+        ] : [
+            ...Array(nf).keys()
+        ].filter(()=>rnd() < params.colSub);
+        if (colFeat.length === 0) colFeat.push(Math.floor(rnd() * nf));
+        const grow = (nodeRows, depth)=>{
+            let G = 0;
+            let H = 0;
+            for (const i of nodeRows){
+                const p = sigmoid(F[i]);
+                G += p - y[i];
+                H += p * (1 - p);
+            }
+            const leafW = ()=>LEAF(-params.lr * G / (H + params.lambda), nodeRows.length);
+            if (depth >= params.depth || nodeRows.length < params.minChild * 2) return leafW();
+            // histograms per candidate feature
+            const size = params.bins + 1;
+            const best = {
+                gain: 1e-12,
+                f: -1,
+                thr: 0,
+                gl: 0,
+                hl: 0
+            };
+            for (const f of colFeat){
+                const col = binned[f];
+                const gs = new Float64Array(size);
+                const hs = new Float64Array(size);
+                const cs = new Float64Array(size);
+                for (const i of nodeRows){
+                    const b = col[i];
+                    gs[b] += sigmoid(F[i]) - y[i];
+                    hs[b] += sigmoid(F[i]) * (1 - sigmoid(F[i]));
+                    cs[b] += 1;
+                }
+                let gl = 0;
+                let hl = 0;
+                let cl = 0;
+                for(let b = 0; b < params.bins; b++){
+                    gl += gs[b];
+                    hl += hs[b];
+                    cl += cs[b];
+                    const gr = G - gl;
+                    const hr = H - hl;
+                    const cr = nodeRows.length - cl;
+                    if (cl < params.minChild || cr < params.minChild || hl <= 1e-9 || hr <= 1e-9) continue;
+                    const gain = 0.5 * (gl * gl / (hl + params.lambda) + gr * gr / (hr + params.lambda) - G * G / (H + params.lambda));
+                    if (gain > best.gain) {
+                        best.gain = gain;
+                        best.f = f;
+                        best.thr = b;
+                        best.gl = gl;
+                        best.hl = hl;
+                    }
+                }
+            }
+            if (best.f < 0) return leafW();
+            imp[best.f] += best.gain;
+            const col = binned[best.f];
+            const leftRows = [];
+            const rightRows = [];
+            for (const i of nodeRows)(col[i] > best.thr ? rightRows : leftRows).push(i);
+            // numeric edge: subsample rounding could empty a side
+            if (leftRows.length === 0 || rightRows.length === 0) return leafW();
+            return {
+                f: best.f,
+                thr: best.thr,
+                n: nodeRows.length,
+                w: 0,
+                left: grow(leftRows, depth + 1),
+                right: grow(rightRows, depth + 1)
+            };
+        };
+        return grow(treeRows, 0);
+    };
+    const predictRow = (i, tree)=>{
+        let node = tree;
+        while(node.f >= 0)node = binned[node.f][i] > node.thr ? node.right : node.left;
+        return node.w;
+    };
+    const run = async ()=>{
+        const trees = [];
+        for(let m = 0; m < params.trees; m++){
+            const treeRows = params.rowSub >= 1 ? [
+                ...Array(N).keys()
+            ] : [
+                ...Array(N).keys()
+            ].filter(()=>rnd() < params.rowSub);
+            if (treeRows.length < params.minChild * 2) treeRows.push(...[
+                ...Array(N).keys()
+            ].slice(0, params.minChild * 2));
+            const tree = buildTree(treeRows);
+            for(let i = 0; i < N; i++)F[i] += predictRow(i, tree);
+            trees.push(tree);
+            if (m % 15 === 14) {
+                onProgress?.((m + 1) / params.trees);
+                await new Promise((r)=>globalThis.setTimeout(r, 0)); // keep the UI alive
+            }
+        }
+        onProgress?.(1);
+        return {
+            model: {
+                f0,
+                trees,
+                bins,
+                params
+            },
+            imp: [
+                ...imp
+            ].map((g)=>g / (imp.reduce((a, b)=>a + b, 0) || 1))
+        };
+    };
+    return run();
+}
+/** Walk a trained tree on a RAW feature vector (binned on the fly). */ function treeEval(tree, feats, bins) {
+    let node = tree;
+    while(node.f >= 0)node = binOf(feats[node.f], bins[node.f]) > node.thr ? node.right : node.left;
+    return node.w;
+}
+function predictProb(model, feats) {
+    let f = model.f0;
+    for (const tree of model.trees)f += treeEval(tree, feats, model.bins);
+    return sigmoid(f);
+}
+function rocAuc(y, p) {
+    const order = p.map((_, i)=>i).sort((a, b)=>p[a] - p[b]);
+    const ranks = new Array(p.length);
+    let i = 0;
+    while(i < order.length){
+        let j = i;
+        while(j + 1 < order.length && p[order[j + 1]] === p[order[i]])j++;
+        const r = (i + j) / 2 + 1;
+        for(let k = i; k <= j; k++)ranks[order[k]] = r;
+        i = j + 1;
+    }
+    let sumPos = 0;
+    let nPos = 0;
+    let nNeg = 0;
+    for(let k = 0; k < y.length; k++){
+        if (y[k] === 1) {
+            sumPos += ranks[k];
+            nPos++;
+        } else nNeg++;
+    }
+    if (nPos === 0 || nNeg === 0) return 0.5;
+    return (sumPos - nPos * (nPos + 1) / 2) / (nPos * nNeg);
+}
+// ─── Calibration — prob sát thực tế trên val split (params.ts §6c) ─────────────
+const LOGIT_EPS = 1e-6;
+const logitOf = (p)=>{
+    const q = Math.min(1 - LOGIT_EPS, Math.max(LOGIT_EPS, p));
+    return Math.log(q / (1 - q));
+};
+function applyPlatt(p, cal) {
+    return sigmoid(cal.a * logitOf(p) + cal.b);
+}
+function fitPlatt(pRaw, y) {
+    const n = pRaw.length;
+    if (n < __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["PLATT_MIN_VAL"] || n !== y.length) {
+        if (__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$build$2f$polyfills$2f$process$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["default"].env.DEBUG_PLATT) console.error("[platt] null: n", n);
+        return null;
+    }
+    let nPos = 0;
+    for (const v of y)nPos += v === 1 ? 1 : 0;
+    if (nPos === 0 || nPos === n) {
+        if (__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$build$2f$polyfills$2f$process$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["default"].env.DEBUG_PLATT) console.error("[platt] null: single class", nPos, n);
+        return null;
+    }
+    if (rocAuc(y, pRaw) < 0.5) {
+        if (__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$build$2f$polyfills$2f$process$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["default"].env.DEBUG_PLATT) console.error("[platt] null: inverted model, auc<0.5");
+        return null;
+    }
+    const x = pRaw.map(logitOf);
+    // target làm mượt — hết "tách lớp hoàn hảo" cho MLE chạy trốn ra vô cực
+    const tPos = (nPos + 1) / (nPos + 2);
+    const tNeg = 1 / (n - nPos + 2);
+    const RIDGE = 1e-6; // Hessian có thể gần suy biến khi prob bão hoà
+    // negative log-likelihood (có ridge) — loss cần giảm mỗi bước line search
+    const lossOf = (a, b)=>{
+        let s = RIDGE * (a * a + b * b);
+        for(let i = 0; i < n; i++){
+            const p = sigmoid(a * x[i] + b);
+            const t = y[i] === 1 ? tPos : tNeg;
+            s -= t * Math.log(Math.max(p, 1e-12)) + (1 - t) * Math.log(Math.max(1 - p, 1e-12));
+        }
+        return s;
+    };
+    let a = 1;
+    let b = 0;
+    let cur = lossOf(a, b);
+    for(let it = 0; it < 60; it++){
+        let gA = 0;
+        let gB = 0;
+        let hAA = RIDGE;
+        let hAB = 0;
+        let hBB = RIDGE;
+        for(let i = 0; i < n; i++){
+            const p = sigmoid(a * x[i] + b);
+            const r = (y[i] === 1 ? tPos : tNeg) - p;
+            const w = Math.max(p * (1 - p), 1e-12);
+            gA += r * x[i];
+            gB += r;
+            hAA += w * x[i] * x[i];
+            hAB += w * x[i];
+            hBB += w;
+        }
+        const det = hAA * hBB - hAB * hAB;
+        if (!Number.isFinite(det) || Math.abs(det) < 1e-12) {
+            if (__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$build$2f$polyfills$2f$process$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["default"].env.DEBUG_PLATT) console.error("[platt] null: det", det, "it", it);
+            return null;
+        }
+        let dA = (hBB * gA - hAB * gB) / det;
+        let dB = (hAA * gB - hAB * gA) / det;
+        dA = Math.max(-5, Math.min(5, dA)); // kẹp bước gốc — line search lo phần còn lại
+        dB = Math.max(-5, Math.min(5, dB));
+        let step = 1;
+        let na = a + dA;
+        let nb = b + dB;
+        let lNew = lossOf(na, nb);
+        while(lNew > cur && step > 1e-9){
+            step /= 2;
+            na = a + dA * step;
+            nb = b + dB * step;
+            lNew = lossOf(na, nb);
+        }
+        const gain = cur - lNew;
+        a = na;
+        b = nb;
+        cur = lNew;
+        if (gain < 1e-10) break; // đã tới đáy — thêm vòng chỉ phí thời gian
+    }
+    if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0) {
+        if (__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$build$2f$polyfills$2f$process$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["default"].env.DEBUG_PLATT) console.error("[platt] null: final", a, b);
+        return null;
+    }
+    return {
+        a,
+        b
+    };
+}
+function eceSide(p, y, bins = 10) {
+    if (p.length === 0 || p.length !== y.length) return 0;
+    const byBin = Array.from({
+        length: bins
+    }, ()=>({
+            sumQ: 0,
+            sumW: 0,
+            n: 0
+        }));
+    for(let i = 0; i < p.length; i++){
+        const q = Math.max(p[i], 1 - p[i]);
+        const w = p[i] >= 0.5 ? y[i] : 1 - y[i];
+        const bi = Math.min(bins - 1, Math.floor((q - 0.5) * 2 * bins));
+        byBin[bi].sumQ += q;
+        byBin[bi].sumW += w;
+        byBin[bi].n++;
+    }
+    let e = 0;
+    for (const b of byBin){
+        if (b.n === 0) continue;
+        e += b.n / p.length * Math.abs(b.sumQ / b.n - b.sumW / b.n);
+    }
+    return e;
+}
+function reliabilityTable(p, y) {
+    const edges = [
+        0.5,
+        0.6,
+        0.7,
+        0.8,
+        1.0
+    ];
+    return edges.slice(0, -1).map((lo, i)=>{
+        const hi = edges[i + 1];
+        let n = 0;
+        let sumQ = 0;
+        let sumW = 0;
+        for(let k = 0; k < p.length; k++){
+            const q = Math.max(p[k], 1 - p[k]);
+            if (q < lo || q > hi) continue; // 1.0 rơi vào bucket cuối (q ≤ hi)
+            n++;
+            sumQ += q;
+            sumW += p[k] >= 0.5 ? y[k] : 1 - y[k];
+        }
+        return {
+            lo,
+            hi,
+            n,
+            avgP: n ? sumQ / n : 0,
+            win: n ? sumW / n : 0
+        };
+    });
+}
+// ─── Strategy suggestion (finetune) ───────────────────────────────────────────
+const clamp = (v, lo, hi)=>Math.min(hi, Math.max(lo, v));
+const round1 = (v)=>Math.round(v * 10) / 10;
+/** Expectancy score over the REAL engine — fewer than 6 closed trades is starved. */ function scanScore(klines, cfg, symbol, interval) {
+    const raw = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$signals$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["signalsFrom"])(klines, cfg.atrKey, cfg.atrPeriod, cfg.smaPeriod);
+    const signals = cfg.smaFilter ? raw.signals : raw.signals.map((s)=>({
+            ...s,
+            smaOk: true
+        }));
+    const res = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$papers$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["papersFrom"])(klines, signals, raw.sma, symbol, interval, cfg.slPct, cfg.tpPct, cfg.leverage, cfg.smaFilter);
+    const k = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$papers$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["kpiFrom"])(res.papers);
+    const starve = k.closed < 6 ? (6 - k.closed) * 2 : 0;
+    return k.netPnl - starve;
+}
+function suggestFrom(klines, base, probNow, symbol, interval, atrCtx) {
+    const lastClosed = klines.length - 2;
+    const close = klines[lastClosed]?.c ?? 0;
+    const atrNow = (atrCtx.atr14[lastClosed] ?? close * 0.01) / (close || 1);
+    // ATR-scaled risk — the MULTIPLIER ITSELF is retrained per coin (step 0):
+    // a fixed 2.5×/3.5× is one-size-fits-all — quiet coins got clamped up to 1%,
+    // hot coins clamped down to 10%. Here SL = ATR% × coef and TP = SL × 1.4,
+    // with wide sanity clamps only (0.3–20 / 0.4–28). The expectancy scan picks
+    // the coef that actually earned the most over this coin's real history.
+    const slTpForCoef = (coef)=>{
+        const slPct = round1(clamp(atrNow * 100 * coef, 0.3, 20));
+        const tpPct = round1(clamp(slPct * 1.4, 0.4, 28));
+        return {
+            slPct,
+            tpPct
+        };
+    };
+    let atrCoef = 1.5;
+    let { slPct, tpPct } = slTpForCoef(atrCoef);
+    let bestCoefScore = -Infinity;
+    for (const coef of [
+        1,
+        1.5,
+        2,
+        2.5,
+        3
+    ]){
+        const { slPct: s, tpPct: p } = slTpForCoef(coef);
+        const score = scanScore(klines, {
+            ...base,
+            slPct: s,
+            tpPct: p,
+            smaFilter: false
+        }, symbol, interval);
+        if (score > bestCoefScore) {
+            bestCoefScore = score;
+            atrCoef = coef;
+            slPct = s;
+            tpPct = p;
+        }
+    }
+    // 1) UT key × period scan (gate off) — 12 engine sims
+    let bestUt = {
+        key: base.atrKey,
+        period: base.atrPeriod,
+        score: -Infinity
+    };
+    for (const key of [
+        1,
+        1.5,
+        2,
+        3
+    ]){
+        for (const period of [
+            7,
+            10,
+            14
+        ]){
+            const score = scanScore(klines, {
+                ...base,
+                slPct,
+                tpPct,
+                atrKey: key,
+                atrPeriod: period,
+                smaFilter: false
+            }, symbol, interval);
+            if (score > bestUt.score) bestUt = {
+                key,
+                period,
+                score
+            };
+        }
+    }
+    // 2) SMA gate scan on the winning UT combo — off + 4 periods
+    let bestGate = {
+        filter: false,
+        period: base.smaPeriod,
+        score: -Infinity
+    };
+    const gateCandidates = [
+        {
+            filter: false,
+            period: base.smaPeriod
+        },
+        {
+            filter: true,
+            period: 50
+        },
+        {
+            filter: true,
+            period: 100
+        },
+        {
+            filter: true,
+            period: 150
+        },
+        {
+            filter: true,
+            period: 200
+        }
+    ];
+    for (const g of gateCandidates){
+        const score = scanScore(klines, {
+            ...base,
+            slPct,
+            tpPct,
+            atrKey: bestUt.key,
+            atrPeriod: bestUt.period,
+            smaFilter: g.filter,
+            smaPeriod: g.period
+        }, symbol, interval);
+        if (score > bestGate.score) bestGate = {
+            ...g,
+            score
+        };
+    }
+    const bias = biasFrom(probNow);
+    return {
+        bias,
+        prob: probNow,
+        confidence: Math.abs(probNow - 0.5) * 2,
+        slPct,
+        tpPct,
+        atrCoef,
+        atrKey: bestUt.key,
+        atrPeriod: bestUt.period,
+        smaFilter: bestGate.filter,
+        smaPeriod: bestGate.period
+    };
+}
+async function runXgb(klines, settings, key, interval, onProgress, difficulty = 0, /** closed dry-run trades of this combo — win/lose lessons mixed into training */ trades) {
+    const lv = Math.min((0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["pval"])("MAX_DIFFICULTY", __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["MAX_DIFFICULTY"]), Math.max(0, Math.round(difficulty)));
+    const horizonBase = HORIZON[interval] ?? 4;
+    const horizon = horizonBase + Math.min(HORIZON_CAP, Math.floor(lv / HORIZON_STEP));
+    const marginAtr = Math.min(MARGIN_CAP, lv * MARGIN_STEP);
+    const ds = buildDataset(klines, horizon, settings.atrKey, settings.atrPeriod, marginAtr);
+    if (!ds) throw new Error("not enough data");
+    const split = Math.max(40, Math.floor(ds.rows.length * (1 - VAL_FRAC)));
+    const trainRows = ds.rows.slice(0, split);
+    const trainY = ds.y.slice(0, split);
+    const valRows = ds.rows.slice(split);
+    const valY = ds.y.slice(split);
+    // trade-history lessons — real win/lose outcomes from THIS strategy's own
+    // closed trades, repeated ×LESSON_WEIGHT inside the TRAIN split only (the
+    // validation window stays pure kline-based → AUC/ACC comparable with the
+    // champion history, the champion–challenger gate stays honest)
+    const lessonSamples = trades && trades.length > 0 ? tradeLessonsToSamples(klines, ds.ctx, interval, trades) : [];
+    for (const s of lessonSamples){
+        for(let w = 0; w < (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["pval"])("LESSON_WEIGHT", __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["LESSON_WEIGHT"]); w++){
+            trainRows.push(s.feats);
+            trainY.push(s.y);
+        }
+    }
+    // ── champion–challenger finetune (XGB_GRID, params.ts §6b) ─────────────────
+    // Mọi ứng viên đấu trên CÙNG split train/val, CÙNG seed (row/col mask giữ
+    // hằng — khác nhau chỉ hyper) và CÙNG bins → khác biệt thuần là hyper.
+    // Winner = AUC val cao nhất, hoà → logloss thấp hơn; base luôn có mặt làm
+    // mốc nên grid không bao giờ thua "làm như cũ".
+    // base = XGB_BASE + override runtime (panel /ai — xgbBase() đọc pval tại
+    // chỗ gọi nên lần train kế tiếp dùng ngay giá trị mới, không cần restart).
+    const baseEff = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["xgbBase"])();
+    const cands = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["pval"])("TUNE_GRID", __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["TUNE_GRID"]) ? __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["XGB_GRID"].map((g)=>({
+            name: g.name,
+            p: {
+                ...baseEff,
+                ...g.patch
+            }
+        })) : [
+        {
+            name: "base",
+            p: {
+                ...baseEff
+            }
+        }
+    ];
+    const bins = makeBins(trainRows, baseEff.bins); // quantise 1 lần, dùng chung
+    const seed = 20260101 + lv * 7919; // per-level seed → each difficulty trains a fresh ensemble
+    const grid = [];
+    let best = null;
+    for(let ci = 0; ci < cands.length; ci++){
+        const c = cands[ci];
+        const { model, imp } = await trainTrees(trainRows, trainY, bins, c.p, seed, onProgress ? (frac)=>onProgress((ci + frac) / cands.length) : undefined);
+        const candP = valRows.map((r)=>predictProb(model, r));
+        const auc = rocAuc(valY, candP);
+        const ll = candP.reduce((s, p, i)=>{
+            const q = Math.min(1 - 1e-9, Math.max(1e-9, valY[i] === 1 ? p : 1 - p));
+            return s - Math.log(q);
+        }, 0) / (candP.length || 1);
+        grid.push({
+            name: c.name,
+            auc,
+            logloss: ll
+        });
+        if (!best || auc > best.auc || auc === best.auc && ll < best.ll) {
+            best = {
+                name: c.name,
+                model,
+                imp,
+                valP: candP,
+                auc,
+                ll
+            };
+        }
+    }
+    const winner = best; // cands luôn ≥ 1 ứng viên
+    const valP = winner.valP;
+    const correct = valP.reduce((acc, p, i)=>acc + ((p >= 0.5 ? 1 : 0) === valY[i] ? 1 : 0), 0);
+    // ── calibration — prob sát thực tế trước khi thành confidence/bias/score ──
+    // Fit trên CHÍNH val split (out-of-sample) rồi áp lên probNow. AUC/ACC/logloss
+    // giữ nguyên (Platt với a>0 đơn điệu tăng) — chỉ phần "đọc" prob được sửa.
+    const plattFit = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["pval"])("CALIBRATE", __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["CALIBRATE"]) ? fitPlatt(valP, valY) : null;
+    const eceRaw = eceSide(valP, valY);
+    const calP = plattFit ? valP.map((p)=>applyPlatt(p, plattFit)) : valP;
+    const reliability = reliabilityTable(calP, valY);
+    // current read-out at the last CLOSED candle — model của bộ thắng
+    const lastClosed = klines.length - 2;
+    const featsNow = featuresAt(klines, lastClosed, ds.ctx);
+    const probNowRaw = featsNow ? predictProb(winner.model, featsNow) : 0.5;
+    const probNow = plattFit ? applyPlatt(probNowRaw, plattFit) : probNowRaw;
+    const whale = whaleOf(volZAt(klines, lastClosed, ds.ctx));
+    // how well does the final ensemble label the REAL trades it just learned
+    // from (in-sample fit — reported, not celebrated: n is small)
+    const lessons = lessonSamples.length > 0 ? {
+        n: lessonSamples.length,
+        wins: lessonSamples.filter((s)=>s.win).length,
+        losses: lessonSamples.filter((s)=>!s.win).length,
+        agree: lessonSamples.reduce((a, s)=>a + ((predictProb(winner.model, s.feats) >= 0.5 ? 1 : 0) === s.y ? 1 : 0), 0)
+    } : undefined;
+    const suggestion = suggestFrom(klines, settings, probNow, key.split("-")[0], interval, ds.ctx);
+    const names = FEATURE_NAMES;
+    return {
+        key,
+        trainedAt: Date.now(),
+        samples: trainRows.length,
+        valSamples: valRows.length,
+        acc: correct / (valP.length || 1) * 100,
+        auc: winner.auc,
+        logloss: winner.ll,
+        trees: winner.model.params.trees,
+        horizon,
+        importance: names.map((name, i)=>({
+                name,
+                gain: winner.imp[i]
+            })).sort((a, b)=>b.gain - a.gain).slice(0, 6),
+        params: winner.model.params,
+        difficulty: lv,
+        marginAtr,
+        horizonBase,
+        suggestion,
+        whale,
+        probRaw: probNowRaw,
+        reliability,
+        ...plattFit ? {
+            platt: {
+                ...plattFit,
+                eceRaw,
+                eceCal: eceSide(calP, valY)
+            }
+        } : {},
+        ...lessons ? {
+            lessons
+        } : {},
+        ...cands.length > 1 ? {
+            tuned: {
+                picked: winner.name,
+                grid
+            }
+        } : {}
+    };
+}
+var _c;
+__turbopack_context__.k.register(_c, "LEAF");
+if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
+    __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
+}
+}),
+"[project]/src/lib/autotrade.ts [app-client] (ecmascript) <locals>", ((__turbopack_context__) => {
+"use strict";
+
+// ─── Auto trade (dry-run) — scan engine, ranking, position book, Telegram ────
+//
+// The auto engine answers two questions every cycle:
+//   1. WHICH pair × timeframe looks best right now?  → scanAll() trains an
+//      XGBoost model for EVERY watched pair on EVERY timeframe and ranks the
+//      results by a composite quality score.
+//   2. SHOULD a dry-run position be opened/closed?   → the best tradeable row
+//      (bias ≠ NEUTRAL, auc/acc above thresholds) is traded with a virtual
+//      capital; open positions are checked against SL/TP each cycle.
+//
+// Scan runs use difficulty 0 so every combo faces the SAME task — a fair
+// ranking. Manual "Train" still persists + bumps difficulty per pair.
+__turbopack_context__.s([
+    "AUTO_LS_KEY",
+    ()=>AUTO_LS_KEY,
+    "COOLDOWN_CHOICES",
+    ()=>COOLDOWN_CHOICES,
+    "CYCLE_CHOICES",
+    ()=>CYCLE_CHOICES,
+    "DCA_CHOICES",
+    ()=>DCA_CHOICES,
+    "RISK_CHOICES",
+    ()=>RISK_CHOICES,
+    "TP_MODES",
+    ()=>TP_MODES,
+    "bestTradeable",
+    ()=>bestTradeable,
+    "bestTradeableAvoid",
+    ()=>bestTradeableAvoid,
+    "closeAutoTrade",
+    ()=>closeAutoTrade,
+    "comboStats",
+    ()=>comboStats,
+    "confluenceBlend",
+    ()=>confluenceBlend,
+    "fetchAutoState",
+    ()=>fetchAutoState,
+    "fetchKlines",
+    ()=>fetchKlines,
+    "flipDecision",
+    ()=>flipDecision,
+    "isTradeable",
+    ()=>isTradeable,
+    "lastSlExit",
+    ()=>lastSlExit,
+    "liquidationHit",
+    ()=>liquidationHit,
+    "llmTestSetup",
+    ()=>llmTestSetup,
+    "loadAutoConfig",
+    ()=>loadAutoConfig,
+    "nearHit",
+    ()=>nearHit,
+    "openAutoTrade",
+    ()=>openAutoTrade,
+    "passesChaseGuard",
+    ()=>passesChaseGuard,
+    "pushAutoStats",
+    ()=>pushAutoStats,
+    "rankRows",
+    ()=>rankRows,
+    "resetAutoTrades",
+    ()=>resetAutoTrades,
+    "roeOf",
+    ()=>roeOf,
+    "rowOf",
+    ()=>rowOf,
+    "sanitizeFloors",
+    ()=>sanitizeFloors,
+    "sanitizeRunTf",
+    ()=>sanitizeRunTf,
+    "saveAutoConfig",
+    ()=>saveAutoConfig,
+    "scanAll",
+    ()=>scanAll,
+    "scoreFrom",
+    ()=>scoreFrom,
+    "scoreOf",
+    ()=>scoreOf,
+    "sendTelegram",
+    ()=>sendTelegram,
+    "slCooldownLeft",
+    ()=>slCooldownLeft,
+    "slTpHit",
+    ()=>slTpHit,
+    "statLines",
+    ()=>statLines,
+    "telegramConfigured",
+    ()=>telegramConfigured,
+    "telegramLinkConnect",
+    ()=>telegramLinkConnect,
+    "telegramStatus",
+    ()=>telegramStatus,
+    "withChampion",
+    ()=>withChampion
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$types$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/lib/types.ts [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$xgb$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$locals$3e$__ = __turbopack_context__.i("[project]/src/lib/xgb.ts [app-client] (ecmascript) <locals>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/lib/params.ts [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$i18n$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/lib/i18n.ts [app-client] (ecmascript)");
+;
+;
+;
+;
+;
+const scoreFrom = (auc, acc, confidence)=>Math.round(((auc - 0.5) * 100 + (acc - 50) + confidence * (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["pval"])("CONF_W", __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["CONF_W"])) * 10) / 10;
+function scoreOf(res) {
+    return scoreFrom(res.auc, res.acc, res.suggestion.confidence);
+}
+function rowOf(res, symbol, interval) {
+    return {
+        symbol,
+        interval,
+        acc: res.acc,
+        auc: res.auc,
+        prob: res.suggestion.prob,
+        confidence: res.suggestion.confidence,
+        bias: res.suggestion.bias,
+        slPct: res.suggestion.slPct,
+        tpPct: res.suggestion.tpPct,
+        atrCoef: res.suggestion.atrCoef ?? 1.5,
+        score: scoreOf(res),
+        samples: res.samples,
+        valSamples: res.valSamples,
+        horizon: res.horizon,
+        trainedAt: Date.now(),
+        whale: res.whale ?? {
+            volZ: 0,
+            risk: 0,
+            tag: "calm"
+        },
+        champAuc: 0,
+        champAcc: 0,
+        regressed: false
+    };
+}
+const isTradeable = (r, minAuc, minAcc, minScore = 0)=>r.bias !== "NEUTRAL" && r.auc >= minAuc && r.acc >= minAcc && (minScore <= 0 || r.score >= minScore);
+const rankRows = (rows)=>[
+        ...rows
+    ].sort((a, b)=>b.score - a.score);
+const bestTradeable = (rows, minAuc, minAcc, minScore = 0)=>rankRows(rows.filter((r)=>isTradeable(r, minAuc, minAcc, minScore)))[0] ?? null;
+function llmTestSetup(rows, cfg, leverage) {
+    const cands = rows.filter((r)=>isTradeable(r, cfg.minAuc, cfg.minAcc, cfg.minScore) && !r.regressed && Math.abs(r.prob - 0.5) >= (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["pval"])("NOISE_BAND", __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["NOISE_BAND"]));
+    const pick = rankRows(cands)[0] ?? rankRows(rows.filter((r)=>r.bias !== "NEUTRAL"))[0] ?? null;
+    if (!pick) return null;
+    const gated = cands.includes(pick);
+    const setup = {
+        symbol: pick.symbol,
+        interval: pick.interval,
+        side: pick.bias,
+        prob: pick.prob,
+        confidence: pick.confidence,
+        auc: pick.auc,
+        acc: pick.acc,
+        slPct: cfg.tpMode === "manual" ? cfg.slPct : pick.slPct,
+        tpPct: cfg.tpMode === "manual" ? cfg.tpPct : pick.tpPct,
+        leverage,
+        stakePct: cfg.riskPct,
+        horizon: pick.horizon,
+        samples: pick.samples,
+        score: pick.score,
+        gatePassed: gated,
+        // champion–challenger — "Duyệt thử" nhìn thấy Y HỆT những gì engine gửi:
+        // kể cả khoảng cách tới đỉnh best-ever của cặp này (champ_check)
+        ...pick.champAuc ? {
+            champAuc: pick.champAuc,
+            champAcc: pick.champAcc
+        } : {}
+    };
+    const id = `${pick.symbol} ${pick.interval}`;
+    return {
+        setup,
+        source: gated ? `REAL setup — the engine's best current candidate: ${id} · score ${pick.score.toFixed(1)} · gate passed` : `REAL setup — top of scan: ${id} · score ${pick.score.toFixed(1)} · gate NOT passed (no candidate above the gate yet)`
+    };
+}
+// ─── Confluence pooling — các model train riêng của CÙNG symbol vote chung ───
+// Trước đây mỗi combo (symbol × khung) là một hòn đảo: BTC 15m và BTC 1h train
+// riêng, chấm riêng, không biết nhau tồn tại. Nhưng chúng là những bằng chứng
+// về CÙNG chiều giá — ghép lại bằng log-odds pooling (Naive-Bayes):
+//
+//   p_pool = sigmoid( ( w_self·logit(p_self) + Σ λ·wⱼ·logit(pⱼ) ) / ( w_self + Σ λ·wⱼ ) )
+//   wᵢ = max(0.2, (aucᵢ − 0.5) × 4)    model yếu → phiếu nhẹ
+//   phiếu từ khung KHÁC × λ = 0.5       các khung correlate, không độc lập hoàn toàn
+//
+// prob LUÔN là P(giá đi lên) nên dấu logit tự mã hóa hướng — pool thô trong
+// một hệ quy chiếu duy nhất, KHÔNG map theo phía từng row. Các khung cùng
+// hướng → |logit| cộng dồn → Prob tổng đội lên thật sự; lệch hướng → các
+// logit triệt tiêu nhau → xả về 0.5 → bias NEUTRAL → không trade. Model
+// NEUTRAL (prob ≈ 0.5) tự động bỏ phiếu trắng vì logit(0.5) = 0. An toàn:
+// bất đồng quá mức có thể kéo prob vắt qua 0.5 → kẹp về đúng 0.5 (KHÔNG lật
+// chiều call của model gốc — hội đồng bất đồng thì đứng ngoài), và prob cuối
+// kẹp [0.05, 0.95] — bỏ phiếu correlate không được biến thành tuyệt đối.
+// prob/confidence/bias/score sau ghép dùng ĐÚNG công thức gốc (biasFrom,
+// |p−0.5|×2, scoreFrom) — vẫn chỉ một thuật toán. SIBLING_DISCOUNT + PROB_CAP
+// sống ở ./params (nhóm CONFLUENCE) để finetune một chỗ.
+const logitC = (p)=>{
+    const q = Math.min(0.98, Math.max(0.02, p)); // chống ±∞ ở đầu mút
+    return Math.log(q / (1 - q));
+};
+const sigmoid = (x)=>1 / (1 + Math.exp(-x));
+function confluenceBlend(rows) {
+    const bySym = new Map();
+    for (const r of rows){
+        const l = bySym.get(r.symbol);
+        if (l) l.push(r);
+        else bySym.set(r.symbol, [
+            r
+        ]);
+    }
+    const out = rows.map((r)=>({
+            ...r
+        }));
+    const outByKey = new Map(out.map((r)=>[
+            `${r.symbol}|${r.interval}`,
+            r
+        ]));
+    for (const group of bySym.values()){
+        if (group.length < 2) continue; // không có anh em cùng symbol → giữ nguyên
+        for (const r of group){
+            const dev = r.prob - 0.5;
+            const band = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["pval"])("NOISE_BAND", __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["NOISE_BAND"]);
+            if (Math.abs(dev) < band) continue; // row tự thân coin-flip → không mượn phiếu
+            const side = dev > 0 ? 1 : -1;
+            const wSelf = Math.max(0.2, (r.auc - 0.5) * 4);
+            let num = wSelf * logitC(r.prob);
+            let den = wSelf;
+            for (const s of group){
+                if (s === r) continue;
+                const w = Math.max(0.2, (s.auc - 0.5) * 4) * (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["pval"])("SIBLING_DISCOUNT", __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SIBLING_DISCOUNT"]);
+                num += w * logitC(s.prob); // dấu logit tự mã hóa hướng — pool thô
+                den += w;
+            }
+            const pooled = sigmoid(num / den);
+            // bất đồng quá mức có thể kéo prob vắt qua 0.5 — không bao giờ lật chiều
+            // call của model gốc: kẹp về đúng 0.5 → bias NEUTRAL → đứng ngoài cuộc
+            const kept = side > 0 ? Math.max(pooled, 0.5) : Math.min(pooled, 0.5);
+            const cap = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["pval"])("PROB_CAP", __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["PROB_CAP"]);
+            const row = outByKey.get(`${r.symbol}|${r.interval}`);
+            row.prob = Math.round(Math.min(cap, Math.max(1 - cap, kept)) * 10_000) / 10_000;
+            row.confidence = Math.abs(row.prob - 0.5) * 2; // công thức gốc xgb.ts
+            row.bias = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$xgb$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$locals$3e$__["biasFrom"])(row.prob); // ngưỡng chết gốc 0.56/0.44
+            row.score = scoreFrom(row.auc, row.acc, row.confidence);
+        }
+    }
+    return out;
+}
+function slCooldownLeft(trades, symbol, interval, cooldownMin, now = Date.now()) {
+    if (cooldownMin <= 0) return 0;
+    const last = trades.find((t)=>t.status === "closed" && t.exitKind === "sl" && t.symbol === symbol && t.interval === interval);
+    if (!last?.exitTime) return 0;
+    const end = new Date(last.exitTime).getTime() + cooldownMin * 60_000;
+    return Math.max(0, Math.ceil((end - now) / 60_000));
+}
+function lastSlExit(trades, symbol, interval) {
+    return trades.find((t)=>t.status === "closed" && t.exitKind === "sl" && t.symbol === symbol && t.interval === interval) ?? null;
+}
+function passesChaseGuard(trades, symbol, interval, side, price) {
+    const last = lastSlExit(trades, symbol, interval);
+    if (!last?.exitPrice || !price) return true;
+    if (side !== last.side) return true; // bias flipped → fresh thesis
+    const eps = last.exitPrice * 1e-6;
+    return side === "SHORT" ? price < last.exitPrice - eps : price > last.exitPrice + eps;
+}
+function withChampion(r, champAuc, champAcc) {
+    return {
+        ...r,
+        champAuc,
+        champAcc,
+        regressed: champAuc > 0 && r.auc < champAuc - (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["pval"])("REGRESS_EPS", __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["REGRESS_EPS"])
+    };
+}
+function bestTradeableAvoid(rows, minAuc, minAcc, trades, cooldownMin, whaleFilter = true, /** XGBoost noise band — skip coin-flip probs (|P−0.5| < band); 0 = off */ noiseBand = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["pval"])("NOISE_BAND", __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["NOISE_BAND"]), /** ngưỡng điểm của cùng bộ setpoint chung — 0 = không chấm điểm */ minScore = 0) {
+    // whaleFilter (default on) skips combos whose last closed candle is a full
+    // whale bar (≥4σ volume) — entries opened into those get wicked out.
+    // noiseBand skips model probs with no decisive lean (0.5 ± band) — the
+    // XGBoost denoiser: an undecided model is statistical noise, not a signal.
+    // regressed combos (this retrain measurably worse than the combo's champion)
+    // never trade — no gambling on a bad roll.
+    const cands = rankRows(rows.filter((r)=>isTradeable(r, minAuc, minAcc, minScore) && !r.regressed && (!whaleFilter || r.whale?.tag !== "whale") && (noiseBand <= 0 || Math.abs(r.prob - 0.5) >= noiseBand)));
+    const regressedCount = rows.filter((r)=>isTradeable(r, minAuc, minAcc, minScore) && r.regressed).length;
+    const free = cands.find((r)=>slCooldownLeft(trades, r.symbol, r.interval, cooldownMin) === 0) ?? null;
+    return {
+        best: free,
+        allInCooldown: free == null && cands.length > 0,
+        cands,
+        regressedCount
+    };
+}
+function flipDecision(open, row, cfg) {
+    if (!row) return {
+        ok: false,
+        why: "scan has no such combo"
+    };
+    if (row.bias === "NEUTRAL") return {
+        ok: false,
+        why: "model is NEUTRAL on the open combo"
+    };
+    if (row.bias === open.side) return {
+        ok: false,
+        why: "model still confirms the held side"
+    };
+    if (!isTradeable(row, cfg.minAuc, cfg.minAcc, cfg.minScore)) return {
+        ok: false,
+        why: `opposite signal below the quality gate (AUC ${row.auc.toFixed(2)} / ACC ${row.acc.toFixed(1)}% / score ${row.score.toFixed(1)})`
+    };
+    if (row.regressed) return {
+        ok: false,
+        why: "this combo's model is regressed vs its champion"
+    };
+    if (Math.abs(row.prob - 0.5) < (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["pval"])("NOISE_BAND", __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["NOISE_BAND"])) return {
+        ok: false,
+        why: "signal inside the coin-flip noise band"
+    };
+    if (cfg.whaleFilter && row.whale?.tag === "whale") return {
+        ok: false,
+        why: "last candle is a whale bar — not flipping into a wick trap"
+    };
+    return {
+        ok: true,
+        why: ""
+    };
+}
+// ─── Kline fetch + full scan ──────────────────────────────────────────────────
+const sleep = (ms = 0)=>new Promise((r)=>globalThis.setTimeout(r, ms));
+async function fetchKlines(symbol, interval, limit) {
+    const q = limit && limit > 0 ? `&limit=${limit}` : "";
+    const res = await fetch(`/api/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}${q}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return json.klines;
+}
+async function scanAll(opts) {
+    const intervals = opts.intervals ?? __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$types$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["INTERVALS"];
+    const total = opts.pairs.length * intervals.length;
+    const rows = [];
+    let done = 0;
+    for (const symbol of opts.pairs){
+        for (const interval of intervals){
+            if (opts.shouldAbort?.()) return rankRows(rows);
+            const label = `${symbol} ${interval}`;
+            opts.onProgress?.({
+                done,
+                total,
+                current: label
+            });
+            try {
+                const klines = await fetchKlines(symbol, interval);
+                // below ~260 candles the model starves (WARMUP 110 + labels) — skip
+                if (klines.length >= 260) {
+                    const res = await (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$xgb$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$locals$3e$__["runXgb"])(klines, opts.settings, `${symbol}-${interval}`, interval, undefined, 0);
+                    rows.push(rowOf(res, symbol, interval));
+                }
+            } catch  {
+            // unreachable pair / not enough data → leave this combo out
+            }
+            done++;
+            opts.onProgress?.({
+                done,
+                total,
+                current: label
+            });
+            await sleep(); // yield between combos
+        }
+    }
+    return rankRows(rows);
+}
+function roeOf(side, entry, price, leverage) {
+    if (!entry || !price) return 0;
+    const move = side === "SHORT" ? (entry - price) / entry * 100 : (price - entry) / entry * 100;
+    return Math.round(move * leverage * 100) / 100;
+}
+function slTpHit(side, price, entry, slPct, tpPct) {
+    if (!entry || !price) return null;
+    const roe = roeOf(side, entry, price, 1); // price-move % (no leverage)
+    if (roe <= -Math.abs(slPct)) return "sl";
+    if (roe >= Math.abs(tpPct)) return "tp";
+    return null;
+}
+function liquidationHit(side, price, entry, leverage) {
+    if (leverage <= 1 || !entry || !price) return false;
+    const move = side === "SHORT" ? (entry - price) / entry * 100 : (price - entry) / entry * 100;
+    return move <= -(100 / leverage);
+}
+function nearHit(side, price, entry, slPct, tpPct) {
+    if (!entry || !price) return null;
+    const roe = roeOf(side, entry, price, 1); // price-move % (no leverage)
+    const tp = Math.abs(tpPct);
+    const sl = Math.abs(slPct);
+    if (roe >= tp * __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["NEAR_FRAC"] && roe < tp) return "tp";
+    if (roe <= -sl * __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["NEAR_FRAC"] && roe > -sl) return "sl";
+    return null;
+}
+function comboStats(rows) {
+    const map = new Map();
+    for (const r of rows){
+        if (r.status !== "closed") continue;
+        const key = `${r.symbol}|${r.interval}`;
+        const s = map.get(key) ?? {
+            symbol: r.symbol,
+            interval: r.interval,
+            closed: 0,
+            wins: 0,
+            winRate: 0,
+            netPnlPct: 0,
+            avgPnlPct: 0
+        };
+        s.closed += 1;
+        if ((r.pnlPct ?? 0) > 0) s.wins += 1;
+        s.netPnlPct += r.pnlPct ?? 0;
+        map.set(key, s);
+    }
+    const out = [
+        ...map.values()
+    ];
+    for (const s of out){
+        s.netPnlPct = Math.round(s.netPnlPct * 100) / 100;
+        s.winRate = s.closed > 0 ? Math.round(s.wins / s.closed * 1000) / 10 : 0;
+        s.avgPnlPct = s.closed > 0 ? Math.round(s.netPnlPct / s.closed * 100) / 100 : 0;
+    }
+    return out.sort((a, b)=>b.closed - a.closed || b.winRate - a.winRate);
+}
+const jsonHeaders = {
+    "Content-Type": "application/json"
+};
+async function fetchAutoState() {
+    const res = await fetch("/api/autotrade");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+}
+async function openAutoTrade(payload) {
+    try {
+        const res = await fetch("/api/autotrade", {
+            method: "POST",
+            headers: jsonHeaders,
+            body: JSON.stringify({
+                action: "open",
+                ...payload
+            })
+        });
+        if (!res.ok) return null;
+        const json = await res.json();
+        return json.trade;
+    } catch  {
+        return null;
+    }
+}
+async function closeAutoTrade(id, exitPrice, exitKind) {
+    try {
+        const res = await fetch("/api/autotrade", {
+            method: "PATCH",
+            headers: jsonHeaders,
+            body: JSON.stringify({
+                action: "close",
+                id,
+                exitPrice,
+                exitKind
+            })
+        });
+        if (!res.ok) return null;
+        const json = await res.json();
+        return json.trade;
+    } catch  {
+        return null;
+    }
+}
+async function resetAutoTrades() {
+    try {
+        const res = await fetch("/api/autotrade", {
+            method: "PATCH",
+            headers: jsonHeaders,
+            body: JSON.stringify({
+                action: "reset"
+            })
+        });
+        return res.ok;
+    } catch  {
+        return false;
+    }
+}
+async function telegramConfigured() {
+    try {
+        const res = await fetch("/api/telegram");
+        if (!res.ok) return false;
+        const json = await res.json();
+        return json.configured;
+    } catch  {
+        return false;
+    }
+}
+async function telegramStatus() {
+    try {
+        const res = await fetch("/api/telegram");
+        if (!res.ok) return {
+            configured: false,
+            chatId: null,
+            source: null
+        };
+        return await res.json();
+    } catch  {
+        return {
+            configured: false,
+            chatId: null,
+            source: null
+        };
+    }
+}
+async function telegramLinkConnect(secret) {
+    try {
+        const res = await fetch("/api/telegram/link/connect", {
+            method: "POST",
+            headers: jsonHeaders,
+            body: JSON.stringify({
+                secret
+            })
+        });
+        const json = await res.json().catch(()=>null);
+        if (!res.ok) return {
+            ok: false,
+            detail: json?.error ?? `HTTP ${res.status}`
+        };
+        return {
+            ok: json?.ok === true,
+            bot: json?.bot ?? null
+        };
+    } catch (e) {
+        return {
+            ok: false,
+            detail: e instanceof Error ? e.message : "fetch failed"
+        };
+    }
+}
+async function sendTelegram(text, opts) {
+    try {
+        const res = await fetch("/api/telegram", {
+            method: "POST",
+            headers: jsonHeaders,
+            body: JSON.stringify({
+                text,
+                parse_mode: opts?.html === false ? undefined : "HTML",
+                key: opts?.key,
+                dedupe: opts?.dedupe
+            })
+        });
+        if (!res.ok) {
+            const json = await res.json().catch(()=>null);
+            return {
+                ok: false,
+                detail: json?.detail ?? `HTTP ${res.status}`
+            };
+        }
+        return {
+            ok: true
+        };
+    } catch (e) {
+        return {
+            ok: false,
+            detail: e instanceof Error ? e.message : "fetch failed"
+        };
+    }
+}
+// ─── Periodic stats digest (hourly / daily Telegram reports) ────────────────
+const DIGEST_HR = "━━━━━━━━━━━━━━━━━━";
+const sideTag = (side)=>side === "LONG" ? "LONG 🟢" : side === "SHORT" ? "SHORT 🔴" : "NEUTRAL ⚪";
+/** Số dòng tối đa của mục "Lệnh đã chạy" — giữ digest dưới trần 4096 ký tự Telegram */ const DIGEST_LIST_MAX = 40;
+/** exitKind → icon kết quả (null/không rõ = ✋ đóng tay) */ const DIGEST_KIND = {
+    tp: "✅",
+    sl: "🔻",
+    flip: "🔄",
+    manual: "✋"
+};
+function statLines(st, sinceMs, title, periodLabel) {
+    const recent = st.trades.filter((x)=>x.status === "closed" && x.exitTime && new Date(x.exitTime).getTime() >= sinceMs);
+    const opened = st.trades.filter((x)=>new Date(x.entryTime).getTime() >= sinceMs);
+    const wins = recent.filter((x)=>(x.pnlPct ?? 0) > 0).length;
+    const net = recent.reduce((a, x)=>a + (x.pnlPct ?? 0), 0);
+    const wr = recent.length ? `${Math.round(wins / recent.length * 100)}%` : "—";
+    const roe = recent.length ? `${net >= 0 ? "+" : ""}${net.toFixed(2)}%` : "—";
+    const lines = [
+        title,
+        DIGEST_HR,
+        `📊 ${periodLabel}: <b>${opened.length} opened</b> · <b>${recent.length} closed</b> · Win rate <b>${wr}</b> · Net ROE <b>${roe}</b>`
+    ];
+    if (st.open) lines.push(`🔓 Holding: <b>#${st.open.symbol}</b> ${st.open.interval} ${sideTag(st.open.side)} @ ${(0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$i18n$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["fmtPrice"])(st.open.entryPrice)}`);
+    lines.push(`💰 Equity: <b>${st.capital != null ? st.capital.toFixed(2) : "—"}</b> USDT · Total ${st.stats.closed} closed${st.open ? " · 1 still open" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(0)}%` : "—"}`);
+    const best = (st.byCombo ?? []).filter((c)=>c.closed >= 3).sort((a, b)=>b.winRate - a.winRate)[0];
+    if (best) lines.push(`🏆 Best combo: <b>#${best.symbol}</b> ${best.interval} · WR ${best.winRate.toFixed(0)}% (${best.closed} trades)`);
+    // 📋 List tổng — MỌI lệnh đã đóng (mới nhất trước), mỗi lệnh một dòng kèm
+    // kết quả (TP/SL/flip/đóng tay) + ROE + giờ đóng (giờ kênh Asia/Ho_Chi_Minh).
+    // Giới hạn DIGEST_LIST_MAX dòng, phần cũ gộp một dòng để không vượt 4096 ký tự.
+    // Lệnh đang mở không nằm đây — đã có dòng "🔓 Đang giữ" ở trên.
+    const closedAll = st.trades.filter((x)=>x.status === "closed").sort((a, b)=>new Date(b.exitTime ?? b.entryTime).getTime() - new Date(a.exitTime ?? a.entryTime).getTime());
+    if (closedAll.length) {
+        const fmtT = new Intl.DateTimeFormat("en-GB", {
+            timeZone: "Asia/Ho_Chi_Minh",
+            day: "2-digit",
+            month: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false
+        });
+        lines.push(`📋 <b>Trades executed (${closedAll.length})</b> · newest first:`);
+        for (const x of closedAll.slice(0, DIGEST_LIST_MAX)){
+            const pnl = x.pnlPct ?? 0;
+            lines.push(`• #${x.symbol} ${x.interval} ${sideTag(x.side)} ${DIGEST_KIND[x.exitKind ?? ""] ?? "✋"} <b>${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}%</b> · ${fmtT.format(new Date(x.exitTime ?? x.entryTime))}`);
+        }
+        if (closedAll.length > DIGEST_LIST_MAX) lines.push(`…and ${closedAll.length - DIGEST_LIST_MAX} older trades`);
+    }
+    return lines;
+}
+async function pushAutoStats(body) {
+    try {
+        const res = await fetch("/api/autotrade/push", {
+            method: "POST",
+            headers: jsonHeaders,
+            body: JSON.stringify(body)
+        });
+        return res.ok;
+    } catch  {
+        return false;
+    }
+}
+const AUTO_LS_KEY = "utp.auto";
+const COOLDOWN_CHOICES = [
+    0,
+    15,
+    30,
+    60
+];
+const DCA_CHOICES = [
+    0,
+    1,
+    2
+];
+const RISK_CHOICES = [
+    10,
+    25,
+    50,
+    100
+];
+const TP_MODES = [
+    "atr",
+    "auto",
+    "manual"
+];
+const CYCLE_CHOICES = [
+    {
+        m: 5,
+        label: "5"
+    },
+    {
+        m: 10,
+        label: "10"
+    },
+    {
+        m: 15,
+        label: "15"
+    },
+    {
+        m: 30,
+        label: "30"
+    },
+    {
+        m: 60,
+        label: "1h"
+    },
+    {
+        m: 240,
+        label: "4h"
+    },
+    {
+        m: 1440,
+        label: "1d"
+    },
+    {
+        m: 10080,
+        label: "1w"
+    }
+];
+function sanitizeRunTf(v) {
+    const set = new Set((Array.isArray(v) ? v : []).filter((x)=>typeof x === "string" && __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$types$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["INTERVALS"].includes(x)));
+    const list = __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$types$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["INTERVALS"].filter((i)=>set.has(i));
+    return list.length ? [
+        ...list
+    ] : [
+        ...__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$types$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["INTERVALS"]
+    ];
+}
+function sanitizeFloors(auc, acc, score) {
+    const legacy = auc === 0.55 && acc === 55;
+    const num = (x, lo, hi, dflt)=>typeof x === "number" && Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : dflt;
+    return {
+        minAuc: legacy ? AUTO_DEFAULTS.minAuc : num(auc, 0.5, 0.95, AUTO_DEFAULTS.minAuc),
+        minAcc: legacy ? AUTO_DEFAULTS.minAcc : num(acc, 50, 90, AUTO_DEFAULTS.minAcc),
+        minScore: num(score, 0, 95, AUTO_DEFAULTS.minScore)
+    };
+}
+function loadAutoConfig() {
+    try {
+        const raw = localStorage.getItem(AUTO_LS_KEY);
+        if (!raw) return AUTO_DEFAULTS;
+        const p = JSON.parse(raw);
+        return {
+            on: p.on === true,
+            capital: typeof p.capital === "number" && p.capital > 0 ? p.capital : AUTO_DEFAULTS.capital,
+            riskPct: RISK_CHOICES.includes(p.riskPct) ? p.riskPct : AUTO_DEFAULTS.riskPct,
+            tpMode: p.tpMode === "manual" ? "manual" : p.tpMode === "auto" ? "auto" : "atr",
+            slPct: typeof p.slPct === "number" ? Math.min(20, Math.max(0.2, p.slPct)) : AUTO_DEFAULTS.slPct,
+            tpPct: typeof p.tpPct === "number" ? Math.min(30, Math.max(0.2, p.tpPct)) : AUTO_DEFAULTS.tpPct,
+            atrCoef: typeof p.atrCoef === "number" && p.atrCoef > 0 ? Math.min(5, Math.max(0.5, p.atrCoef)) : AUTO_DEFAULTS.atrCoef,
+            cycleMin: CYCLE_CHOICES.some((c)=>c.m === p.cycleMin) ? p.cycleMin : AUTO_DEFAULTS.cycleMin,
+            // ngưỡng chung — kẹp + migration legacy trong sanitizeFloors (một nguồn)
+            ...sanitizeFloors(p.minAuc, p.minAcc, p.minScore),
+            cooldownMin: COOLDOWN_CHOICES.includes(p.cooldownMin) ? p.cooldownMin : AUTO_DEFAULTS.cooldownMin,
+            dcaMax: DCA_CHOICES.includes(p.dcaMax) ? p.dcaMax : AUTO_DEFAULTS.dcaMax,
+            runTf: sanitizeRunTf(p.runTf),
+            statHourly: p.statHourly !== false,
+            statDaily: p.statDaily !== false,
+            llmUrl: typeof p.llmUrl === "string" && /^https?:\/\/\S{1,120}$/.test(p.llmUrl.trim()) ? p.llmUrl.trim() : AUTO_DEFAULTS.llmUrl,
+            llmModel: typeof p.llmModel === "string" && p.llmModel.length <= 60 ? p.llmModel : AUTO_DEFAULTS.llmModel,
+            llmTimeoutSec: typeof p.llmTimeoutSec === "number" && p.llmTimeoutSec >= 10 && p.llmTimeoutSec <= 600 ? Math.round(p.llmTimeoutSec) : AUTO_DEFAULTS.llmTimeoutSec,
+            llmFailClosed: p.llmFailClosed === true,
+            whaleFilter: p.whaleFilter !== false,
+            broadcast: p.broadcast !== false,
+            autoFlip: p.autoFlip !== false
+        };
+    } catch  {
+        return AUTO_DEFAULTS;
+    }
+}
+function saveAutoConfig(cfg) {
+    try {
+        localStorage.setItem(AUTO_LS_KEY, JSON.stringify(cfg));
+    } catch  {
+    // storage blocked — config lives for this session only
+    }
+}
+if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
+    __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
+}
+}),
+"[project]/src/lib/universe.ts [app-client] (ecmascript) <locals>", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "UNIVERSE",
+    ()=>UNIVERSE,
+    "atrPctAt",
+    ()=>atrPctAt,
+    "rankUniverse",
+    ()=>rankUniverse,
+    "ret10dAt",
+    ()=>ret10dAt,
+    "ret24hAt",
+    ()=>ret24hAt,
+    "retBackAt",
+    ()=>retBackAt,
+    "scorePair",
+    ()=>scorePair,
+    "trendScore",
+    ()=>trendScore,
+    "universeBroadcastText",
+    ()=>universeBroadcastText,
+    "universeBucket",
+    ()=>universeBucket,
+    "universeFingerprint",
+    ()=>universeFingerprint
+]);
+// ─── Hardcoded scan universe — ATR + trending pairs, re-ranked every 8h ──────
+// "Add cứng các cặp từ source bằng ATR và trending pair — scan mỗi 8h":
+// the pair list below lives in SOURCE (no browser localStorage dependency —
+// watchlists differ per browser, this does not). Every 8 hours (cadence —
+// UNIVERSE_SCAN_MS) the engine re-ranks; each pass scores the LAST 10 DAYS of
+// price action (UNIVERSE_LOOKBACK_CANDLES = 240 × 1h closed candles) by
+//   trend   — EMA20/EMA50 spread + Donchian position (−1 markdown … +1 markup)
+//   ATR%    — ATR(14) as % of close (volatility you can actually trade)
+// and publishes the top UNIVERSE_TOP "trending pairs" (UI card + Telegram).
+// The auto cycle falls back to this list when the user's watchlist is empty.
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$indicators$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/lib/indicators.ts [app-client] (ecmascript)");
+// Tham số universe scan sống ở ./params — MỘT nguồn; re-export cho chỗ cũ.
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/lib/params.ts [app-client] (ecmascript)");
+;
+;
+;
+const UNIVERSE = [
+    // staples — theo yêu cầu, luôn có mặt
+    "BTCUSDT",
+    "ETHUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "SOLUSDT",
+    "TRXUSDT",
+    "ZECUSDT",
+    "DOGEUSDT",
+    "XMRUSDT",
+    "ADAUSDT",
+    "BCHUSDT",
+    // high-ATR / trending alts
+    "AVAXUSDT",
+    "LINKUSDT",
+    "DOTUSDT",
+    "LTCUSDT",
+    "NEARUSDT",
+    "APTUSDT",
+    "ARBUSDT",
+    "OPUSDT",
+    "SUIUSDT",
+    "INJUSDT",
+    "SEIUSDT",
+    "TIAUSDT",
+    "FILUSDT",
+    "ATOMUSDT",
+    "FETUSDT",
+    "1000PEPEUSDT",
+    "WIFUSDT",
+    "HYPEUSDT",
+    "AAVEUSDT",
+    "ENAUSDT",
+    "WLDUSDT",
+    "JUPUSDT",
+    "ORDIUSDT",
+    "ETCUSDT",
+    "UNIUSDT",
+    "ONDOUSDT",
+    "TAOUSDT",
+    "RENDERUSDT",
+    "POPCATUSDT",
+    "GRASSUSDT",
+    "PENDLEUSDT",
+    "CRVUSDT",
+    "LDOUSDT",
+    "RUNEUSDT",
+    "1000FLOKIUSDT",
+    "1000BONKUSDT",
+    "VIRTUALUSDT"
+];
+/** ATR% at which the volatility term of the score saturates */ const ATR_SATURATION = 5;
+const clamp = (v, lo, hi)=>Math.min(hi, Math.max(lo, v));
+function atrPctAt(k) {
+    const n = k.length;
+    if (n < 16) return 0;
+    const a = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$indicators$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["atr"])(k, 14)[n - 2];
+    const c = k[n - 2].c;
+    return a != null && c > 0 ? a / c * 100 : 0;
+}
+function retBackAt(k, back) {
+    const n = k.length;
+    const b = Math.min(back, n - 2);
+    if (b <= 0 || k[n - 2 - b].c <= 0) return 0;
+    return Math.log(k[n - 2].c / k[n - 2 - b].c);
+}
+function ret24hAt(k) {
+    return retBackAt(k, 24);
+}
+function ret10dAt(k) {
+    return retBackAt(k, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["UNIVERSE_LOOKBACK_CANDLES"]);
+}
+function trendScore(k) {
+    const n = k.length;
+    if (n < 55) return 0;
+    const e20 = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$indicators$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["ema"])(k, 20);
+    const e50 = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$indicators$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["ema"])(k, 50);
+    const i = n - 2;
+    const a = e20[i];
+    const b = e50[i];
+    const c = k[i].c;
+    if (a == null || b == null || c <= 0) return 0;
+    const spread = clamp((a - b) / c * 40, -1, 1);
+    let hi = -Infinity;
+    let lo = Infinity;
+    for(let j = i - 19; j <= i; j++){
+        if (k[j].h > hi) hi = k[j].h;
+        if (k[j].l < lo) lo = k[j].l;
+    }
+    const pos = hi > lo ? clamp((c - lo) / (hi - lo), 0, 1) : 0.5;
+    return clamp(0.6 * spread + 0.4 * (2 * pos - 1), -1, 1);
+}
+function scorePair(symbol, k) {
+    const atrPct = atrPctAt(k);
+    const trend = trendScore(k);
+    return {
+        symbol,
+        atrPct,
+        trend,
+        ret24h: ret24hAt(k),
+        ret10d: ret10dAt(k),
+        score: Math.round((0.6 * trend + 0.4 * clamp(atrPct / ATR_SATURATION, 0, 1)) * 1000) / 1000
+    };
+}
+function rankUniverse(rows, top = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["pval"])("UNIVERSE_TOP", __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["UNIVERSE_TOP"])) {
+    return [
+        ...rows
+    ].sort((x, y)=>y.score - x.score).slice(0, top);
+}
+function universeBucket(now = Date.now()) {
+    return Math.floor(now / __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["UNIVERSE_SCAN_MS"]);
+}
+function universeFingerprint(top, n = __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["UNIVERSE_BCAST_TOP"]) {
+    return top.slice(0, n).map((r)=>r.symbol.replace("USDT", "")).join("|");
+}
+function universeBroadcastText(top, opts) {
+    const show = top.slice(0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["UNIVERSE_BCAST_TOP"]);
+    const prev = opts?.prevSyms ?? [];
+    const prevRank = new Map(prev.map((s, i)=>[
+            s,
+            i + 1
+        ]));
+    const when = opts?.at ? new Date(opts.at) : new Date();
+    const hhmm = when.toISOString().slice(11, 16) + " UTC";
+    const rows = show.map((r, idx)=>{
+        const sym = r.symbol.replace("USDT", "");
+        const rank = idx + 1;
+        const old = prevRank.get(sym);
+        let delta = "·";
+        if (old == null) delta = "NEW";
+        else if (old > rank) delta = `↑${old - rank}`;
+        else if (old < rank) delta = `↓${rank - old}`;
+        else delta = "=";
+        const bias = r.trend >= 0.08 ? "▲" : r.trend <= -0.08 ? "▼" : "→";
+        return `${String(rank).padStart(2, " ")}. ${sym.padEnd(8, " ")} ${bias} ATR ${r.atrPct.toFixed(2)}% · 24h ${(r.ret24h * 100).toFixed(1)}% · 10d ${(r.ret10d * 100).toFixed(1)}% · ${delta}`;
+    });
+    const entered = show.map((r)=>r.symbol.replace("USDT", "")).filter((s)=>prev.length > 0 && !prevRank.has(s));
+    const exited = prev.filter((s)=>!show.some((r)=>r.symbol.replace("USDT", "") === s));
+    const changes = [];
+    if (entered.length) changes.push(`In: ${entered.join(", ")}`);
+    if (exited.length) changes.push(`Out: ${exited.join(", ")}`);
+    const lines = [
+        `📡 <b>UNIVERSE · TOP ${show.length}</b> · ATR + trend · ${hhmm}`,
+        `<code>${rows.join("\n")}</code>`
+    ];
+    if (changes.length) lines.push(`🔀 ${changes.join(" · ")}`);
+    else if (prev.length) lines.push(`🔀 Rank unchanged vs last post`);
+    lines.push(`⏱ Re-rank every 8h · not a trade signal · open the app for full top-${top.length}`);
+    return lines.join("\n");
+}
+if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
+    __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
+}
+}),
+"[project]/src/lib/tg-msgs.ts [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "msgAutopsy",
+    ()=>msgAutopsy,
+    "msgClose",
+    ()=>msgClose,
+    "msgDca",
+    ()=>msgDca,
+    "msgLlmVeto",
+    ()=>msgLlmVeto,
+    "msgNear",
+    ()=>msgNear,
+    "msgOpen",
+    ()=>msgOpen,
+    "slPrice",
+    ()=>slPrice,
+    "tpPrice",
+    ()=>tpPrice
+]);
+// ─── tg-msgs — Telegram message builders for the auto engine (HTML mode) ─────
+// Shared by the browser toasts/relays (auto-panel) AND the backend engine
+// scheduler (engine.ts) so open/close/near/veto messages are byte-identical
+// no matter who fires them. Pure string builders — no fetch, no storage.
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$i18n$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/lib/i18n.ts [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$autotrade$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$locals$3e$__ = __turbopack_context__.i("[project]/src/lib/autotrade.ts [app-client] (ecmascript) <locals>");
+;
+;
+const HR = "━━━━━━━━━━━━━━━━━━";
+const levTxt = (x)=>`×${x % 1 === 0 ? x : x.toFixed(1)}`;
+const sideTxt = (side)=>side === "LONG" ? "LONG 🟢" : side === "SHORT" ? "SHORT 🔴" : "NEUTRAL ⚪";
+/** prob HIỂN THỊ THEO PHÍA model nghiêng về (cùng chuẩn PHE của §6c reliability).
+ *  prob gốc LUÔN là P(giá đi lên) — SHORT P(up)=20.1% thật ra là tin 79.9% giá
+ *  giảm. In thô "Prob 20.1%" cạnh chữ SHORT khiến người đọc tưởng model chỉ
+ *  tin 20% mà vẫn mở lệnh. Flip về phía nghiêng về, kèm nhãn phía cho khỏi
+ *  phải tự đảo trong đầu. NEUTRAL giữ prob thô (không có phía để đảo). */ const probTxt = (side, prob)=>{
+    const p = side === "SHORT" ? 1 - prob : prob;
+    return side === "LONG" ? `Prob ${(p * 100).toFixed(1)}% toward LONG 🟢` : side === "SHORT" ? `Prob ${(p * 100).toFixed(1)}% toward SHORT 🔴` : `Prob ${(p * 100).toFixed(1)}%`;
+};
+const slPrice = (side, entry, slPct)=>side === "SHORT" ? entry * (1 + Math.abs(slPct) / 100) : entry * (1 - Math.abs(slPct) / 100);
+const tpPrice = (side, entry, tpPct)=>side === "SHORT" ? entry * (1 - Math.abs(tpPct) / 100) : entry * (1 + Math.abs(tpPct) / 100);
+const msgOpen = (r, equity, atrNote)=>{
+    const stake = equity * (r.stakePct ?? 100) / 100;
+    const notional = stake * r.leverage;
+    const rr = r.slPct > 0 ? r.tpPct / r.slPct : 0;
+    const slRoe = -(r.slPct * r.leverage);
+    const tpRoe = r.tpPct * r.leverage;
+    const lines = [
+        `🤖 <b>AUTO OPEN (dry-run) · ${r.side === "LONG" ? "LONG 🟢" : "SHORT 🔴"}</b>`,
+        `📌 <b>#${r.symbol}</b> · ${r.interval}`,
+        HR,
+        `🎯 Entry: <b>${(0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$i18n$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["fmtPrice"])(r.entryPrice)}</b>`,
+        `🛑 SL: <b>${(0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$i18n$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["fmtPrice"])(slPrice(r.side, r.entryPrice, r.slPct))}</b> · −${r.slPct.toFixed(1)}% price (ROE ${slRoe.toFixed(1)}% @ ${levTxt(r.leverage)})`,
+        `🏁 TP: <b>${(0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$i18n$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["fmtPrice"])(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(1)}% price (ROE +${tpRoe.toFixed(1)}% @ ${levTxt(r.leverage)})`
+    ];
+    if (atrNote) lines.push(atrNote);
+    lines.push(`⚖️ Leverage ${levTxt(r.leverage)} · R:R 1:${rr.toFixed(2)}`, `📦 Stake: <b>${stake.toFixed(2)}</b> USDT · ${r.stakePct ?? 100}% equity · Notional ${notional.toFixed(2)} USDT`, `🧠 ${probTxt(r.side, r.prob ?? 0)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(1)}% · Score ${(r.score ?? 0).toFixed(1)}`);
+    return lines.join("\n");
+};
+const kindTag = (k)=>k === "tp" ? "TAKE PROFIT ✅" : k === "sl" ? "STOP LOSS 🔻" : k === "flip" ? "FLIP 🔄" : "MANUAL CLOSE ✋";
+const msgClose = (r, closed, winRate, netPnlPct)=>[
+        `🤖 <b>AUTO CLOSE · ${kindTag(r.exitKind)}</b>`,
+        `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
+        HR,
+        `🎯 Entry ${(0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$i18n$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["fmtPrice"])(r.entryPrice)} → 🚪 Exit <b>${(0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$i18n$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["fmtPrice"])(r.exitPrice ?? 0)}</b>`,
+        `💵 PnL (ROE): <b>${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}%</b>`,
+        `💰 Equity: ${(r.capitalBefore ?? 0).toFixed(2)} → <b>${(r.capitalAfter ?? 0).toFixed(2)}</b> USDT`,
+        `📈 Track record: ${closed} trades · Win rate ${winRate.toFixed(0)}% · Net ROE ${netPnlPct >= 0 ? "+" : ""}${netPnlPct.toFixed(1)}%`
+    ].join("\n");
+const msgNear = (r, price, kind)=>{
+    const target = kind === "tp" ? tpPrice(r.side, r.entryPrice, r.tpPct) : slPrice(r.side, r.entryPrice, r.slPct);
+    const awayPct = price > 0 ? Math.abs((target - price) / price) * 100 : 0;
+    const roe = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$autotrade$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$locals$3e$__["roeOf"])(r.side, r.entryPrice, price, r.leverage);
+    return [
+        kind === "tp" ? "⚠️ <b>NEAR TAKE PROFIT — READY TO LOCK GAINS</b>" : "⚠️ <b>NEAR STOP LOSS — RISK WATCH</b>",
+        `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
+        HR,
+        `${kind === "tp" ? "🏁" : "🛑"} ${kind === "tp" ? "Take Profit" : "Stop Loss"} ${(0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$i18n$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["fmtPrice"])(target)} · <b>${awayPct.toFixed(2)}%</b> away`,
+        `📈 Price ${(0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$i18n$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["fmtPrice"])(price)} · ROE <b>${roe >= 0 ? "+" : ""}${roe.toFixed(1)}%</b> · Lev ${levTxt(r.leverage)}`
+    ].join("\n");
+};
+const escHtml = (s)=>s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const msgDca = (r, dcaPrice, prevEntry, confirm, add, max, trigger)=>{
+    const equity = r.capitalBefore ?? 0;
+    const stake = equity * (r.stakePct ?? 100) / 100;
+    const notional = stake * r.leverage;
+    const roe = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$autotrade$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$locals$3e$__["roeOf"])(r.side, r.entryPrice, dcaPrice, r.leverage);
+    const movedPct = prevEntry > 0 ? Math.abs((dcaPrice - prevEntry) / prevEntry) * 100 : 0;
+    return [
+        `🤖 <b>AUTO DCA (dry-run) · add ${add}/${max}${trigger === "cross" ? " · at SL" : ""}</b>`,
+        `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
+        HR,
+        `🎯 Entry ${(0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$i18n$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["fmtPrice"])(prevEntry)} → add <b>${(0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$i18n$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["fmtPrice"])(dcaPrice)}</b> (${movedPct.toFixed(2)}% price)`,
+        `📊 New average entry: <b>${(0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$i18n$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["fmtPrice"])(r.entryPrice)}</b>`,
+        `🛑 New SL: <b>${(0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$i18n$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["fmtPrice"])(slPrice(r.side, r.entryPrice, r.slPct))}</b> · −${r.slPct.toFixed(1)}% from avg`,
+        `🏁 New TP: <b>${(0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$i18n$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["fmtPrice"])(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(1)}% from avg`,
+        `📦 Stake: <b>${stake.toFixed(2)}</b> USDT · ${r.stakePct ?? 100}% equity · Notional ${notional.toFixed(2)} USDT`,
+        `📈 ROE at DCA price: ${roe >= 0 ? "+" : ""}${roe.toFixed(1)}% @ ${levTxt(r.leverage)}`,
+        `🧠 Model still confirms · ${probTxt(r.side, confirm.prob)} · AUC ${confirm.auc.toFixed(2)} · ACC ${confirm.acc.toFixed(1)}%`
+    ].join("\n");
+};
+const msgLlmVeto = (r, v)=>[
+        `🛑 <b>LLM VETO — setup blocked before entry</b>`,
+        `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.bias)}`,
+        HR,
+        `🧠 ${probTxt(r.bias, r.prob)} · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(1)}% · Score ${r.score.toFixed(1)}`,
+        `💬 ${escHtml(v.reasons.slice(0, 3).join(" · ")) || "—"}`
+    ].join("\n");
+const msgAutopsy = (t, a)=>[
+        `🔬 <b>TRADE AUTOPSY · ${a.outcome === "win" ? "WIN ✅" : "LOSS 🔻"}</b>`,
+        `📌 <b>#${t.symbol}</b> · ${t.interval} · ${sideTxt(t.side)} · ${kindTag(t.exitKind ?? null)}`,
+        HR,
+        `💵 Result: <b>${(t.pnlPct ?? 0) >= 0 ? "+" : ""}${(t.pnlPct ?? 0).toFixed(2)}% ROE</b>${a.ev?.rMultiple != null ? ` · R ${a.ev.rMultiple >= 0 ? "+" : ""}${a.ev.rMultiple.toFixed(2)}x` : ""}${a.ev?.durMin != null ? ` · held ${a.ev.durMin.toFixed(0)}m` : ""}`,
+        `🏷️ tag: <b>${escHtml(a.tag)}</b>`,
+        ...a.why.length > 0 ? [
+            `📝 ${a.why.map((w)=>escHtml(w)).join("<br/>• ")}`
+        ] : [],
+        `💡 <b>Lesson:</b> ${escHtml(a.lesson)}`,
+        `🧠 ${escHtml(a.model ?? "llm")}${a.ms ? ` · ${(a.ms / 1000).toFixed(1)}s` : ""} — lesson feeds the next review for this pair`
+    ].join("\n");
+if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
+    __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
+}
+}),
+"[project]/src/lib/cycles.ts [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+// ─── Calendar-cycle statistics over DAILY candles — the "chu kỳ" forecast ────
+//
+// Answers the user's ask: dự đoán chiều (tăng/giảm) VÀ volume (tăng/giảm)
+// theo thứ / ngày / tháng / quý — "có chu kỳ thứ 3, cuối tuần, cuối tháng,
+// đầu tháng, kết quý…".
+//
+// Data: BTCUSDT 1d klines (~1000 ≈ 2.7 years → ~140 samples per weekday,
+// ~30 per month-end window) — enough for meaningful frequencies, unlike the
+// 20-day 1h window the session stats use.
+//
+// Definitions (UTC, matching every other panel in the app):
+//   direction  — candle body: close > open
+//   volume     — today's volume vs YESTERDAY's volume (expand / shrink)
+//   weekday    — getUTCDay() of the daily candle open (0=Sunday … 6=Saturday)
+//   monthStart — UTC day-of-month 1..3
+//   monthEnd   — last 3 days of any month
+//   quarterEnd — last 3 days of Mar / Jun / Sep / Dec (wins over monthEnd)
+//
+// Pure functions — shared by the sessions panel and the pre-open broadcast.
+__turbopack_context__.s([
+    "VOL_LEAN_BAND",
+    ()=>VOL_LEAN_BAND,
+    "cycleForecast",
+    ()=>cycleForecast,
+    "cycleStats",
+    ()=>cycleStats,
+    "dowExtremes",
+    ()=>dowExtremes,
+    "specialOf",
+    ()=>specialOf
+]);
+const EMPTY = ()=>({
+        n: 0,
+        upPct: null,
+        volUpPct: null,
+        driftPct: null
+    });
+_c = EMPTY;
+const daysInMonth = (y, m)=>new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+function specialOf(d) {
+    const dom = d.getUTCDate();
+    const m = d.getUTCMonth();
+    const last3 = dom >= daysInMonth(d.getUTCFullYear(), m) - 2;
+    if (last3 && m % 3 === 2) return "quarterEnd"; // Mar(2) / Jun(5) / Sep(8) / Dec(11)
+    if (last3) return "monthEnd";
+    if (dom <= 3) return "monthStart";
+    return null;
+}
+function cycleStats(daily) {
+    const lastClosed = daily.length - 2; // the final 1d row may still be forming
+    if (lastClosed < 59) return null;
+    const dow = Array.from({
+        length: 7
+    }, EMPTY);
+    const ms = EMPTY();
+    const me = EMPTY();
+    const qe = EMPTY();
+    let days = 0;
+    for(let i = 1; i <= lastClosed; i++){
+        // i starts at 1: volume change needs the previous day
+        const k = daily[i];
+        const up = k.c > k.o;
+        const volUp = k.v > daily[i - 1].v;
+        const drift = k.o > 0 ? (k.c - k.o) / k.o * 100 : 0;
+        const d = new Date(k.t);
+        const bump = (b)=>{
+            b.n++;
+            if (up) b.upPct = (b.upPct ?? 0) + 1;
+            if (volUp) b.volUpPct = (b.volUpPct ?? 0) + 1;
+            b.driftPct = (b.driftPct ?? 0) + drift;
+        };
+        bump(dow[d.getUTCDay()]);
+        const sp = specialOf(d);
+        if (sp === "monthStart") bump(ms);
+        else if (sp === "monthEnd") bump(me);
+        else if (sp === "quarterEnd") bump(qe);
+        days++;
+    }
+    const fin = (b)=>({
+            n: b.n,
+            upPct: b.n ? (b.upPct ?? 0) / b.n * 100 : null,
+            volUpPct: b.n ? (b.volUpPct ?? 0) / b.n * 100 : null,
+            driftPct: b.n ? (b.driftPct ?? 0) / b.n : null
+        });
+    return {
+        dow: dow.map(fin),
+        monthStart: fin(ms),
+        monthEnd: fin(me),
+        quarterEnd: fin(qe),
+        days
+    };
+}
+const VOL_LEAN_BAND = 2;
+function cycleForecast(target, stats) {
+    const d = new Date(target);
+    const dowIndex = d.getUTCDay();
+    const bucket = stats.dow[dowIndex];
+    const volUp = bucket.volUpPct == null ? null : bucket.volUpPct >= 50 + VOL_LEAN_BAND ? true : bucket.volUpPct <= 50 - VOL_LEAN_BAND ? false : null;
+    const sp = specialOf(d);
+    return {
+        dow: bucket,
+        dowIndex,
+        special: sp ? {
+            label: sp,
+            bucket: sp === "monthStart" ? stats.monthStart : sp === "monthEnd" ? stats.monthEnd : stats.quarterEnd
+        } : null,
+        dirUp: (bucket.upPct ?? 50) >= 50,
+        volUp
+    };
+}
+function dowExtremes(stats) {
+    const valid = stats.dow.map((b, i)=>({
+            i,
+            b
+        })).filter((x)=>x.b.upPct != null && x.b.n >= 20);
+    if (valid.length < 2) return {
+        best: null,
+        worst: null
+    };
+    const best = valid.reduce((a, x)=>(x.b.upPct ?? 0) > (a.b.upPct ?? 0) ? x : a);
+    const worst = valid.reduce((a, x)=>(x.b.upPct ?? 100) < (a.b.upPct ?? 100) ? x : a);
+    return best.i === worst.i ? {
+        best: null,
+        worst: null
+    } : {
+        best,
+        worst
+    };
+}
+var _c;
+__turbopack_context__.k.register(_c, "EMPTY");
+if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
+    __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
+}
+}),
+"[project]/src/lib/market-pulse.ts [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+// ─── Market pulse — external sentiment / cycle / derivatives snapshot ────────
+// Used by the Trading sessions panel. All fetches are server-side, cached, and
+// fail-soft so a dead upstream never breaks the main dashboard.
+//
+// Sources (no API keys required):
+//   • alternative.me  — Crypto Fear & Greed Index
+//   • coinpaprika     — global mcap, BTC.D, 24h volume
+//   • Binance futures — open interest, long/short ratio, funding (best-effort;
+//                       geo-blocks return null without throwing)
+__turbopack_context__.s([
+    "cyclePhase",
+    ()=>cyclePhase,
+    "getMarketPulse",
+    ()=>getMarketPulse
+]);
+// ─── in-memory cache (process lifetime) ──────────────────────────────────────
+let cache = null;
+const TTL_MS = 5 * 60_000; // 5 min — F&G updates daily; rest is fine slower
+function num(v) {
+    const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+    return Number.isFinite(n) ? n : null;
+}
+async function fetchJson(url, ms = 8_000) {
+    const ac = new AbortController();
+    const t = setTimeout(()=>ac.abort(), ms);
+    try {
+        const res = await fetch(url, {
+            signal: ac.signal,
+            headers: {
+                Accept: "application/json",
+                "User-Agent": "ElliottPaperTrading/1.0"
+            },
+            cache: "no-store"
+        });
+        if (!res.ok) return null;
+        return await res.json();
+    } catch  {
+        return null;
+    } finally{
+        clearTimeout(t);
+    }
+}
+async function loadFearGreed() {
+    const raw = await fetchJson("https://api.alternative.me/fng/?limit=8&format=json");
+    const rows = raw?.data;
+    if (!rows?.length) return null;
+    const pts = rows.map((r)=>({
+            value: Number(r.value),
+            label: r.value_classification,
+            at: Number(r.timestamp) * 1000
+        })).filter((p)=>Number.isFinite(p.value)).reverse(); // oldest → newest
+    if (!pts.length) return null;
+    const now = pts[pts.length - 1];
+    const prev = pts.length >= 2 ? pts[pts.length - 2] : null;
+    return {
+        now,
+        prev,
+        week: pts.slice(-7)
+    };
+}
+async function loadGlobal() {
+    const raw = await fetchJson("https://api.coinpaprika.com/v1/global");
+    if (!raw) return null;
+    const mcap = num(raw.market_cap_usd);
+    const vol = num(raw.volume_24h_usd);
+    const dom = num(raw.bitcoin_dominance_percentage);
+    if (mcap == null || vol == null || dom == null) return null;
+    const ath = num(raw.market_cap_ath_value);
+    return {
+        marketCapUsd: mcap,
+        volume24hUsd: vol,
+        btcDominance: dom,
+        marketCapChange24h: num(raw.market_cap_change_24h) ?? 0,
+        volumeChange24h: num(raw.volume_24h_change_24h) ?? 0,
+        mcapFromAthPct: ath && ath > 0 ? (mcap - ath) / ath * 100 : null,
+        at: Date.now()
+    };
+}
+/** Best-effort Binance USDT-M futures derivatives snapshot. Soft-fails on geo-block. */ async function loadDerivatives() {
+    const symbol = "BTCUSDT";
+    const [oi, ls, top, prem] = await Promise.all([
+        fetchJson(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${symbol}`),
+        fetchJson(`https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=${symbol}&period=1h&limit=1`),
+        fetchJson(`https://fapi.binance.com/futures/data/topLongShortAccountRatio?symbol=${symbol}&period=1h&limit=1`),
+        fetchJson(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`)
+    ]);
+    const oiN = oi && typeof oi === "object" ? num(oi.openInterest) : null;
+    const lsRow = Array.isArray(ls) && ls[0] ? ls[0] : null;
+    const topRow = Array.isArray(top) && top[0] ? top[0] : null;
+    const premObj = prem && typeof prem === "object" ? prem : null;
+    const longPct = lsRow ? num(lsRow.longAccount) : null;
+    const topLong = topRow ? num(topRow.longAccount) : null;
+    // longAccount from Binance is a ratio 0–1 or sometimes already %
+    const norm = (v)=>v == null ? null : v <= 1.5 ? v * 100 : v;
+    const funding = premObj ? num(premObj.lastFundingRate) : null;
+    if (oiN == null && longPct == null && topLong == null && funding == null) return null;
+    return {
+        symbol,
+        openInterest: oiN,
+        longAccountPct: norm(longPct),
+        topLongPct: norm(topLong),
+        fundingRatePct: funding != null ? funding * 100 : null,
+        at: Date.now()
+    };
+}
+function cyclePhase(fg, g) {
+    const f = fg?.now.value ?? 50;
+    const dom = g?.btcDominance ?? 50;
+    // High dominance + fear → late bear / early accumulation
+    // Low dominance + greed → late bull / distribution risk
+    let score = f;
+    if (dom >= 55) score -= 5;
+    if (dom <= 45) score += 5;
+    if (g && g.mcapFromAthPct != null && g.mcapFromAthPct > -15) score += 8;
+    if (g && g.mcapFromAthPct != null && g.mcapFromAthPct < -50) score -= 8;
+    score = Math.max(0, Math.min(100, Math.round(score)));
+    if (score <= 20) return {
+        key: "capitulation",
+        score
+    };
+    if (score <= 40) return {
+        key: "fear",
+        score
+    };
+    if (score <= 60) return {
+        key: "neutral",
+        score
+    };
+    if (score <= 80) return {
+        key: "greed",
+        score
+    };
+    return {
+        key: "euphoria",
+        score
+    };
+}
+async function getMarketPulse(force = false) {
+    if (!force && cache && Date.now() - cache.at < TTL_MS) return cache.data;
+    const sources = [];
+    const [fearGreed, global, derivatives] = await Promise.all([
+        loadFearGreed().then((v)=>{
+            if (v) sources.push("alternative.me");
+            return v;
+        }),
+        loadGlobal().then((v)=>{
+            if (v) sources.push("coinpaprika");
+            return v;
+        }),
+        loadDerivatives().then((v)=>{
+            if (v) sources.push("binance-futures");
+            return v;
+        })
+    ]);
+    const data = {
+        fearGreed,
+        global,
+        derivatives,
+        at: Date.now(),
+        sources
+    };
+    cache = {
+        at: Date.now(),
+        data
+    };
+    return data;
+}
+if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
+    __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
+}
+}),
+"[project]/src/lib/equity.ts [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+// ─── Equity curve (Đường cong vốn) ───────────────────────────────────────────
+//
+// Cumulative ROE over CLOSED papers in exit order. The curve starts at 0
+// before the first trade, so "đỉnh/đáy" (peak/trough) always include the flat
+// start — matching how a paper-account equity line behaves.
+__turbopack_context__.s([
+    "equityFrom",
+    ()=>equityFrom
+]);
+function equityFrom(papers) {
+    const closed = papers.filter((p)=>p.status === "closed").sort((a, b)=>(a.exitIndex ?? a.entryIndex) - (b.exitIndex ?? b.entryIndex));
+    const points = [];
+    let cum = 0;
+    let peak = 0;
+    let trough = 0;
+    for (const p of closed){
+        cum += p.pnlPct ?? 0;
+        if (cum > peak) peak = cum;
+        if (cum < trough) trough = cum;
+        points.push({
+            time: p.exitTime ?? p.entryTime,
+            cum,
+            win: (p.pnlPct ?? 0) > 0,
+            bar: p.exitIndex ?? p.entryIndex
+        });
+    }
+    return {
+        points,
+        peak,
+        trough,
+        last: cum,
+        count: points.length
+    };
+}
+if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
+    __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
+}
+}),
+"[project]/src/lib/history.ts [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+// ─── Suggestion & finetune history — shared client/server types + helpers ───
+// The terminal persists every XGBoost train run (finetune) and its strategy
+// suggestion per (pair, interval, time) to SQLite via /api/suggestions and
+// /api/finetune. Outcomes are scored once the prediction horizon expires.
+__turbopack_context__.s([
+    "INTERVAL_MS",
+    ()=>INTERVAL_MS,
+    "applyBestSuggestion",
+    ()=>applyBestSuggestion,
+    "directionalPnl",
+    ()=>directionalPnl,
+    "downloadCsv",
+    ()=>downloadCsv,
+    "fetchChampionRun",
+    ()=>fetchChampionRun,
+    "fetchDiveReports",
+    ()=>fetchDiveReports,
+    "fetchRunCount",
+    ()=>fetchRunCount,
+    "fetchRuns",
+    ()=>fetchRuns,
+    "fetchSuggestions",
+    ()=>fetchSuggestions,
+    "fetchVariants",
+    ()=>fetchVariants,
+    "generateVariants",
+    ()=>generateVariants,
+    "markApplied",
+    ()=>markApplied,
+    "markVariantApplied",
+    ()=>markVariantApplied,
+    "outcomeOf",
+    ()=>outcomeOf,
+    "resolveBatch",
+    ()=>resolveBatch,
+    "resolveDeadline",
+    ()=>resolveDeadline,
+    "saveRun",
+    ()=>saveRun,
+    "saveSuggestion",
+    ()=>saveSuggestion,
+    "suggestionsToCsv",
+    ()=>suggestionsToCsv
+]);
+const INTERVAL_MS = {
+    "1m": 60_000,
+    "5m": 300_000,
+    "15m": 900_000,
+    "30m": 1_800_000,
+    "1h": 3_600_000,
+    "4h": 14_400_000,
+    "1d": 86_400_000,
+    "1w": 604_800_000
+};
+function resolveDeadline(s) {
+    return new Date(s.createdAt).getTime() + s.horizonBars * (INTERVAL_MS[s.interval] ?? 300_000);
+}
+function directionalPnl(bias, entry, exit) {
+    if (!entry || !exit) return 0;
+    const raw = bias === "SHORT" ? (entry - exit) / entry * 100 : (exit - entry) / entry * 100;
+    return Math.round(raw * 100) / 100;
+}
+function outcomeOf(bias, entry, exit) {
+    if (bias === "NEUTRAL") return "flat";
+    const pnl = directionalPnl(bias, entry, exit);
+    return pnl > 0 ? "win" : pnl < 0 ? "loss" : "flat";
+}
+// ─── Client helpers (fetch wrappers) ─────────────────────────────────────────
+const jsonHeaders = {
+    "Content-Type": "application/json"
+};
+async function fetchSuggestions(params) {
+    const q = new URLSearchParams();
+    if (params.symbol) q.set("symbol", params.symbol);
+    if (params.interval) q.set("interval", params.interval);
+    q.set("limit", String(params.limit ?? 100));
+    const res = await fetch(`/api/suggestions?${q.toString()}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return json.suggestions;
+}
+async function saveSuggestion(payload) {
+    try {
+        const res = await fetch("/api/suggestions", {
+            method: "POST",
+            headers: jsonHeaders,
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) return null;
+        const json = await res.json();
+        return json.suggestion;
+    } catch  {
+        return null;
+    }
+}
+async function saveRun(payload) {
+    try {
+        const res = await fetch("/api/finetune", {
+            method: "POST",
+            headers: jsonHeaders,
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) return null;
+        const json = await res.json();
+        return json.run;
+    } catch  {
+        return null;
+    }
+}
+async function fetchRuns(params) {
+    const q = new URLSearchParams();
+    if (params.symbol) q.set("symbol", params.symbol);
+    if (params.interval) q.set("interval", params.interval);
+    q.set("limit", String(params.limit ?? 20));
+    const res = await fetch(`/api/finetune?${q.toString()}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return json.runs;
+}
+async function fetchRunCount(symbol, interval) {
+    try {
+        const res = await fetch(`/api/finetune?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=1&count=1`);
+        if (!res.ok) return 0;
+        const json = await res.json();
+        return typeof json.count === "number" ? json.count : 0;
+    } catch  {
+        return 0;
+    }
+}
+async function fetchChampionRun(symbol, interval) {
+    try {
+        const res = await fetch(`/api/finetune?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=1`);
+        if (!res.ok) return null;
+        const json = await res.json();
+        return json.champion ?? null;
+    } catch  {
+        return null;
+    }
+}
+async function applyBestSuggestion(symbol, interval) {
+    try {
+        const res = await fetch("/api/suggestions", {
+            method: "PATCH",
+            headers: jsonHeaders,
+            body: JSON.stringify({
+                action: "apply-best",
+                symbol,
+                interval
+            })
+        });
+        if (!res.ok) return null;
+        const json = await res.json();
+        return json.suggestion;
+    } catch  {
+        return null;
+    }
+}
+async function markApplied(kind, id) {
+    try {
+        const res = await fetch(kind === "suggestion" ? "/api/suggestions" : "/api/finetune", {
+            method: "PATCH",
+            headers: jsonHeaders,
+            body: JSON.stringify({
+                id,
+                action: "apply"
+            })
+        });
+        return res.ok;
+    } catch  {
+        return false;
+    }
+}
+async function resolveBatch(prices) {
+    try {
+        const res = await fetch("/api/suggestions", {
+            method: "PATCH",
+            headers: jsonHeaders,
+            body: JSON.stringify({
+                action: "resolve-batch",
+                prices
+            })
+        });
+        if (!res.ok) return 0;
+        const json = await res.json();
+        return json.resolved;
+    } catch  {
+        return 0;
+    }
+}
+// ─── CSV export (lịch sử đề xuất) ────────────────────────────────────────────
+/** Stable column order for the suggestion-history CSV. */ const CSV_COLUMNS = [
+    {
+        key: "createdAt",
+        get: (s)=>s.createdAt
+    },
+    {
+        key: "resolvedAt",
+        get: (s)=>s.resolvedAt ?? ""
+    },
+    {
+        key: "pair",
+        get: (s)=>s.symbol
+    },
+    {
+        key: "interval",
+        get: (s)=>s.interval
+    },
+    {
+        key: "bias",
+        get: (s)=>s.bias
+    },
+    {
+        key: "prob",
+        get: (s)=>s.prob
+    },
+    {
+        key: "confidence",
+        get: (s)=>s.confidence
+    },
+    {
+        key: "slPct",
+        get: (s)=>s.slPct
+    },
+    {
+        key: "tpPct",
+        get: (s)=>s.tpPct
+    },
+    {
+        key: "atrKey",
+        get: (s)=>s.atrKey
+    },
+    {
+        key: "atrPeriod",
+        get: (s)=>s.atrPeriod
+    },
+    {
+        key: "smaFilter",
+        get: (s)=>s.smaFilter ? 1 : 0
+    },
+    {
+        key: "smaPeriod",
+        get: (s)=>s.smaPeriod
+    },
+    {
+        key: "accPct",
+        get: (s)=>s.acc
+    },
+    {
+        key: "auc",
+        get: (s)=>s.auc
+    },
+    {
+        key: "horizonBars",
+        get: (s)=>s.horizonBars
+    },
+    {
+        key: "entryPrice",
+        get: (s)=>s.entryPrice
+    },
+    {
+        key: "applied",
+        get: (s)=>s.applied ? 1 : 0
+    },
+    {
+        key: "outcome",
+        get: (s)=>s.outcome ?? ""
+    },
+    {
+        key: "exitPrice",
+        get: (s)=>s.exitPrice ?? ""
+    },
+    {
+        key: "pnlPct",
+        get: (s)=>s.pnlPct ?? ""
+    },
+    {
+        key: "id",
+        get: (s)=>s.id
+    }
+];
+function csvCell(v) {
+    const s = String(v);
+    return /[",\n\r;]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
+}
+function suggestionsToCsv(rows) {
+    const header = CSV_COLUMNS.map((c)=>c.key).join(",");
+    const body = rows.map((r)=>CSV_COLUMNS.map((c)=>csvCell(c.get(r))).join(",")).join("\r\n");
+    return `\uFEFF${header}\r\n${body}\r\n`;
+}
+function downloadCsv(filename, csv) {
+    const blob = new Blob([
+        csv
+    ], {
+        type: "text/csv;charset=utf-8"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+async function fetchVariants(symbol, interval) {
+    const q = new URLSearchParams({
+        symbol,
+        interval
+    });
+    const res = await fetch(`/api/strategies?${q.toString()}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return json.variants;
+}
+async function generateVariants(symbol, interval) {
+    const res = await fetch("/api/strategies", {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify({
+            action: "generate",
+            symbol,
+            interval
+        })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return json.count;
+}
+async function markVariantApplied(id) {
+    try {
+        const res = await fetch("/api/strategies", {
+            method: "PATCH",
+            headers: jsonHeaders,
+            body: JSON.stringify({
+                id,
+                action: "apply"
+            })
+        });
+        return res.ok;
+    } catch  {
+        return false;
+    }
+}
+async function fetchDiveReports(limit = 8) {
+    const res = await fetch(`/api/llm/stats-dive?limit=${limit}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return json.reports;
+}
+if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
+    __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
+}
+}),
+"[project]/src/lib/klines-direct.ts [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+// ─── klines-direct — Binance USDT-M Futures klines, server-side ──────────────
+// Single source of truth for DIRECT Binance kline fetching on the Node server:
+// host failover, legacy spot-name aliasing (PEPEUSDT → 1000PEPEUSDT), and the
+// candle mapping. Shared by:
+//   • /api/klines            (the browser relay — cache + validation live there)
+//   • src/lib/engine.ts      (backend scan/train/broadcast scheduler)
+//   • src/workers/xgb-node.worker.ts (backend XGB pool workers)
+//   • src/lib/session-broadcast.ts (own copy stays — zero-risk isolation)
+// Dependency-free on purpose (only ./types) so esbuild can bundle it into the
+// standalone worker without dragging server-only modules (prisma, next) along.
+__turbopack_context__.s([
+    "VALID_INTERVALS",
+    ()=>VALID_INTERVALS,
+    "binanceHosts",
+    ()=>binanceHosts,
+    "binanceJson",
+    ()=>binanceJson,
+    "fetchBoard24h",
+    ()=>fetchBoard24h,
+    "fetchKlinesDirect",
+    ()=>fetchKlinesDirect,
+    "fetchKlinesDirectResolved",
+    ()=>fetchKlinesDirectResolved,
+    "fetchTicker24Direct",
+    ()=>fetchTicker24Direct
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$build$2f$polyfills$2f$process$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = /*#__PURE__*/ __turbopack_context__.i("[project]/node_modules/next/dist/build/polyfills/process.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$types$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/lib/types.ts [app-client] (ecmascript)");
+;
+/** Binance USDT-M Futures — market data comes from the perp board, not spot */ const HOSTS = [
+    "https://fapi.binance.com",
+    "https://fapi1.binance.com",
+    "https://fapi2.binance.com",
+    "https://fapi3.binance.com"
+];
+function binanceHosts() {
+    const raw = (__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$build$2f$polyfills$2f$process$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["default"].env.KLINES_HOSTS ?? "").trim();
+    if (raw) {
+        const list = raw.split(",").map((s)=>s.trim().replace(/\/+$/, "")).filter((s)=>/^https?:\/\/[^/]+/.test(s));
+        if (list.length > 0) return list;
+    }
+    return HOSTS;
+}
+async function binanceJson(res, host) {
+    const text = await res.text();
+    if (!text.trim()) throw new Error(`${host}: empty body (connection cut mid-response)`);
+    try {
+        return JSON.parse(text);
+    } catch  {
+        const head = text.slice(0, 48).replace(/\s+/g, " ");
+        throw new Error(`${host}: truncated/non-JSON body (${text.length}B: "${head}")`);
+    }
+}
+const VALID_INTERVALS = [
+    "1m",
+    "5m",
+    "15m",
+    "30m",
+    "1h",
+    "4h",
+    "1d",
+    "1w"
+];
+const mapRow = (r)=>{
+    const row = r;
+    return {
+        t: row[0],
+        o: Number(row[1]),
+        h: Number(row[2]),
+        l: Number(row[3]),
+        c: Number(row[4]),
+        v: Number(row[5]),
+        // taker buy base volume → whale delta / volume-profile buy/sell split
+        tb: Number(row[9]) || 0
+    };
+};
+async function fetchKlinesDirect(symbol, interval, limit = __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$types$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["KLINE_LIMIT"], opts) {
+    const hosts = binanceHosts();
+    const sym = symbol.toUpperCase();
+    if (!/^[A-Z0-9]{5,20}$/.test(sym)) throw new Error("invalid symbol");
+    const lim = Math.min(Math.max(1, Math.floor(limit) || __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$types$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["KLINE_LIMIT"]), 1000);
+    // Legacy/spot names (PEPEUSDT, SHIBUSDT…) don't exist on the perp board —
+    // transparently retry their USDT-M listing so stale watchlist entries keep
+    // flowing instead of 400-ing every poll.
+    const candidates = [
+        sym
+    ];
+    const mapped = __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$types$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FUTURES_ALIASES"][sym];
+    if (typeof mapped === "string" && !candidates.includes(mapped)) candidates.push(mapped);
+    const thousand = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$types$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["thousandVariant"])(sym);
+    if (thousand && !candidates.includes(thousand)) candidates.push(thousand);
+    let lastErr = null;
+    let invalidSymbol = false;
+    for (const cand of candidates){
+        if (lastErr === "invalid symbol") {
+            invalidSymbol = true; // previous candidate 400-ed — remember but try alias
+            lastErr = null;
+        }
+        for (const host of hosts){
+            try {
+                const url = `${host}/fapi/v1/klines?symbol=${cand}&interval=${interval}&limit=${lim}`;
+                const res = await fetch(url, {
+                    ...opts?.revalidate != null ? {
+                        next: {
+                            revalidate: opts.revalidate
+                        }
+                    } : {},
+                    signal: AbortSignal.timeout(9000)
+                });
+                if (!res.ok) {
+                    lastErr = `HTTP ${res.status}`;
+                    // Binance answers 400 for an unknown symbol — try the next candidate
+                    // (alias) before surfacing it
+                    if (res.status === 400) {
+                        lastErr = "invalid symbol";
+                        break;
+                    }
+                    continue;
+                }
+                const raw = await binanceJson(res, host);
+                return raw.map(mapRow);
+            } catch (e) {
+                lastErr = e instanceof Error ? e.message : "fetch failed";
+            }
+        }
+    }
+    if (lastErr === "invalid symbol") invalidSymbol = true;
+    if (invalidSymbol) throw new Error("invalid symbol");
+    throw new Error(`binance_unreachable: ${lastErr ?? "fetch failed"}`);
+}
+async function fetchKlinesDirectResolved(symbol, interval, limit = __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$types$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["KLINE_LIMIT"], opts) {
+    const sym = symbol.toUpperCase();
+    const candidates = [
+        sym
+    ];
+    const mapped = __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$types$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FUTURES_ALIASES"][sym];
+    if (typeof mapped === "string" && !candidates.includes(mapped)) candidates.push(mapped);
+    const thousand = (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$types$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["thousandVariant"])(sym);
+    if (thousand && !candidates.includes(thousand)) candidates.push(thousand);
+    for (const cand of candidates){
+        try {
+            const klines = await fetchKlinesDirect(cand, interval, limit, opts);
+            return {
+                symbol: cand,
+                klines
+            };
+        } catch (e) {
+            if (e instanceof Error && e.message === "invalid symbol") continue;
+            throw e;
+        }
+    }
+    throw new Error("invalid symbol");
+}
+async function fetchBoard24h() {
+    let lastErr = null;
+    for (const host of binanceHosts()){
+        try {
+            const res = await fetch(`${host}/fapi/v1/ticker/24hr`, {
+                signal: AbortSignal.timeout(9000)
+            });
+            if (!res.ok) {
+                lastErr = `HTTP ${res.status}`;
+                continue;
+            }
+            const rawArr = await binanceJson(res, host);
+            return new Map(rawArr.map((r)=>[
+                    r.symbol,
+                    {
+                        symbol: r.symbol,
+                        price: Number(r.lastPrice) || 0,
+                        changePct: Number(r.priceChangePercent) || 0,
+                        high: Number(r.highPrice) || 0,
+                        low: Number(r.lowPrice) || 0,
+                        quoteVolume: Number(r.quoteVolume) || 0
+                    }
+                ]));
+        } catch (e) {
+            lastErr = e instanceof Error ? e.message : "fetch failed";
+        }
+    }
+    throw new Error(`binance_unreachable: ${lastErr ?? "fetch failed"}`);
+}
+async function fetchTicker24Direct(symbol) {
+    const sym = symbol.toUpperCase();
+    if (!/^[A-Z0-9]{5,20}$/.test(sym)) return null;
+    for (const host of binanceHosts()){
+        try {
+            const res = await fetch(`${host}/fapi/v1/ticker/24hr?symbol=${sym}`, {
+                signal: AbortSignal.timeout(9000)
+            });
+            if (!res.ok) continue;
+            const r = await binanceJson(res, host);
+            return {
+                symbol: r.symbol,
+                price: Number(r.lastPrice) || 0,
+                changePct: Number(r.priceChangePercent) || 0,
+                high: Number(r.highPrice) || 0,
+                low: Number(r.lowPrice) || 0,
+                quoteVolume: Number(r.quoteVolume) || 0
+            };
+        } catch  {
+        // host chết → thử host kế
+        }
+    }
+    return null;
+}
+if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
+    __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
+}
+}),
+"[project]/src/lib/live-stream.ts [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+// ─── live-stream — lõi giá realtime kiểu sàn cho /api/stream ─────────────────
+// Server bám websocket kline của Binance futures (wss://fstream.binance.com) và
+// đẩy phần ĐUÔI dãy nến (2 nến cuối) về client qua SSE ~1 lần/giây. Node cũ
+// không có WebSocket global (18/20 trước 21) thì tự rơi về REST poll.
+//
+// Dependency-free on purpose (chỉ ./types + ./params + ./klines-direct — bản
+// thân klines-direct đã dependency-free để esbuild bundle được) nên file này:
+//   • import được từ route SSE, từ test script (.mts) lẫn từ CLIENT
+//     (page.tsx chỉ lấy mergeTail — hàm thuần, không đụng node API nào).
+//
+// Dữ liệu đẩy đi luôn là TailEvent { symbol, interval, src, tail, tk, ts }:
+//   • tail — 1-2 nến cuối (nến đang chạy + nến vừa đóng khi lăn nến);
+//   • tk   — ticker 24h tươi cho header (refresh LIVE_TICKER_MS, có thể undefined);
+//   • src  — "ws" khi đang bám websocket, "poll" khi đang REST poll.
+__turbopack_context__.s([
+    "mergeTail",
+    ()=>mergeTail,
+    "startLiveStream",
+    ()=>startLiveStream
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/lib/params.ts [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$klines$2d$direct$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/src/lib/klines-direct.ts [app-client] (ecmascript)");
+;
+;
+const FSTREAM_WS = "wss://fstream.binance.com/ws";
+function mergeTail(prev, tail, maxLen) {
+    if (!prev.length || !tail.length) return prev;
+    const lastT = prev[prev.length - 1].t;
+    const fresh = tail.filter((k)=>k.t >= lastT);
+    if (!fresh.length) return prev;
+    let next = prev;
+    for (const k of fresh){
+        if (k.t === next[next.length - 1].t) {
+            next = next.slice();
+            next[next.length - 1] = k;
+        } else {
+            next = [
+                ...next,
+                k
+            ];
+        }
+    }
+    if (next.length > maxLen) next = next.slice(next.length - maxLen);
+    // fresh chỉ toàn nến giống hệt nến cuối cũ → giữ nguyên object để React bỏ qua re-render
+    return next === prev || next[next.length - 1] === prev[prev.length - 1] ? prev : next;
+}
+/** websocket kline message (USDT-M futures) → Kline; V = taker-buy base volume. */ const wsKToKline = (k)=>({
+        t: k.t,
+        o: Number(k.o),
+        h: Number(k.h),
+        l: Number(k.l),
+        c: Number(k.c),
+        v: Number(k.v),
+        tb: Number(k.V) || 0
+    });
+function startLiveStream(symbol, interval, onEvent) {
+    let stopped = false;
+    let mode = typeof WebSocket === "function" ? "ws" : "poll";
+    let lastTwo = [];
+    let lastSig = ""; // chữ ký đuôi đã gửi → không spam khi thị trường câm
+    let tk;
+    let wsTries = 0;
+    let ws = null;
+    let wsStaleAt = 0;
+    let wsOpenedAt = 0;
+    let wsMsgs = 0; // số message kline đã nhận — probe lúc mới nối dựa vào đây
+    const timers = new Set();
+    const later = (ms, fn)=>{
+        const id = setTimeout(()=>{
+            timers.delete(id);
+            if (!stopped) fn();
+        }, ms);
+        timers.add(id);
+        return id;
+    };
+    const cleanup = ()=>{
+        stopped = true;
+        try {
+            ws?.close();
+        } catch  {
+        // đã đóng
+        }
+        for (const id of timers)clearTimeout(id);
+        timers.clear();
+    };
+    const push = (tail, withTk)=>{
+        if (stopped) return;
+        onEvent({
+            symbol,
+            interval,
+            src: mode,
+            tail,
+            ...withTk && tk ? {
+                tk
+            } : {},
+            ts: Date.now()
+        });
+    };
+    const sendIfChanged = (force = false)=>{
+        if (!lastTwo.length) return;
+        const sig = JSON.stringify(lastTwo);
+        if (sig === lastSig && !force) return;
+        lastSig = sig;
+        push(lastTwo, true);
+    };
+    /** websocket kline → buffer 2 nến cuối (thay cùng t / nối t mới) */ const feed = (k)=>{
+        const last = lastTwo[lastTwo.length - 1];
+        if (!last || k.t > last.t) lastTwo = [
+            ...lastTwo.slice(-1),
+            k
+        ];
+        else if (k.t === last.t) lastTwo = [
+            ...lastTwo.slice(0, -1),
+            k
+        ];
+        else return;
+        wsMsgs++;
+        wsStaleAt = Date.now();
+    };
+    const downgradeToPoll = ()=>{
+        if (stopped || mode === "poll") return;
+        mode = "poll";
+        // KHÔNG reset lastSig: nếu đuôi poll về y hệt lần gửi cuối (đóng băng bởi
+        // proxy chẳng hạn) thì im — client đã có data đó rồi, gửi lại là spam.
+        void pollOnce();
+    };
+    const openWs = ()=>{
+        if (stopped || mode === "poll") return;
+        let sock;
+        try {
+            sock = new WebSocket(`${FSTREAM_WS}/${symbol.toLowerCase()}@kline_${interval}`);
+        } catch  {
+            downgradeToPoll();
+            return;
+        }
+        ws = sock;
+        sock.onmessage = (ev)=>{
+            try {
+                const j = JSON.parse(String(ev.data));
+                if (j?.k && j.k.i === interval) feed(wsKToKline(j.k));
+            } catch  {
+            // frame bẩn → bỏ qua
+            }
+        };
+        sock.onopen = ()=>{
+            if (stopped) return;
+            wsTries = 0;
+            wsOpenedAt = Date.now();
+            wsStaleAt = Date.now();
+        };
+        sock.onclose = ()=>{
+            if (stopped || ws !== sock) return;
+            ws = null;
+            if (++wsTries <= 2) later(3_000, openWs);
+            else downgradeToPoll();
+        };
+        sock.onerror = ()=>{
+            try {
+                sock.close();
+            } catch  {
+            // onclose sẽ xử lý tiếp
+            }
+        };
+    };
+    /** REST poll — vòng setTimeout tránh chồng vòng khi fetch chậm */ const pollOnce = async ()=>{
+        if (stopped || mode !== "poll") return;
+        try {
+            const { klines } = await (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$klines$2d$direct$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["fetchKlinesDirectResolved"])(symbol, interval, 2);
+            if (stopped) return;
+            if (klines.length) lastTwo = klines.slice(-2);
+            sendIfChanged();
+        } catch  {
+        // Binance lapsed → thử lại sau với chu kỳ dài hơn nhờ ack qua `later`
+        }
+        if (stopped || mode !== "poll") return;
+        later(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["LIVE_POLL_MS"], ()=>void pollOnce());
+    };
+    // watchdog websocket: (a) probe lúc mới nối — LIVE_WS_PROBE_MS chưa thấy
+    // message nào là mạng/proxy cho handshake nhưng chặn frame dữ liệu → hạ poll
+    // NGAY (không qua vòng reconnect), đừng để chart im cả phút đầu; (b) đã thấy
+    // dữ liệu rồi nhưng câm quá LIVE_WS_STALE_MS → đóng để reconnect, hết 2 lần
+    // thử thì hạ hẳn xuống poll — client vẫn live, chỉ chậm hơn (REST 2.5s).
+    const wsWatchdog = setInterval(()=>{
+        if (stopped || mode !== "ws") return;
+        const silentFor = Date.now() - (wsMsgs ? wsStaleAt : wsOpenedAt || Date.now());
+        if (wsMsgs === 0 ? silentFor > __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["LIVE_WS_PROBE_MS"] : silentFor > __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["LIVE_WS_STALE_MS"]) {
+            if (wsMsgs === 0) {
+                downgradeToPoll(); // chặn frame dữ liệu — poll đáp ứng tốt hơn ngay lập tức
+                try {
+                    ws?.close();
+                } catch  {
+                // mode đã "poll" → onclose bỏ qua
+                }
+            } else {
+                try {
+                    ws?.close();
+                } catch  {
+                // onclose xử lý
+                }
+            }
+        }
+    }, 5_000);
+    // ticker 24h — refresh định kỳ và đẩy NGAY cả khi đuôi không đổi (header cần)
+    const tickerLoop = async ()=>{
+        if (stopped) return;
+        const row = await (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$klines$2d$direct$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["fetchTicker24Direct"])(symbol);
+        if (stopped) return;
+        if (row && row.price > 0) {
+            tk = {
+                price: row.price,
+                changePct: row.changePct,
+                high: row.high,
+                low: row.low,
+                quoteVolume: row.quoteVolume
+            };
+            sendIfChanged(true);
+        }
+        if (!stopped) later(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["LIVE_TICKER_MS"], ()=>void tickerLoop());
+    };
+    // flush 1s — chỉ đẩy khi đuôi đổi (tin kèm ticker mới vẫn ép gửi qua force)
+    const flush = setInterval(()=>sendIfChanged(), __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$params$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["LIVE_FLUSH_MS"]);
+    // khởi động: seed đuôi bằng REST (chắc có dữ liệu ngay) rồi nối websocket
+    void (async ()=>{
+        try {
+            const { klines } = await (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$klines$2d$direct$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["fetchKlinesDirectResolved"])(symbol, interval, 2);
+            if (stopped) return;
+            if (klines.length) lastTwo = klines.slice(-2);
+            sendIfChanged(true);
+        } catch  {
+        // route đã resolve thành công trước đó → hụt lần này thì ws/poll sẽ lấp
+        }
+        if (mode === "ws") openWs();
+        void tickerLoop();
+    })();
+    return ()=>{
+        clearInterval(flush);
+        clearInterval(wsWatchdog);
+        cleanup();
+    };
+}
+if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
+    __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
+}
+}),
+"[project]/src/lib/view.ts [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+// ─── view — payload của /api/view: MỌI thứ trang chính tính ở server ─────────
+// "dọn hết những gì đang chạy trên web về chạy ở server trừ chart" — từ 0.2.35
+// trình duyệt KHÔNG còn tính signalsFrom/papersFrom/wyckoffFrom/analyze/
+// strategy-pies/session-stats/watch-status nữa. Nó chỉ:
+//   • vẽ chart từ klines (/api/klines + SSE /api/stream — phần "trừ chart")
+//   • poll /api/view 2s/lần và render JSON có sẵn dưới đây.
+// Types sống ở lib riêng (không import server-only) để cả route lẫn client dùng
+// chung mà không kéo db/engine vào bundle trình duyệt.
+__turbopack_context__.s([
+    "fetchView",
+    ()=>fetchView,
+    "viewQueryString",
+    ()=>viewQueryString
+]);
+function viewQueryString(q) {
+    const sp = new URLSearchParams({
+        symbol: q.symbol,
+        interval: q.interval,
+        s: JSON.stringify(q.s),
+        w: JSON.stringify(q.w),
+        pairs: q.pairs.join(",")
+    });
+    return sp.toString();
+}
+async function fetchView(q) {
+    try {
+        const res = await fetch(`/api/view?${viewQueryString(q)}`, {
+            cache: "no-store"
+        });
+        if (!res.ok) return null;
+        return await res.json();
+    } catch  {
+        return null;
+    }
+}
+if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelpers !== null) {
+    __turbopack_context__.k.registerExports(__turbopack_context__.m, globalThis.$RefreshHelpers$);
+}
+}),
+]);
+
+//# sourceMappingURL=src_lib_469cf672._.js.map

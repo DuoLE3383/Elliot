@@ -1,0 +1,25 @@
+0.2.56 — sửa build gãy: tách runScheduledStatsDive sang llm-daily.ts (server-only)
+
+LỖI: deploy 0.2.55 (10d3012) gãy build Turbopack với 8 lỗi
+"Module not found: Can't resolve 'fs'" / "does not support external modules
+(node:fs, node:worker_threads)" — pm2 vẫn chạy bản cũ, chưa lên 0.2.55.
+
+NGUYÊN NHÂN:
+- 0.2.55 thêm hàm runScheduledStatsDive() vào src/lib/llm.ts, bên trong có
+  3 dynamic import: ./stats, ./db, ./engine.
+- llm.ts nằm trong CLIENT graph: ai/page.tsx → autotrade.ts → llm.ts.
+  Turbopack truy vết cả dynamic import, nên nó bundle engine/db/stats
+  (dùng fs, worker_threads, Prisma) vào client chunk → build gãy.
+
+CÁCH SỬA:
+- Tạo src/lib/llm-daily.ts (chỉ server import): chứa runScheduledStatsDive
+  nguyên văn. Dynamic import ./engine giữ bên trong hàm để tránh vòng lặp
+  engine → llm-daily → engine lúc nạp module.
+- llm.ts: xoá hàm đã chuyển, thêm chú thích cảnh báo giữ file thuần client.
+- engine.ts: đổi import sang "./llm-daily".
+- Không đổi logic runtime nào: scheduler 24h RCA vẫn chạy đúng đường cũ.
+
+KIỂM CHỨNG: npm run build thành công cục bộ (toàn bộ route đóng gói sạch).
+
+SAU DEPLOY: `cd ~/Elliot && git pull && npm run build && pm2 restart elliott --update-env && pm2 flush`
+— build sẽ qua, engine vẫn chạy lịch stats-dive 24h như thiết kế 0.2.55.

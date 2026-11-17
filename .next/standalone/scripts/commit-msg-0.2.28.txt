@@ -1,0 +1,50 @@
+0.2.28 — GIẢI PHẪU LỆNH THẮNG/THUA (autopsy) + timeout LLM 90s → 300s
+
+Vòng học khép kín user cần: "lệnh vào thắng thua và hiểu tại sao thua tại sao
+thắng từ đó đưa ra phán đoán tốt hơn để tăng tỉ lệ thắng".
+
+GIẢI PHẪU (src/lib/autopsy.ts — module mới):
+• MỌI lệnh paper ĐÓNG — tp, sl, manual, THẮNG lẫn THUA — đều được LLM mổ xẻ
+  fire-and-forget ngay sau khi chốt (engine closeTradeDirect + PATCH
+  /api/autotrade close). Không chặn cycle/watcher; lỗi chỉ log.
+• Bằng chứng TÍNH SẴN bằng code từ nến Binance thật trong thời gian giữ lệnh —
+  khối "path" ground truth (LLM cấm mâu thuẫn/bịa số, cùng triết lý checks
+  block 0.2.26): MFE/MAE (giá từng đi thuận/bất lợi xa nhất theo phía lệnh),
+  R-multiple (thua/thắng bao nhiêu lần R), phút giữ, nhiễu mỗi nến so với SL,
+  nến có phủ tới entry hay thiếu. Test bắt bug thật: MAE phía SHORT viết ngược
+  dấu → luôn 0; đã sửa + có test chốt.
+• LLM trả {"tag","why[]","lesson"}: tag là nhãn chế độ thắng/thua
+  (sl_too_tight, whipsaw, good_entry…), mỗi why PHẢI trích field=value, lesson
+  là MỘT câu hành động. Đầu ra ép hình dạng an toàn (slug, cắt ≤3 why/≤160,
+  lesson ≤240, lesson rỗng = hỏng → bỏ).
+• Kết quả lưu JSON vào cột AutoTrade.autopsy + đẩy tin Telegram 🔬 "GIẢI PHẪU
+  LỆNH" (msgAutopsy).
+
+LƯU VERDICT LÚC VÀO LỆNH (2 cột mới AutoTrade.llmVerdict/llmReason):
+• cycleTick ghi verdict go/skip/unreachable + lý do đầu của Risk Officer vào
+  lệnh lúc mở → autopsy đối chiếu được "duyệt go mà vẫn thua" khách quan.
+
+NẠP BÀI HỌC VÀO LẦN DUYỆT SAU (vòng khép kín):
+• recentAutopsyLessons(symbol) — tối đa 5 bài gần nhất của CHÍNH cặp (kèm
+  khung/phía/kết quả thật/tag) → LlmSetup.lessons → khối "recent_lessons" trong
+  setupPrompt + system prompt coi là bằng chứng vận hành, không nhại nguyên văn.
+
+TIMEOUT (theo yêu cầu "tăng timeout — LLM chạy nền không ảnh hưởng app"):
+• LLM_TIMEOUT_MS 90_000 → 300_000, override được bằng env LLM_TIMEOUT_MS
+  (10s–600s; đổi xong pm2 restart --update-env). Áp chung cho review + autopsy;
+  browser path cũng nới theo. Ghi chú /ai knobs tự hiện 300s.
+
+SCHEMA + MIGRATION TỰ LÀNH:
+• AutoTrade +3 cột nullable (llmVerdict, llmReason, autopsy) — schema.prisma +
+  CREATE TABLE trong db.ts + danh sách ALTER TABLE ADD COLUMN chạy lúc boot,
+  nuốt lỗi duplicate → deploy chỉ git pull + build + pm2 restart là đủ, dữ liệu
+  giữ nguyên (test-db-migrate.mts mô phỏng DB 0.2.27 cũ: PASS).
+
+UI /ai:
+• Thẻ "Giải phẫu lệnh — tại sao thắng, tại sao thua" (/api/ai-info
+  autopsies{n, recent[8]}): badge win/loss, tag, why trích số, bài học — feed
+  trực tiếp để xem bot học được gì sau từng lệnh.
+
+TEST: scripts/test-autopsy.mts 42/42 PASS (evidence LONG/SHORT, covered,
+prompt, sanitize, lessons, mock llama-server); test-llm-factcheck.mts
+regression PASS; test-db-migrate.mts PASS; tsc --noEmit sạch; build ok.

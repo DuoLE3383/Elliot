@@ -1,0 +1,2022 @@
+From 87e212dc19bf51b2f8bf93311339670a9db5a05b Mon Sep 17 00:00:00 2001
+From: Z User <z@container>
+Date: Tue, 17 Nov 2026 18:29:59 +0000
+Subject: [PATCH] =?UTF-8?q?0.3.2=20=E2=80=94=20floor=20=C4=91=E1=BB=99ng?=
+ =?UTF-8?q?=20t=E1=BB=B1=20h=E1=BB=8Dc=20+=20TP1=E2=86=92Runner=20+=20SL?=
+ =?UTF-8?q?=20confirm=20(h=E1=BA=BFt=20ch=E1=BB=91t=20s=E1=BB=9Bm/SL=20non?=
+ =?UTF-8?q?/t=C4=83ng=20RR=20m=E1=BA=A5t=20d=C3=B2ng=20l=E1=BB=87nh)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ package.json                   |   2 +-
+ prisma/schema.prisma           |  25 +++
+ scripts/commit-msg-0.3.2.txt   |  87 +++++++++
+ scripts/test-dynamic-floor.ts  | 120 ++++++++++++
+ scripts/test-trade-mgmt.ts     |  99 ++++++++++
+ src/app/ai/page.tsx            |  12 ++
+ src/app/api/autotrade/route.ts |  10 +-
+ src/components/auto-panel.tsx  |  94 ++++++++++
+ src/lib/autopsy.ts             |  65 ++++++-
+ src/lib/autostate.ts           |  13 ++
+ src/lib/autotrade.ts           |  59 +++++-
+ src/lib/db.ts                  |  10 +-
+ src/lib/dynamic-floor.ts       | 326 +++++++++++++++++++++++++++++++++
+ src/lib/engine.ts              | 254 +++++++++++++++++++++----
+ src/lib/i18n.ts                |  26 ++-
+ src/lib/params.ts              |  27 +++
+ src/lib/self-improve.ts        |  18 ++
+ src/lib/stats.ts               |  43 ++++-
+ src/lib/tg-msgs.ts             |  46 ++++-
+ src/lib/trade-mgmt.ts          | 152 +++++++++++++++
+ 20 files changed, 1430 insertions(+), 58 deletions(-)
+ create mode 100644 scripts/commit-msg-0.3.2.txt
+ create mode 100644 scripts/test-dynamic-floor.ts
+ create mode 100644 scripts/test-trade-mgmt.ts
+ create mode 100644 src/lib/dynamic-floor.ts
+ create mode 100644 src/lib/trade-mgmt.ts
+
+diff --git a/package.json b/package.json
+index 03fad0e..5b805b2 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "nextjs_tailwind_shadcn_ts",
+-  "version": "0.2.59",
++  "version": "0.3.2",
+   "private": true,
+   "scripts": {
+     "dev": "next dev -p 3000 2>&1 | tee dev.log",
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index 79c9ff8..bb5ca97 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -126,6 +126,15 @@ model AutoTrade {
+   autopsy       String?
+   /** fingerprint of entry policy (gates/stake/lev/TF) at open — self-improve agent */
+   methodId      String?
++  // ── 0.3.2 · TP1 PARTIAL → RUNNER (xem src/lib/trade-mgmt.ts) ────────────
++  /** ROE % đã bank tại TP1 (null = lệnh thường chưa qua TP1) */
++  p1Pct         Float?
++  /** phần stake đã bank tại TP1, 0..1 (runnerSharePct/100) */
++  p1Share       Float?
++  /** TP mở rộng của runner (price move %) — null = chưa vào runner phase */
++  tp2Pct        Float?
++  /** mức khoá lời hiện tại của trail runner (price move %, ≥0; 0 = hoà vô) */
++  trailPct      Float?
+   createdAt     DateTime  @default(now())
+ 
+   @@index([status, createdAt])
+@@ -227,6 +236,22 @@ model ImproveEvent {
+   @@index([createdAt])
+ }
+ 
++// ─── Floor log — nhật ký floor động tự học (0.3.2) ─────────────────────────
++// Learner (dynamic-floor.ts) mỗi 6h chấm lại bộ ba minAuc/minAcc/minScore trên
++// toàn bộ lịch sử lệnh + PHE. Mỗi lượt (áp hay giữ) 1 dòng: trước/sau + LÝ DO
++// tiến hoá + số liệu nền (n, flow, expectancy, WR) — /stats hiển thị nguyên văn.
++model FloorLog {
++  id           String   @id @default(cuid())
++  kind         String // apply | keep
++  floorsBefore String // JSON {minAuc,minAcc,minScore}
++  floorsAfter  String // JSON {minAuc,minAcc,minScore}
++  basis        String   @default("") // JSON {totalW,candidates,enough,pick...}
++  note         String   @default("") // lý do tiến hoá (tiếng Việt, ≤500)
++  createdAt    DateTime @default(now())
++
++  @@index([createdAt])
++}
++
+ // ─── Evolve log — nhật ký vòng "tự tiến hoá" (0.2.54) ────────────────────────
+ // Vòng khép kín trên nền Strategy Lab: sinh ứng viên từ dữ liệu đang tích hợp
+ // (feature importance của champion + grid) và đề xuất LLM → backtest đúng
+diff --git a/scripts/commit-msg-0.3.2.txt b/scripts/commit-msg-0.3.2.txt
+new file mode 100644
+index 0000000..d7494c6
+--- /dev/null
++++ b/scripts/commit-msg-0.3.2.txt
+@@ -0,0 +1,87 @@
++0.3.2 — floor động tự học + TP1→Runner + SL confirm (hết "chốt sớm / SL non / tăng RR mất dòng lệnh")
++
++BỐI CẢNH: phản hồi thật của user sau 0.3.1 — "các lệnh bị chốt sớm và SL
++non.... tăng RR thì ko bắt lệnh dc nữa". Ba vấn đề cùng một gốc: (1) TP = 1.4R
++đóng toàn bộ lệnh quá sớm nên không bao giờ ăn được move lớn; (2) SL chạm một
++nhịp wick là quét sạch; (3) nhiệm vụ train khó hơn khi nâng RR → hit-rate sập →
++bộ ba ngưỡng TĨNH 63/0.76/72 chặn sạch phễu. 0.3.2 giải cả ba bằng floor ĐỘNG
++tự học (yêu cầu treo từ bản trước) + quản lý thoát lệnh mới.
++
++THAY ĐỔI:
++
++1) DYNAMIC FLOOR — bộ ba minAuc/minAcc/minScore TỰ HỌC & TIẾN HOÁ
++   • src/lib/dynamic-floor.ts (mới): mỗi 6h chấm lưới quantile × tổ hợp (8×7×8
++     = 448 bộ ba) trên TOÀN BỘ lịch sử — AutoTrade đóng ×3 trọng số +
++     Suggestion resolved ×1 (chấm lại score đúng công thức scoreFrom).
++     objective = expectancy(ROE) × √n — chất lượng nhân tần suất.
++   • RÀNG BUỘC DÒNG LỆNH (chống "tăng RR thì không bắt được lệnh nữa"): ứng
++     viên giữ lại < 12% tổng mẫu bị loại — floor không bao giờ học ra cổng làm
++     phễu cạn. Step-clamp ±0.08 AUC / ±8 ACC / ±15 điểm mỗi lượt + sàn cứng
++     0.55/55/20 + trần sanitizeFloors — tiến hoá từng bước, không nhảy loạn.
++   • Bảng FloorLog (mới, bootstrap tự CREATE + prisma schema): mỗi lượt
++     APPLY/KEEP ghi trước/sau + LÝ DO tiếng Việt + số liệu nền (totalW,
++     candidates, flow, WR) — "ghi nhận lý do tiến hoá và hiển thị rõ".
++   • cfg.floorAuto (mặc định ON): learner cài thẳng p.cfg → MỌI tầng (entry,
++     DCA, flip, broadcast gate, /stats dock) tự ăn theo vì đã đọc chung cfg.
++     syncEngine floor-aware: khi floorAuto ON, floor đã học KHÔNG bị đè bởi
++     localStorage của browser (log rõ "[engine] sync giữ floor đã học").
++   • self-improve: khi floorAuto ON, agent chỉ SIẾT RISK, không siết floor
++     (hai nguồn đè nhau lên cùng ba số = nhảy loạn).
++   • /stats thêm mục "Dynamic floor": floors đang chạy + nguồn AUTO/tay +
++     lý do tiến hoá gần nhất NGUYÊN VĂN + 3 lượt học gần nhất. Telegram: tin
++     "DYNAMIC FLOOR — TIẾN HOÁ" mỗi lần áp (msgFloor).
++
++2) TP1 PARTIAL → RUNNER — hết "chốt sớm"
++   • src/lib/trade-mgmt.ts (mới, PURE — test được): chạm TP lần đầu chỉ chốt
++     runnerSharePct% (mặc định 50%), phần còn lại chuyển runner: SL về HOÀ VÔ
++     (trailPct=0 — rủi ro = 0), TP mở rộng tp2Pct = tpPct × runnerTpMult
++     (mặc định ×2), trail ratchet khoá lời move × runnerTrailLock (50%), chỉ
++     tăng dần. exitKind mới "trail" (🪂).
++   • evalExit() — MỘT luồng chấm thoát dùng chung watcher (20s) + cycle (5m):
++     liq → runner(TP2/trail/BE) → TP1 partial → SL-confirm → DCA-at-stop.
++     Runner phase KHÔNG DCA, KHÔNG SL gốc — không còn "đã lời lại thành lỗ".
++   • State runner nằm trên ROW (p1Pct/p1Share/tp2Pct/trailPct — 4 cột mới
++     AutoTrade + ALTER bootstrap): restart pm2 không mất trail.
++   • COMBINE CLOSE: đóng giữa runner phase → ROE tổng = share×p1Pct +
++     (1−share)×rem — một lệnh một dòng sổ, chuỗi vốn capitalBefore/After và
++     kiểm chéo /stats không phá vỡ. Route PATCH mirror đúng công thức.
++   • Đã DCA (p.dca.count>0) → KHÔNG runner: chốt toàn bộ như cũ (avg đã dời,
++     stake đã nhân đôi — giữ đơn giản).
++   • Telegram: tin "TP1 PARTIAL — RUNNER ARMED" (msgTp1).
++
++3) SL CONFIRM — hết "SL non" (wick quét stop)
++   • SL chạm phải được thấy vượt LIÊN TỤC slConfirmTicks nhịp watcher (mặc
++     định 2 nhịp = 40s) HOẶC vượt sâu ≥ (1+15%)×SL mới chốt; wick 1 nhịp rồi
++     quay đầu → xoá pending, lệnh sống. Liquidation vẫn tức thời. DCA-at-stop
++     vẫn ưu tiên chạy trước confirm (giữ nguyên hành vi 0.2.x).
++   • State slPending sống trong engine.json qua restart. cfg.slConfirmTicks
++     chọn 0/2/3/5 trên panel (0 = hành vi cũ).
++
++4) AUTOPSY — fix mất bài học GRASSUSDT
++   • max_tokens 260 → 420 (JSON đứt giữa "noise_check:av…" là hết token, không
++     phải lỗi LLM).
++   • salvageAutopsy(): JSON đứt vẫn bới tag/why/lesson bằng regex (không bịa
++     dữ liệu) rồi đi qua sanitize như thường — hết "JSON hỏng, bỏ lượt mổ".
++   • recentAutopsyLessons: budget 220 → 320 + cutWord() cắt theo RANH TỪ —
++     bài học không còn bị đứt giữa chữ trong prompt duyệt lệnh.
++
++5) UI / PANEL
++   • Auto panel: hàng 0.3.2 mới — 🧬 Floor AUTO (emerald) · 🪁 TP1→Runner +
++     share 30/50/70 + TP× + lock · SL confirm 0/2/3/5 (amber).
++   • /ai engine card: thêm floorAuto/runner/slConfirm rows.
++   • i18n VI/EN đủ keys mới (stats.section.floor, stats.basis.floor,
++     auto.cfg.floorAuto/runner/slConfirm...).
++
++6) TESTS
++   • scripts/test-trade-mgmt.ts (30 pass): SL-confirm state machine (wick/deep/
++     off/đổi lệnh), trail/BE hit LONG-SHORT, ratchet chỉ-tăng, runnerTp2,
++     tp1Plan (DCA/off/share-100 chặn), combine close (liq −100% → tổng −43%).
++   • scripts/test-dynamic-floor.ts (19 pass): quantile, evalFloors (flow/n/
++     expectancy), computeFloors (448 ứng viên, flow-guard 0.18, thiếu mẫu,
++     toàn-lỗ step-clamp), clampStep (sàn cứng/kẹp bước), floorReason.
++   • Test cũ PASS: test-dca, test-params-02-59, test-atr-sltp, test-confluence.
++   • `npx tsc --noEmit` sạch; `npm run build` OK; boot standalone OK —
++     "[db] 12 tables present" + "[floor] KEEP — chưa đủ mẫu (0/30)" đúng logic.
++
++MIGRATION: deploy là đủ — bootstrap tự CREATE FloorLog + ALTER 4 cột AutoTrade
++(p1Pct/p1Share/tp2Pct/trailPct), không cần prisma db push thủ công.
+diff --git a/scripts/test-dynamic-floor.ts b/scripts/test-dynamic-floor.ts
+new file mode 100644
+index 0000000..fcd0455
+--- /dev/null
++++ b/scripts/test-dynamic-floor.ts
+@@ -0,0 +1,120 @@
++// ─── test-dynamic-floor — 0.3.2: learner bộ ba ngưỡng tự học ─────────────────
++// Chạy: npx tsx scripts/test-dynamic-floor.ts
++// Kiểm từng quy tắc của computeFloors/clampStep/evalFloors/floorReason trên
++// dữ liệu CÓ ĐỊNH — không DB, không engine.
++import {
++  clampStep,
++  computeFloors,
++  evalFloors,
++  floorReason,
++  quantile,
++  type FloorSample,
++  type Floors,
++} from "../src/lib/dynamic-floor";
++
++let pass = 0;
++let fail = 0;
++const ok = (cond: boolean, name: string, extra = "") => {
++  if (cond) {
++    pass += 1;
++    console.log(`  ✅ ${name}`);
++  } else {
++    fail += 1;
++    console.error(`  ❌ ${name} ${extra}`);
++  }
++};
++
++/** Sinh mẫu có định: điểm cao → pnl tốt, điểm thấp → pnl xấu (tín hiệu thật). */
++function mkSamples(n: number, good = true): FloorSample[] {
++  const out: FloorSample[] = [];
++  for (let i = 0; i < n; i++) {
++    const score = 20 + ((i * 7) % 60); // 20..79
++    const acc = 50 + ((i * 3) % 30); // 50..79
++    const auc = 0.55 + ((i % 30) / 30) * 0.35; // 0.55..0.9
++    const pnl = good ? (score >= 55 ? 2 + (i % 5) : -(1 + (i % 3))) : -(1 + (i % 4));
++    out.push({ auc: Math.round(auc * 1000) / 1000, acc, score, pnlPct: pnl, w: i % 3 === 0 ? 3 : 1 });
++  }
++  return out;
++}
++
++console.log("─ quantile ─");
++{
++  ok(quantile([1, 2, 3, 4], 0) === 1 && quantile([1, 2, 3, 4], 1) === 4, "q0 = min, q1 = max");
++  ok(quantile([1, 2, 3, 4], 0.5) === 2.5, "median tuyến tính");
++  ok(quantile([], 0.5) === null, "mảng rỗng → null");
++}
++
++console.log("─ evalFloors ─");
++{
++  const samples = mkSamples(30);
++  const all = evalFloors(samples, { minAuc: 0, minAcc: 0, minScore: 0 });
++  ok(all.n === samples.reduce((a, s) => a + s.w, 0), "floor 0 → mọi mẫu đạt");
++  ok(all.flow === 1, "flow = 1 khi floor 0");
++  const tight = evalFloors(samples, { minAuc: 0.99, minAcc: 99, minScore: 99 });
++  ok(tight.n === 0 && tight.flow === 0 && tight.objective === 0, "floor quá cao → không mẫu nào đạt");
++  const mid = evalFloors(samples, { minAuc: 0, minAcc: 0, minScore: 55 });
++  ok(mid.n < all.n && mid.expectancy > all.expectancy, "siết score 55 → ít mẫu hơn, expectancy tốt hơn (tín hiệu thật)");
++}
++
++console.log("─ computeFloors ─");
++{
++  const prev: Floors = { minAuc: 0.8, minAcc: 70, minScore: 60 };
++  // đủ mẫu, tín hiệu thật → pick có objective dương, flow ≥ 12%
++  const out1 = computeFloors(mkSamples(120, true), prev);
++  ok(out1.enough, "đủ mẫu (FLOOR_MIN_SAMPLES)");
++  ok(out1.candidates > 0, `lưới ứng viên = ${out1.candidates} bộ ba`);
++  ok(out1.pick != null, "có pick");
++  ok((out1.pick?.flow ?? 0) >= 0.12, `flow guard: ${(out1.pick?.flow ?? 0).toFixed(2)} ≥ 0.12`);
++  ok((out1.pick?.objective ?? 0) > 0, "objective dương khi tín hiệu thật");
++
++  // KHÔNG đủ mẫu → pick null, note "chưa đủ mẫu"
++  const out2 = computeFloors(mkSamples(3, true), prev);
++  ok(!out2.enough && out2.pick === null, "không đủ mẫu → giữ floor cũ");
++
++  // dữ liệu toàn thua → pick null (không ứng viên giữ flow đạt expectancy dương?)
++  // thật ra flow guard vẫn có pick — nhưng step-clamp quanh prev giữ floor gần prev;
++  // quan trọng: pick không nhảy xa prev
++  const out3 = computeFloors(mkSamples(120, false), prev);
++  if (out3.pick) {
++    const dScore = Math.abs(out3.pick.minScore - prev.minScore);
++    const dAuc = Math.abs(out3.pick.minAuc - prev.minAuc);
++    const dAcc = Math.abs(out3.pick.minAcc - prev.minAcc);
++    ok(dScore <= 15 && dAuc <= 0.08 && dAcc <= 8, "toàn lỗ → pick bị step-clamp quanh floor cũ", `dS=${dScore} dA=${dAuc} dC=${dAcc}`);
++  } else {
++    ok(true, "toàn lỗ → không ứng viên (hợp lệ)");
++  }
++}
++
++console.log("─ clampStep ─");
++{
++  const prev: Floors = { minAuc: 0.8, minAcc: 70, minScore: 60 };
++  // mục tiêu xa quá → bị kẹp về ±step
++  const c1 = clampStep({ minAuc: 0.95, minAcc: 90, minScore: 95 }, prev);
++  ok(Math.abs(c1.minAuc - 0.8) <= 0.081 && c1.minScore === 75 && c1.minAcc === 78, "mục tiêu xa → kẹp ±FLOOR_STEP", JSON.stringify(c1));
++  // mục tiêu dưới sàn cứng → nâng lên sàn
++  const c2 = clampStep({ minAuc: 0.3, minAcc: 40, minScore: 5 }, prev);
++  ok(c2.minAuc >= 0.55 && c2.minAcc >= 55 && c2.minScore >= 20, "sàn cứng 0.55/55/20", JSON.stringify(c2));
++  // mục tiêu dưới prev − step → không tụt nhanh hơn step
++  const c3 = clampStep({ minAuc: 0.5, minAcc: 50, minScore: 0 }, prev);
++  ok(c3.minAuc >= 0.72 && c3.minScore >= 45 && c3.minAcc >= 62, "hạ cũng tối đa 1 bước/lượt", JSON.stringify(c3));
++}
++
++console.log("─ floorReason ─");
++{
++  const prev: Floors = { minAuc: 0.8, minAcc: 70, minScore: 60 };
++  const noSample = computeFloors(mkSamples(3), prev);
++  const r1 = floorReason(noSample, prev, "keep");
++  ok(r1.includes("chưa đủ mẫu"), "reason thiếu mẫu nói rõ");
++  const starved: Floors[] = [];
++  // không ứng viên giữ flow → note khác
++  const out = computeFloors(mkSamples(120, true), prev);
++  if (out.pick) {
++    const moved = out.pick.minAuc !== prev.minAuc || out.pick.minAcc !== prev.minAcc || out.pick.minScore !== prev.minScore;
++    const r2 = floorReason(out, prev, moved ? "apply" : "keep");
++    ok(r2.length > 10 && (moved ? r2.includes("→") || r2.includes("tiến hoá") : r2.includes("giữ nguyên")), "reason có động từ + số liệu", r2);
++  }
++  void starved;
++}
++
++console.log(`\n${fail === 0 ? "✅" : "❌"} test-dynamic-floor: ${pass} pass · ${fail} fail`);
++process.exit(fail === 0 ? 0 : 1);
+diff --git a/scripts/test-trade-mgmt.ts b/scripts/test-trade-mgmt.ts
+new file mode 100644
+index 0000000..b8564d5
+--- /dev/null
++++ b/scripts/test-trade-mgmt.ts
+@@ -0,0 +1,99 @@
++// ─── test-trade-mgmt — 0.3.2: SL confirm · TP1 runner · trail · combine close ─
++// Chạy: npx tsx scripts/test-trade-mgmt.ts
++import {
++  SL_DEEP_FRAC,
++  TRAIL_KIND,
++  combineClosePnl,
++  movePct1x,
++  runnerTp2,
++  slConfirmStep,
++  trailHit,
++  trailRatchet,
++  tp1Plan,
++  type SlPending,
++} from "../src/lib/trade-mgmt";
++
++let pass = 0;
++let fail = 0;
++const ok = (cond: boolean, name: string, extra = "") => {
++  if (cond) {
++    pass += 1;
++    console.log(`  ✅ ${name}`);
++  } else {
++    fail += 1;
++    console.error(`  ❌ ${name} ${extra}`);
++  }
++};
++
++console.log("─ SL CONFIRM ─");
++{
++  // tick 0: chạm nông lần đầu → ghi pending, KHÔNG đóng
++  const s1 = slConfirmStep(null, "t1", 100_000, true, false, 2);
++  ok(!s1.close && s1.next?.id === "t1", "chạm nông lần 1 → pending");
++  // tick 1 (20s sau): vẫn vượt → đủ 2 nhịp → đóng
++  const s2 = slConfirmStep(s1.next, "t1", 120_000, true, false, 2);
++  ok(s2.close && s2.next === null, "chạm nông lần 2 (40s) → đóng");
++  // wick 1 nhịp rồi quay đầu → xoá pending, không đóng
++  const s3 = slConfirmStep(s1.next, "t1", 120_000, false, false, 2);
++  ok(!s3.close && s3.next === null, "wick 1 nhịp rồi hồi → không đóng, xoá pending");
++  // vượt sâu → đóng NGAY dù chưa đủ nhịp
++  const s4 = slConfirmStep(null, "t1", 100_000, true, true, 2);
++  ok(s4.close, "vượt sâu ≥ (1+15%)×SL → đóng ngay");
++  // confirmTicks = 0 → tắt confirm, hành vi cũ chạm là đóng
++  const s5 = slConfirmStep(null, "t1", 100_000, true, false, 0);
++  ok(s5.close, "confirmTicks 0 = tắt confirm");
++  // pending của lệnh KHÁC → đếm lại từ đầu
++  const s6 = slConfirmStep({ id: "old", since: 0, price: 0 } as SlPending, "t1", 100_000, true, false, 2);
++  ok(!s6.close && s6.next?.since === 100_000, "đổi lệnh → pending đếm lại");
++  // deep breach theo đúng công thức: adverse ≥ slPct × (1 + SL_DEEP_FRAC)
++  ok(SL_DEEP_FRAC === 0.15, "SL_DEEP_FRAC = 0.15");
++}
++
++console.log("─ TRAIL / RUNNER ─");
++{
++  ok(trailHit("LONG", 100, 100, 0), "BE LONG: giá về đúng entry → hit");
++  ok(!trailHit("LONG", 100.1, 100, 0), "BE LONG: giá trên entry → chưa hit");
++  ok(trailHit("LONG", 100.4, 100, 0.4), "trail LONG 0.4%: giá 100.4 ≤ mức 100.4 → hit");
++  ok(!trailHit("LONG", 100.5, 100, 0.4), "trail LONG 0.4%: giá 100.5 > mức 100.4 → chưa hit");
++  ok(trailHit("SHORT", 99.4, 100, 0.6), "trail SHORT 0.6%: giá 99.4 ≥ 99.4 → hit");
++  // ratchet chỉ tăng
++  ok(trailRatchet(0.2, 1.0, 0.5) === 0.5, "ratchet: move 1% × lock 0.5 → khoá 0.5");
++  ok(trailRatchet(0.8, 1.0, 0.5) === 0.8, "ratchet: move nhỏ hơn mức đã khoá → giữ 0.8");
++  ok(trailRatchet(0, -2, 0.5) === 0, "ratchet: move bất lợi → không hạ khoá");
++  // TP2
++  ok(runnerTp2(1.4, 2) === 2.8, "runnerTp2 1.4 × 2 = 2.8");
++  ok(runnerTp2(1.4, 0.5) === 1.4, "runnerTp2 mult < 1 → kẹp về tpPct");
++  // tp1Plan
++  const plan = tp1Plan({ runnerOn: true, runnerSharePct: 50, runnerTpMult: 2 }, 1.4, 10, 0);
++  ok(plan?.share === 0.5 && plan.p1Pct === 14 && plan.tp2Pct === 2.8, "tp1Plan chuẩn: bank 50%, p1 ROE = tp×lev, TP2 = ×2");
++  ok(tp1Plan({ runnerOn: true, runnerSharePct: 50, runnerTpMult: 2 }, 1.4, 10, 1) === null, "đã DCA → không runner (đóng toàn bộ như cũ)");
++  ok(tp1Plan({ runnerOn: false, runnerSharePct: 50, runnerTpMult: 2 }, 1.4, 10, 0) === null, "runnerOn false → null");
++  ok(tp1Plan({ runnerOn: true, runnerSharePct: 100, runnerTpMult: 2 }, 1.4, 10, 0) === null, "share 100% → không phải partial → null");
++}
++
++console.log("─ COMBINE CLOSE ─");
++{
++  ok(combineClosePnl(null, null, -7.5) === -7.5, "lệnh thường → giữ nguyên remPnl");
++  // bank 50% tại +14% ROE, runner về đúng hoà vô (0%) → tổng +7%
++  ok(combineClosePnl(14, 0.5, 0) === 7, "TP1 +14% × 0.5 + runner 0% → +7%");
++  // runner chạy tới TP2 +28% ROE → tổng 0.5×14 + 0.5×28 = +21%
++  ok(combineClosePnl(14, 0.5, 28) === 21, "TP1 +14% × 0.5 + TP2 28% × 0.5 → +21%");
++  // runner bị trail ở +6% ROE → tổng +10%
++  ok(combineClosePnl(14, 0.5, 6) === 10, "TP1 +14% × 0.5 + trail 6% × 0.5 → +10%");
++  ok(combineClosePnl(14, 0.5, -100) === -43, "runner quét liq −100% → tổng −43% (không âm quá vốn thật)");
++}
++
++console.log("─ MOVE 1x ─");
++{
++  ok(movePct1x("LONG", 100, 102) === 2, "LONG +2% giá");
++  ok(movePct1x("SHORT", 100, 98) === 2, "SHORT +2% giá");
++  ok(movePct1x("SHORT", 100, 102) === -2, "SHORT giá lên = bất lợi −2%");
++}
++
++console.log("─ KIND ─");
++{
++  ok(TRAIL_KIND === "trail", "exitKind mới = 'trail'");
++}
++
++console.log(`\n${fail === 0 ? "✅" : "❌"} test-trade-mgmt: ${pass} pass · ${fail} fail`);
++process.exit(fail === 0 ? 0 : 1);
+diff --git a/src/app/ai/page.tsx b/src/app/ai/page.tsx
+index 2ca9f64..30c3409 100644
+--- a/src/app/ai/page.tsx
++++ b/src/app/ai/page.tsx
+@@ -131,6 +131,15 @@ interface AiInfo {
+       minAuc: number;
+       minAcc: number;
+       minScore: number;
++      /** 0.3.2 — floor động tự học (true) hay bộ ba tĩnh chỉnh tay */
++      floorAuto: boolean;
++      /** 0.3.2 — TP1 partial → runner */
++      runnerOn: boolean;
++      runnerSharePct: number;
++      runnerTpMult: number;
++      runnerTrailLock: number;
++      /** 0.3.2 — SL confirm ticks (0 = off) */
++      slConfirmTicks: number;
+       leverage: number;
+       /** AutoConfig.riskPct — % equity mỗi lệnh */
+       riskPct: number;
+@@ -1183,6 +1192,9 @@ export default function AiPage() {
+                   ["minScore", cfg.minScore],
+                   ["minAuc", cfg.minAuc],
+                   ["minAcc", `${cfg.minAcc}%`],
++                  ["floorAuto", cfg.floorAuto ? "🧬 AUTO" : "OFF"],
++                  ["runner", cfg.runnerOn ? `🪁 ${(cfg.runnerSharePct)}% · TP×${cfg.runnerTpMult}` : "OFF"],
++                  ["slConfirm", cfg.slConfirmTicks > 0 ? `×${cfg.slConfirmTicks}` : "OFF"],
+                   ["leverage", `×${data.engine.leverage}`],
+                   ["stakePct", `${cfg.riskPct}%`],
+                   ["dcaMax", cfg.dcaMax],
+diff --git a/src/app/api/autotrade/route.ts b/src/app/api/autotrade/route.ts
+index 16defdd..0b3990a 100644
+--- a/src/app/api/autotrade/route.ts
++++ b/src/app/api/autotrade/route.ts
+@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from "next/server";
+ import { db } from "@/lib/db";
+ import { readAutoState, readOpenPosition, serialize } from "@/lib/autostate";
+ import { autopsyClosedTrade } from "@/lib/autopsy";
++import { combineClosePnl } from "@/lib/trade-mgmt";
+ 
+ export const dynamic = "force-dynamic";
+ 
+@@ -100,15 +101,18 @@ export async function PATCH(req: NextRequest) {
+ 
+   const exitPrice = num(body.exitPrice, 0, Infinity, 0);
+   if (exitPrice <= 0) return NextResponse.json({ error: "exitPrice required" }, { status: 400 });
+-  const exitKind = body.exitKind === "tp" ? "tp" : body.exitKind === "sl" ? "sl" : body.exitKind === "flip" ? "flip" : "manual";
++  // 0.3.2 — "trail" = runner bị BE/trail stop đưa về sau TP1 partial
++  const exitKind = body.exitKind === "tp" ? "tp" : body.exitKind === "sl" ? "sl" : body.exitKind === "flip" ? "flip" : body.exitKind === "trail" ? "trail" : "manual";
+ 
+   // signed % price move in the position's direction, then ROE = move × leverage
+   const movePct =
+     row.side === "SHORT" ? ((row.entryPrice - exitPrice) / row.entryPrice) * 100 : ((exitPrice - row.entryPrice) / row.entryPrice) * 100;
+-  let pnlPct = Math.round(movePct * row.leverage * 100) / 100;
++  let remPnl = Math.round(movePct * row.leverage * 100) / 100;
+   // liquidation guard: an adverse move of 100/leverage % wipes the margin
+   const adverse = row.side === "SHORT" ? -movePct : movePct;
+-  if (row.leverage > 1 && adverse <= -(100 / row.leverage)) pnlPct = -100;
++  if (row.leverage > 1 && adverse <= -(100 / row.leverage)) remPnl = -100;
++  // 0.3.2 — COMBINE CLOSE: lệnh đã qua TP1 partial → ROE tổng = share×p1 + (1−share)×rem
++  const pnlPct = combineClosePnl(row.p1Pct, row.p1Share, remPnl);
+ 
+   const capitalBefore = row.capitalBefore ?? 1000;
+   // only the STAKED share of equity takes risk: delta = stake × ROE
+diff --git a/src/components/auto-panel.tsx b/src/components/auto-panel.tsx
+index b4917f5..4c64520 100644
+--- a/src/components/auto-panel.tsx
++++ b/src/components/auto-panel.tsx
+@@ -10,6 +10,8 @@ import {
+   closeAutoTrade,
+   COOLDOWN_CHOICES,
+   DCA_CHOICES,
++  RUNNER_SHARE_CHOICES,
++  SL_CONFIRM_CHOICES,
+   fetchAutoState,
+   loadAutoConfig,
+   pushAutoStats,
+@@ -672,6 +674,98 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
+             ))}
+             <span className="text-[11px] text-zinc-600">{t(lang, "auto.cfg.dcaUnit")}</span>
+           </div>
++          {/* 0.3.2 — floor động + TP1→runner + SL confirm */}
++          <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.floorAuto")}>
++            <button
++              type="button"
++              onClick={() => updateCfg({ floorAuto: !cfg.floorAuto })}
++              aria-pressed={cfg.floorAuto}
++              title={t(lang, "auto.cfg.floorAutoTip")}
++              className={`h-7 rounded-md border px-2 text-[11px] ${
++                cfg.floorAuto
++                  ? "border-emerald-700 bg-emerald-950/40 text-emerald-300"
++                  : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
++              }`}
++            >
++              🧬 {t(lang, "auto.cfg.floorAuto")}
++            </button>
++            <button
++              type="button"
++              onClick={() => updateCfg({ runnerOn: !cfg.runnerOn })}
++              aria-pressed={cfg.runnerOn}
++              title={t(lang, "auto.cfg.runnerTip", { t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}
++              className={`h-7 rounded-md border px-2 text-[11px] ${
++                cfg.runnerOn
++                  ? "border-teal-700 bg-teal-950/40 text-teal-300"
++                  : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
++              }`}
++            >
++              🪁 {t(lang, "auto.cfg.runner")}
++            </button>
++            {cfg.runnerOn && (
++              <>
++                <span className="mr-0.5 text-[11px] text-zinc-500" title={t(lang, "auto.cfg.runnerTip", { t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}>
++                  {t(lang, "auto.cfg.runnerShare")}
++                </span>
++                {RUNNER_SHARE_CHOICES.map((m) => (
++                  <button
++                    key={m}
++                    type="button"
++                    onClick={() => updateCfg({ runnerSharePct: m })}
++                    className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
++                      cfg.runnerSharePct === m
++                        ? "border-teal-700 bg-teal-950/40 text-teal-300"
++                        : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
++                    }`}
++                  >
++                    {m}%
++                  </button>
++                ))}
++                <span className="ml-1 text-[11px] text-zinc-500">{t(lang, "auto.cfg.runnerTp")}</span>
++                <Input
++                  type="number"
++                  min={1}
++                  max={5}
++                  step={0.5}
++                  value={cfg.runnerTpMult}
++                  onChange={(e) => updateCfg({ runnerTpMult: Math.min(5, Math.max(1, Number(e.target.value) || 2)) })}
++                  title={t(lang, "auto.cfg.runnerTip", { t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}
++                  className="h-7 w-12 border-teal-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-teal-300"
++                />
++                <span className="text-[11px] text-zinc-500">{t(lang, "auto.cfg.runnerLock")}</span>
++                <Input
++                  type="number"
++                  min={0.1}
++                  max={1}
++                  step={0.1}
++                  value={cfg.runnerTrailLock}
++                  onChange={(e) => updateCfg({ runnerTrailLock: Math.min(1, Math.max(0.1, Number(e.target.value) || 0.5)) })}
++                  title={t(lang, "auto.cfg.runnerTip", { t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}
++                  className="h-7 w-12 border-teal-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-teal-300"
++                />
++              </>
++            )}
++            <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.slConfirm")}>
++              <span className="mr-0.5 text-[11px] text-zinc-500" title={t(lang, "auto.cfg.slConfirmTip")}>
++                {t(lang, "auto.cfg.slConfirm")}
++              </span>
++              {SL_CONFIRM_CHOICES.map((m) => (
++                <button
++                  key={m}
++                  type="button"
++                  onClick={() => updateCfg({ slConfirmTicks: m })}
++                  title={t(lang, "auto.cfg.slConfirmTip")}
++                  className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
++                    cfg.slConfirmTicks === m
++                      ? "border-amber-700 bg-amber-950/40 text-amber-300"
++                      : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
++                  }`}
++                >
++                  {m === 0 ? t(lang, "auto.cfg.cooldownOff") : `×${m}`}
++                </button>
++              ))}
++            </div>
++          </div>
+           <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.stats")}>
+             <span className="mr-0.5 text-[11px] text-zinc-500">{t(lang, "auto.cfg.stats")}</span>
+             {([
+diff --git a/src/lib/autopsy.ts b/src/lib/autopsy.ts
+index 3a80636..91bd7e8 100644
+--- a/src/lib/autopsy.ts
++++ b/src/lib/autopsy.ts
+@@ -256,7 +256,10 @@ export async function autopsyLlmCall(url: string, model: string, system: string,
+       { role: "user", content: user },
+     ],
+     temperature: 0,
+-    max_tokens: 260,
++    // 0.3.2 — 260 cũ CẮT CỤT JSON giữa chuỗi (GRASSUSDT 1m: lesson đứt tại
++    // "noise_check:av…" → JSON.parse hỏng → bỏ lượt mổ, mất bài học). 420 đủ
++    // chứa tag + 3 why + lesson 160 ký tự kể cả khi model lươn lẹo dài dòng.
++    max_tokens: 420,
+     ...(withSchema
+       ? { response_format: { type: "json_schema", json_schema: { name: "autopsy", strict: true, schema: AUTOPSY_SCHEMA } } }
+       : {}),
+@@ -285,18 +288,50 @@ export async function autopsyLlmCall(url: string, model: string, system: string,
+   }
+ }
+ 
+-/** Regex + JSON.parse + sanitize một phản hồi llama — export cho test. */
++/** Regex + JSON.parse + salvage + sanitize một phản hồi llama — export cho test.
++ *  0.3.2 — JSON đứt (hết max_tokens giữa chuỗi) không còn bị bỏ: salvageAutopsy
++ *  bới từng field bằng regex rồi vẫn đi qua sanitizeAutopsy (đủ hình dạng là nhận). */
+ export function parseAutopsyText(text: string, model: string, ms: number, input: AutopsyTradeInput, ev: AutopsyEvidence): AutopsyJson | null {
+   const m = text.match(/\{[\s\S]*\}/);
+   let parsed: unknown = null;
+-  try {
+-    parsed = m ? JSON.parse(m[0]) : null;
+-  } catch {
+-    parsed = null;
++  if (m) {
++    try {
++      parsed = JSON.parse(m[0]);
++    } catch {
++      parsed = salvageAutopsy(m[0]); // JSON hỏng — thử salvage từng field
++    }
++  } else {
++    parsed = salvageAutopsy(text); // không tìm thấy object — thử salvage cả text
+   }
+   return sanitizeAutopsy(parsed, model, ms, input, ev);
+ }
+ 
++/**
++ * Cứu JSON ĐỨT: bắt "tag" / "why" / "lesson" bằng regex kể cả khi chuỗi bị cắt
++ * giữa đường (thiếu dấu đóng, thiếu field cuối). Trả null khi không bắt được gì
++ * — caller coi như hỏng như cũ. KHÔNG bịa dữ liệu: chỉ lấy những gì model đã viết.
++ */
++export function salvageAutopsy(text: string): { tag?: string; why?: string[]; lesson?: string } | null {
++  const out: { tag?: string; why?: string[]; lesson?: string } = {};
++  const tagM = text.match(/"tag"\s*:\s*"([^"]{1,80})"/);
++  if (tagM) out.tag = tagM[1];
++  const whyM = text.match(/"why"\s*:\s*\[([\s\S]*?)\]/);
++  if (whyM) {
++    const items = [...whyM[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((x) => x[1]);
++    if (items.length > 0) out.why = items;
++  }
++  // lesson có thể ĐỨT GIỮA (không có dấu đóng) — lấy mọi thứ sau "lesson":" đến
++  // hết chuỗi, bỏ \" escape cuối cùng nếu dở
++  const lessonM = text.match(/"lesson"\s*:\s*"([\s\S]*)$/);
++  if (lessonM) {
++    let s = lessonM[1].trim();
++    if (s.endsWith('"')) s = s.slice(0, -1);
++    s = s.replace(/\\"/g, '"').replace(/\\n/g, " ").trim();
++    if (s.length > 0) out.lesson = s;
++  }
++  return out.tag || out.why || out.lesson ? out : null;
++}
++
+ const inflight = new Set<string>(); // chống chạy đôi cùng một lệnh (watcher + route)
+ 
+ /**
+@@ -373,7 +408,7 @@ export async function autopsyClosedTrade(row: {
+     }
+     const json = parseAutopsyText(call.text, model, call.ms, input, ev);
+     if (!json) {
+-      console.warn(`[autopsy] ${input.symbol} ${input.interval} — JSON/lesson hỏng, bỏ lượt mổ (${call.text.slice(0, 120)})`);
++      console.warn(`[autopsy] ${input.symbol} ${input.interval} — JSON/lesson hỏng sau salvage, bỏ lượt mổ (${call.text.slice(0, 120)})`);
+       return null;
+     }
+     await db.autoTrade.update({ where: { id: input.id }, data: { autopsy: JSON.stringify(json) } });
+@@ -437,10 +472,18 @@ export async function autopsyBackfill(max = 3): Promise<number> {
+ 
+ /**
+  * Tối đa `take` bài học gần nhất của CHÍNH cặp này (mọi khung — khung khác
+- * cùng cặp vẫn là cùng con đường giá), mới nhất trước. Mỗi bài ≤ 220 ký tự,
+- * kèm kết quả thật để Risk Officer thấy hậu quả, không chỉ lời khuyên suông.
++ * cùng cặp vẫn là cùng con đường giá), mới nhất trước. Mỗi bài ≤ 320 ký tự,
++ * CẮT THEO TỪ (không đứt giữa chữ — bug "noise_check:av…" từng làm hỏng bài
++ * học trong prompt duyệt lệnh), kèm kết quả thật để Risk Officer thấy hậu quả.
+  * Lỗi DB trả [] — prompt duyệt vẫn chạy như 0.2.27.
+  */
++const LESSON_BUDGET = 320;
++/** Cắt chuỗi theo RANH TỪ gần nhất trước budget, thêm dấu … khi cắt. */
++function cutWord(text: string, budget: number): string {
++  if (text.length <= budget) return text;
++  const cut = text.lastIndexOf(" ", budget - 1);
++  return `${text.slice(0, cut > 0 ? cut : budget).trimEnd()}…`;
++}
+ export async function recentAutopsyLessons(symbol: string, take = 5): Promise<string[]> {
+   try {
+     const rows = await db.autoTrade.findMany({
+@@ -457,7 +500,9 @@ export async function recentAutopsyLessons(symbol: string, take = 5): Promise<st
+         if (!a.lesson) continue;
+         const pnl = r.pnlPct ?? 0;
+         const head = `[${r.interval} ${r.side} ${r.exitKind ?? "manual"} ${pnl >= 0 ? "+" : ""}${pnl.toFixed(1)}% ROE · tag=${a.tag ?? "?"}]`;
+-        out.push(`${head} ${a.lesson}`.slice(0, 220));
++        // 0.3.2 — budget 320 (từ 220) + cutWord: lesson chỉ bị rút ở ranh từ
++        // cuối cùng, không đứt giữa chữ như slice(0,220) cũ
++        out.push(cutWord(`${head} ${a.lesson}`, LESSON_BUDGET));
+       } catch {
+         // JSON hỏng — bỏ bài này
+       }
+diff --git a/src/lib/autostate.ts b/src/lib/autostate.ts
+index 7a4659c..a3f9541 100644
+--- a/src/lib/autostate.ts
++++ b/src/lib/autostate.ts
+@@ -32,6 +32,11 @@ export type TradeRow = {
+   llmReason: string | null;
+   autopsy: string | null;
+   methodId: string | null;
++  // 0.3.2 — TP1 partial → runner state (trade-mgmt.ts)
++  p1Pct: number | null;
++  p1Share: number | null;
++  tp2Pct: number | null;
++  trailPct: number | null;
+   createdAt: string;
+ };
+ 
+@@ -61,6 +66,10 @@ export const serialize = (r: {
+   llmReason: string | null;
+   autopsy: string | null;
+   methodId?: string | null;
++  p1Pct?: number | null;
++  p1Share?: number | null;
++  tp2Pct?: number | null;
++  trailPct?: number | null;
+   createdAt: Date;
+ }): TradeRow => ({
+   id: r.id,
+@@ -88,6 +97,10 @@ export const serialize = (r: {
+   llmReason: r.llmReason,
+   autopsy: r.autopsy,
+   methodId: r.methodId ?? null,
++  p1Pct: r.p1Pct ?? null,
++  p1Share: r.p1Share ?? null,
++  tp2Pct: r.tp2Pct ?? null,
++  trailPct: r.trailPct ?? null,
+   createdAt: r.createdAt.toISOString(),
+ });
+ 
+diff --git a/src/lib/autotrade.ts b/src/lib/autotrade.ts
+index 35a5d69..5a62952 100644
+--- a/src/lib/autotrade.ts
++++ b/src/lib/autotrade.ts
+@@ -531,6 +531,15 @@ export interface AutoTradeRow {
+   autopsy: string | null;
+   /** entry-policy fingerprint for self-improve agent */
+   methodId: string | null;
++  // ── 0.3.2 · TP1 partial → runner (trade-mgmt.ts) ──
++  /** ROE % đã bank tại TP1 (null = lệnh thường chưa qua TP1) */
++  p1Pct: number | null;
++  /** phần stake đã bank tại TP1, 0..1 */
++  p1Share: number | null;
++  /** TP mở rộng của runner (price move %) — null = chưa vào runner phase */
++  tp2Pct: number | null;
++  /** mức khoá lời hiện tại của trail runner (price move %, ≥0; 0 = hoà vô) */
++  trailPct: number | null;
+   createdAt: string;
+ }
+ 
+@@ -706,8 +715,9 @@ const DIGEST_HR = "━━━━━━━━━━━━━━━━━━";
+ const sideTag = (side: string): string => (side === "LONG" ? "LONG 🟢" : side === "SHORT" ? "SHORT 🔴" : "NEUTRAL ⚪");
+ /** Số dòng tối đa của mục "Lệnh đã chạy" — giữ digest dưới trần 4096 ký tự Telegram */
+ const DIGEST_LIST_MAX = 40;
+-/** exitKind → icon kết quả (null/không rõ = ✋ đóng tay) */
+-const DIGEST_KIND: Record<string, string> = { tp: "✅", sl: "🔻", flip: "🔄", manual: "✋" };
++/** exitKind → icon kết quả (null/không rõ = ✋ đóng tay; trail = runner bị
++ *  trail/BE stop đưa về — 0.3.2) */
++const DIGEST_KIND: Record<string, string> = { tp: "✅", sl: "🔻", flip: "🔄", manual: "✋", trail: "🪂" };
+ 
+ /**
+  * Digest body — counts OPENS as well as closes inside the window (an hourly
+@@ -828,6 +838,24 @@ export interface AutoConfig {
+   whaleFilter: boolean;
+   /** broadcast the "TOP coin tiềm năng" scan digest to Telegram every 5 min */
+   broadcast: boolean;
++  /** 0.3.2 — FLOOR ĐỘNG: learner (dynamic-floor.ts) tự chỉnh minAuc/minAcc/minScore
++   *  theo toàn bộ lịch sử lệnh + PHE, mỗi 6h, có lý do ghi FloorLog. Tắt = floor
++   *  tĩnh như trước, panel chỉnh tay là chốt. */
++  floorAuto: boolean;
++  /** 0.3.2 — TP1 PARTIAL → RUNNER: chạm TP lần đầu chỉ chốt runnerSharePct%, phần
++   *  còn lại chạy tiếp với SL về hoà vô (BE), TP mở rộng ×runnerTpMult và trail
++   *  khoá lời runnerTrailLock × quãng đi. false = đóng toàn bộ tại TP như cũ. */
++  runnerOn: boolean;
++  /** phần chốt tại TP1, % stake (30/50/70 — 50 = nửa chốt, nửa chạy) */
++  runnerSharePct: number;
++  /** TP runner mở rộng = tpPct × hệ số này (1..5) */
++  runnerTpMult: number;
++  /** trail runner khoá mỗi lần quãng đi thuận × hệ số này (0..1) */
++  runnerTrailLock: number;
++  /** 0.3.2 — SL CONFIRM: SL phải được thấy vượt liên tục N nhịp watcher (20s/nhịp)
++   *  HOẶC vượt sâu ≥ 15% bề rộng stop mới chốt — wick quét SL một nhịp không còn
++   *  quét sạch stop ("SL non"). 0 = tắt, hành vi cũ chạm là đóng. */
++  slConfirmTicks: number;
+   /** LẬT CHIỀU TỰ ĐỘNG — khi lệnh đang mở và scan mới của CÙNG cặp/khung đảo
+    *  chiều với tín hiệu đạt đủ ngưỡng chất lượng (cùng gate vào lệnh + noise band
+    *  + không regressed), engine đóng lệnh cũ (exitKind "flip") và mở lệnh
+@@ -863,8 +891,20 @@ export const AUTO_DEFAULTS: AutoConfig = {
+   whaleFilter: true,
+   broadcast: true,
+   autoFlip: true,
++  // 0.3.2 — floor động + quản lý thoát lệnh (TP1 runner + SL confirm): bật sẵn
++  // vì sửa đúng hai pain đã nêu: "chốt sớm/SL non" và "tăng RR mất dòng lệnh"
++  floorAuto: true,
++  runnerOn: true,
++  runnerSharePct: 50,
++  runnerTpMult: 2,
++  runnerTrailLock: 0.5,
++  slConfirmTicks: 2,
+ };
+ export const COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
++/** phần chốt TP1 cho runner — choices panel (0.3.2) */
++export const RUNNER_SHARE_CHOICES = [30, 50, 70] as const;
++/** nhịp confirm SL — choices panel, đơn vị nhịp watcher 20s (0.3.2; 0 = tắt) */
++export const SL_CONFIRM_CHOICES = [0, 2, 3, 5] as const;
+ /** DCA adds allowed into a losing position (model still confirming) */
+ export const DCA_CHOICES = [0, 1, 2] as const;
+ export const RISK_CHOICES = [10, 25, 50, 100] as const;
+@@ -947,6 +987,21 @@ export function loadAutoConfig(): AutoConfig {
+       whaleFilter: p.whaleFilter !== false,
+       broadcast: p.broadcast !== false,
+       autoFlip: p.autoFlip !== false,
++      // 0.3.2 — floor động + runner/SL-confirm: thiếu field (cfg cũ) → mặc định BẬT
++      floorAuto: p.floorAuto !== false,
++      runnerOn: p.runnerOn !== false,
++      runnerSharePct: RUNNER_SHARE_CHOICES.includes(p.runnerSharePct as (typeof RUNNER_SHARE_CHOICES)[number])
++        ? (p.runnerSharePct as number)
++        : AUTO_DEFAULTS.runnerSharePct,
++      runnerTpMult: typeof p.runnerTpMult === "number" && p.runnerTpMult >= 1 && p.runnerTpMult <= 5
++        ? p.runnerTpMult
++        : AUTO_DEFAULTS.runnerTpMult,
++      runnerTrailLock: typeof p.runnerTrailLock === "number" && p.runnerTrailLock > 0 && p.runnerTrailLock <= 1
++        ? p.runnerTrailLock
++        : AUTO_DEFAULTS.runnerTrailLock,
++      slConfirmTicks: SL_CONFIRM_CHOICES.includes(p.slConfirmTicks as (typeof SL_CONFIRM_CHOICES)[number])
++        ? (p.slConfirmTicks as number)
++        : AUTO_DEFAULTS.slConfirmTicks,
+     };
+   } catch {
+     return AUTO_DEFAULTS;
+diff --git a/src/lib/db.ts b/src/lib/db.ts
+index bfd2ac9..5703035 100644
+--- a/src/lib/db.ts
++++ b/src/lib/db.ts
+@@ -50,6 +50,9 @@ const SCHEMA_SQL: string[] = [
+   // 0.2.54 — nhật ký vòng tự tiến hoá (promote/keep/confirm/revert)
+   `CREATE TABLE IF NOT EXISTS "EvolveLog" ("id" TEXT NOT NULL PRIMARY KEY, "combo" TEXT NOT NULL, "decision" TEXT NOT NULL, "name" TEXT NOT NULL DEFAULT '', "detail" TEXT NOT NULL DEFAULT '', "cfgBefore" TEXT NOT NULL DEFAULT '', "cfgAfter" TEXT NOT NULL DEFAULT '', "metrics" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+   `CREATE INDEX IF NOT EXISTS "EvolveLog_createdAt_idx" ON "EvolveLog"("createdAt")`,
++  // 0.3.2 — nhật ký floor động tự học (apply/keep + lý do tiến hoá)
++  `CREATE TABLE IF NOT EXISTS "FloorLog" ("id" TEXT NOT NULL PRIMARY KEY, "kind" TEXT NOT NULL, "floorsBefore" TEXT NOT NULL, "floorsAfter" TEXT NOT NULL, "basis" TEXT NOT NULL DEFAULT '', "note" TEXT NOT NULL DEFAULT '', "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
++  `CREATE INDEX IF NOT EXISTS "FloorLog_createdAt_idx" ON "FloorLog"("createdAt")`,
+ ];
+ 
+ // ─── Thêm cột cho DB ĐÃ TỒN TẠI (0.2.28 autopsy) ────────────────────────────
+@@ -66,8 +69,13 @@ const SCHEMA_COLUMNS: { table: string; column: string; ddl: string }[] = [
+   { table: "AutoTrade", column: "llmReason", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "llmReason" TEXT` },
+   { table: "AutoTrade", column: "autopsy", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "autopsy" TEXT` },
+   { table: "AutoTrade", column: "methodId", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "methodId" TEXT` },
++  // 0.3.2 — TP1 partial → runner (trade-mgmt.ts)
++  { table: "AutoTrade", column: "p1Pct", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "p1Pct" REAL` },
++  { table: "AutoTrade", column: "p1Share", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "p1Share" REAL` },
++  { table: "AutoTrade", column: "tp2Pct", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "tp2Pct" REAL` },
++  { table: "AutoTrade", column: "trailPct", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "trailPct" REAL` },
+ ];
+-const MODEL_TABLES = ["User", "Post", "Suggestion", "FinetuneRun", "AutoTrade", "BcastVerdict", "SignalTotal", "DiveReport", "StrategyVariant", "ImproveEvent"];
++const MODEL_TABLES = ["User", "Post", "Suggestion", "FinetuneRun", "AutoTrade", "BcastVerdict", "SignalTotal", "DiveReport", "StrategyVariant", "ImproveEvent", "EvolveLog", "FloorLog"];
+ /** exported for the /api health diagnostic */
+ export { MODEL_TABLES };
+ 
+diff --git a/src/lib/dynamic-floor.ts b/src/lib/dynamic-floor.ts
+new file mode 100644
+index 0000000..7441722
+--- /dev/null
++++ b/src/lib/dynamic-floor.ts
+@@ -0,0 +1,326 @@
++// ─── dynamic-floor — bộ ba ngưỡng AUC/ACC/score TỰ HỌC & TIẾN HOÁ (0.3.2) ────
++// Yêu cầu gốc: "floor động AUC/ACC/score — tự học & tiến hoá từ toàn bộ Elliott
++// session, ghi nhận lý do tiến hoá và hiển thị rõ trong mục Stats".
++// Cộng thêm phản hồi thật: "tăng RR thì không bắt được lệnh nữa" — nhiệm vụ train
++// khó hơn (TP xa hơn / RR cao hơn) kéo expectancy và tỉ lệ đạt cổng sập xuống,
++// floor TĨNH thì đứng cứng chặn sạch → phễu cạn. Floor động tự hạ để GIỮ DÒNG.
++//
++// Thuật toán (pure ở computeFloors — test được, IO gom lại ở runFloorRound):
++//   1. Gom mẫu có trọng số từ TOÀN BỘ lịch sử:
++//        • AutoTrade closed  (auc/acc/score/pnlPct lúc vào)  — trọng số 3
++//          (mẫu đã qua quản lý thật: gate + LLM + DCA + flip)
++//        • Suggestion resolved ex-flat (chấm lại score từ prob/confidence) —
++//          trọng số 1 (tín hiệu thô PHE, nhiều hơn gấp nhiều lần)
++//   2. Lưới ứng viên = quantile của CHÍNH phân phối quan sát được (auc/acc/
++//      score từng cột × 8×7×8 tổ hợp).
++//   3. Chấm từng ứng viên: n (trọng số), flow = n/totalN, expectancy (ROE trung
++//      bình có trọng số), winRate, objective = expectancy × √n — chất lượng nhân
++//      tần suất: siết quá thì n sập, nới quá thì expectancy sập.
++//   4. RÀNG BUỘC DÒNG LỆNH: ứng viên giữ lại < FLOW_MIN tổng mẫu → loại (không
++//      bao giờ học ra một cổng làm phễu cạn kiệt).
++//   5. Giới hạn BƯỚC so với floor hiện tại (FLOOR_STEP) + sàn CỨNG
++//      (FLOOR_HARD_MIN) + trần của sanitizeFloors → floor tiến hoá từng bước,
++//      không nhảy loạn theo một lượt dữ liệu xấu.
++//   6. Mỗi lượt (áp hay giữ) ghi 1 dòng FloorLog: trước/sau + LÝ DO + số liệu
++//      nền — /stats đọc bảng này hiển thị "lý do tiến hoá".
++
++import { db } from "./db";
++import {
++  FLOOR_HARD_MIN,
++  FLOOR_MIN_SAMPLES,
++  FLOOR_STEP,
++  FLOW_MIN,
++  pval,
++} from "./params";
++import { sanitizeFloors } from "./autotrade";
++
++// ─── mẫu ─────────────────────────────────────────────────────────────────────
++
++export interface FloorSample {
++  auc: number;
++  acc: number;
++  score: number;
++  /** ROE % thực tế sau khi đóng (âm/lamb dương) */
++  pnlPct: number;
++  /** trọng số: 3 = lệnh quản lý thật, 1 = tín hiệu PHE resolved */
++  w: number;
++}
++
++/** Trọng số mẫu — lệnh thật đáng tin hơn tín hiệu thô 3 lần. */
++export const W_TRADE = 3;
++export const W_SUG = 1;
++/** Giới hạn mỗi nguồn khi gom (mới nhất trước) — đủ rộng, không quét cả DB. */
++const TAKE_TRADES = 3000;
++const TAKE_SUGS = 3000;
++
++// ─── pure: quantile + lưới ứng viên ──────────────────────────────────────────
++
++/** Quantile tuyến tính (phần trăm 0..1) của mảng số — rỗng trả về null từng vị trí. */
++export function quantile(sorted: number[], q: number): number | null {
++  if (sorted.length === 0) return null;
++  if (sorted.length === 1) return sorted[0];
++  const pos = Math.min(sorted.length - 1, Math.max(0, q * (sorted.length - 1)));
++  const lo = Math.floor(pos);
++  const hi = Math.ceil(pos);
++  const t = pos - lo;
++  return sorted[lo] + (sorted[hi] - sorted[lo]) * t;
++}
++
++export interface Floors {
++  minAuc: number;
++  minAcc: number;
++  minScore: number;
++}
++
++export interface FloorEval extends Floors {
++  /** tổng trọng số mẫu đạt */
++  n: number;
++  /** tỉ lệ mẫu đạt trên tổng (0..1) — ràng buộc dòng lệnh */
++  flow: number;
++  /** ROE % trung bình có trọng số của mẫu đạt */
++  expectancy: number;
++  /** win rate % có trọng số của mẫu đạt */
++  winRate: number;
++  /** expectancy × √n — mục tiêu tối đa hoá */
++  objective: number;
++}
++
++const Q_AUC = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7];
++const Q_ACC = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
++const Q_SCORE = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7];
++
++/**
++ * Chấm MỘT bộ ba floor trên toàn mẫu — xuất ra để test đếm tay được.
++ * Mẫu đạt: auc ≥ minAuc && acc ≥ minAcc && score ≥ minScore (đúng ngữ nghĩa
++ * isTradeable — minScore ≤ 0 nghĩa là không chấm điểm).
++ */
++export function evalFloors(samples: FloorSample[], f: Floors): FloorEval {
++  let n = 0;
++  let total = 0;
++  let sumPnl = 0;
++  let wins = 0;
++  for (const s of samples) {
++    total += s.w;
++    if (s.auc >= f.minAuc && s.acc >= f.minAcc && (f.minScore <= 0 || s.score >= f.minScore)) {
++      n += s.w;
++      sumPnl += s.w * s.pnlPct;
++      if (s.pnlPct > 0) wins += s.w;
++    }
++  }
++  const expectancy = n > 0 ? sumPnl / n : 0;
++  const winRate = n > 0 ? (wins / n) * 100 : 0;
++  return {
++    ...f,
++    n,
++    flow: total > 0 ? n / total : 0,
++    expectancy: Math.round(expectancy * 100) / 100,
++    winRate: Math.round(winRate * 10) / 10,
++    objective: Math.round(expectancy * Math.sqrt(n) * 100) / 100,
++  };
++}
++
++export interface ComputeFloorsOut {
++  /** ứng viên thắng SAU ràng buộc (null = không đủ mẫu/không ứng viên hợp lệ) */
++  pick: FloorEval | null;
++  /** ứng viên thắng TRƯỚC bước-clamp — để reason nói rõ bị bậc thang cắt */
++  rawBest: FloorEval | null;
++  candidates: number;
++  totalW: number;
++  enough: boolean;
++}
++
++/**
++ * Tìm bộ ba floor tốt nhất trên lưới quantile.
++ *  • đủ mẫu mới trả pick != null (FLOOR_MIN_SAMPLES tổng trọng số)
++ *  • flow < FLOW_MIN → ứng viên bị loại (ràng buộc dòng lệnh)
++ *  • bước + sàn cứng + trần sanitizeFloors clamp quanh `prev`
++ */
++export function computeFloors(samples: FloorSample[], prev: Floors): ComputeFloorsOut {
++  const totalW = samples.reduce((a, s) => a + s.w, 0);
++  const enough = totalW >= pval("FLOOR_MIN_SAMPLES", FLOOR_MIN_SAMPLES);
++  if (!enough || samples.length === 0) {
++    return { pick: null, rawBest: null, candidates: 0, totalW, enough };
++  }
++  const aucVals = [...samples.map((s) => s.auc)].sort((a, b) => a - b);
++  const accVals = [...samples.map((s) => s.acc)].sort((a, b) => a - b);
++  const scoreVals = [...samples.map((s) => s.score)].sort((a, b) => a - b);
++  const gridA = Q_AUC.map((q) => quantile(aucVals, q)).filter((x): x is number => x != null);
++  const gridC = Q_ACC.map((q) => quantile(accVals, q)).filter((x): x is number => x != null);
++  const gridS = Q_SCORE.map((q) => quantile(scoreVals, q)).filter((x): x is number => x != null);
++
++  let rawBest: FloorEval | null = null;
++  let candidates = 0;
++  for (const a of gridA) {
++    for (const c of gridC) {
++      for (const s of gridS) {
++        const ev = evalFloors(samples, { minAuc: Math.round(a * 1000) / 1000, minAcc: Math.round(c * 10) / 10, minScore: Math.round(s * 10) / 10 });
++        candidates += 1;
++        if (ev.flow < pval("FLOW_MIN", FLOW_MIN)) continue; // ràng buộc dòng lệnh
++        if (
++          !rawBest ||
++          ev.objective > rawBest.objective ||
++          (ev.objective === rawBest.objective && ev.n > rawBest.n)
++        ) {
++          rawBest = ev;
++        }
++      }
++    }
++  }
++  if (!rawBest) return { pick: null, rawBest: null, candidates, totalW, enough };
++  const pick = clampStep(rawBest, prev);
++  return { pick: evalFloors(samples, pick), rawBest, candidates, totalW, enough };
++}
++
++/** Kẹp bộ ba mục tiêu về ±FLOOR_STEP quanh `prev`, trong [sàn cứng, trần]. */
++export function clampStep(target: Floors, prev: Floors): Floors {
++  const step = pval("FLOOR_STEP", FLOOR_STEP) as typeof FLOOR_STEP;
++  const caps = sanitizeFloors(0.95, 90, 95); // trần = đúng vùng hợp lệ của panel
++  const clampNum = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
++  const hard = pval("FLOOR_HARD_MIN", FLOOR_HARD_MIN) as typeof FLOOR_HARD_MIN;
++  return {
++    minAuc: clampNum(target.minAuc, Math.max(hard.auc, prev.minAuc - step.auc), Math.min(caps.minAuc, prev.minAuc + step.auc)),
++    minAcc: clampNum(Math.round(target.minAcc), Math.max(hard.acc, Math.round(prev.minAcc - step.acc)), Math.min(caps.minAcc, Math.round(prev.minAcc + step.acc))),
++    minScore: clampNum(Math.round(target.minScore), Math.max(hard.score, Math.round(prev.minScore - step.score)), Math.min(caps.minScore, Math.round(prev.minScore + step.score))),
++  };
++}
++
++// ─── pure: lý do tiến hoá ────────────────────────────────────────────────────
++
++const signPct = (x: number): string => `${x >= 0 ? "+" : ""}${x.toFixed(2)}%`;
++
++/** Chuỗi lý do tiếng Việt ghi vào FloorLog + log + Stats. */
++export function floorReason(out: ComputeFloorsOut, prev: Floors, action: "apply" | "keep"): string {
++  if (!out.enough) {
++    return `chưa đủ mẫu để học: ${out.totalW}/${pval("FLOOR_MIN_SAMPLES", FLOOR_MIN_SAMPLES)} trọng số (lệnh ×3 + PHE ×1) — giữ floor ${prev.minAuc.toFixed(2)}/${prev.minAcc}/${prev.minScore}`;
++  }
++  const pick = out.pick;
++  const raw = out.rawBest;
++  if (!pick || !raw) {
++    return `không có ứng viên nào giữ dòng lệnh ≥ ${(pval("FLOW_MIN", FLOW_MIN) * 100).toFixed(0)}% trên ${out.candidates} bộ ba — giữ floor ${prev.minAuc.toFixed(2)}/${prev.minAcc}/${prev.minScore}`;
++  }
++  const moved = pick.minAuc !== prev.minAuc || pick.minAcc !== prev.minAcc || pick.minScore !== prev.minScore;
++  const basis = `exp ${signPct(pick.expectancy)} × √n ${Math.sqrt(pick.n).toFixed(1)} → obj ${pick.objective.toFixed(2)} · flow ${(pick.flow * 100).toFixed(0)}% · WR ${pick.winRate.toFixed(0)}% (${out.totalW} mẫu, ${out.candidates} ứng viên)`;
++  if (action === "keep" || !moved) {
++    return `tối ưu trùng floor hiện tại ${prev.minAuc.toFixed(2)}/${prev.minAcc}/${prev.minScore} — giữ nguyên · ${basis}`;
++  }
++  const rawSame = raw.minAuc === pick.minAuc && raw.minAcc === pick.minAcc && raw.minScore === pick.minScore;
++  const stepNote = rawSame ? "" : " (bị FLOOR_STEP/sàn cứng bậc thang — mục tiêu gần hơn: " + `${raw.minAuc.toFixed(2)}/${raw.minAcc}/${raw.minScore})`;
++  return `tiến hoá ${prev.minAuc.toFixed(2)}/${prev.minAcc}/${prev.minScore} → ${pick.minAuc.toFixed(2)}/${pick.minAcc}/${pick.minScore}${stepNote} · ${basis}`;
++}
++
++// ─── IO: gom mẫu từ DB + một lượt học ────────────────────────────────────────
++
++/** Gom mẫu học từ TOÀN BỘ lịch sử — AutoTrade (×3) + Suggestion resolved (×1). */
++export async function collectFloorSamples(): Promise<FloorSample[]> {
++  const out: FloorSample[] = [];
++  try {
++    const trades = await db.autoTrade.findMany({
++      where: { status: "closed", pnlPct: { not: null }, auc: { not: null }, acc: { not: null } },
++      orderBy: { exitTime: "desc" },
++      take: TAKE_TRADES,
++      select: { auc: true, acc: true, score: true, pnlPct: true },
++    });
++    for (const t of trades) {
++      out.push({
++        auc: t.auc ?? 0,
++        acc: t.acc ?? 0,
++        score: t.score ?? 0,
++        pnlPct: t.pnlPct ?? 0,
++        w: W_TRADE,
++      });
++    }
++  } catch {
++    // bảng chớp — vẫn học phần còn lại
++  }
++  try {
++    const sugs = await db.suggestion.findMany({
++      where: { outcome: { not: null }, pnlPct: { not: null }, bias: { not: "NEUTRAL" } },
++      orderBy: { createdAt: "desc" },
++      take: TAKE_SUGS,
++      select: { auc: true, acc: true, prob: true, confidence: true, pnlPct: true },
++    });
++    for (const s of sugs) {
++      // chấm lại score ĐÚNG công thức scoreFrom (auc/acc/confidence) — Suggestion
++      // không lưu score nên dùng lại đúng một nguồn công thức
++      const score = Math.round(((s.auc - 0.5) * 100 + (s.acc - 50) + Math.abs(2 * s.prob - 1) * 15) * 10) / 10;
++      out.push({ auc: s.auc, acc: s.acc, score, pnlPct: s.pnlPct ?? 0, w: W_SUG });
++    }
++  } catch {
++    // PHE chưa có — chỉ học từ lệnh
++  }
++  return out;
++}
++
++export interface FloorRoundResult {
++  action: "apply" | "keep";
++  from: Floors;
++  to: Floors;
++  note: string;
++  basis: { totalW: number; candidates: number; enough: boolean };
++}
++
++/**
++ * MỘT LƯỢT học floor. `prev` = floor đang chạy; `apply` = engine tự cài
++ * (callback đặt p.cfg.minAuc/minAcc/minScore + persist + Telegram) — module
++ * này KHÔNG đụng engine state (tránh vòng import). Mọi lượt đều ghi FloorLog.
++ */
++export async function runFloorRound(
++  prev: Floors,
++  apply: (f: Floors) => void,
++): Promise<FloorRoundResult> {
++  const samples = await collectFloorSamples();
++  const out = computeFloors(samples, prev);
++  let action: "apply" | "keep" = "keep";
++  let to: Floors = prev;
++  if (out.enough && out.pick) {
++    const moved = out.pick.minAuc !== prev.minAuc || out.pick.minAcc !== prev.minAcc || out.pick.minScore !== prev.minScore;
++    if (moved) {
++      action = "apply";
++      to = { minAuc: out.pick.minAuc, minAcc: out.pick.minAcc, minScore: out.pick.minScore };
++      apply(to);
++    }
++  }
++  const note = floorReason(out, prev, action);
++  try {
++    await db.floorLog.create({
++      data: {
++        kind: action,
++        floorsBefore: JSON.stringify(prev),
++        floorsAfter: JSON.stringify(to),
++        basis: JSON.stringify({ totalW: out.totalW, candidates: out.candidates, enough: out.enough, ...(out.pick ?? {}) }),
++        note: note.slice(0, 500),
++      },
++    });
++  } catch (e) {
++    console.warn(`[floor] FloorLog ghi thất bại: ${e instanceof Error ? e.message : e}`);
++  }
++  console.log(`[floor] ${action.toUpperCase()} — ${note}`);
++  return { action, from: prev, to, note, basis: { totalW: out.totalW, candidates: out.candidates, enough: out.enough } };
++}
++
++/** Lịch sử lượt học gần nhất cho /stats (mới nhất trước) — kèm bộ ba trước/sau. */
++export async function recentFloorLogs(
++  take = 6,
++): Promise<{ kind: string; note: string; at: string; before: Floors; after: Floors }[]> {
++  const fallback: Floors = { minAuc: 0, minAcc: 0, minScore: 0 };
++  const parseFloors = (s: string): Floors => {
++    try {
++      const j = JSON.parse(s) as Partial<Floors>;
++      return { minAuc: j.minAuc ?? 0, minAcc: j.minAcc ?? 0, minScore: j.minScore ?? 0 };
++    } catch {
++      return fallback;
++    }
++  };
++  try {
++    const rows = await db.floorLog.findMany({ orderBy: { createdAt: "desc" }, take });
++    return rows.map((r) => ({
++      kind: r.kind,
++      note: r.note,
++      at: new Date(r.createdAt).toISOString(),
++      before: parseFloors(r.floorsBefore),
++      after: parseFloors(r.floorsAfter),
++    }));
++  } catch {
++    return [];
++  }
++}
+diff --git a/src/lib/engine.ts b/src/lib/engine.ts
+index 5a732bb..77d2db7 100644
+--- a/src/lib/engine.ts
++++ b/src/lib/engine.ts
+@@ -77,14 +77,16 @@ import { buildTopCoinsMessage, buildScanTop10Message, loadBcastState, saveBcastS
+ import { loadScanState, saveScanState } from "./scan-state";
+ import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store";
+ import { pushAutoDigests } from "./autodigest";
+-import { msgClose, msgDca, msgLlmVeto, msgNear, msgOpen } from "./tg-msgs";
++import { msgClose, msgDca, msgFloor, msgLlmVeto, msgNear, msgOpen, msgTp1 } from "./tg-msgs";
+ import { enqueueJob, jobViews } from "./engine-jobs";
+ import { directionalPnl, outcomeOf } from "./history";
+ import {
+   AUTOPSY_BACKFILL_MS,
+   AUTOPSY_ON,
++  FLOOR_EVERY_MS,
+   LLM_FAIL_CLOSED,
+   LLM_TIMEOUT_MS,
++  NEAR_FRAC,
+   NOISE_BAND,
+   SCAN_DIGEST_EVERY_MS,
+   SCAN_DIGEST_OFFSET_MS,
+@@ -96,6 +98,18 @@ import {
+ } from "./params";
+ import { hydrateParams } from "./params-store";
+ import { type TradeLesson, type XgbResult } from "./xgb";
++import { recentFloorLogs, runFloorRound, type Floors } from "./dynamic-floor";
++import {
++  SL_DEEP_FRAC,
++  TRAIL_KIND,
++  combineClosePnl,
++  movePct1x,
++  slConfirmStep,
++  trailHit,
++  trailRatchet,
++  tp1Plan,
++  type SlPending,
++} from "./trade-mgmt";
+ 
+ // ─── engine state (global + persisted) ───────────────────────────────────────
+ 
+@@ -113,6 +127,9 @@ interface EnginePersisted {
+    *  notional-weighted average entry; survives restarts via engine.json */
+   dca: { id: string; count: number; stake0: number; prices: number[] };
+   llmLast: { symbol: string; interval: string; side: string; verdict: string; reason: string; ms: number; at: number } | null;
++  /** 0.3.2 — SL confirm: lần đo đầu thấy giá vượt SL (đợi nhịp kế tiếp xác nhận
++   *  để wick một nhịp không quét sạch stop); null = không có gì đang chờ */
++  slPending: SlPending | null;
+ }
+ 
+ interface EngineVolatile {
+@@ -146,6 +163,7 @@ function defaults(): { p: EnginePersisted; v: EngineVolatile } {
+       warned: { id: "", tp: false, sl: false },
+       dca: { id: "", count: 0, stake0: 0, prices: [] },
+       llmLast: null,
++      slPending: null,
+     },
+     v: {
+       scan: null,
+@@ -191,6 +209,10 @@ function loadEngine(): void {
+         };
+       }
+       if (raw.llmLast) p.llmLast = raw.llmLast;
++      // 0.3.2 — SL confirm state (sống qua restart cùng engine.json)
++      if (raw.slPending && typeof raw.slPending === "object" && typeof raw.slPending.id === "string") {
++        p.slPending = { id: raw.slPending.id, since: Number(raw.slPending.since) || Date.now(), price: Number(raw.slPending.price) || 0 };
++      }
+     }
+   } catch {
+     // corrupt state — start from defaults, the next sync rewrites it
+@@ -305,19 +327,25 @@ async function persistTrainResult(
+  *  Sau khi chốt lời/cắt lỗ, lệnh được GIẢI PHẪU (autopsy — cả thắng lẫn thua)
+  *  fire-and-forget: không chặn cycle/watcher, lỗi chỉ log. Bài học nằm lại DB,
+  *  nạp lại vào lần duyệt lệnh sau của cùng cặp. exitKind "flip" = đóng vì
+- *  AUTO-FLIP (model đảo chiều đủ tin cậy — xem tryFlip). */
++ *  AUTO-FLIP (model đảo chiều đủ tin cậy — xem tryFlip). 0.3.2 thêm "trail" =
++ *  runner bị BE/trail stop đưa về sau TP1 partial.
++ *  0.3.2 — COMBINE CLOSE: lệnh đã qua TP1 partial (p1Pct != null) thì ROE tổng
++ *  = p1Share × p1Pct (phần banked tại TP1) + (1−p1Share) × phần còn lại — một
++ *  lệnh vẫn một dòng sổ, chuỗi vốn capitalBefore/After không phá vỡ. */
+ async function closeTradeDirect(
+   id: string,
+   exitPrice: number,
+-  exitKind: "tp" | "sl" | "manual" | "flip",
++  exitKind: "tp" | "sl" | "manual" | "flip" | "trail",
+ ): Promise<AutoTradeRow | null> {
+   const row = await db.autoTrade.findUnique({ where: { id } });
+   if (!row || row.status !== "open") return null;
+   const movePct =
+     row.side === "SHORT" ? ((row.entryPrice - exitPrice) / row.entryPrice) * 100 : ((exitPrice - row.entryPrice) / row.entryPrice) * 100;
+-  let pnlPct = Math.round(movePct * row.leverage * 100) / 100;
++  let remPnl = Math.round(movePct * row.leverage * 100) / 100;
+   const adverse = row.side === "SHORT" ? -movePct : movePct;
+-  if (row.leverage > 1 && adverse <= -(100 / row.leverage)) pnlPct = -100;
++  if (row.leverage > 1 && adverse <= -(100 / row.leverage)) remPnl = -100;
++  // 0.3.2 — hợp nhất phần đã bank tại TP1 với phần runner khi đóng
++  const pnlPct = combineClosePnl(row.p1Pct, row.p1Share, remPnl);
+   const capitalBefore = row.capitalBefore ?? 1000;
+   const stakePct = row.stakePct ?? 100;
+   const delta = Math.round(capitalBefore * (stakePct / 100) * (pnlPct / 100) * 100) / 100;
+@@ -1112,19 +1140,26 @@ async function cycleTick(): Promise<void> {
+       const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
+       const price = tickers[open.symbol]?.price ?? 0;
+       if (price > 0) {
+-        const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
+-        const liq = liquidationHit(open.side, price, open.entryPrice, open.leverage);
+-        if (kind || liq) {
+-          const closed = await closeTradeDirect(open.id, price, liq ? "sl" : (kind ?? "sl"));
+-          if (closed) {
+-            v.lastCycleStatus = `${closed.symbol} ${closed.interval} closed ${closed.exitKind ?? ""}`;
+-            if (tgReady()) {
+-              const s2 = await readAutoState();
+-              void tgSendMessage(msgClose(closed, s2.stats.closed, s2.stats.winRate, s2.stats.netPnlPct), "HTML");
+-            }
++        // 0.3.2 — MỘT luồng chấm thoát dùng chung với watcher (evalExit):
++        // liq / TP1-runner / TP2 / trail / SL-confirm / DCA-at-stop
++        const ex = await evalExit(open, price);
++        if (ex?.closed) {
++          const closed = ex.closed;
++          v.lastCycleStatus = `${closed.symbol} ${closed.interval} closed ${closed.exitKind ?? ""}`;
++          if (tgReady()) {
++            const s2 = await readAutoState();
++            void tgSendMessage(msgClose(closed, s2.stats.closed, s2.stats.winRate, s2.stats.netPnlPct), "HTML");
+           }
+           return; // one position at a time — the next cycle re-evaluates entry
+         }
++        if (ex?.tp1 || ex?.dca || ex?.pending) {
++          v.lastCycleStatus = ex.tp1
++            ? `${open.symbol} ${open.interval} TP1 partial — runner chạy tiếp (SL hoà vô)`
++            : ex.dca
++              ? `${open.symbol} ${open.interval} DCA — giữ vị thế, SL/TP re-anchor`
++              : `${open.symbol} ${open.interval} SL chờ confirm (wick nông)`;
++          return; // trạng thái mới đã ghi — chu kỳ sau quản lý tiếp
++        }
+         const roe = roeOf(open.side, open.entryPrice, price, open.leverage);
+         const base = `${open.symbol} ${open.interval} ${open.side} · ROE ${roe >= 0 ? "+" : ""}${roe.toFixed(2)}%`;
+         // 1.5) AUTO-FLIP — thị trường luôn biến động, dự báo chỉ là dự báo:
+@@ -1469,6 +1504,125 @@ async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "c
+   }
+ }
+ 
++// ─── evalExit — MỘT nơi chấm thoát lệnh, dùng chung watcher + cycle (0.3.2) ──
++// Cả hai nhịp (watcher 20s + cycle 5m) phải chấm Y HỆT nhau, không đường nào
++// đóng trước làm hỏng TP1 partial. Trả về:
++//   { closed, kind } — lệnh ĐÃ đóng (tp/sl/trail)
++//   { tp1: true }    — vừa bank TP1, lệnh chuyển runner phase (vẫn mở)
++//   { dca: true }    — vừa DCA thêm, avg/SL/TP re-anchor (vẫn mở)
++//   { pending: true }— SL chờ confirm thêm nhịp (wick nông — "SL non" hết)
++//   null             — không có gì xảy ra
++// Runner phase (đã bank TP1): TP2 mở rộng / BE-trail stop / liquidation — KHÔNG
++// còn SL gốc, không DCA: rủi ro đã = 0, phần còn lại chỉ chạy lời.
++export interface ExitEval {
++  closed?: AutoTradeRow | null;
++  kind?: "tp" | "sl" | "trail" | "flip";
++  /** vừa bank TP1 — lệnh chuyển runner phase (vẫn mở) */
++  tp1?: boolean;
++  /** vừa DCA thêm (avg/SL/TP re-anchor) — lệnh vẫn mở */
++  dca?: boolean;
++  /** SL chờ confirm thêm nhịp (wick nông) — lệnh vẫn mở */
++  pending?: boolean;
++}
++
++async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | null> {
++  const { p } = eng();
++  const c = p.cfg;
++  const liq = liquidationHit(open.side, price, open.entryPrice, open.leverage);
++  const runner = (open.p1Pct ?? null) != null && (open.tp2Pct ?? null) != null;
++
++  if (runner) {
++    if (liq) return { closed: await closeTradeDirect(open.id, price, "sl"), kind: "sl" };
++    const move1x = movePct1x(open.side, open.entryPrice, price);
++    const tp2 = Math.max(0, open.tp2Pct ?? 0);
++    if (tp2 > 0 && move1x >= tp2) {
++      console.log(`[engine] RUNNER TP2 ${open.symbol} ${open.interval} — ${move1x.toFixed(2)}% ≥ ${tp2.toFixed(2)}% (tp1 banked ${(open.p1Share ?? 0) * 100}%)`);
++      return { closed: await closeTradeDirect(open.id, price, "tp"), kind: "tp" };
++    }
++    const trail = Math.max(0, open.trailPct ?? 0);
++    if (trailHit(open.side, price, open.entryPrice, trail)) {
++      return { closed: await closeTradeDirect(open.id, price, TRAIL_KIND), kind: TRAIL_KIND };
++    }
++    // ratchet khoá lời — CHỈ TĂNG, state nằm trên ROW (restart an toàn, không cần engine.json)
++    const lock = trailRatchet(trail, Math.max(0, move1x), c.runnerTrailLock);
++    if (lock > trail) {
++      try {
++        await db.autoTrade.update({ where: { id: open.id }, data: { trailPct: lock } });
++        console.log(`[engine] RUNNER trail ${open.symbol} ${open.interval} — khoá lời ${lock.toFixed(2)}% (từ ${trail.toFixed(2)}%)`);
++      } catch {
++        // ghi hụt — nhịp kế tiếp ratchet lại từ mức cũ
++      }
++    }
++    // near-TP2 warn one-shot (dùng lại flag warned.tp)
++    if (p.warned.id !== open.id) {
++      p.warned = { id: open.id, tp: false, sl: false };
++      persistEngine();
++    }
++    if (!p.warned.tp && tp2 > 0 && move1x >= tp2 * NEAR_FRAC && move1x < tp2) {
++      p.warned.tp = true;
++      persistEngine();
++      if (tgReady()) void tgSendMessage(msgNear(open, price, "tp"), "HTML");
++    }
++    return null;
++  }
++
++  // ── NORMAL PHASE — chưa qua TP1
++  const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
++  if (liq) return { closed: await closeTradeDirect(open.id, price, "sl"), kind: "sl" };
++  if (kind === "tp") {
++    // 0.3.2 — TP1 PARTIAL → RUNNER ("chốt sớm" hết: nửa bank, nửa chạy ra RR cao hơn)
++    const plan = tp1Plan(c, open.tpPct, open.leverage, p.dca.id === open.id ? p.dca.count : 0);
++    if (plan) {
++      try {
++        await db.autoTrade.update({
++          where: { id: open.id },
++          data: { p1Pct: plan.p1Pct, p1Share: plan.share, tp2Pct: plan.tp2Pct, trailPct: 0 },
++        });
++        console.log(
++          `[engine] TP1 partial ${open.symbol} ${open.interval} — bank ${(plan.share * 100).toFixed(0)}% stake (+${plan.p1Pct.toFixed(1)}% ROE) · runner TP2 ${plan.tp2Pct.toFixed(2)}% · SL về HOÀ VÔ`,
++        );
++        p.warned = { id: open.id, tp: false, sl: false };
++        p.slPending = null;
++        persistEngine();
++        if (tgReady()) void tgSendMessage(msgTp1(open, price, plan.share, plan.tp2Pct), "HTML");
++        return { tp1: true };
++      } catch (e) {
++        console.error(`[engine] TP1 partial failed: ${e instanceof Error ? e.message : e} — đóng toàn bộ như cũ`);
++      }
++    }
++    return { closed: await closeTradeDirect(open.id, price, "tp"), kind: "tp" };
++  }
++  if (kind === "sl") {
++    // last-chance DCA at the stop itself — giữ nguyên hành vi cũ (ưu tiên trước confirm;
++    // never on liquidation — liq đã return ở trên)
++    if (await dcaRescue(open, price, "cross")) {
++      p.slPending = null;
++      persistEngine();
++      return { dca: true };
++    }
++    // 0.3.2 — SL CONFIRM: vượt sâu (≥15% bề rộng stop) đóng ngay; wick nông đợi
++    // nhịp kế tiếp xác nhận — quét một nhịp rồi quay đầu không còn quét sạch stop
++    const adverse1x = -movePct1x(open.side, open.entryPrice, price);
++    const deep = adverse1x >= Math.abs(open.slPct) * (1 + SL_DEEP_FRAC);
++    const step = slConfirmStep(p.slPending, open.id, Date.now(), true, deep, c.slConfirmTicks);
++    p.slPending = step.next;
++    persistEngine();
++    if (step.close) return { closed: await closeTradeDirect(open.id, price, "sl"), kind: "sl" };
++    if (step.next && Date.now() - step.next.since < 1_000) {
++      console.log(
++        `[engine] SL confirm ${open.symbol} ${open.interval} — vượt ${adverse1x.toFixed(2)}% (SL ${Math.abs(open.slPct).toFixed(2)}%)${deep ? " SÂU" : " nông"}, đợi nhịp kế xác nhận (slConfirmTicks ${c.slConfirmTicks})`,
++      );
++    }
++    return { pending: true };
++  }
++  // không chạm gì — xoá pending cũ nếu còn treo
++  if (p.slPending) {
++    p.slPending = null;
++    persistEngine();
++  }
++  return null;
++}
++
+ // ─── watcher tick — intra-cycle SL/TP/liquidation + near-hit warnings ────────
+ 
+ async function watcherTick(): Promise<void> {
+@@ -1482,28 +1636,26 @@ async function watcherTick(): Promise<void> {
+     const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
+     const price = tickers[open.symbol]?.price ?? 0;
+     if (price <= 0) return;
+-    const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
+-    const liq = liquidationHit(open.side, price, open.entryPrice, open.leverage);
+-    // last-chance DCA at the stop itself — model still confirms → average in,
+-    // re-anchor and keep riding instead of locking the loss (never on liquidation)
+-    if (kind === "sl" && !liq && (await dcaRescue(open, price, "cross"))) return;
+-    if (kind || liq) {
+-      const closed = await closeTradeDirect(open.id, price, liq ? "sl" : (kind ?? "sl"));
+-      if (closed) {
+-        if (tgReady()) {
+-          const s2 = await readAutoState();
+-          void tgSendMessage(msgClose(closed, s2.stats.closed, s2.stats.winRate, s2.stats.netPnlPct), "HTML");
+-        }
+-        // book the fresh entry a few seconds later — same as the client flow
+-        if (c.on) {
+-          setTimeout(() => {
+-            void cycleTick();
+-          }, 3_000);
+-        }
++    // 0.3.2 — MỌT luồng chấm thoát (liq / TP1-runner / TP2 / trail / SL-confirm /
++    // DCA-at-stop) nằm trong evalExit — cùng thuật toán với cycleTick §1
++    const ex = await evalExit(open, price);
++    if (ex?.closed) {
++      if (tgReady()) {
++        const s2 = await readAutoState();
++        void tgSendMessage(msgClose(ex.closed, s2.stats.closed, s2.stats.winRate, s2.stats.netPnlPct), "HTML");
++      }
++      // book the fresh entry a few seconds later — same as the client flow
++      if (c.on) {
++        setTimeout(() => {
++          void cycleTick();
++        }, 3_000);
+       }
+       return;
+     }
+-    // near-hit warning — once per side per position
++    if (ex?.tp1 || ex?.dca) return; // trạng thái mới đã ghi — nhịp kế tiếp quản lý tiếp
++    const runner = (open.p1Pct ?? null) != null;
++    if (runner || ex?.pending) return; // runner: evalExit tự lo near-TP2 · pending: SL đã thấy, chờ nhịp kế
++    // near-hit warning — once per side per position (normal phase)
+     if (p.warned.id !== open.id) {
+       p.warned = { id: open.id, tp: false, sl: false };
+       persistEngine();
+@@ -1532,10 +1684,23 @@ export function syncEngine(input: {
+ }): void {
+   const { p } = eng();
+   if (input.cfg) {
++    // 0.3.2 — floorAuto ON: floor ĐÃ HỌC nằm ở engine (không phải localStorage)
++    // — sync từ browser KHÔNG được đè bộ ba minAuc/minAcc/minScore; floorAuto OFF
++    // (chỉnh tay) thì giữ hành vi cũ: browser là nguồn sự thật.
++    const keepFloors =
++      p.cfg.floorAuto === true && input.cfg.floorAuto !== false
++        ? { minAuc: p.cfg.minAuc, minAcc: p.cfg.minAcc, minScore: p.cfg.minScore }
++        : null;
+     p.cfg = { ...p.cfg, ...input.cfg };
+     // ngưỡng chung — browser gửi gì cũng bị kẹp về vùng hợp lệ (một nguồn với
+     // engine.json/localStorage); migration legacy nằm trong sanitizeFloors
+     Object.assign(p.cfg, sanitizeFloors(p.cfg.minAuc, p.cfg.minAcc, p.cfg.minScore));
++    if (keepFloors) {
++      Object.assign(p.cfg, keepFloors);
++      console.log(
++        `[engine] sync giữ floor đã học ${keepFloors.minAuc.toFixed(2)}/${keepFloors.minAcc}/${keepFloors.minScore} (floorAuto ON — learner là nguồn của bộ ba này)`,
++      );
++    }
+     p.cfg.runTf = sanitizeRunTf(p.cfg.runTf);
+   }
+   if (input.settings) p.settings = { ...p.settings, ...input.settings };
+@@ -1695,6 +1860,9 @@ export function startEngineScheduler(): void {
+   // at=0 → lượt mổ bổ sung đầu tiên chạy ngay tick đầu tiên (~15s sau boot);
+   // sau đó mỗi lượt cách nhau 6h (AUTOPSY_BACKFILL_MS)
+   const lastAutopsyBf = { at: 0 };
++  // 0.3.2 — at=0 → lượt học floor đầu tiên chạy ngay tick đầu tiên (trước cả khi
++  // có tab sync — learner chỉ cần DB), sau đó mỗi FLOOR_EVERY_MS (6h)
++  const lastFloor = { at: 0 };
+ 
+   const tick = async (): Promise<void> => {
+     const { p } = eng();
+@@ -1708,6 +1876,24 @@ export function startEngineScheduler(): void {
+     }
+     if (!p.syncedAt) return; // idle until the first browser sync
+     try {
++      // 0.3.2 — FLOOR ĐỘNG: mỗi 6h học lại bộ ba minAuc/minAcc/minScore từ TOÀN BỘ
++      // lịch sử lệnh + PHE (flow-guard giữ dòng lệnh, FloorLog ghi lý do tiến hoá).
++      // Chạy trước các bucket khác trong tick — throttle riêng bằng lastFloor.
++      if (p.cfg.floorAuto && Date.now() - lastFloor.at >= pval("FLOOR_EVERY_MS", FLOOR_EVERY_MS)) {
++        lastFloor.at = Date.now();
++        try {
++          const prev: Floors = { minAuc: p.cfg.minAuc, minAcc: p.cfg.minAcc, minScore: p.cfg.minScore };
++          const r = await runFloorRound(prev, (f) => {
++            Object.assign(p.cfg, sanitizeFloors(f.minAuc, f.minAcc, f.minScore));
++            persistEngine();
++          });
++          if (r.action === "apply" && tgReady()) {
++            void tgSendMessage(msgFloor(prev, r.to, r.note), "HTML");
++          }
++        } catch (e) {
++          console.error(`[engine] floor round: ${e instanceof Error ? e.message : e}`);
++        }
++      }
+       // hourly / daily stat digests (marker-guarded inside the lib) — 0.2.35:
+       // KHÔNG còn đòi cfg.on: thống kê là báo cáo, không phải phần của auto
+       // trading — bật chế độ Giờ/Ngày là chảy, auto tắt vẫn chảy
+diff --git a/src/lib/i18n.ts b/src/lib/i18n.ts
+index 48a25c6..a1afb17 100755
+--- a/src/lib/i18n.ts
++++ b/src/lib/i18n.ts
+@@ -589,6 +589,15 @@ const vi: Dict = {
+   "auto.cfg.floorAuc": "Ngưỡng AUC model",
+   "auto.cfg.floorAcc": "Ngưỡng ACC model (%)",
+   "auto.cfg.floorScore": "Ngưỡng điểm model",
++  "auto.cfg.floorAuto": "Floor AUTO",
++  "auto.cfg.floorAutoTip": "0.3.2 — learner tự học bộ ba ngưỡng từ toàn bộ lịch sử lệnh + PHE mỗi 6h (mục tiêu: expectancy × √n, giữ dòng lệnh ≥ 12%, không bao giờ học ra cổng chặn sạch — tăng RR vẫn bắt được lệnh). Lý do tiến hoá xem ở /stats → Dynamic floor. TẮT = bộ ba tĩnh chỉnh tay bên dưới.",
++  "auto.cfg.runner": "TP1 → Runner",
++  "auto.cfg.runnerTip": "0.3.2 — chạm TP lần đầu chỉ CHỐT MỘT PHẦN stake; phần còn lại chạy tiếp với SL về hoà vô (rủi ro 0), TP mở rộng ×{t} và trail khoá {l}× quãng đi. Hết “chốt sớm” — muốn RR cao không cần siết cổng vào lệnh.",
++  "auto.cfg.runnerShare": "% chốt tại TP1",
++  "auto.cfg.runnerTp": "TP runner ×",
++  "auto.cfg.runnerLock": "Trail khoá ×",
++  "auto.cfg.slConfirm": "SL confirm (nhịp)",
++  "auto.cfg.slConfirmTip": "0.3.2 — SL phải được thấy vượt liên tục N nhịp watcher (20s/nhịp) hoặc vượt sâu ≥ 15% bề rộng stop mới chốt: wick quét SL một nhịp không còn quét sạch stop (“SL non” hết). 0 = tắt, chạm là đóng ngay.",
+   "auto.cfg.cooldown": "Chờ sau lỗ",
+   "auto.cfg.cooldownUnit": "phút",
+   "auto.cfg.cooldownOff": "Tắt",
+@@ -723,6 +732,7 @@ const vi: Dict = {
+   "stats.section.dock": "Signal dock — quét gần nhất + cổng chất lượng",
+   "stats.section.open": "Open auto position — lệnh đang mở",
+   "stats.section.hist": "Auto history — sổ lệnh",
++  "stats.section.floor": "Dynamic floor — ngưỡng tự học (0.3.2)",
+   "stats.section.sg": "Suggestion history — đề xuất PHE",
+   "stats.section.journal": "Trade journal — sổ lệnh",
+   "stats.section.analysis": "Deep analysis — chỉ số kỹ thuật",
+@@ -732,7 +742,8 @@ const vi: Dict = {
+   "stats.basis.auto": "Bảng AutoTrade + cấu hình engine đã sync (cfg.on). Dry-run thuần mô phỏng — không có lệnh thật nào; vốn ảo $1000, mỗi lệnh sử dụng stakePct vốn. Số mẫu kinh nghiệm model nhận = lệnh đóng × LESSON_WEIGHT (8). Kiểm chéo: capitalBefore lệnh mở phải bằng capitalAfter lệnh đóng mới nhất.",
+   "stats.basis.dock": "Snapshot scan gần nhất của engine (v.scan). 'Ứng viên đạt cổng' đếm ĐÚNG bộ lọc auto-cycle: isTradeable (AUC≥minAuc ∧ ACC≥minAcc ∧ điểm≥minScore, ≠ NEUTRAL) + không regressed vs champion + ngoài dải nhiễu ±6%. Bcast 5m dùng CÙNG một thuật toán gate (bcast-gate.ts) cho panel và Telegram.",
+   "stats.basis.open": "Bảng AutoTrade status=open (một lệnh duy nhất tại mọi thời điểm — thiết kế engine). ROE tạm tính từ giá live Binance futures × đòn bẩy — cùng công thức closeTradeDirect dùng khi chốt lệnh.",
+-  "stats.basis.hist": "Toàn bộ bảng AutoTrade. Mọi lệnh đều đi qua closeTradeDirect nên luôn có nhãn exitKind (tp/sl/flip/manual) — kiểm chéo: tổng theo nhãn phải bằng tổng lệnh đã đóng.",
++  "stats.basis.hist": "Toàn bộ bảng AutoTrade. Mọi lệnh đều đi qua closeTradeDirect nên luôn có nhãn exitKind (tp/sl/flip/trail/manual) — kiểm chéo: tổng theo nhãn phải bằng tổng lệnh đã đóng.",
++  "stats.basis.floor": "Mỗi 6h learner (dynamic-floor.ts) chấm lưới quantile × tổ hợp bộ ba trên TOÀN BỘ lịch sử: AutoTrade đóng ×3 trọng số + Suggestion resolved ×1; objective = expectancy(ROE) × √n với ràng buộc dòng lệnh ≥ 12% tổng mẫu, bước tiến hoá ±0.08 AUC / ±8 ACC / ±15 điểm, sàn cứng 0.55/55/20. Mọi lượt (áp/giữ) ghi 1 dòng FloorLog kèm lý do — hiển thị nguyên văn dưới đây.",
+   "stats.basis.sg": "Bảng Suggestion: mỗi lượt train lưu một đề xuất; khi hết horizon thì chấm outcome = giá đi đúng phía bias (win) hay ngược phía (loss); flat (±0) loại khỏi hit-rate. Kiểm chéo: chấm lại TẤT CẢ bằng outcomeOf(entry, exit) — cùng hàm lúc ghi.",
+   "stats.basis.journal": "papersFrom chạy trên nến thật (/api/klines) + tín hiệu UT-Bot (signalsFrom): vào lệnh ở giá MỞ nến sau tín hiệu đạt gate, SL/TP đối chiếu trong biên nến (SL ưu tiên), lật chiều luôn đóng + mở ngược. Định nghĩa thắng giống KPI trang chính: ROE > 0 trên lệnh đã đóng.",
+   "stats.basis.analysis": "analyze() chỉ đọc nến ĐÃ ĐÓNG (không nhấp nháy giữa nến): trend = chồng EMA50/EMA200; RSI(14) Wilder; volRatio = khối lượng nến cuối / TB 20 nến; ATR% đối chiếu TB 50 nến; cấu trúc = phá/vẫn trong vùng swing high-low (pivot 5).",
+@@ -1333,6 +1344,15 @@ const en: Dict = {
+   "auto.cfg.floorAuc": "Model AUC floor",
+   "auto.cfg.floorAcc": "Model ACC floor (%)",
+   "auto.cfg.floorScore": "Model score floor",
++  "auto.cfg.floorAuto": "Floor AUTO",
++  "auto.cfg.floorAutoTip": "0.3.2 — the learner self-tunes the floor triplet from the ENTIRE trade + suggestion history every 6h (objective: expectancy × √n, keeps ≥ 12% trade flow, never learns a gate that starves the funnel — raising RR no longer kills entries). Evolution reasons live on /stats → Dynamic floor. OFF = static triplet edited below.",
++  "auto.cfg.runner": "TP1 → Runner",
++  "auto.cfg.runnerTip": "0.3.2 — first TP touch banks only a SHARE of the stake; the rest keeps running with SL at breakeven (zero risk), TP extended ×{t} and a trail locking {l}× of the excursion. No more early exits — extra RR comes from the runner, not from tightening the entry gate.",
++  "auto.cfg.runnerShare": "% banked at TP1",
++  "auto.cfg.runnerTp": "Runner TP ×",
++  "auto.cfg.runnerLock": "Trail lock ×",
++  "auto.cfg.slConfirm": "SL confirm (ticks)",
++  "auto.cfg.slConfirmTip": "0.3.2 — the SL must be seen beyond for N consecutive watcher ticks (20s each) OR pierced ≥ 15% deeper than its width before it fires: a one-tick wick no longer wipes the stop (kills “nonsense SL”). 0 = off, first touch closes.",
+   "auto.cfg.cooldown": "Cooldown after SL",
+   "auto.cfg.cooldownUnit": "min",
+   "auto.cfg.cooldownOff": "Off",
+@@ -1467,6 +1487,7 @@ const en: Dict = {
+   "stats.section.dock": "Signal dock — last scan + quality gate",
+   "stats.section.open": "Open auto position",
+   "stats.section.hist": "Auto history",
++  "stats.section.floor": "Dynamic floor — self-learning gate (0.3.2)",
+   "stats.section.sg": "Suggestion history",
+   "stats.section.journal": "Trade journal",
+   "stats.section.analysis": "Deep analysis",
+@@ -1476,7 +1497,8 @@ const en: Dict = {
+   "stats.basis.auto": "AutoTrade table + synced engine config (cfg.on). Dry-run is PAPER-ONLY — no real orders; virtual capital $1000, each trade stakes stakePct of it. Model lessons = closed trades × LESSON_WEIGHT (8). Cross-check: open trade's capitalBefore must equal the newest closed trade's capitalAfter.",
+   "stats.basis.dock": "The engine's latest scan snapshot (v.scan). 'Candidates' are counted with the EXACT auto-cycle filter: isTradeable (AUC≥minAuc ∧ ACC≥minAcc ∧ score≥minScore, ≠ NEUTRAL) + not regressed vs champion + outside the ±6% noise band. The 5m broadcast shares ONE gate algorithm (bcast-gate.ts) for panel and Telegram.",
+   "stats.basis.open": "AutoTrade rows with status=open (ONE position at any time — engine design). Live ROE = Binance futures last price × leverage — the same closeTradeDirect formula that settles the trade.",
+-  "stats.basis.hist": "The whole AutoTrade table. Every close goes through closeTradeDirect, so exitKind (tp/sl/flip/manual) is always written — cross-check: label totals must equal total closed.",
++  "stats.basis.hist": "The whole AutoTrade table. Every close goes through closeTradeDirect, so exitKind (tp/sl/flip/trail/manual) is always written — cross-check: label totals must equal total closed. trail = runner exited by its BE/trail stop after a TP1 partial (0.3.2).",
++  "stats.basis.floor": "Every 6h the learner (dynamic-floor.ts) scores a quantile grid of floor triplets over the ENTIRE history: closed AutoTrade ×3 weight + resolved Suggestion ×1; objective = expectancy(ROE) × √n under a trade-flow constraint of ≥ 12% of samples, evolution step ±0.08 AUC / ±8 ACC / ±15 score, hard floor 0.55/55/20. Every round (applied or kept) writes one FloorLog row with its reason — shown verbatim below.",
+   "stats.basis.sg": "Suggestion table: one row per train; when the horizon elapses the outcome is scored as with-bias (win) vs against-bias (loss); flat (±0) is excluded from hit-rate. Cross-check: every outcome re-scored via outcomeOf(entry, exit) — the same function used when writing.",
+   "stats.basis.journal": "papersFrom runs on real candles (/api/klines) + UT-Bot signals (signalsFrom): entry at the OPEN of the candle after a gate-passing signal, SL/TP evaluated intrabar (SL first), reversal always closes + reopens. Win definition matches the main-page KPI: ROE > 0 on closed papers.",
+   "stats.basis.analysis": "analyze() reads CLOSED candles only (no mid-candle flicker): trend = EMA50/EMA200 stack; Wilder RSI(14); volRatio = last closed volume ÷ 20-candle mean; ATR% vs its 50-candle mean; structure = breakout/inside/breakdown of the pivot-5 swing range.",
+diff --git a/src/lib/params.ts b/src/lib/params.ts
+index e128ccf..f957519 100644
+--- a/src/lib/params.ts
++++ b/src/lib/params.ts
+@@ -234,6 +234,33 @@ export const CALIBRATE = true;
+  *  vẫn cần đủ điểm; val 25% của dataset thường ≥ 80 nên hiếm khi chạm). */
+ export const PLATT_MIN_VAL = 40;
+ 
++// ── 6d · DYNAMIC FLOOR — bộ ba ngưỡng tự học từ toàn bộ lịch sử lệnh ─────────
++// "floor động AUC/ACC/score — tự học & tiến hoá từ toàn bộ Elliott session,
++//  ghi nhận lý do tiến hoá và hiển thị rõ trong mục Stats" (yêu cầu 0.3.2).
++// Learner (dynamic-floor.ts) mỗi FLOOR_EVERY_MS chấm lại bộ ba minAuc/minAcc/
++// minScore trên TOÀN BỘ lịch sử đã đóng (AutoTrade + Suggestion resolved):
++// ứng viên bộ ba = lưới quantile; mục tiêu = expectancy(ROE) × √n (chất lượng
++// nhân tần suất) với RÀNG BUỘC DÒNG LỆNH — ứng viên để lại ít hơn FLOW_MIN
++// tổng mẫu là bị loại. Đây là câu trả lời cho "tăng RR thì không bắt được lệnh
++// nữa": nhiệm vụ khó hơn (RR cao) kéo expectancy/flow đổi → floor tự hạ để giữ
++// dòng lệnh thay vì đứng cứng chặn sạch. Mỗi thay đổi đều ghi FloorLog (trước/
++// sau + lý do + số liệu nền) và hiện trên /stats.
++
++/** Nhịp học floor — 6h/lượt (đủ chờ lệnh mới đóng, không nhảy theo nhiễu). */
++export const FLOOR_EVERY_MS = 6 * 3_600_000;
++/** Tổng mẫu có trọng số tối thiểu để learner được quyền đổi floor — dưới mức
++ *  này chỉ ghi log "chưa đủ mẫu". */
++export const FLOOR_MIN_SAMPLES = 30;
++/** Ràng buộc dòng lệnh — ứng viên floor phải giữ lại ≥ 12% tổng mẫu. Hạ RR
++ *  hoặc siết chất lượng bao nhiêu cũng không được phép làm phễu cạn kiệt. */
++export const FLOW_MIN = 0.12;
++/** Sàn CỨNG của floor đã học — learner không được nới lỏng dưới mức này
++ *  (model dưới 0.55 AUC là xếp hạng kém hơn tung đồng xu chút ít). */
++export const FLOOR_HARD_MIN = { auc: 0.55, acc: 55, score: 20 };
++/** Giới hạn BƯỚC tiến hoá mỗi lượt — floor đi từng bước, không nhảy loạn khi
++ *  một lượt dữ liệu xấu: ΔAUC ≤ 0.08 · ΔACC ≤ 8 điểm % · Δscore ≤ 15 điểm. */
++export const FLOOR_STEP = { auc: 0.08, acc: 8, score: 15 };
++
+ // ── 7 · CHAMPION + CONFLUENCE — chất lượng vào lệnh & Prob tổng ──────────────
+ 
+ /** Vô hiệu champion: retrain mới kém hơn champion quá 0.02 AUC là coi như
+diff --git a/src/lib/self-improve.ts b/src/lib/self-improve.ts
+index e970540..d751ed5 100644
+--- a/src/lib/self-improve.ts
++++ b/src/lib/self-improve.ts
+@@ -145,6 +145,24 @@ export function decidePatch(
+   }
+ 
+   if (stats.n >= MIN_N_TIGHTEN && stats.expectancy < 0) {
++    // 0.3.2 — floorAuto ON: bộ ba minScore/minAcc thuộc về learner (dynamic-floor.ts,
++    // có flow-guard + FloorLog) — agent chỉ giữ quyền SIẾT RISK, không siết floor
++    // nữa (hai nguồn đè nhau lên cùng ba số thì floor nhảy loạn, không ai giải thích được)
++    if (cfg.floorAuto === true) {
++      const nextRisk = Math.max(10, cfg.riskPct <= 10 ? 10 : cfg.riskPct === 25 ? 10 : cfg.riskPct === 50 ? 25 : 10);
++      if (nextRisk === cfg.riskPct) {
++        return {
++          patch: null,
++          kind: "skip",
++          note: `floors auto-managed (floorAuto ON) · risk already ${cfg.riskPct}% · exp ${stats.expectancy}% n=${stats.n}`,
++        };
++      }
++      return {
++        patch: { riskPct: nextRisk as AutoConfig["riskPct"] },
++        kind: "promote",
++        note: `tighten RISK ONLY (floors auto-managed): exp ${stats.expectancy}% WR ${stats.winRate.toFixed(0)}% n=${stats.n} → risk ${nextRisk}%`,
++      };
++    }
+     const nextScore = Math.min(85, Math.round(cfg.minScore + 2));
+     const nextAcc = Math.min(85, Math.round(cfg.minAcc + 1));
+     const nextRisk = Math.max(10, cfg.riskPct <= 10 ? 10 : cfg.riskPct === 25 ? 10 : cfg.riskPct === 50 ? 25 : 10);
+diff --git a/src/lib/stats.ts b/src/lib/stats.ts
+index ad9ed82..5dea4e1 100644
+--- a/src/lib/stats.ts
++++ b/src/lib/stats.ts
+@@ -15,6 +15,7 @@ import { db } from "@/lib/db";
+ import { engineSnapshot } from "@/lib/engine";
+ import { readAutoState } from "@/lib/autostate";
+ import { comboStats, isTradeable, type ScanRow } from "@/lib/autotrade";
++import { recentFloorLogs } from "@/lib/dynamic-floor";
+ import { outcomeOf, type XgbBiasRow } from "@/lib/history";
+ import { LESSON_WEIGHT, NOISE_BAND, SCAN_TTL, UNIVERSE_LOOKBACK_CANDLES, UNIVERSE_SCAN_MS, pval } from "@/lib/params";
+ import { SESSIONS, sessionOf, sessionOverlap, type SessionKey } from "@/lib/market";
+@@ -296,7 +297,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
+       take: 2000,
+     });
+     const closed = rows.filter((r) => r.status === "closed");
+-    const kinds = { tp: 0, sl: 0, flip: 0, manual: 0 };
++    const kinds = { tp: 0, sl: 0, flip: 0, manual: 0, trail: 0 };
+     for (const r of closed) {
+       const k = (r.exitKind ?? "") as keyof typeof kinds;
+       if (k in kinds) kinds[k] += 1;
+@@ -312,12 +313,12 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
+       note:
+         unlabeled > 0
+           ? `${unlabeled} closed trades missing exitKind (pre-0.2.24 or legacy manual close) — label totals under-count; remainder is legacy.`
+-          : "Label totals match closed count — every close goes through closeTradeDirect (tp/sl/flip/manual).",
++          : "Label totals match closed count — every close goes through closeTradeDirect (tp/sl/flip/trail/manual; trail = runner bị BE/trail stop đưa về sau TP1 — 0.3.2).",
+       accPct: 100,
+       accNote: "exact DB counts — not estimates",
+       metrics: [
+         { k: "Total trades", v: String(rows.length), sub: `${rows.length - closed.length} open · ${closed.length} closed` },
+-        { k: "TP / SL", v: `${kinds.tp} / ${kinds.sl}`, sub: `flip ${kinds.flip} · tay ${kinds.manual}` },
++        { k: "TP / SL", v: `${kinds.tp} / ${kinds.sl}`, sub: `flip ${kinds.flip} · trail ${kinds.trail} · tay ${kinds.manual}` },
+         ...(avg != null ? [{ k: "Avg ROE", v: `${avg >= 0 ? "+" : ""}${avg.toFixed(2)}%` }] : []),
+         ...(best != null ? [{ k: "Best / worst", v: `+${best.toFixed(1)}% / ${worst ?? 0}%` }] : []),
+         { k: "Last 7 days", v: `${last7d} closed trades` },
+@@ -325,6 +326,40 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
+     };
+   });
+ 
++  // ─── 8b. Dynamic floor — bộ ba ngưỡng tự học (0.3.2) ─────────────────────
++  // "ghi nhận lý do tiến hoá và hiển thị rõ trong mục Stats" — mục này là chỗ đó:
++  // floor hiện tại + nguồn (AUTO/tay) + lý do tiến hoá gần nhất (nguyên văn từ
++  // FloorLog) + lịch sử 3 lượt học.
++  const floor = await safe("floor", async () => {
++    const logs = await recentFloorLogs(6);
++    const lastApply = logs.find((l) => l.kind === "apply");
++    const src = cfg.floorAuto ? "AUTO — learner 6h/lượt" : "thủ công (panel)";
++    const fmtFloors = (f: { minAuc: number; minAcc: number; minScore: number }): string =>
++      `${f.minAuc.toFixed(2)}/${f.minAcc}/${f.minScore}`;
++    return {
++      state: (cfg.floorAuto ? (logs.length > 0 ? "ok" : "warn") : "na") as StatState,
++      note: cfg.floorAuto
++        ? logs.length > 0
++          ? "Learner chạy từ toàn bộ lịch sử (lệnh ×3 + PHE ×1), objective = expectancy × √n, ràng buộc dòng lệnh ≥ 12% — không bao giờ học ra cổng làm phễu cạn. Lý do tiến hoá ghi nguyên văn trong FloorLog."
++          : "Learner chưa chạy lượt nào trên DB này — lượt đầu chạy ngay tick đầu tiên sau boot (mỗi 6h)."
++        : "floorAuto đang TẮT — bộ ba ngưỡng tĩnh như 0.3.1, chỉnh tay trên Auto panel. Bật lại thì learner tiếp quản từ lượt kế.",
++      accPct: 100,
++      accNote: "live cfg + FloorLog rows — số cấu hình, không phải ước lượng",
++      metrics: [
++        { k: "Floors đang chạy (AUC/ACC/Điểm)", v: `${cfg.minAuc.toFixed(2)} / ${cfg.minAcc} / ${cfg.minScore}`, sub: src },
++        { k: "Lượt học đã ghi", v: `${logs.length}`, sub: `${logs.filter((l) => l.kind === "apply").length} lần áp · ${logs.filter((l) => l.kind === "keep").length} giữ` },
++        ...(lastApply
++          ? [{ k: "Tiến hoá gần nhất", v: `${fmtFloors(lastApply.before)} → ${fmtFloors(lastApply.after)}`, sub: lastApply.note.slice(0, 180) }]
++          : []),
++        ...logs.slice(0, 3).map((l) => ({
++          k: `${l.kind === "apply" ? "APPLY" : "KEEP"} · ${new Date(l.at).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`,
++          v: `${fmtFloors(l.before)} → ${fmtFloors(l.after)}`,
++          sub: l.note.slice(0, 120),
++        })),
++      ],
++    };
++  });
++
+   // ─── 8. Suggestion history (PHE) ──────────────────────────────────────────
+   const sg = await safe("sg", async () => {
+     const rows = await db.suggestion.findMany({
+@@ -367,5 +402,5 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
+     };
+   });
+ 
+-  return { at: now, sections: [sessions, combo, universe, auto, dock, openPos, hist, sg] };
++  return { at: now, sections: [sessions, combo, universe, auto, dock, openPos, hist, floor, sg] };
+ }
+diff --git a/src/lib/tg-msgs.ts b/src/lib/tg-msgs.ts
+index 5a92737..3843f07 100644
+--- a/src/lib/tg-msgs.ts
++++ b/src/lib/tg-msgs.ts
+@@ -56,7 +56,15 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string): stri
+ };
+ 
+ const kindTag = (k: string | null): string =>
+-  k === "tp" ? "TAKE PROFIT ✅" : k === "sl" ? "STOP LOSS 🔻" : k === "flip" ? "FLIP 🔄" : "MANUAL CLOSE ✋";
++  k === "tp"
++    ? "TAKE PROFIT ✅"
++    : k === "sl"
++      ? "STOP LOSS 🔻"
++      : k === "flip"
++        ? "FLIP 🔄"
++        : k === "trail"
++          ? "TRAIL EXIT 🪂"
++          : "MANUAL CLOSE ✋";
+ 
+ export const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPnlPct: number): string =>
+   [
+@@ -127,6 +135,42 @@ export const msgLlmVeto = (r: ScanRow, v: LlmVerdict): string =>
+     `💬 ${escHtml(v.reasons.slice(0, 3).join(" · ")) || "—"}`,
+   ].join("\n");
+ 
++/** 0.3.2 — TP1 PARTIAL → RUNNER: chạm TP lần đầu, chốt một phần, phần còn lại
++ *  chuyển runner (SL về hoà vô, TP mở rộng, trail khoá lời). Tham số khai báo
++ *  structural (AutoTradeRow subset) để tránh vòng import. */
++export const msgTp1 = (
++  r: { symbol: string; interval: string; side: string; entryPrice: number; tpPct: number; leverage: number; stakePct?: number | null },
++  price: number,
++  share: number,
++  tp2Pct: number,
++): string => {
++  const roe = roeOf(r.side, r.entryPrice, price, r.leverage);
++  const bankRoe = Math.round(r.tpPct * r.leverage * 100) / 100;
++  return [
++    `🪙 <b>TP1 PARTIAL — RUNNER ARMED</b>`,
++    `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
++    HR,
++    `✅ Banked <b>${(share * 100).toFixed(0)}%</b> stake tại TP1 (+${bankRoe.toFixed(1)}% ROE phần banked)`,
++    `🛡️ Phần còn lại: SL về <b>HOÀ VÔ</b> (breakeven) — rủi ro = 0`,
++    `🏁 TP mở rộng: <b>+${tp2Pct.toFixed(2)}%</b> giá (từ ${r.tpPct.toFixed(2)}%) — để lời chạy`,
++    `📈 Price ${fmtPrice(price)} · ROE ${roe >= 0 ? "+" : ""}${roe.toFixed(1)}% · trail khoá 50% quãng đi`,
++  ].join("\n");
++};
++
++/** 0.3.2 — floor động vừa tiến hoá: trước/sau + lý do (nguyên văn từ learner). */
++export const msgFloor = (
++  before: { minAuc: number; minAcc: number; minScore: number },
++  after: { minAuc: number; minAcc: number; minScore: number },
++  note: string,
++): string =>
++  [
++    `🧬 <b>DYNAMIC FLOOR — TIẾN HOÁ</b>`,
++    HR,
++    `📐 minAuc <b>${before.minAuc.toFixed(2)} → ${after.minAuc.toFixed(2)}</b> · minAcc <b>${before.minAcc} → ${after.minAcc}</b> · minScore <b>${before.minScore} → ${after.minScore}</b>`,
++    `💬 ${escHtml(note)}`,
++    `🔍 Lịch sử + số liệu nền: /stats → Dynamic floor`,
++  ].join("\n");
++
+ /**
+  * Autopsy notice — lệnh ĐÃ ĐÓNG được LLM phân tích chuyên sâu (cả thắng lẫn thua): tag chế độ
+  * thắng/thua + bài học + các why trích số. Tham số khai báo structural (không
+diff --git a/src/lib/trade-mgmt.ts b/src/lib/trade-mgmt.ts
+new file mode 100644
+index 0000000..0d3f4fc
+--- /dev/null
++++ b/src/lib/trade-mgmt.ts
+@@ -0,0 +1,152 @@
++// ─── trade-mgmt — quản lý thoát lệnh sau khi vào (0.3.2) ─────────────────────
++// Trả lời phản hồi thật của user: "các lệnh bị chốt sớm và SL non… tăng RR thì
++// không bắt được lệnh nữa". Ba cơ chế, tất cả PURE (không IO, test được độc lập):
++//
++//   1. SL CONFIRM — SL không còn đóng ngay lần chạm đầu tiên: giá phải vượt SL
++//      trong ≥ slConfirmTicks lần đo liên tiếp (watcher 20s/lần) HOẶC vượt sâu
++//      ≥ SL_DEEP_FRAC × slPct thì mới chốt. Wick quét SL rồi quay đầu → lệnh sống
++//      ("SL non" hết). Liquidation vẫn tức thời như cũ.
++//
++//   2. TP1 PARTIAL → RUNNER — chạm TP lần đầu KHÔNG đóng toàn bộ: chốt phần
++//      share (mặc định 50%), phần còn lại thành runner với:
++//        • SL dời về HOÀ VÃN (breakeven, trailPct = 0) — rủi ro = 0,
++//        • TP mở rộng tpPct × runnerTpMult (mặc định ×2 → RR thật 1:2.8+),
++//        • trail khoá lợi nhuận: mỗi lần giá chạy thuận hơn, khoá
++//          move × runnerTrailLock (mặc định khoá 50% quãng đi), chỉ tăng dần.
++//      → "chốt sớm" hết vì một nửa vẫn chạy tiếp; muốn RR cao không cần siết
++//      cổng vào lệnh — runner chạy ra RR. Banked ROE nằm trên lệnh (p1Pct/
++//      p1Share) và hợp nhất lúc đóng (combineClosePnl) — một lệnh vẫn một dòng
++//      sổ, chuỗi vốn capitalBefore/After không phá vỡ.
++//
++//   3. COMBINE CLOSE — đóng giữa runner phase: ROE tổng = p1Share × p1Pct +
++//      (1−p1Share) × phần còn lại. DCA đã xong trước TP1 thì stakePct giữ
++//      nguyên trong runner phase (engine không DCA sau TP1) nên delta vốn tính
++//      trực tiếp trên stakePct như cũ.
++//
++// Engine (engine.ts) là nơi duy nhất gọi DB/fetch — module này không import gì
++// ngoài chuẩn, giữ thuần để `npx tsx scripts/test-trade-mgmt.ts` chạy nổi.
++
++/** exitKind mới của runner đóng bởi trail/BE — thêm vào whitelist route +
++ *  DIGEST_KIND + hist kinds (đã làm ở autotrade.ts / route.ts / stats.ts). */
++export const TRAIL_KIND = "trail";
++
++/** Chạm SL phải vượt sâu ≥ 15% bề rộng stop mới đóng NGAY không chờ confirm. */
++export const SL_DEEP_FRAC = 0.15;
++
++// ─── 1 · SL confirm — wick một nhịp không còn quét sạch stop ─────────────────
++
++export interface SlPending {
++  id: string;
++  since: number;
++  /** giá lần đo đầu tiên thấy vượt SL — chỉ để log */
++  price: number;
++}
++
++export interface SlConfirmStep {
++  /** true = đủ bằng chứng chạm THẬT (giữ liên tục hoặc vượt sâu) → đóng */
++  close: boolean;
++  /** state mới cần lưu (null = xoá) */
++  next: SlPending | null;
++}
++
++/**
++ * Một bước máy trạng thái confirm SL — gọi mỗi nhịp watcher (mặc định 20s).
++ *  • crossNow = giá ĐANG nằm ngoài SL phía bất lợi.
++ *  • deepBreach = vượt sâu hơn SL_DEEP_FRAC × slPct — lỗ thật, không chờ.
++ *  • confirmTicks ≤ 0 → tắt confirm: hành vi cũ, chạm là đóng ngay.
++ *  • pending của LỆNH KHÁC (đổi vị thế) → đếm lại từ đầu.
++ * Wick 1 nhịp (crossNow rồi hết) → next=null, không đóng — đúng mục tiêu.
++ */
++export function slConfirmStep(
++  pending: SlPending | null,
++  tradeId: string,
++  now: number,
++  crossNow: boolean,
++  deepBreach: boolean,
++  confirmTicks: number,
++  tickMs = 20_000,
++): SlConfirmStep {
++  if (!crossNow) return { close: false, next: null };
++  if (deepBreach) return { close: true, next: null };
++  if (confirmTicks <= 0) return { close: true, next: null };
++  if (confirmTicks === 1) return { close: true, next: null }; // 1 nhịp = chạm là đóng (hành vi cũ)
++  const fresh: SlPending = { id: tradeId, since: now, price: 0 };
++  const p = pending && pending.id === tradeId ? pending : fresh;
++  // confirmTicks = số lần đo LIÊN TIẾP thấy vượt (lần đầu ghi pending là lần 1):
++  // lần thứ N xảy ra khi elapsed ≥ (N−1)×tickMs — N=2 → lần đo thứ 2 (20s sau) đóng
++  if (now - p.since >= (confirmTicks - 1) * tickMs) return { close: true, next: null };
++  return { close: false, next: p };
++}
++
++// ─── 2 · Runner — BE/trail hit, ratchet khoá lời, TP2 ────────────────────────
++
++/** Phía thuận hiện tại của lệnh, % GIÁ (không nhân đòn bẩy). */
++export function movePct1x(side: string, entry: number, price: number): number {
++  if (!entry || !price) return 0;
++  return side === "SHORT" ? ((entry - price) / entry) * 100 : ((price - entry) / entry) * 100;
++}
++
++/**
++ * Trail/BE stop hit — dùng trong runner phase (SAU TP1): stop không còn là
++ * slPct dưới entry mà là mức KHOÁ LỜI trên entry (trailPct ≥ 0):
++ *   LONG : hit khi price ≤ entry × (1 + trailPct/100)
++ *   SHORT: hit khi price ≥ entry × (1 − trailPct/100)
++ * trailPct = 0 chính là breakeven. Đóng với exitKind "trail".
++ */
++export function trailHit(side: string, price: number, entry: number, trailPct: number): boolean {
++  if (!entry || !price) return false;
++  const t = Math.max(0, trailPct);
++  return side === "SHORT" ? price >= entry * (1 - t / 100) : price <= entry * (1 + t / 100);
++}
++
++/**
++ * Ratchet khoá lời — CHỈ TĂNG: candidate = quãng đi thuận lần này × lock
++ * (mặc định khoá 50% excursion). Giá tụt → giữ nguyên mức đã khoá. Round 3 số
++ * lẻ (0.001% giá ≈ đủ mịn cho mọi cặp).
++ */
++export function trailRatchet(cur: number, move1x: number, lock: number): number {
++  const candidate = Math.max(0, move1x) * Math.min(1, Math.max(0, lock));
++  return Math.round(Math.max(cur, candidate) * 1000) / 1000;
++}
++
++/** TP2 — TP mở rộng của runner (price move %): tpPct × runnerTpMult, min = tp1. */
++export function runnerTp2(tpPct: number, tpMult: number): number {
++  return Math.round(Math.max(tpPct, tpPct * Math.max(1, tpMult)) * 1000) / 1000;
++}
++
++export interface Tp1Plan {
++  /** phần CHỐT tại TP1, 0..1 (runnerSharePct/100) */
++  share: number;
++  /** ROE% banked lúc TP1 (= tpPct × leverage) */
++  p1Pct: number;
++  /** TP mở rộng của runner (price move %) */
++  tp2Pct: number;
++}
++
++/**
++ * Quyết định TP1 có chuyển runner không:
++ *  • runnerOn bật + share hợp lệ (0 < share < 1)
++ *  • KHÔNG chạy khi đã DCA (dcaCount > 0): avg đã dời, stake đã nhân đôi —
++ *    ưu tiên chốt toàn bộ như cũ, không phức tạp thêm.
++ * p1Pct tính từ mức TP HIỆN TẠI của lệnh (slTpHit đã xác nhận chạm).
++ */
++export function tp1Plan(cfg: { runnerOn: boolean; runnerSharePct: number; runnerTpMult: number }, tpPct: number, leverage: number, dcaCount: number): Tp1Plan | null {
++  if (!cfg.runnerOn || dcaCount > 0) return null;
++  const share = cfg.runnerSharePct / 100;
++  if (!(share > 0 && share < 1)) return null;
++  return { share, p1Pct: Math.round(tpPct * leverage * 100) / 100, tp2Pct: runnerTp2(tpPct, cfg.runnerTpMult) };
++}
++
++// ─── 3 · Combine close — hợp nhất phần đã bank với phần runner khi đóng ──────
++
++/**
++ * ROE tổng của lệnh có TP1 partial:
++ *   total = share × p1Pct + (1 − share) × remPnl
++ * share/p1Pct null → trả nguyên remPnl (lệnh thường). Round 2 số lẻ.
++ */
++export function combineClosePnl(p1Pct: number | null | undefined, p1Share: number | null | undefined, remPnl: number): number {
++  if (p1Pct == null || p1Share == null || p1Share <= 0) return Math.round(remPnl * 100) / 100;
++  const share = Math.min(1, p1Share);
++  const total = share * p1Pct + (1 - share) * remPnl;
++  return Math.round(total * 100) / 100;
++}
+-- 
+2.47.3
+

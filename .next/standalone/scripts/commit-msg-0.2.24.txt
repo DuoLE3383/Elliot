@@ -1,0 +1,33 @@
+0.2.24 — nút "Duyệt thử" dùng setup THẬT của engine + LLM thấy track record bot
+
+Bối cảnh: nút test chạy thông qua tunnel (6.1s, JSON chuẩn) nhưng verdict là
+"skip" với 3 lý do (val_acc < 60% / too few samples / rr inconsistent). Nguyên
+nhân: setup trong test là lệnh GIẢ mid-strength cố ý (acc 58.3%, 1200 samples,
+samples thấp) — LLM skip ĐÚNG, nhưng user tưởng "sample nghèo" là model thật.
+Đáp ứng yêu cầu "dùng toàn bộ những gì XGBoost đã chạy" — llama-server là
+inference-only (KHÔNG train được), nên thay vào đó cho LLM thấy dữ liệu THẬT:
+
+- llmTestSetup() (autotrade.ts): chọn ứng viên TỐT NHẤT trong scan gần nhất
+  của engine — lọc ĐÚNG như auto-cycle (gate minAuc/minAcc/minScore qua
+  isTradeable + loại regressed + NOISE_BAND), rank theo score. Không ứng viên
+  nào đạt gate → top scan còn lại (kèm nhãn "CHƯA đạt gate" — engine thật sự
+  sẽ KHÔNG gửi combo này đi). Scan rỗng/toàn NEUTRAL → null.
+- /api/llm/test: setup THẬT trước, chỉ fallback setup GIẢ khi engine chưa quét
+  lần nào; trả kèm setupSource ("setup THẬT — ứng viên tốt nhất: SOL 15m ·
+  score 64.1 · đạt gate" / "...CHƯA đạt gate" / "setup GIẢ mẫu..."); timeout
+  90_000 → LLM_TIMEOUT_MS (một nguồn, params.ts).
+- LlmSetup.track (optional) + setupPrompt: dòng "bot_track_record:" — engine
+  điền từ st.stats (closes/wins/winRate/net ROE), ví dụ "31W/19L · win rate
+  62% · net +12.4% ROE (50 paper trades)". LLM phán trên bằng chứng vận hành
+  thật, không chỉ metrics một run — giảm skip máy móc khi track đang tốt.
+- /ai page: hiển thị setupSource ngay dưới hàng badge của khối log test.
+
+Đáng chú ý: lý do "rr inconsistent" của Qwen 7B là NÓI BỪA — rr 1:2.00 là đẹp
+(TP 2.4 / SL 1.2). Model 7B đôi khi sinh lý do cho có; lý do đáng tin hơn cả
+là verdict tổng thể, số confidence và các lý do trúng rubric thật.
+
+Test: scripts/test-llm-real-setup.mts (đạt gate → top thật; không ai đạt →
+nhãn CHƯA đạt; rỗng/NEUTRAL → null; tpMode manual sl/tp từ cfg; track vào
+prompt) → PASS; test-llm-env-alias.mts, test-llm-apikey.mts → PASS. Build sạch.
+
+Deploy: cd ~/Elliot && git pull && npm run build && pm2 restart elliott --update-env && pm2 flush

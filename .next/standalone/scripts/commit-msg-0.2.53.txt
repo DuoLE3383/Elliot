@@ -1,0 +1,24 @@
+0.2.53 — /ai: ẩn cụm "LLM setup" (mặc định gấp) + thêm giờ vào "Latest review"
+
+Vì sao: phản hồi từ ảnh chụp khung LLM Risk Officer —
+(1) cụm cấu hình ENDPOINT/MODEL/TIMEOUT/Fail-CLOSED chiếm chỗ cố định dù hiếm
+    khi chỉnh, để mở cố định dễ nhìn nhầm là trạng thái vận hành;
+(2) dòng "Latest review: #ATOMUSDT 15m LONG → unreachable (300000ms)" đứng im
+    suốt làm tưởng lỗi đang lặp. Đã đối chiếu git: con số 300000ms chỉ sinh được
+    bởi bản TRƯỚC 0.2.47 (f3024cb — 05:12 VN 02/11 mới kẹp timeout engine về
+    15–180s; tại giờ sự cố 18:11 VN 01/11 engine còn dùng LLM_TIMEOUT_MS=300s).
+    llmLast được persist vào đĩa và nạp lại khi boot nên bản ghi sống qua mọi
+    pm2 restart, hiển thị mãi cho tới khi có MỘT lượt duyệt mới ghi đè — từ
+    18:11 01/11 llmGate không chạy lại (không setup nào qua cổng) nên dòng cũ
+    nằm nguyên. Ping "Connected · 13ms" chỉ là /health nhẹ, không phải lượt duyệt.
+
+- /ai: cụm "LLM setup (Risk Officer)" thành nút gấp/mở — MẶC ĐỊNH ĐÓNG, nhớ
+  trạng thái trong localStorage (utp.llmSetupOpen); form giữ nguyên khi mở.
+- /ai: "Latest review" thêm giờ duyệt (dd/MM HH:mm, giờ máy người xem) cạnh
+  nhãn, và "300000ms" → "300s" (fmtMs) — bản ghi cũ hết cảnh trông như vừa xảy ra.
+- i18n: "ai.llm.none" bỏ cụm "từ khi khởi động server" (không đúng — llmLast
+  persist qua restart) → "Chưa có lượt duyệt LLM nào được ghi." /
+  "No LLM review recorded yet."
+
+Sau khi deploy: lần duyệt kế tiếp (llmGate) sẽ ghi đè dòng cũ; nếu unreachable
+thì giờ sẽ hiển thị (90s) theo timeout 90s đang cấu hình, tối đa 180s.

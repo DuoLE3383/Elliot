@@ -1,0 +1,7 @@
+0.2.42 — DỌN FILE CHẾT OpenPositionStrip 🧹
+
+0.2.41 dời lệnh auto đang mở vào hàng KPI nhưng còn sót
+src/components/open-position-strip.tsx — không còn ai import (dead code, ~131
+dòng). Xoá bỏ; không đổi logic nào khác. Build sạch, đã smoke-test cả 2 trạng
+thái (có/không lệnh mở: ô auto hiện đúng 2 ô cuối hàng KPI, đóng lệnh →
+Closed PnL + Reversal trades quay lại).

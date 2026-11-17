@@ -1,0 +1,80 @@
+{
+  "cfg": {
+    "on": false,
+    "capital": 1000,
+    "riskPct": 25,
+    "tpMode": "atr",
+    "slPct": 1,
+    "tpPct": 1.5,
+    "atrCoef": 1.5,
+    "cycleMin": 5,
+    "runTf": [
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "4h",
+      "1d",
+      "1w"
+    ],
+    "minAuc": 0.8,
+    "minAcc": 70,
+    "minScore": 60,
+    "cooldownMin": 30,
+    "dcaMax": 1,
+    "statHourly": true,
+    "statDaily": true,
+    "llmUrl": "http://127.0.0.8:8888",
+    "llmModel": "local",
+    "llmTimeoutSec": 90,
+    "llmFailClosed": false,
+    "whaleFilter": true,
+    "broadcast": true,
+    "autoFlip": true,
+    "floorAuto": true,
+    "runnerOn": true,
+    "runnerSharePct": 50,
+    "runnerTpMult": 2,
+    "runnerTrailLock": 0.5,
+    "slConfirmTicks": 2
+  },
+  "settings": {
+    "slPct": 2.1,
+    "tpPct": 3,
+    "atrKey": 3,
+    "atrPeriod": 10,
+    "smaPeriod": 200,
+    "leverage": 1,
+    "smaFilter": false,
+    "utOn": true
+  },
+  "pairs": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "SOLUSDT",
+    "TRXUSDT",
+    "ZECUSDT",
+    "DOGEUSDT",
+    "XMRUSDT",
+    "ADAUSDT",
+    "BCHUSDT"
+  ],
+  "leverage": 1,
+  "syncedAt": 1794939954110,
+  "nextCycleAt": 0,
+  "warned": {
+    "id": "",
+    "tp": false,
+    "sl": false
+  },
+  "dca": {
+    "id": "",
+    "count": 0,
+    "stake0": 0,
+    "prices": []
+  },
+  "llmLast": null
+}

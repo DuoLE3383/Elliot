@@ -1,0 +1,80 @@
+0.2.30 — CHAMPION TRỞ LẠI + LLM ĐỌC ĐƯỢC CHAMPION + LẬT CHIỀU TỰ ĐỘNG 🔄
+
+Vấn đề user báo (01/11): "mất phần champion rồi? và llm không đọc được dữ
+liệu từ champion?" + "thị trường luôn biến động cho nên dự báo chỉ là dự
+báo; nên linh hoạt vì 5m scan/lần — scan thấy tín hiệu thay đổi đủ tin cậy
+để lật là lập tức lật ngay".
+
+═══ 1. SỐT: trang /ai mất card Champion — lỗi chèn promise ở 0.2.28 ═══
+
+0.2.28 chèn 2 promise autopsy (count + rows) vào GIỮA mảng Promise.all của
+/api/ai-info — trước query champion — nhưng quên đẩy `champRows` xuống cuối
+trong lệnh destructure. Kết quả lệch pha:
+  • champRows  ← nhận nhánh count autopsy (một SỐ, trên VPS là 0 vì chưa có
+    autopsy nào) → `champions: 0` → điều kiện `champions.length > 0` sai →
+    card "Champion per pair × timeframe" BIẾN MẤT (ảnh user: sau card Trade
+    autopsy nhảy thẳng tới LLM Risk Officer).
+  • autopsyCount ← nhận mảng autopsy rows; autopsyRows ← nhận mảng champion
+    → `autopsies.n` là MẢNG rỗng (rỗng > 0 = false) → card autopsy cũng dính
+    "No autopsies yet" kể cả khi có bài giải phẫu thật.
+Cách sửa: destructure lại đúng thứ tự `[runsRaw, tradesRaw, pheRaw, llm,
+autopsyCount, autopsyRows, champRows]` + comment cảnh báo ⚠️ tại chỗ để
+không ai lệch pha lần nữa. Đã kiểm chứng query champion (distinct theo
+symbol×interval, xếp AUC giảm dần) trả đủ 38+ champion với 2000 run mô phỏng.
+
+═══ 2. LLM ĐỌC ĐƯỢC DỮ LIỆU CHAMPION (champ_check) ═══
+
+LlmSetup thêm champAuc/champAcc (best-ever val của cặp symbol×interval qua
+TOÀN BỘ lịch sử train). setupPrompt thêm dòng champ_check vào khối checks
+(pre-computed, ground truth):
+  • model bằng/cao hơn đỉnh → "AT or ABOVE champion — regression gate passed"
+  • tụt ≤0.02 → "within regression tolerance"
+  • tụt >0.02 → "REGRESSED vs champion — engine would skip this combo"
+Không có lịch sử champion → không thêm dòng (prompt không thêm noise).
+engine.llmGate (mới tách) gửi champAuc/champAcc của scan row — luồng vào
+lệnh và luồng flip dùng chung; nút "Duyệt thử" (llmTestSetup) cũng thấy y
+hệt. Giờ Risk Officer phán biết model đang đứng GẦN hay XA đỉnh tốt nhất
+từng đạt của cặp đó, chứ không chỉ nhìn AUC run hiện tại một mình.
+
+Tách hàm llmGate() từ khối LLM giữa cycleTick — một nơi duy nhất nạp autopsy
+lessons + gọi llama + ghi llmLast + gửi tin veto, dùng chung cho entry và
+flip (hết trùng code, hết lo hai luồng lệch hành vi).
+
+═══ 3. LẬT CHIỀU TỰ ĐỘNG (auto-flip) 🔄 ═══
+
+Trước giờ: engine giữ lệnh đến TP/SL kể cả khi model đã đảo chiều (badge
+"model đã lật chiều" chỉ để user nhìn). Giờ: trong chu kỳ quét (5 phút/lần),
+nếu lệnh đang mở mà scan mới của CÙNG cặp/khung báo chiều NGƯỢC đủ tin cậy,
+engine ĐÓNG lệnh cũ (exitKind mới "flip") và MỞ lệnh ngược chiều ngay trong
+chu kỳ đó — không ôm chiều cũ đợi SL.
+
+Bộ loại "đủ tin cậy" (flipDecision — hàm thuần, test chạy thẳng):
+  • scan FRESH (≤30 phút) có combo đang mở và bias NGƯỢC phía lệnh
+    (NEUTRAL = model bỏ cuộc → không lật theo nhiễu)
+  • cùng SÀN CHẤT LƯỢNG với vào lệnh: Điểm/AUC/ACC ≥ sàn chung (isTradeable)
+  • KHÔNG regressed vs champion (lật phải do tín hiệu thật, không phải model hỏng)
+  • ngoài dải nhiễu |P−0.5| ≥ NOISE_BAND (dứt khoát, không coin-flip)
+  • whale filter bật → nến khối lượng ≥4σ chặn (không lật vào bẫy wick)
+  • prob luôn là P(giá đi lên): SHORT prob=0.265 = 73.5% tin giảm = MẠNH —
+    đã test chặn đúng bẫy hiểu ngược.
+Khi có tín hiệu ngược chiều nhưng chưa đạt sàn → status line hiện rõ lý do
+chờ ("flip chờ: …") thay vì im lặng.
+
+tryFlip thực hiện: đóng cũ (autopsy tự chạy fire-and-forget, không rơi vào
+SL-cooldown/chase guard — flip là luận điểm MỚI) → đo lại SL/TP ATR tại giá
+lật → Risk Officer duyệt lệnh đảo chiều (y hệt luồng vào lệnh: track record
++ bài học autopsy + champion + veto Telegram) → mở lệnh mới cùng combo
+(race-safe như entry thường, ghi llmVerdict/llmReason vào lệnh).
+
+Knob "🔄 Lật chiều tự động" trên Auto panel (bật MẶC ĐỊNH — off = giữ lệnh
+tới TP/SL như cũ). Tin Telegram: tag close "LẬT CHIỀU 🔄" + tin mở lệnh mới
+ghi chú "đo lúc LẬT CHIỀU". Badge lịch sử lệnh hiển thị 🔄 cho lệnh đóng do
+flip. DCA không xung đột: model flipped thì dcaRescue vốn đã tự từ chối.
+
+═══ Kiểm thử ═══
+scripts/test-autoflip.mts — 31/31 PASS: flipDecision đủ/từ chối (7 lý do),
+champ_check 3 mức + không noise khi chưa có champion, các checks cũ nguyên
+vẹn, wire-up PATCH/Telegram/badge/knob/engine/ai-info. Test cũ
+test-llm-factcheck.mts vẫn PASS. `npx tsc --noEmit` sạch. `npm run build` OK.
+
+Deploy: cd ~/Elliot && git pull && npm run build && pm2 restart elliott --update-env && pm2 flush

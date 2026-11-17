@@ -1,0 +1,63 @@
+0.2.58 — mở setting chỉnh ngay panel /ai · Virtual position · tiếng Anh ngôn ngữ chính · leverage ×10
+
+BỐN YÊU CẦU TRONG PHIÊN NÀY — giải pháp:
+
+1) "HÃY MỞ SETTING Ở PANEL" (trang Cài đặt hệ thống vốn read-only)
+   - Cơ chế override runtime MỚI: src/lib/params-store.ts (server-only) +
+     GET/POST /api/params. Giá trị chỉnh lưu db/params-override.json (DATA_DIR),
+     hydrateParams() nạp vào globalThis lúc boot + mỗi lần lưu.
+   - pval(key, def) trong params.ts đọc globalThis — KHÔNG fs → dùng được cả
+     trong file client graph (bài học 0.2.55/0.2.56). Client luôn thấy mặc định;
+     engine (server) dùng giá trị override từ tick kế tiếp, không cần pm2 restart.
+   - Điểm tiêu thụ đã chuyển sang pval(): bcast-gate (BCAST_*, PRESSURE_*),
+     scan-broadcast (VOL/TOP_N/digest), xgb (MAX_DIFFICULTY, LESSON_WEIGHT,
+     CALIBRATE), autotrade (NOISE_BAND, PROB_CAP, SIBLING_DISCOUNT, CONF_W,
+     REGRESS_EPS), engine (NOISE_BAND/AUTOPSY_ON/SCAN_DIGEST_EVERY_MS),
+     stats (UNIVERSE_SCAN_MS/LESSON_WEIGHT/NOISE_BAND), autopsy (AUTOPSY_ON,
+     LLM_TIMEOUT_MS).
+   - UI: thẻ "System parameters" trên /ai giờ có ô nhập ngay tại hàng (badge
+     "edited" + nút reset về mặc định). 20 tham số chỉnh được; hàng khóa là
+     hằng cấu trúc (đổi qua repo → build → deploy). LLM_FAIL_CLOSED KHÔNG đưa
+     vào vì nó là config chết — fail-closed thật nằm ở cfg.llmFailClosed (Auto
+     panel đã có). Clamp biên min/max tính theo đơn vị hiển thị (test kèm).
+
+2) "MÂU THUẪN HÌNH 1" — VIRTUAL POSITION
+   - "Paper position" → "Virtual position (simulated)" (VI: "Vị trí ảo") ở dock
+     và KPI strip; "kpi.open" chip → "Virtual".
+   - Tiêu đề tô TÍM (violet) + viền tím cho khối Virtual — nhãn KPI Tím, thẻ
+     Auto giữ xanh lá: nhìn phát hiện ngay là hai bộ giả lập ĐỘC LẬP.
+   - Banner mâu thuẫn viết lại: "Virtual {paper} vs Auto {auto} on the same
+     pair — two independent simulators, NOT a bug" (VI: "hai bộ giả lập độc
+     lập, KHÔNG phải lỗi") — hết cảm giác dữ liệu lỗi.
+
+3) "TOÀN BỘ ỨNG DỤNG DÙNG TIẾNG ANH LÀM NGÔN NGỮ CHÍNH"
+   - 3 trang (chính /ai /stats) BOOT EN mỗi lần mở — không còn khôi phục VI từ
+     localStorage; nút VI/EN vẫn đổi được trong phiên. tg-connect-link cũng mặc
+     định EN.
+   - Dịch hết chuỗi runtime còn tiếng Việt: digest giờ/ngày ("Lệnh đã chạy" →
+     "Trades executed · newest first", "Đang giữ" → "Holding", "Combo tốt nhất"
+     → "Best combo"), tin broadcast TOP coin, tin QUÉT LỆNH 8h, tin phiên
+     (SẮP MỞ PHIÊN → SESSION OPENS SOON), lý do gate (tiếng Việt ngắn → English
+     short), train summary FULL TRAIN COMPLETE, tự động LẬT CHIỀU flip reasons,
+     ATR note, fact-check LLM, TRADE AUTOPSY WIN/LOSS. Comment code giữ tiếng
+     Việt (không thuộc UI).
+
+4) LEVERAGE ×10 (câu hỏi "0.5% vs 0.7% được tính trên x20??")
+   - GIẢI THÍCH: SL −0.5% / TP +0.7% là KHOẢNG CÁCH GIÁ, không phụ thuộc đòn
+     bẩy. ROE = %giá × đòn bẩy: ×20 → ROE −10%/+14%; ×10 → ROE −5%/+7% với
+     cùng mức SL/TP giá. Muốn "đòn nhẹ" chỉ cần đổi leverage.
+   - Làm được NGAY trong Auto panel: hàng "Leverage" mới cạnh "% vốn/lệnh" —
+     chip ×5 / ×10 / ×20 + ô nhập 1..125. Đổi giá trị sync lên engine ngay
+     (cùng đường với settings-dialog); tin Telegram mở lệnh sẽ hiện
+     "(ROE -5.0% @ ×10)". Tooltip ghi rõ công thức.
+
+KIỂM CHỨNG
+- npm run build qua (Turbopack, /api/params xuất hiện trong route list).
+- scripts/test-params-02-58.mts — 20/20 pass: pval fallback, set/reset/clamp
+  override theo đơn vị hiển thị, catalog 6 nhóm, statLines tiếng Anh có
+  Holding/Best combo/Trades executed. db/params-override.json trả về {}.
+
+DEPLOY (như thường lệ)
+  cd ~/Elliot && git pull && npm run build && pm2 restart elliott --update-env && pm2 flush
+- Chỉnh tham số trên /ai KHÔNG cần deploy nữa; đổi leverage trên Auto panel
+  có hiệu lực lệnh kế tiếp.

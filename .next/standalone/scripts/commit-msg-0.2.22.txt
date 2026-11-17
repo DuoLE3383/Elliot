@@ -1,0 +1,44 @@
+0.2.22 — nhận bí danh LLAMA_SERVER_URL + chặn ping "Connected" giả, chuẩn bị nối llama Windows từ VPS
+
+Bối cảnh: user đặt trong .env của VPS dòng
+  LLAMA_SERVER_URL=http://172.31.144.1:8888
+Hai vấn đề lộ ra:
+  1) App đọc LLM_URL/LLM_MODEL — LLAMA_SERVER_URL là tên APP KHÔNG ĐỌC, nên
+     engine vẫn gọi default 127.0.0.8:8888 bất kể .env.
+  2) 172.31.144.1 là IP ảo vEthernet (WSL/Hyper-V) TRÊN CHÍNH MÁY Windows —
+     chỉ nối được từ trong máy; VPS không có route tới mạng riêng đó. Phần
+     mạng phải đi qua tunnel (xem hướng dẫn trong hội thoại), phần tên biến
+     thì code nên đỡ lỗi cho người dùng → bản này làm 2 việc:
+
+- llmEnvEndpoint() (src/lib/llm.ts): MỘT helper đọc env cho mọi đường gọi
+  llama — LLM_URL/LLM_MODEL là tên chuẩn, LLAMA_SERVER_URL/LLAMA_SERVER_MODEL
+  là bí danh được chấp nhận (ưu tiên LLM_URL khi cả hai cùng đặt). Trước đây
+  3 chỗ tự đọc env kiểu riêng nhau: route review regex trực tiếp, route test
+  resolveEndpoint riêng, badge /ai thậm chí CHỈ nhìn cfg.llmUrl (đổi env xong
+  badge vẫn ping URL cũ).
+- /api/llm/review: ATTEMPT_TIMEOUT_MS 10s → LLM_TIMEOUT_MS (90s). Lý do cũ
+  "đỡ stall đường vào lệnh" không còn đúng: engine gọi llmReview TRỰC TIẾP
+  (90s), route này chỉ phục vụ llmReviewViaApi (browser chờ 95s) — server buông
+  10s trong khi browser chờ 95s là lệch pha; giờ hai bên cùng nhịp.
+- pingLlm (/api/ai-info): KHÔNG còn dừng ở /health — app nào cũng có /health
+  (app Tarot từng chiếm cổng 8888 trên VPS với /health 200 → badge "Connected"
+  giả). Giờ phải QUA thêm GET /v1/models (chỉ máy tương thích OpenAI có, không
+  tốn GPU) + gửi Authorization: Bearer khi LLM_API_KEY được set (llama-server
+  --api-key đòi key ở /v1/models; /health thì miễn). Timeout 1.5s → 2.5s/3.5s
+  vì qua Cloudflare Tunnel RTT lớn hơn localhost.
+- /api/ai-info: URL badge lấy theo thứ tự env → cfg → default (đồng bộ 2 route).
+- /api/llm/test: resolveEndpoint dùng chung llmEnvEndpoint() — bí danh ăn cả
+  trên nút test.
+- pingLlm + test route gửi Bearer qua llmApiKey() (export mới từ llm.ts).
+
+Test: scripts/test-llm-env-alias.mts (bí danh ăn khi thiếu LLM_URL, LLM_URL
+thắng khi có cả hai, trim, LLM_API_KEY) → PASS; test-llm-apikey.mts (Bearer
+header có/không key) → PASS; test-llm-404-body.mts, test-llm-debug-ok.mts
+→ PASS. npm run build sạch, tsc 0 lỗi.
+
+LƯU Ý CHO USER (phần mạng, không nằm trong code): 172.31.144.1 từ VPS là bất
+truy cập — phải expose llama Windows qua Cloudflare Tunnel (domain
+huyenbao.com đã trên Cloudflare, làm 1 lần ~5 phút) hoặc Tailscale, rồi .env
+VPS đặt LLM_URL=https://<tunnel-host> + LLM_API_KEY=<khớp --api-key> và
+`pm2 restart elliott --update-env`. Nút "Duyệt thử" trên /ai là test nhanh
+nhất (lần đầu chờ 30-90s vì Qwen 7B chạy -ngl 20).
