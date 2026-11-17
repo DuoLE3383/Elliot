@@ -67,7 +67,13 @@ export async function POST() {
   let setupSource = "setup GIẢ mẫu mid-strength (engine chưa có scan để lấy setup thật)";
   try {
     const snap = engineSnapshot();
-    const picked = llmTestSetup(snap.scan?.rows ?? [], snap.cfg, snap.leverage);
+    // 0.3.2 — duyệt thử với sàn HIỆU LỰC (DQF tự học đè cfg khi bật): cùng bộ
+    // lọc engine thật dùng, không còn "preview bằng sàn khác engine"
+    const fl = snap.floors;
+    const cfgEff = fl
+      ? { ...snap.cfg, minScore: fl.minScore, minAuc: fl.minAuc, minAcc: fl.minAcc }
+      : snap.cfg;
+    const picked = llmTestSetup(snap.scan?.rows ?? [], cfgEff, snap.leverage);
     if (picked) {
       setup = picked.setup;
       setupSource = picked.source;

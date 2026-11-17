@@ -29,6 +29,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
 import { db } from "./db";
 import { dataFile } from "./data-dir";
+import { dqfTick, dqfEffectiveSync } from "./dqf";
 import {
   AUTO_DEFAULTS,
   bestTradeableAvoid,
@@ -1318,6 +1319,15 @@ async function cycleTick(): Promise<void> {
   try {
     const st = await readAutoState();
 
+    // 0.3.2 — DQF: sàn chất lượng ĐỘNG học từ toàn bộ Elliott session (bảng
+    // AutoTrade, mỗi lệnh có auc/acc/score lúc vào). Một lần đo/quyết mỗi chu kỳ
+    // — cả flip lẫn vào-lệnh bên dưới đều dùng sàn HIỆU LỰC này (override lớp
+    // ngoài cfg panel; tắt/đủ mẫu thì passthrough cfg — xem src/lib/dqf.ts).
+    const fl = await dqfTick(c);
+    if (fl.src === "dqf" && (fl.minScore !== c.minScore || fl.minAuc !== c.minAuc || fl.minAcc !== c.minAcc)) {
+      console.log(`[engine] sàn động DQF hiệu lực: Score ${c.minScore}→${fl.minScore} · AUC ${c.minAuc.toFixed(2)}→${fl.minAuc.toFixed(2)} · ACC ${c.minAcc}→${fl.minAcc}`);
+    }
+
     // 1) manage the open position against the live price
     if (st.open) {
       const open = st.open;
@@ -1365,7 +1375,7 @@ async function cycleTick(): Promise<void> {
           v.lastCycleStatus = `${base} · flip chờ ${flipCd}ph (cooldown)`;
           return;
         }
-        const d = flipDecision(open, row, c);
+        const d = flipDecision(open, row, { ...c, minScore: fl.minScore, minAuc: fl.minAuc, minAcc: fl.minAcc });
         if (d.ok && row) {
           // tryFlip tự ghi status mọi nhánh (lật xong / LLM chặn / lỗi) —
           // trả xong là chu kỳ này xong, lệnh mới sống độc lập từ chu kỳ sau
@@ -1398,13 +1408,13 @@ async function cycleTick(): Promise<void> {
     }
     const { allInCooldown, cands, regressedCount, blocked } = bestTradeableAvoid(
       rows,
-      c.minAuc,
-      c.minAcc,
+      fl.minAuc,
+      fl.minAcc,
       st.trades,
       c.cooldownMin,
       c.whaleFilter,
       pval("NOISE_BAND", NOISE_BAND),
-      c.minScore,
+      fl.minScore,
       p.leverage, // EV gate (0.2.89) — dùng đòn bẩy thật của lệnh kế
     );
     // walk the ranked candidates: regressed/cooldown-blocked combos are skipped,
@@ -2058,6 +2068,9 @@ export function engineSnapshot(): {
   train: TrainSnapshot;
   bcast: BcastSnapshot;
   cycle: { lastAt: number; status: string; nextAt: number };
+  /** 0.3.2 — sàn chất lượng HIỆU LỰC chu kỳ gần nhất (DQF tự học hoặc cfg panel
+   *  khi tắt/chưa đủ mẫu) — panel/tooltip dùng đúng số engine đang lọc */
+  floors: { minScore: number; minAuc: number; minAcc: number; src: "dqf" | "cfg"; why: string; on: boolean };
   /** trailing-stop state của vị thế đang mở — kèm bộ thông số đã khoá cho lệnh
    *  (act/dist/atrPct/lev/src — 0.2.63): panel hiện đúng số engine đang dùng
    *  thay vì tự tính từ cfg chung. */
@@ -2086,6 +2099,7 @@ export function engineSnapshot(): {
     train: trainCache ?? { at: 0, total: 0, latest: [] },
     bcast: bcastCache ?? { at: 0, pass: 0, total: 0, cooldown: 0, rows: [] },
     cycle: { lastAt: v.lastCycleAt, status: v.lastCycleStatus, nextAt: p.nextCycleAt },
+    floors: dqfEffectiveSync(p.cfg),
     trail:
       p.trail.id && p.trail.peak > 0
         ? { id: p.trail.id, peak: p.trail.peak, act: p.trail.act, dist: p.trail.dist, atrPct: p.trail.atrPct, lev: p.trail.lev, src: p.trail.src }

@@ -113,6 +113,8 @@ interface EngineSnap {
   train: { at: number; total: number; latest: EngineSnapTrainRun[] } | null;
   bcast: { at: number; pass: number; total: number; cooldown: number; rows: EngineSnapBcastRow[] } | null;
   cycle: { lastAt: number; status: string; nextAt: number };
+  /** 0.3.2 — sàn hiệu lực của engine (DQF tự học hoặc cfg panel) */
+  floors?: { minScore: number; minAuc: number; minAcc: number; src: "dqf" | "cfg"; why: string; on: boolean };
   /** trailing-stop state của vị thế đang mở — kèm bộ thông số engine đã khoá
    *  cho lệnh đó (act/dist/atrPct/lev/src — 0.2.63): panel dùng đúng số này. */
   trail: { id: string; peak: number; act: number; dist: number; atrPct: number; lev: number; src: "atr" | "cfg" } | null;
@@ -189,6 +191,10 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   const [tgChatSrc, setTgChatSrc] = useState<"env" | null>(null); // where the channel id came from
   const [status, setStatus] = useState<string>("");
   const [countdown, setCountdown] = useState<number | null>(null);
+  // 0.3.2 — sàn chất lượng HIỆU LỰC của engine (DQF tự học / cfg passthrough):
+  // bảng scan + tooltip funnel tô màu theo ĐÚNG sàn engine đang lọc, không phải
+  // cfg panel mà user có thể đã sửa tay.
+  const [effFloors, setEffFloors] = useState<{ minScore: number; minAuc: number; minAcc: number; src: "dqf" | "cfg" } | null>(null);
   const [llmLast, setLlmLast] = useState<LlmLast | null>(null);
   const [engineTrail, setEngineTrail] = useState<EngineSnap["trail"]>(null);
   const [engineInfo, setEngineInfo] = useState<{ pool: number; bundled: boolean } | null>(null);
@@ -342,6 +348,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
         setLiveState(snap.live ?? null);
         setWyStatus(snap.wyckoff ?? null);
         setStatus(snap.cycle?.status ?? "");
+        setEffFloors(snap.floors ? { minScore: snap.floors.minScore, minAuc: snap.floors.minAuc, minAcc: snap.floors.minAcc, src: snap.floors.src } : null);
         setCountdown(
           snap.cfg?.on && snap.cycle?.nextAt > 0 ? Math.max(0, Math.round((snap.cycle.nextAt - Date.now()) / 1000)) : null,
         );
@@ -473,6 +480,10 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   const capitalNow = auto?.capital ?? cfg.capital;
   const open = auto?.open ?? null;
   const best = rows.length > 0 ? rows[0] : null;
+  // 0.3.2 — sàn HIỆU LỰC engine đang lọc (DQF tự học hoặc passthrough cfg panel):
+  // bảng scan + tooltip funnel tô theo ef; các ô nhập ở panel vẫn là cfg (kênh
+  // chỉnh tay — DQF đè khi bật và đủ mẫu, xem /stats trạm "Sàn chất lượng động").
+  const ef = effFloors ?? { minScore: cfg.minScore, minAuc: cfg.minAuc, minAcc: cfg.minAcc, src: "cfg" as const };
   // model đã LẬT CHIỀU trên cùng combo đang mở? (best pick ngược phía lệnh)
   // — từ 0.2.30 engine TỰ LẬT khi chế độ 🔄 Lật chiều bật (flipDecision +
   // tryFlip trong chu kỳ kế tiếp); khi chế độ tắt, DCA cũng tự tắt khi model
@@ -495,9 +506,9 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
     const why: string[] = [];
     const sc = t(lang, "auto.col.score");
     if (r.bias === "NEUTRAL") why.push("NEUTRAL");
-    if (r.auc < cfg.minAuc) why.push(`AUC ${r.auc.toFixed(2)}<${cfg.minAuc.toFixed(2)}`);
-    if (r.acc < cfg.minAcc) why.push(`ACC ${r.acc.toFixed(0)}%<${cfg.minAcc.toFixed(0)}%`);
-    if (cfg.minScore > 0 && r.score < cfg.minScore) why.push(`${sc} ${r.score.toFixed(1)}<${cfg.minScore}`);
+    if (r.auc < ef.minAuc) why.push(`AUC ${r.auc.toFixed(2)}<${ef.minAuc.toFixed(2)}`);
+    if (r.acc < ef.minAcc) why.push(`ACC ${r.acc.toFixed(0)}%<${ef.minAcc.toFixed(0)}%`);
+    if (ef.minScore > 0 && r.score < ef.minScore) why.push(`${sc} ${r.score.toFixed(1)}<${ef.minScore}`);
     if (r.regressed) why.push(`regress<${(r.champAuc ?? 0).toFixed(2)}`);
     if (r.whale?.tag === "whale") why.push(`whale ${(r.whale.volZ ?? 0).toFixed(1)}σ`);
     if (Math.abs(r.prob - 0.5) < NOISE_BAND) why.push(`band ${Math.abs(r.prob - 0.5).toFixed(2)}<${NOISE_BAND}`);
@@ -1010,7 +1021,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
             type="button"
             onClick={() => updateCfg({ autoFlip: !cfg.autoFlip })}
             aria-pressed={cfg.autoFlip}
-            title={t(lang, "auto.flip.tip", { s: cfg.minScore, a: cfg.minAuc, c: cfg.minAcc })}
+            title={t(lang, "auto.flip.tip", { s: Math.round(ef.minScore), a: ef.minAuc.toFixed(2), c: Math.round(ef.minAcc) })}
             className={`h-7 rounded-md border px-2 text-[11px] ${
               cfg.autoFlip
                 ? "border-amber-700 bg-amber-950/40 text-amber-300"
@@ -1151,7 +1162,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                 <span className="text-right">{t(lang, "auto.col.score")}</span>
               </div>
               {rows.slice(0, TOP_N).map((r, i) => {
-                const tradeable = r.bias !== "NEUTRAL" && r.auc >= cfg.minAuc && r.acc >= cfg.minAcc && (cfg.minScore <= 0 || r.score >= cfg.minScore);
+                const tradeable = r.bias !== "NEUTRAL" && r.auc >= ef.minAuc && r.acc >= ef.minAcc && (ef.minScore <= 0 || r.score >= ef.minScore);
                 const why = blockedWhy(r);
                 return (
                   <button
@@ -1185,14 +1196,24 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                     <span className="text-right text-zinc-300" title={r.bias === "SHORT" ? t(lang, "auto.col.prob.tip") : undefined}>
                       {(probShown(r) * 100).toFixed(1)}%
                     </span>
-                    <span className={`text-right ${r.auc >= cfg.minAuc ? "text-emerald-400" : "text-zinc-500"}`}>{r.auc.toFixed(2)}</span>
-                    <span className={`text-right ${r.acc >= cfg.minAcc ? "text-emerald-400" : "text-zinc-500"}`}>{r.acc.toFixed(0)}%</span>
+                    <span className={`text-right ${r.auc >= ef.minAuc ? "text-emerald-400" : "text-zinc-500"}`}>{r.auc.toFixed(2)}</span>
+                    <span className={`text-right ${r.acc >= ef.minAcc ? "text-emerald-400" : "text-zinc-500"}`}>{r.acc.toFixed(0)}%</span>
                     <span className={`text-right font-bold ${tradeable && !r.regressed ? "text-teal-300" : "text-zinc-600"}`}>{r.score.toFixed(1)}</span>
                   </button>
                 );
               })}
             </div>
             <p className="text-[10px] leading-snug text-zinc-600">{t(lang, "auto.rank.hint")}</p>
+            {/* 0.3.2 — sàn HIỆU LỰC engine đang lọc: DQF tự học thì hiện rõ để
+                user thấy bảng đổi màu theo sàn động, không nhầm với cfg panel */}
+            {ef.src === "dqf" && (
+              <p
+                className="mt-0.5 text-[10px] font-medium text-teal-400"
+                title={t(lang, "auto.dqf.floors.tip")}
+              >
+                {t(lang, "auto.dqf.floors", { s: Math.round(ef.minScore), a: ef.minAuc.toFixed(2), c: Math.round(ef.minAcc) })}
+              </p>
+            )}
           </div>
         ) : (
           !scanning && <p className="text-[11px] text-zinc-600">{t(lang, "auto.scan.empty")}</p>
@@ -1227,7 +1248,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                     </span>
                   )}
                   <span className="ml-auto shrink-0 text-zinc-400">AUC {r.auc.toFixed(2)}</span>
-                  <span className={`shrink-0 ${r.acc >= cfg.minAcc ? "text-emerald-400" : "text-zinc-500"}`}>{r.acc.toFixed(0)}%</span>
+                  <span className={`shrink-0 ${r.acc >= ef.minAcc ? "text-emerald-400" : "text-zinc-500"}`}>{r.acc.toFixed(0)}%</span>
                 </button>
               ))}
             </div>

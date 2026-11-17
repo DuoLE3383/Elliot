@@ -35,6 +35,7 @@ import { StrategyLab } from "@/components/strategy-lab";
 import { SuggestionHistory } from "@/components/suggestions";
 import { PipeMap, type PipeNodeDef } from "@/components/pipe-map";
 import { Stage } from "@/components/stage-panel";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtPct, t, type Lang } from "@/lib/i18n";
 import type { VariantRow } from "@/lib/history";
@@ -70,6 +71,8 @@ interface StatSection {
 }
 interface StatsSnapshot {
   at: number;
+  /** 0.3.2 — công tắc DQF (sàn chất lượng động) */
+  dqfOn?: boolean;
   sections: StatSection[];
 }
 
@@ -168,6 +171,34 @@ export default function StatsPage() {
   /** 0.2.85 — trạm đang mở (accordion) + trạm đang phát vòng sáng */
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [flash, setFlash] = useState<string | null>(null);
+  /** 0.3.2 — công tắc DQF (sàn chất lượng động học từ toàn bộ Elliott session) */
+  const [dqfOn, setDqfOn] = useState<boolean>(true);
+  const [dqfBusy, setDqfBusy] = useState(false);
+
+  // đồng bộ công tắc DQF từ snapshot (nguồn thật = file server)
+  useEffect(() => {
+    if (typeof snap?.dqfOn === "boolean") setDqfOn(snap.dqfOn);
+  }, [snap?.dqfOn]);
+
+  const toggleDqf = useCallback(
+    async (on: boolean) => {
+      setDqfBusy(true);
+      setDqfOn(on); // optimistic — snapshot kế sẽ xác nhận lại
+      try {
+        const res = await fetch("/api/dqf", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ on }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      } catch {
+        setDqfOn(!on); // lỗi → rollback, giữ nguyên giá trị cũ
+      } finally {
+        setDqfBusy(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     // English is the app's main language (0.2.58): boot EN every visit — the
@@ -331,6 +362,7 @@ export default function StatsPage() {
     { id: "st-combo", label: t(lang, "stats.node.gate.t"), sub: t(lang, "stats.node.gate.sub"), tone: "amber", active: loading },
     { id: "st-dock", label: t(lang, "stats.node.dock.t"), sub: t(lang, "stats.node.dock.sub"), tone: "violet", active: loading },
     { id: "st-auto", label: t(lang, "stats.node.auto.t"), sub: t(lang, "stats.node.auto.sub"), tone: "emerald", active: loading },
+    { id: "st-dqf", label: t(lang, "stats.node.dqf.t"), sub: t(lang, "stats.node.dqf.sub"), tone: "teal", active: loading },
     { id: "st-open", label: t(lang, "stats.node.open.t"), sub: t(lang, "stats.node.open.sub"), tone: "rose", active: loading },
     { id: "st-hist", label: t(lang, "stats.node.hist.t"), sub: t(lang, "stats.node.hist.sub"), tone: "orange", active: loading },
     { id: "st-journal", label: t(lang, "stats.node.journal.t"), sub: t(lang, "stats.node.journal.sub"), tone: "fuchsia", active: clientBusy },
@@ -573,6 +605,33 @@ export default function StatsPage() {
               aside={stageAside(byKey.auto)}
             >
               {secBody("auto")}
+            </Stage>
+
+            {/* 0.3.2 — DQF: sàn chất lượng động học từ toàn bộ Elliott session */}
+            <Stage
+              id="st-dqf"
+              tone="teal"
+              title={t(lang, "stats.section.dqf")}
+              note={t(lang, "stats.ch3.note")}
+              active={loading}
+              open={!!open["st-dqf"]}
+              flashing={flash === "st-dqf"}
+              onToggle={() => toggleStage("st-dqf")}
+              aside={stageAside(byKey.dqf)}
+            >
+              <div className="mb-2.5 flex items-center justify-between gap-3 rounded-md border border-zinc-800 bg-zinc-950/40 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-zinc-200">{t(lang, "stats.dqf.toggle")}</p>
+                  <p className="text-[10px] leading-snug text-zinc-500">{t(lang, "stats.dqf.toggle.sub")}</p>
+                </div>
+                <Switch
+                  checked={dqfOn}
+                  disabled={dqfBusy}
+                  onCheckedChange={(v) => void toggleDqf(v)}
+                  aria-label={t(lang, "stats.dqf.toggle")}
+                />
+              </div>
+              {secBody("dqf")}
             </Stage>
 
             <Stage
