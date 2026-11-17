@@ -77,14 +77,16 @@ import { buildTopCoinsMessage, buildScanTop10Message, loadBcastState, saveBcastS
 import { loadScanState, saveScanState } from "./scan-state";
 import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store";
 import { pushAutoDigests } from "./autodigest";
-import { msgClose, msgDca, msgLlmVeto, msgNear, msgOpen } from "./tg-msgs";
+import { msgClose, msgDca, msgFloor, msgLlmVeto, msgNear, msgOpen, msgTp1 } from "./tg-msgs";
 import { enqueueJob, jobViews } from "./engine-jobs";
 import { directionalPnl, outcomeOf } from "./history";
 import {
   AUTOPSY_BACKFILL_MS,
   AUTOPSY_ON,
+  FLOOR_EVERY_MS,
   LLM_FAIL_CLOSED,
   LLM_TIMEOUT_MS,
+  NEAR_FRAC,
   NOISE_BAND,
   SCAN_DIGEST_EVERY_MS,
   SCAN_DIGEST_OFFSET_MS,
@@ -96,6 +98,18 @@ import {
 } from "./params";
 import { hydrateParams } from "./params-store";
 import { type TradeLesson, type XgbResult } from "./xgb";
+import { recentFloorLogs, runFloorRound, type Floors } from "./dynamic-floor";
+import {
+  SL_DEEP_FRAC,
+  TRAIL_KIND,
+  combineClosePnl,
+  movePct1x,
+  slConfirmStep,
+  trailHit,
+  trailRatchet,
+  tp1Plan,
+  type SlPending,
+} from "./trade-mgmt";
 
 // ─── engine state (global + persisted) ───────────────────────────────────────
 
@@ -113,6 +127,9 @@ interface EnginePersisted {
    *  notional-weighted average entry; survives restarts via engine.json */
   dca: { id: string; count: number; stake0: number; prices: number[] };
   llmLast: { symbol: string; interval: string; side: string; verdict: string; reason: string; ms: number; at: number } | null;
+  /** 0.3.2 — SL confirm: lần đo đầu thấy giá vượt SL (đợi nhịp kế tiếp xác nhận
+   *  để wick một nhịp không quét sạch stop); null = không có gì đang chờ */
+  slPending: SlPending | null;
 }
 
 interface EngineVolatile {
@@ -146,6 +163,7 @@ function defaults(): { p: EnginePersisted; v: EngineVolatile } {
       warned: { id: "", tp: false, sl: false },
       dca: { id: "", count: 0, stake0: 0, prices: [] },
       llmLast: null,
+      slPending: null,
     },
     v: {
       scan: null,
@@ -191,6 +209,10 @@ function loadEngine(): void {
         };
       }
       if (raw.llmLast) p.llmLast = raw.llmLast;
+      // 0.3.2 — SL confirm state (sống qua restart cùng engine.json)
+      if (raw.slPending && typeof raw.slPending === "object" && typeof raw.slPending.id === "string") {
+        p.slPending = { id: raw.slPending.id, since: Number(raw.slPending.since) || Date.now(), price: Number(raw.slPending.price) || 0 };
+      }
     }
   } catch {
     // corrupt state — start from defaults, the next sync rewrites it
@@ -305,19 +327,25 @@ async function persistTrainResult(
  *  Sau khi chốt lời/cắt lỗ, lệnh được GIẢI PHẪU (autopsy — cả thắng lẫn thua)
  *  fire-and-forget: không chặn cycle/watcher, lỗi chỉ log. Bài học nằm lại DB,
  *  nạp lại vào lần duyệt lệnh sau của cùng cặp. exitKind "flip" = đóng vì
- *  AUTO-FLIP (model đảo chiều đủ tin cậy — xem tryFlip). */
+ *  AUTO-FLIP (model đảo chiều đủ tin cậy — xem tryFlip). 0.3.2 thêm "trail" =
+ *  runner bị BE/trail stop đưa về sau TP1 partial.
+ *  0.3.2 — COMBINE CLOSE: lệnh đã qua TP1 partial (p1Pct != null) thì ROE tổng
+ *  = p1Share × p1Pct (phần banked tại TP1) + (1−p1Share) × phần còn lại — một
+ *  lệnh vẫn một dòng sổ, chuỗi vốn capitalBefore/After không phá vỡ. */
 async function closeTradeDirect(
   id: string,
   exitPrice: number,
-  exitKind: "tp" | "sl" | "manual" | "flip",
+  exitKind: "tp" | "sl" | "manual" | "flip" | "trail",
 ): Promise<AutoTradeRow | null> {
   const row = await db.autoTrade.findUnique({ where: { id } });
   if (!row || row.status !== "open") return null;
   const movePct =
     row.side === "SHORT" ? ((row.entryPrice - exitPrice) / row.entryPrice) * 100 : ((exitPrice - row.entryPrice) / row.entryPrice) * 100;
-  let pnlPct = Math.round(movePct * row.leverage * 100) / 100;
+  let remPnl = Math.round(movePct * row.leverage * 100) / 100;
   const adverse = row.side === "SHORT" ? -movePct : movePct;
-  if (row.leverage > 1 && adverse <= -(100 / row.leverage)) pnlPct = -100;
+  if (row.leverage > 1 && adverse <= -(100 / row.leverage)) remPnl = -100;
+  // 0.3.2 — hợp nhất phần đã bank tại TP1 với phần runner khi đóng
+  const pnlPct = combineClosePnl(row.p1Pct, row.p1Share, remPnl);
   const capitalBefore = row.capitalBefore ?? 1000;
   const stakePct = row.stakePct ?? 100;
   const delta = Math.round(capitalBefore * (stakePct / 100) * (pnlPct / 100) * 100) / 100;
@@ -1112,18 +1140,25 @@ async function cycleTick(): Promise<void> {
       const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
       const price = tickers[open.symbol]?.price ?? 0;
       if (price > 0) {
-        const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
-        const liq = liquidationHit(open.side, price, open.entryPrice, open.leverage);
-        if (kind || liq) {
-          const closed = await closeTradeDirect(open.id, price, liq ? "sl" : (kind ?? "sl"));
-          if (closed) {
-            v.lastCycleStatus = `${closed.symbol} ${closed.interval} closed ${closed.exitKind ?? ""}`;
-            if (tgReady()) {
-              const s2 = await readAutoState();
-              void tgSendMessage(msgClose(closed, s2.stats.closed, s2.stats.winRate, s2.stats.netPnlPct), "HTML");
-            }
+        // 0.3.2 — MỘT luồng chấm thoát dùng chung với watcher (evalExit):
+        // liq / TP1-runner / TP2 / trail / SL-confirm / DCA-at-stop
+        const ex = await evalExit(open, price);
+        if (ex?.closed) {
+          const closed = ex.closed;
+          v.lastCycleStatus = `${closed.symbol} ${closed.interval} closed ${closed.exitKind ?? ""}`;
+          if (tgReady()) {
+            const s2 = await readAutoState();
+            void tgSendMessage(msgClose(closed, s2.stats.closed, s2.stats.winRate, s2.stats.netPnlPct), "HTML");
           }
           return; // one position at a time — the next cycle re-evaluates entry
+        }
+        if (ex?.tp1 || ex?.dca || ex?.pending) {
+          v.lastCycleStatus = ex.tp1
+            ? `${open.symbol} ${open.interval} TP1 partial — runner chạy tiếp (SL hoà vô)`
+            : ex.dca
+              ? `${open.symbol} ${open.interval} DCA — giữ vị thế, SL/TP re-anchor`
+              : `${open.symbol} ${open.interval} SL chờ confirm (wick nông)`;
+          return; // trạng thái mới đã ghi — chu kỳ sau quản lý tiếp
         }
         const roe = roeOf(open.side, open.entryPrice, price, open.leverage);
         const base = `${open.symbol} ${open.interval} ${open.side} · ROE ${roe >= 0 ? "+" : ""}${roe.toFixed(2)}%`;
@@ -1469,6 +1504,125 @@ async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "c
   }
 }
 
+// ─── evalExit — MỘT nơi chấm thoát lệnh, dùng chung watcher + cycle (0.3.2) ──
+// Cả hai nhịp (watcher 20s + cycle 5m) phải chấm Y HỆT nhau, không đường nào
+// đóng trước làm hỏng TP1 partial. Trả về:
+//   { closed, kind } — lệnh ĐÃ đóng (tp/sl/trail)
+//   { tp1: true }    — vừa bank TP1, lệnh chuyển runner phase (vẫn mở)
+//   { dca: true }    — vừa DCA thêm, avg/SL/TP re-anchor (vẫn mở)
+//   { pending: true }— SL chờ confirm thêm nhịp (wick nông — "SL non" hết)
+//   null             — không có gì xảy ra
+// Runner phase (đã bank TP1): TP2 mở rộng / BE-trail stop / liquidation — KHÔNG
+// còn SL gốc, không DCA: rủi ro đã = 0, phần còn lại chỉ chạy lời.
+export interface ExitEval {
+  closed?: AutoTradeRow | null;
+  kind?: "tp" | "sl" | "trail" | "flip";
+  /** vừa bank TP1 — lệnh chuyển runner phase (vẫn mở) */
+  tp1?: boolean;
+  /** vừa DCA thêm (avg/SL/TP re-anchor) — lệnh vẫn mở */
+  dca?: boolean;
+  /** SL chờ confirm thêm nhịp (wick nông) — lệnh vẫn mở */
+  pending?: boolean;
+}
+
+async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | null> {
+  const { p } = eng();
+  const c = p.cfg;
+  const liq = liquidationHit(open.side, price, open.entryPrice, open.leverage);
+  const runner = (open.p1Pct ?? null) != null && (open.tp2Pct ?? null) != null;
+
+  if (runner) {
+    if (liq) return { closed: await closeTradeDirect(open.id, price, "sl"), kind: "sl" };
+    const move1x = movePct1x(open.side, open.entryPrice, price);
+    const tp2 = Math.max(0, open.tp2Pct ?? 0);
+    if (tp2 > 0 && move1x >= tp2) {
+      console.log(`[engine] RUNNER TP2 ${open.symbol} ${open.interval} — ${move1x.toFixed(2)}% ≥ ${tp2.toFixed(2)}% (tp1 banked ${(open.p1Share ?? 0) * 100}%)`);
+      return { closed: await closeTradeDirect(open.id, price, "tp"), kind: "tp" };
+    }
+    const trail = Math.max(0, open.trailPct ?? 0);
+    if (trailHit(open.side, price, open.entryPrice, trail)) {
+      return { closed: await closeTradeDirect(open.id, price, TRAIL_KIND), kind: TRAIL_KIND };
+    }
+    // ratchet khoá lời — CHỈ TĂNG, state nằm trên ROW (restart an toàn, không cần engine.json)
+    const lock = trailRatchet(trail, Math.max(0, move1x), c.runnerTrailLock);
+    if (lock > trail) {
+      try {
+        await db.autoTrade.update({ where: { id: open.id }, data: { trailPct: lock } });
+        console.log(`[engine] RUNNER trail ${open.symbol} ${open.interval} — khoá lời ${lock.toFixed(2)}% (từ ${trail.toFixed(2)}%)`);
+      } catch {
+        // ghi hụt — nhịp kế tiếp ratchet lại từ mức cũ
+      }
+    }
+    // near-TP2 warn one-shot (dùng lại flag warned.tp)
+    if (p.warned.id !== open.id) {
+      p.warned = { id: open.id, tp: false, sl: false };
+      persistEngine();
+    }
+    if (!p.warned.tp && tp2 > 0 && move1x >= tp2 * NEAR_FRAC && move1x < tp2) {
+      p.warned.tp = true;
+      persistEngine();
+      if (tgReady()) void tgSendMessage(msgNear(open, price, "tp"), "HTML");
+    }
+    return null;
+  }
+
+  // ── NORMAL PHASE — chưa qua TP1
+  const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
+  if (liq) return { closed: await closeTradeDirect(open.id, price, "sl"), kind: "sl" };
+  if (kind === "tp") {
+    // 0.3.2 — TP1 PARTIAL → RUNNER ("chốt sớm" hết: nửa bank, nửa chạy ra RR cao hơn)
+    const plan = tp1Plan(c, open.tpPct, open.leverage, p.dca.id === open.id ? p.dca.count : 0);
+    if (plan) {
+      try {
+        await db.autoTrade.update({
+          where: { id: open.id },
+          data: { p1Pct: plan.p1Pct, p1Share: plan.share, tp2Pct: plan.tp2Pct, trailPct: 0 },
+        });
+        console.log(
+          `[engine] TP1 partial ${open.symbol} ${open.interval} — bank ${(plan.share * 100).toFixed(0)}% stake (+${plan.p1Pct.toFixed(1)}% ROE) · runner TP2 ${plan.tp2Pct.toFixed(2)}% · SL về HOÀ VÔ`,
+        );
+        p.warned = { id: open.id, tp: false, sl: false };
+        p.slPending = null;
+        persistEngine();
+        if (tgReady()) void tgSendMessage(msgTp1(open, price, plan.share, plan.tp2Pct), "HTML");
+        return { tp1: true };
+      } catch (e) {
+        console.error(`[engine] TP1 partial failed: ${e instanceof Error ? e.message : e} — đóng toàn bộ như cũ`);
+      }
+    }
+    return { closed: await closeTradeDirect(open.id, price, "tp"), kind: "tp" };
+  }
+  if (kind === "sl") {
+    // last-chance DCA at the stop itself — giữ nguyên hành vi cũ (ưu tiên trước confirm;
+    // never on liquidation — liq đã return ở trên)
+    if (await dcaRescue(open, price, "cross")) {
+      p.slPending = null;
+      persistEngine();
+      return { dca: true };
+    }
+    // 0.3.2 — SL CONFIRM: vượt sâu (≥15% bề rộng stop) đóng ngay; wick nông đợi
+    // nhịp kế tiếp xác nhận — quét một nhịp rồi quay đầu không còn quét sạch stop
+    const adverse1x = -movePct1x(open.side, open.entryPrice, price);
+    const deep = adverse1x >= Math.abs(open.slPct) * (1 + SL_DEEP_FRAC);
+    const step = slConfirmStep(p.slPending, open.id, Date.now(), true, deep, c.slConfirmTicks);
+    p.slPending = step.next;
+    persistEngine();
+    if (step.close) return { closed: await closeTradeDirect(open.id, price, "sl"), kind: "sl" };
+    if (step.next && Date.now() - step.next.since < 1_000) {
+      console.log(
+        `[engine] SL confirm ${open.symbol} ${open.interval} — vượt ${adverse1x.toFixed(2)}% (SL ${Math.abs(open.slPct).toFixed(2)}%)${deep ? " SÂU" : " nông"}, đợi nhịp kế xác nhận (slConfirmTicks ${c.slConfirmTicks})`,
+      );
+    }
+    return { pending: true };
+  }
+  // không chạm gì — xoá pending cũ nếu còn treo
+  if (p.slPending) {
+    p.slPending = null;
+    persistEngine();
+  }
+  return null;
+}
+
 // ─── watcher tick — intra-cycle SL/TP/liquidation + near-hit warnings ────────
 
 async function watcherTick(): Promise<void> {
@@ -1482,28 +1636,26 @@ async function watcherTick(): Promise<void> {
     const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
     const price = tickers[open.symbol]?.price ?? 0;
     if (price <= 0) return;
-    const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
-    const liq = liquidationHit(open.side, price, open.entryPrice, open.leverage);
-    // last-chance DCA at the stop itself — model still confirms → average in,
-    // re-anchor and keep riding instead of locking the loss (never on liquidation)
-    if (kind === "sl" && !liq && (await dcaRescue(open, price, "cross"))) return;
-    if (kind || liq) {
-      const closed = await closeTradeDirect(open.id, price, liq ? "sl" : (kind ?? "sl"));
-      if (closed) {
-        if (tgReady()) {
-          const s2 = await readAutoState();
-          void tgSendMessage(msgClose(closed, s2.stats.closed, s2.stats.winRate, s2.stats.netPnlPct), "HTML");
-        }
-        // book the fresh entry a few seconds later — same as the client flow
-        if (c.on) {
-          setTimeout(() => {
-            void cycleTick();
-          }, 3_000);
-        }
+    // 0.3.2 — MỌT luồng chấm thoát (liq / TP1-runner / TP2 / trail / SL-confirm /
+    // DCA-at-stop) nằm trong evalExit — cùng thuật toán với cycleTick §1
+    const ex = await evalExit(open, price);
+    if (ex?.closed) {
+      if (tgReady()) {
+        const s2 = await readAutoState();
+        void tgSendMessage(msgClose(ex.closed, s2.stats.closed, s2.stats.winRate, s2.stats.netPnlPct), "HTML");
+      }
+      // book the fresh entry a few seconds later — same as the client flow
+      if (c.on) {
+        setTimeout(() => {
+          void cycleTick();
+        }, 3_000);
       }
       return;
     }
-    // near-hit warning — once per side per position
+    if (ex?.tp1 || ex?.dca) return; // trạng thái mới đã ghi — nhịp kế tiếp quản lý tiếp
+    const runner = (open.p1Pct ?? null) != null;
+    if (runner || ex?.pending) return; // runner: evalExit tự lo near-TP2 · pending: SL đã thấy, chờ nhịp kế
+    // near-hit warning — once per side per position (normal phase)
     if (p.warned.id !== open.id) {
       p.warned = { id: open.id, tp: false, sl: false };
       persistEngine();
@@ -1532,10 +1684,23 @@ export function syncEngine(input: {
 }): void {
   const { p } = eng();
   if (input.cfg) {
+    // 0.3.2 — floorAuto ON: floor ĐÃ HỌC nằm ở engine (không phải localStorage)
+    // — sync từ browser KHÔNG được đè bộ ba minAuc/minAcc/minScore; floorAuto OFF
+    // (chỉnh tay) thì giữ hành vi cũ: browser là nguồn sự thật.
+    const keepFloors =
+      p.cfg.floorAuto === true && input.cfg.floorAuto !== false
+        ? { minAuc: p.cfg.minAuc, minAcc: p.cfg.minAcc, minScore: p.cfg.minScore }
+        : null;
     p.cfg = { ...p.cfg, ...input.cfg };
     // ngưỡng chung — browser gửi gì cũng bị kẹp về vùng hợp lệ (một nguồn với
     // engine.json/localStorage); migration legacy nằm trong sanitizeFloors
     Object.assign(p.cfg, sanitizeFloors(p.cfg.minAuc, p.cfg.minAcc, p.cfg.minScore));
+    if (keepFloors) {
+      Object.assign(p.cfg, keepFloors);
+      console.log(
+        `[engine] sync giữ floor đã học ${keepFloors.minAuc.toFixed(2)}/${keepFloors.minAcc}/${keepFloors.minScore} (floorAuto ON — learner là nguồn của bộ ba này)`,
+      );
+    }
     p.cfg.runTf = sanitizeRunTf(p.cfg.runTf);
   }
   if (input.settings) p.settings = { ...p.settings, ...input.settings };
@@ -1695,6 +1860,9 @@ export function startEngineScheduler(): void {
   // at=0 → lượt mổ bổ sung đầu tiên chạy ngay tick đầu tiên (~15s sau boot);
   // sau đó mỗi lượt cách nhau 6h (AUTOPSY_BACKFILL_MS)
   const lastAutopsyBf = { at: 0 };
+  // 0.3.2 — at=0 → lượt học floor đầu tiên chạy ngay tick đầu tiên (trước cả khi
+  // có tab sync — learner chỉ cần DB), sau đó mỗi FLOOR_EVERY_MS (6h)
+  const lastFloor = { at: 0 };
 
   const tick = async (): Promise<void> => {
     const { p } = eng();
@@ -1708,6 +1876,24 @@ export function startEngineScheduler(): void {
     }
     if (!p.syncedAt) return; // idle until the first browser sync
     try {
+      // 0.3.2 — FLOOR ĐỘNG: mỗi 6h học lại bộ ba minAuc/minAcc/minScore từ TOÀN BỘ
+      // lịch sử lệnh + PHE (flow-guard giữ dòng lệnh, FloorLog ghi lý do tiến hoá).
+      // Chạy trước các bucket khác trong tick — throttle riêng bằng lastFloor.
+      if (p.cfg.floorAuto && Date.now() - lastFloor.at >= pval("FLOOR_EVERY_MS", FLOOR_EVERY_MS)) {
+        lastFloor.at = Date.now();
+        try {
+          const prev: Floors = { minAuc: p.cfg.minAuc, minAcc: p.cfg.minAcc, minScore: p.cfg.minScore };
+          const r = await runFloorRound(prev, (f) => {
+            Object.assign(p.cfg, sanitizeFloors(f.minAuc, f.minAcc, f.minScore));
+            persistEngine();
+          });
+          if (r.action === "apply" && tgReady()) {
+            void tgSendMessage(msgFloor(prev, r.to, r.note), "HTML");
+          }
+        } catch (e) {
+          console.error(`[engine] floor round: ${e instanceof Error ? e.message : e}`);
+        }
+      }
       // hourly / daily stat digests (marker-guarded inside the lib) — 0.2.35:
       // KHÔNG còn đòi cfg.on: thống kê là báo cáo, không phải phần của auto
       // trading — bật chế độ Giờ/Ngày là chảy, auto tắt vẫn chảy

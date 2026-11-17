@@ -1,0 +1,87 @@
+0.3.2 — floor động tự học + TP1→Runner + SL confirm (hết "chốt sớm / SL non / tăng RR mất dòng lệnh")
+
+BỐI CẢNH: phản hồi thật của user sau 0.3.1 — "các lệnh bị chốt sớm và SL
+non.... tăng RR thì ko bắt lệnh dc nữa". Ba vấn đề cùng một gốc: (1) TP = 1.4R
+đóng toàn bộ lệnh quá sớm nên không bao giờ ăn được move lớn; (2) SL chạm một
+nhịp wick là quét sạch; (3) nhiệm vụ train khó hơn khi nâng RR → hit-rate sập →
+bộ ba ngưỡng TĨNH 63/0.76/72 chặn sạch phễu. 0.3.2 giải cả ba bằng floor ĐỘNG
+tự học (yêu cầu treo từ bản trước) + quản lý thoát lệnh mới.
+
+THAY ĐỔI:
+
+1) DYNAMIC FLOOR — bộ ba minAuc/minAcc/minScore TỰ HỌC & TIẾN HOÁ
+   • src/lib/dynamic-floor.ts (mới): mỗi 6h chấm lưới quantile × tổ hợp (8×7×8
+     = 448 bộ ba) trên TOÀN BỘ lịch sử — AutoTrade đóng ×3 trọng số +
+     Suggestion resolved ×1 (chấm lại score đúng công thức scoreFrom).
+     objective = expectancy(ROE) × √n — chất lượng nhân tần suất.
+   • RÀNG BUỘC DÒNG LỆNH (chống "tăng RR thì không bắt được lệnh nữa"): ứng
+     viên giữ lại < 12% tổng mẫu bị loại — floor không bao giờ học ra cổng làm
+     phễu cạn. Step-clamp ±0.08 AUC / ±8 ACC / ±15 điểm mỗi lượt + sàn cứng
+     0.55/55/20 + trần sanitizeFloors — tiến hoá từng bước, không nhảy loạn.
+   • Bảng FloorLog (mới, bootstrap tự CREATE + prisma schema): mỗi lượt
+     APPLY/KEEP ghi trước/sau + LÝ DO tiếng Việt + số liệu nền (totalW,
+     candidates, flow, WR) — "ghi nhận lý do tiến hoá và hiển thị rõ".
+   • cfg.floorAuto (mặc định ON): learner cài thẳng p.cfg → MỌI tầng (entry,
+     DCA, flip, broadcast gate, /stats dock) tự ăn theo vì đã đọc chung cfg.
+     syncEngine floor-aware: khi floorAuto ON, floor đã học KHÔNG bị đè bởi
+     localStorage của browser (log rõ "[engine] sync giữ floor đã học").
+   • self-improve: khi floorAuto ON, agent chỉ SIẾT RISK, không siết floor
+     (hai nguồn đè nhau lên cùng ba số = nhảy loạn).
+   • /stats thêm mục "Dynamic floor": floors đang chạy + nguồn AUTO/tay +
+     lý do tiến hoá gần nhất NGUYÊN VĂN + 3 lượt học gần nhất. Telegram: tin
+     "DYNAMIC FLOOR — TIẾN HOÁ" mỗi lần áp (msgFloor).
+
+2) TP1 PARTIAL → RUNNER — hết "chốt sớm"
+   • src/lib/trade-mgmt.ts (mới, PURE — test được): chạm TP lần đầu chỉ chốt
+     runnerSharePct% (mặc định 50%), phần còn lại chuyển runner: SL về HOÀ VÔ
+     (trailPct=0 — rủi ro = 0), TP mở rộng tp2Pct = tpPct × runnerTpMult
+     (mặc định ×2), trail ratchet khoá lời move × runnerTrailLock (50%), chỉ
+     tăng dần. exitKind mới "trail" (🪂).
+   • evalExit() — MỘT luồng chấm thoát dùng chung watcher (20s) + cycle (5m):
+     liq → runner(TP2/trail/BE) → TP1 partial → SL-confirm → DCA-at-stop.
+     Runner phase KHÔNG DCA, KHÔNG SL gốc — không còn "đã lời lại thành lỗ".
+   • State runner nằm trên ROW (p1Pct/p1Share/tp2Pct/trailPct — 4 cột mới
+     AutoTrade + ALTER bootstrap): restart pm2 không mất trail.
+   • COMBINE CLOSE: đóng giữa runner phase → ROE tổng = share×p1Pct +
+     (1−share)×rem — một lệnh một dòng sổ, chuỗi vốn capitalBefore/After và
+     kiểm chéo /stats không phá vỡ. Route PATCH mirror đúng công thức.
+   • Đã DCA (p.dca.count>0) → KHÔNG runner: chốt toàn bộ như cũ (avg đã dời,
+     stake đã nhân đôi — giữ đơn giản).
+   • Telegram: tin "TP1 PARTIAL — RUNNER ARMED" (msgTp1).
+
+3) SL CONFIRM — hết "SL non" (wick quét stop)
+   • SL chạm phải được thấy vượt LIÊN TỤC slConfirmTicks nhịp watcher (mặc
+     định 2 nhịp = 40s) HOẶC vượt sâu ≥ (1+15%)×SL mới chốt; wick 1 nhịp rồi
+     quay đầu → xoá pending, lệnh sống. Liquidation vẫn tức thời. DCA-at-stop
+     vẫn ưu tiên chạy trước confirm (giữ nguyên hành vi 0.2.x).
+   • State slPending sống trong engine.json qua restart. cfg.slConfirmTicks
+     chọn 0/2/3/5 trên panel (0 = hành vi cũ).
+
+4) AUTOPSY — fix mất bài học GRASSUSDT
+   • max_tokens 260 → 420 (JSON đứt giữa "noise_check:av…" là hết token, không
+     phải lỗi LLM).
+   • salvageAutopsy(): JSON đứt vẫn bới tag/why/lesson bằng regex (không bịa
+     dữ liệu) rồi đi qua sanitize như thường — hết "JSON hỏng, bỏ lượt mổ".
+   • recentAutopsyLessons: budget 220 → 320 + cutWord() cắt theo RANH TỪ —
+     bài học không còn bị đứt giữa chữ trong prompt duyệt lệnh.
+
+5) UI / PANEL
+   • Auto panel: hàng 0.3.2 mới — 🧬 Floor AUTO (emerald) · 🪁 TP1→Runner +
+     share 30/50/70 + TP× + lock · SL confirm 0/2/3/5 (amber).
+   • /ai engine card: thêm floorAuto/runner/slConfirm rows.
+   • i18n VI/EN đủ keys mới (stats.section.floor, stats.basis.floor,
+     auto.cfg.floorAuto/runner/slConfirm...).
+
+6) TESTS
+   • scripts/test-trade-mgmt.ts (30 pass): SL-confirm state machine (wick/deep/
+     off/đổi lệnh), trail/BE hit LONG-SHORT, ratchet chỉ-tăng, runnerTp2,
+     tp1Plan (DCA/off/share-100 chặn), combine close (liq −100% → tổng −43%).
+   • scripts/test-dynamic-floor.ts (19 pass): quantile, evalFloors (flow/n/
+     expectancy), computeFloors (448 ứng viên, flow-guard 0.18, thiếu mẫu,
+     toàn-lỗ step-clamp), clampStep (sàn cứng/kẹp bước), floorReason.
+   • Test cũ PASS: test-dca, test-params-02-59, test-atr-sltp, test-confluence.
+   • `npx tsc --noEmit` sạch; `npm run build` OK; boot standalone OK —
+     "[db] 12 tables present" + "[floor] KEEP — chưa đủ mẫu (0/30)" đúng logic.
+
+MIGRATION: deploy là đủ — bootstrap tự CREATE FloorLog + ALTER 4 cột AutoTrade
+(p1Pct/p1Share/tp2Pct/trailPct), không cần prisma db push thủ công.

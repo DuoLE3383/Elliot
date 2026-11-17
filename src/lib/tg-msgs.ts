@@ -56,7 +56,15 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string): stri
 };
 
 const kindTag = (k: string | null): string =>
-  k === "tp" ? "TAKE PROFIT ✅" : k === "sl" ? "STOP LOSS 🔻" : k === "flip" ? "FLIP 🔄" : "MANUAL CLOSE ✋";
+  k === "tp"
+    ? "TAKE PROFIT ✅"
+    : k === "sl"
+      ? "STOP LOSS 🔻"
+      : k === "flip"
+        ? "FLIP 🔄"
+        : k === "trail"
+          ? "TRAIL EXIT 🪂"
+          : "MANUAL CLOSE ✋";
 
 export const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPnlPct: number): string =>
   [
@@ -125,6 +133,42 @@ export const msgLlmVeto = (r: ScanRow, v: LlmVerdict): string =>
     HR,
     `🧠 ${probTxt(r.bias, r.prob)} · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(1)}% · Score ${r.score.toFixed(1)}`,
     `💬 ${escHtml(v.reasons.slice(0, 3).join(" · ")) || "—"}`,
+  ].join("\n");
+
+/** 0.3.2 — TP1 PARTIAL → RUNNER: chạm TP lần đầu, chốt một phần, phần còn lại
+ *  chuyển runner (SL về hoà vô, TP mở rộng, trail khoá lời). Tham số khai báo
+ *  structural (AutoTradeRow subset) để tránh vòng import. */
+export const msgTp1 = (
+  r: { symbol: string; interval: string; side: string; entryPrice: number; tpPct: number; leverage: number; stakePct?: number | null },
+  price: number,
+  share: number,
+  tp2Pct: number,
+): string => {
+  const roe = roeOf(r.side, r.entryPrice, price, r.leverage);
+  const bankRoe = Math.round(r.tpPct * r.leverage * 100) / 100;
+  return [
+    `🪙 <b>TP1 PARTIAL — RUNNER ARMED</b>`,
+    `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
+    HR,
+    `✅ Banked <b>${(share * 100).toFixed(0)}%</b> stake tại TP1 (+${bankRoe.toFixed(1)}% ROE phần banked)`,
+    `🛡️ Phần còn lại: SL về <b>HOÀ VÔ</b> (breakeven) — rủi ro = 0`,
+    `🏁 TP mở rộng: <b>+${tp2Pct.toFixed(2)}%</b> giá (từ ${r.tpPct.toFixed(2)}%) — để lời chạy`,
+    `📈 Price ${fmtPrice(price)} · ROE ${roe >= 0 ? "+" : ""}${roe.toFixed(1)}% · trail khoá 50% quãng đi`,
+  ].join("\n");
+};
+
+/** 0.3.2 — floor động vừa tiến hoá: trước/sau + lý do (nguyên văn từ learner). */
+export const msgFloor = (
+  before: { minAuc: number; minAcc: number; minScore: number },
+  after: { minAuc: number; minAcc: number; minScore: number },
+  note: string,
+): string =>
+  [
+    `🧬 <b>DYNAMIC FLOOR — TIẾN HOÁ</b>`,
+    HR,
+    `📐 minAuc <b>${before.minAuc.toFixed(2)} → ${after.minAuc.toFixed(2)}</b> · minAcc <b>${before.minAcc} → ${after.minAcc}</b> · minScore <b>${before.minScore} → ${after.minScore}</b>`,
+    `💬 ${escHtml(note)}`,
+    `🔍 Lịch sử + số liệu nền: /stats → Dynamic floor`,
   ].join("\n");
 
 /**

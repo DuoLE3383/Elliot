@@ -126,6 +126,15 @@ model AutoTrade {
   autopsy       String?
   /** fingerprint of entry policy (gates/stake/lev/TF) at open — self-improve agent */
   methodId      String?
+  // ── 0.3.2 · TP1 PARTIAL → RUNNER (xem src/lib/trade-mgmt.ts) ────────────
+  /** ROE % đã bank tại TP1 (null = lệnh thường chưa qua TP1) */
+  p1Pct         Float?
+  /** phần stake đã bank tại TP1, 0..1 (runnerSharePct/100) */
+  p1Share       Float?
+  /** TP mở rộng của runner (price move %) — null = chưa vào runner phase */
+  tp2Pct        Float?
+  /** mức khoá lời hiện tại của trail runner (price move %, ≥0; 0 = hoà vô) */
+  trailPct      Float?
   createdAt     DateTime  @default(now())
 
   @@index([status, createdAt])
@@ -224,6 +233,22 @@ model ImproveEvent {
   createdAt DateTime @default(now())
 
   @@index([kind, createdAt])
+  @@index([createdAt])
+}
+
+// ─── Floor log — nhật ký floor động tự học (0.3.2) ─────────────────────────
+// Learner (dynamic-floor.ts) mỗi 6h chấm lại bộ ba minAuc/minAcc/minScore trên
+// toàn bộ lịch sử lệnh + PHE. Mỗi lượt (áp hay giữ) 1 dòng: trước/sau + LÝ DO
+// tiến hoá + số liệu nền (n, flow, expectancy, WR) — /stats hiển thị nguyên văn.
+model FloorLog {
+  id           String   @id @default(cuid())
+  kind         String // apply | keep
+  floorsBefore String // JSON {minAuc,minAcc,minScore}
+  floorsAfter  String // JSON {minAuc,minAcc,minScore}
+  basis        String   @default("") // JSON {totalW,candidates,enough,pick...}
+  note         String   @default("") // lý do tiến hoá (tiếng Việt, ≤500)
+  createdAt    DateTime @default(now())
+
   @@index([createdAt])
 }
 

@@ -50,6 +50,9 @@ const SCHEMA_SQL: string[] = [
   // 0.2.54 — nhật ký vòng tự tiến hoá (promote/keep/confirm/revert)
   `CREATE TABLE IF NOT EXISTS "EvolveLog" ("id" TEXT NOT NULL PRIMARY KEY, "combo" TEXT NOT NULL, "decision" TEXT NOT NULL, "name" TEXT NOT NULL DEFAULT '', "detail" TEXT NOT NULL DEFAULT '', "cfgBefore" TEXT NOT NULL DEFAULT '', "cfgAfter" TEXT NOT NULL DEFAULT '', "metrics" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE INDEX IF NOT EXISTS "EvolveLog_createdAt_idx" ON "EvolveLog"("createdAt")`,
+  // 0.3.2 — nhật ký floor động tự học (apply/keep + lý do tiến hoá)
+  `CREATE TABLE IF NOT EXISTS "FloorLog" ("id" TEXT NOT NULL PRIMARY KEY, "kind" TEXT NOT NULL, "floorsBefore" TEXT NOT NULL, "floorsAfter" TEXT NOT NULL, "basis" TEXT NOT NULL DEFAULT '', "note" TEXT NOT NULL DEFAULT '', "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+  `CREATE INDEX IF NOT EXISTS "FloorLog_createdAt_idx" ON "FloorLog"("createdAt")`,
 ];
 
 // ─── Thêm cột cho DB ĐÃ TỒN TẠI (0.2.28 autopsy) ────────────────────────────
@@ -66,8 +69,13 @@ const SCHEMA_COLUMNS: { table: string; column: string; ddl: string }[] = [
   { table: "AutoTrade", column: "llmReason", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "llmReason" TEXT` },
   { table: "AutoTrade", column: "autopsy", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "autopsy" TEXT` },
   { table: "AutoTrade", column: "methodId", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "methodId" TEXT` },
+  // 0.3.2 — TP1 partial → runner (trade-mgmt.ts)
+  { table: "AutoTrade", column: "p1Pct", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "p1Pct" REAL` },
+  { table: "AutoTrade", column: "p1Share", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "p1Share" REAL` },
+  { table: "AutoTrade", column: "tp2Pct", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "tp2Pct" REAL` },
+  { table: "AutoTrade", column: "trailPct", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "trailPct" REAL` },
 ];
-const MODEL_TABLES = ["User", "Post", "Suggestion", "FinetuneRun", "AutoTrade", "BcastVerdict", "SignalTotal", "DiveReport", "StrategyVariant", "ImproveEvent"];
+const MODEL_TABLES = ["User", "Post", "Suggestion", "FinetuneRun", "AutoTrade", "BcastVerdict", "SignalTotal", "DiveReport", "StrategyVariant", "ImproveEvent", "EvolveLog", "FloorLog"];
 /** exported for the /api health diagnostic */
 export { MODEL_TABLES };
 

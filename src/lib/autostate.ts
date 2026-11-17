@@ -32,6 +32,11 @@ export type TradeRow = {
   llmReason: string | null;
   autopsy: string | null;
   methodId: string | null;
+  // 0.3.2 — TP1 partial → runner state (trade-mgmt.ts)
+  p1Pct: number | null;
+  p1Share: number | null;
+  tp2Pct: number | null;
+  trailPct: number | null;
   createdAt: string;
 };
 
@@ -61,6 +66,10 @@ export const serialize = (r: {
   llmReason: string | null;
   autopsy: string | null;
   methodId?: string | null;
+  p1Pct?: number | null;
+  p1Share?: number | null;
+  tp2Pct?: number | null;
+  trailPct?: number | null;
   createdAt: Date;
 }): TradeRow => ({
   id: r.id,
@@ -88,6 +97,10 @@ export const serialize = (r: {
   llmReason: r.llmReason,
   autopsy: r.autopsy,
   methodId: r.methodId ?? null,
+  p1Pct: r.p1Pct ?? null,
+  p1Share: r.p1Share ?? null,
+  tp2Pct: r.tp2Pct ?? null,
+  trailPct: r.trailPct ?? null,
   createdAt: r.createdAt.toISOString(),
 });
 

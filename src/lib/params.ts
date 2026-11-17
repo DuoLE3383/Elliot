@@ -234,6 +234,33 @@ export const CALIBRATE = true;
  *  vẫn cần đủ điểm; val 25% của dataset thường ≥ 80 nên hiếm khi chạm). */
 export const PLATT_MIN_VAL = 40;
 
+// ── 6d · DYNAMIC FLOOR — bộ ba ngưỡng tự học từ toàn bộ lịch sử lệnh ─────────
+// "floor động AUC/ACC/score — tự học & tiến hoá từ toàn bộ Elliott session,
+//  ghi nhận lý do tiến hoá và hiển thị rõ trong mục Stats" (yêu cầu 0.3.2).
+// Learner (dynamic-floor.ts) mỗi FLOOR_EVERY_MS chấm lại bộ ba minAuc/minAcc/
+// minScore trên TOÀN BỘ lịch sử đã đóng (AutoTrade + Suggestion resolved):
+// ứng viên bộ ba = lưới quantile; mục tiêu = expectancy(ROE) × √n (chất lượng
+// nhân tần suất) với RÀNG BUỘC DÒNG LỆNH — ứng viên để lại ít hơn FLOW_MIN
+// tổng mẫu là bị loại. Đây là câu trả lời cho "tăng RR thì không bắt được lệnh
+// nữa": nhiệm vụ khó hơn (RR cao) kéo expectancy/flow đổi → floor tự hạ để giữ
+// dòng lệnh thay vì đứng cứng chặn sạch. Mỗi thay đổi đều ghi FloorLog (trước/
+// sau + lý do + số liệu nền) và hiện trên /stats.
+
+/** Nhịp học floor — 6h/lượt (đủ chờ lệnh mới đóng, không nhảy theo nhiễu). */
+export const FLOOR_EVERY_MS = 6 * 3_600_000;
+/** Tổng mẫu có trọng số tối thiểu để learner được quyền đổi floor — dưới mức
+ *  này chỉ ghi log "chưa đủ mẫu". */
+export const FLOOR_MIN_SAMPLES = 30;
+/** Ràng buộc dòng lệnh — ứng viên floor phải giữ lại ≥ 12% tổng mẫu. Hạ RR
+ *  hoặc siết chất lượng bao nhiêu cũng không được phép làm phễu cạn kiệt. */
+export const FLOW_MIN = 0.12;
+/** Sàn CỨNG của floor đã học — learner không được nới lỏng dưới mức này
+ *  (model dưới 0.55 AUC là xếp hạng kém hơn tung đồng xu chút ít). */
+export const FLOOR_HARD_MIN = { auc: 0.55, acc: 55, score: 20 };
+/** Giới hạn BƯỚC tiến hoá mỗi lượt — floor đi từng bước, không nhảy loạn khi
+ *  một lượt dữ liệu xấu: ΔAUC ≤ 0.08 · ΔACC ≤ 8 điểm % · Δscore ≤ 15 điểm. */
+export const FLOOR_STEP = { auc: 0.08, acc: 8, score: 15 };
+
 // ── 7 · CHAMPION + CONFLUENCE — chất lượng vào lệnh & Prob tổng ──────────────
 
 /** Vô hiệu champion: retrain mới kém hơn champion quá 0.02 AUC là coi như

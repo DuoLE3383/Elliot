@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { readAutoState, readOpenPosition, serialize } from "@/lib/autostate";
 import { autopsyClosedTrade } from "@/lib/autopsy";
+import { combineClosePnl } from "@/lib/trade-mgmt";
 
 export const dynamic = "force-dynamic";
 
@@ -100,15 +101,18 @@ export async function PATCH(req: NextRequest) {
 
   const exitPrice = num(body.exitPrice, 0, Infinity, 0);
   if (exitPrice <= 0) return NextResponse.json({ error: "exitPrice required" }, { status: 400 });
-  const exitKind = body.exitKind === "tp" ? "tp" : body.exitKind === "sl" ? "sl" : body.exitKind === "flip" ? "flip" : "manual";
+  // 0.3.2 — "trail" = runner bị BE/trail stop đưa về sau TP1 partial
+  const exitKind = body.exitKind === "tp" ? "tp" : body.exitKind === "sl" ? "sl" : body.exitKind === "flip" ? "flip" : body.exitKind === "trail" ? "trail" : "manual";
 
   // signed % price move in the position's direction, then ROE = move × leverage
   const movePct =
     row.side === "SHORT" ? ((row.entryPrice - exitPrice) / row.entryPrice) * 100 : ((exitPrice - row.entryPrice) / row.entryPrice) * 100;
-  let pnlPct = Math.round(movePct * row.leverage * 100) / 100;
+  let remPnl = Math.round(movePct * row.leverage * 100) / 100;
   // liquidation guard: an adverse move of 100/leverage % wipes the margin
   const adverse = row.side === "SHORT" ? -movePct : movePct;
-  if (row.leverage > 1 && adverse <= -(100 / row.leverage)) pnlPct = -100;
+  if (row.leverage > 1 && adverse <= -(100 / row.leverage)) remPnl = -100;
+  // 0.3.2 — COMBINE CLOSE: lệnh đã qua TP1 partial → ROE tổng = share×p1 + (1−share)×rem
+  const pnlPct = combineClosePnl(row.p1Pct, row.p1Share, remPnl);
 
   const capitalBefore = row.capitalBefore ?? 1000;
   // only the STAKED share of equity takes risk: delta = stake × ROE

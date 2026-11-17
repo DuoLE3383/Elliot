@@ -15,6 +15,7 @@ import { db } from "@/lib/db";
 import { engineSnapshot } from "@/lib/engine";
 import { readAutoState } from "@/lib/autostate";
 import { comboStats, isTradeable, type ScanRow } from "@/lib/autotrade";
+import { recentFloorLogs } from "@/lib/dynamic-floor";
 import { outcomeOf, type XgbBiasRow } from "@/lib/history";
 import { LESSON_WEIGHT, NOISE_BAND, SCAN_TTL, UNIVERSE_LOOKBACK_CANDLES, UNIVERSE_SCAN_MS, pval } from "@/lib/params";
 import { SESSIONS, sessionOf, sessionOverlap, type SessionKey } from "@/lib/market";
@@ -296,7 +297,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       take: 2000,
     });
     const closed = rows.filter((r) => r.status === "closed");
-    const kinds = { tp: 0, sl: 0, flip: 0, manual: 0 };
+    const kinds = { tp: 0, sl: 0, flip: 0, manual: 0, trail: 0 };
     for (const r of closed) {
       const k = (r.exitKind ?? "") as keyof typeof kinds;
       if (k in kinds) kinds[k] += 1;
@@ -312,15 +313,49 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       note:
         unlabeled > 0
           ? `${unlabeled} closed trades missing exitKind (pre-0.2.24 or legacy manual close) — label totals under-count; remainder is legacy.`
-          : "Label totals match closed count — every close goes through closeTradeDirect (tp/sl/flip/manual).",
+          : "Label totals match closed count — every close goes through closeTradeDirect (tp/sl/flip/trail/manual; trail = runner bị BE/trail stop đưa về sau TP1 — 0.3.2).",
       accPct: 100,
       accNote: "exact DB counts — not estimates",
       metrics: [
         { k: "Total trades", v: String(rows.length), sub: `${rows.length - closed.length} open · ${closed.length} closed` },
-        { k: "TP / SL", v: `${kinds.tp} / ${kinds.sl}`, sub: `flip ${kinds.flip} · tay ${kinds.manual}` },
+        { k: "TP / SL", v: `${kinds.tp} / ${kinds.sl}`, sub: `flip ${kinds.flip} · trail ${kinds.trail} · tay ${kinds.manual}` },
         ...(avg != null ? [{ k: "Avg ROE", v: `${avg >= 0 ? "+" : ""}${avg.toFixed(2)}%` }] : []),
         ...(best != null ? [{ k: "Best / worst", v: `+${best.toFixed(1)}% / ${worst ?? 0}%` }] : []),
         { k: "Last 7 days", v: `${last7d} closed trades` },
+      ],
+    };
+  });
+
+  // ─── 8b. Dynamic floor — bộ ba ngưỡng tự học (0.3.2) ─────────────────────
+  // "ghi nhận lý do tiến hoá và hiển thị rõ trong mục Stats" — mục này là chỗ đó:
+  // floor hiện tại + nguồn (AUTO/tay) + lý do tiến hoá gần nhất (nguyên văn từ
+  // FloorLog) + lịch sử 3 lượt học.
+  const floor = await safe("floor", async () => {
+    const logs = await recentFloorLogs(6);
+    const lastApply = logs.find((l) => l.kind === "apply");
+    const src = cfg.floorAuto ? "AUTO — learner 6h/lượt" : "thủ công (panel)";
+    const fmtFloors = (f: { minAuc: number; minAcc: number; minScore: number }): string =>
+      `${f.minAuc.toFixed(2)}/${f.minAcc}/${f.minScore}`;
+    return {
+      state: (cfg.floorAuto ? (logs.length > 0 ? "ok" : "warn") : "na") as StatState,
+      note: cfg.floorAuto
+        ? logs.length > 0
+          ? "Learner chạy từ toàn bộ lịch sử (lệnh ×3 + PHE ×1), objective = expectancy × √n, ràng buộc dòng lệnh ≥ 12% — không bao giờ học ra cổng làm phễu cạn. Lý do tiến hoá ghi nguyên văn trong FloorLog."
+          : "Learner chưa chạy lượt nào trên DB này — lượt đầu chạy ngay tick đầu tiên sau boot (mỗi 6h)."
+        : "floorAuto đang TẮT — bộ ba ngưỡng tĩnh như 0.3.1, chỉnh tay trên Auto panel. Bật lại thì learner tiếp quản từ lượt kế.",
+      accPct: 100,
+      accNote: "live cfg + FloorLog rows — số cấu hình, không phải ước lượng",
+      metrics: [
+        { k: "Floors đang chạy (AUC/ACC/Điểm)", v: `${cfg.minAuc.toFixed(2)} / ${cfg.minAcc} / ${cfg.minScore}`, sub: src },
+        { k: "Lượt học đã ghi", v: `${logs.length}`, sub: `${logs.filter((l) => l.kind === "apply").length} lần áp · ${logs.filter((l) => l.kind === "keep").length} giữ` },
+        ...(lastApply
+          ? [{ k: "Tiến hoá gần nhất", v: `${fmtFloors(lastApply.before)} → ${fmtFloors(lastApply.after)}`, sub: lastApply.note.slice(0, 180) }]
+          : []),
+        ...logs.slice(0, 3).map((l) => ({
+          k: `${l.kind === "apply" ? "APPLY" : "KEEP"} · ${new Date(l.at).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`,
+          v: `${fmtFloors(l.before)} → ${fmtFloors(l.after)}`,
+          sub: l.note.slice(0, 120),
+        })),
       ],
     };
   });
@@ -367,5 +402,5 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     };
   });
 
-  return { at: now, sections: [sessions, combo, universe, auto, dock, openPos, hist, sg] };
+  return { at: now, sections: [sessions, combo, universe, auto, dock, openPos, hist, floor, sg] };
 }

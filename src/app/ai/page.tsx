@@ -131,6 +131,15 @@ interface AiInfo {
       minAuc: number;
       minAcc: number;
       minScore: number;
+      /** 0.3.2 — floor động tự học (true) hay bộ ba tĩnh chỉnh tay */
+      floorAuto: boolean;
+      /** 0.3.2 — TP1 partial → runner */
+      runnerOn: boolean;
+      runnerSharePct: number;
+      runnerTpMult: number;
+      runnerTrailLock: number;
+      /** 0.3.2 — SL confirm ticks (0 = off) */
+      slConfirmTicks: number;
       leverage: number;
       /** AutoConfig.riskPct — % equity mỗi lệnh */
       riskPct: number;
@@ -1183,6 +1192,9 @@ export default function AiPage() {
                   ["minScore", cfg.minScore],
                   ["minAuc", cfg.minAuc],
                   ["minAcc", `${cfg.minAcc}%`],
+                  ["floorAuto", cfg.floorAuto ? "🧬 AUTO" : "OFF"],
+                  ["runner", cfg.runnerOn ? `🪁 ${(cfg.runnerSharePct)}% · TP×${cfg.runnerTpMult}` : "OFF"],
+                  ["slConfirm", cfg.slConfirmTicks > 0 ? `×${cfg.slConfirmTicks}` : "OFF"],
                   ["leverage", `×${data.engine.leverage}`],
                   ["stakePct", `${cfg.riskPct}%`],
                   ["dcaMax", cfg.dcaMax],

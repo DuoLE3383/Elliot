@@ -256,7 +256,10 @@ export async function autopsyLlmCall(url: string, model: string, system: string,
       { role: "user", content: user },
     ],
     temperature: 0,
-    max_tokens: 260,
+    // 0.3.2 — 260 cũ CẮT CỤT JSON giữa chuỗi (GRASSUSDT 1m: lesson đứt tại
+    // "noise_check:av…" → JSON.parse hỏng → bỏ lượt mổ, mất bài học). 420 đủ
+    // chứa tag + 3 why + lesson 160 ký tự kể cả khi model lươn lẹo dài dòng.
+    max_tokens: 420,
     ...(withSchema
       ? { response_format: { type: "json_schema", json_schema: { name: "autopsy", strict: true, schema: AUTOPSY_SCHEMA } } }
       : {}),
@@ -285,16 +288,48 @@ export async function autopsyLlmCall(url: string, model: string, system: string,
   }
 }
 
-/** Regex + JSON.parse + sanitize một phản hồi llama — export cho test. */
+/** Regex + JSON.parse + salvage + sanitize một phản hồi llama — export cho test.
+ *  0.3.2 — JSON đứt (hết max_tokens giữa chuỗi) không còn bị bỏ: salvageAutopsy
+ *  bới từng field bằng regex rồi vẫn đi qua sanitizeAutopsy (đủ hình dạng là nhận). */
 export function parseAutopsyText(text: string, model: string, ms: number, input: AutopsyTradeInput, ev: AutopsyEvidence): AutopsyJson | null {
   const m = text.match(/\{[\s\S]*\}/);
   let parsed: unknown = null;
-  try {
-    parsed = m ? JSON.parse(m[0]) : null;
-  } catch {
-    parsed = null;
+  if (m) {
+    try {
+      parsed = JSON.parse(m[0]);
+    } catch {
+      parsed = salvageAutopsy(m[0]); // JSON hỏng — thử salvage từng field
+    }
+  } else {
+    parsed = salvageAutopsy(text); // không tìm thấy object — thử salvage cả text
   }
   return sanitizeAutopsy(parsed, model, ms, input, ev);
+}
+
+/**
+ * Cứu JSON ĐỨT: bắt "tag" / "why" / "lesson" bằng regex kể cả khi chuỗi bị cắt
+ * giữa đường (thiếu dấu đóng, thiếu field cuối). Trả null khi không bắt được gì
+ * — caller coi như hỏng như cũ. KHÔNG bịa dữ liệu: chỉ lấy những gì model đã viết.
+ */
+export function salvageAutopsy(text: string): { tag?: string; why?: string[]; lesson?: string } | null {
+  const out: { tag?: string; why?: string[]; lesson?: string } = {};
+  const tagM = text.match(/"tag"\s*:\s*"([^"]{1,80})"/);
+  if (tagM) out.tag = tagM[1];
+  const whyM = text.match(/"why"\s*:\s*\[([\s\S]*?)\]/);
+  if (whyM) {
+    const items = [...whyM[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((x) => x[1]);
+    if (items.length > 0) out.why = items;
+  }
+  // lesson có thể ĐỨT GIỮA (không có dấu đóng) — lấy mọi thứ sau "lesson":" đến
+  // hết chuỗi, bỏ \" escape cuối cùng nếu dở
+  const lessonM = text.match(/"lesson"\s*:\s*"([\s\S]*)$/);
+  if (lessonM) {
+    let s = lessonM[1].trim();
+    if (s.endsWith('"')) s = s.slice(0, -1);
+    s = s.replace(/\\"/g, '"').replace(/\\n/g, " ").trim();
+    if (s.length > 0) out.lesson = s;
+  }
+  return out.tag || out.why || out.lesson ? out : null;
 }
 
 const inflight = new Set<string>(); // chống chạy đôi cùng một lệnh (watcher + route)
@@ -373,7 +408,7 @@ export async function autopsyClosedTrade(row: {
     }
     const json = parseAutopsyText(call.text, model, call.ms, input, ev);
     if (!json) {
-      console.warn(`[autopsy] ${input.symbol} ${input.interval} — JSON/lesson hỏng, bỏ lượt mổ (${call.text.slice(0, 120)})`);
+      console.warn(`[autopsy] ${input.symbol} ${input.interval} — JSON/lesson hỏng sau salvage, bỏ lượt mổ (${call.text.slice(0, 120)})`);
       return null;
     }
     await db.autoTrade.update({ where: { id: input.id }, data: { autopsy: JSON.stringify(json) } });
@@ -437,10 +472,18 @@ export async function autopsyBackfill(max = 3): Promise<number> {
 
 /**
  * Tối đa `take` bài học gần nhất của CHÍNH cặp này (mọi khung — khung khác
- * cùng cặp vẫn là cùng con đường giá), mới nhất trước. Mỗi bài ≤ 220 ký tự,
- * kèm kết quả thật để Risk Officer thấy hậu quả, không chỉ lời khuyên suông.
+ * cùng cặp vẫn là cùng con đường giá), mới nhất trước. Mỗi bài ≤ 320 ký tự,
+ * CẮT THEO TỪ (không đứt giữa chữ — bug "noise_check:av…" từng làm hỏng bài
+ * học trong prompt duyệt lệnh), kèm kết quả thật để Risk Officer thấy hậu quả.
  * Lỗi DB trả [] — prompt duyệt vẫn chạy như 0.2.27.
  */
+const LESSON_BUDGET = 320;
+/** Cắt chuỗi theo RANH TỪ gần nhất trước budget, thêm dấu … khi cắt. */
+function cutWord(text: string, budget: number): string {
+  if (text.length <= budget) return text;
+  const cut = text.lastIndexOf(" ", budget - 1);
+  return `${text.slice(0, cut > 0 ? cut : budget).trimEnd()}…`;
+}
 export async function recentAutopsyLessons(symbol: string, take = 5): Promise<string[]> {
   try {
     const rows = await db.autoTrade.findMany({
@@ -457,7 +500,9 @@ export async function recentAutopsyLessons(symbol: string, take = 5): Promise<st
         if (!a.lesson) continue;
         const pnl = r.pnlPct ?? 0;
         const head = `[${r.interval} ${r.side} ${r.exitKind ?? "manual"} ${pnl >= 0 ? "+" : ""}${pnl.toFixed(1)}% ROE · tag=${a.tag ?? "?"}]`;
-        out.push(`${head} ${a.lesson}`.slice(0, 220));
+        // 0.3.2 — budget 320 (từ 220) + cutWord: lesson chỉ bị rút ở ranh từ
+        // cuối cùng, không đứt giữa chữ như slice(0,220) cũ
+        out.push(cutWord(`${head} ${a.lesson}`, LESSON_BUDGET));
       } catch {
         // JSON hỏng — bỏ bài này
       }

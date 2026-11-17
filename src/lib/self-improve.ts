@@ -145,6 +145,24 @@ export function decidePatch(
   }
 
   if (stats.n >= MIN_N_TIGHTEN && stats.expectancy < 0) {
+    // 0.3.2 — floorAuto ON: bộ ba minScore/minAcc thuộc về learner (dynamic-floor.ts,
+    // có flow-guard + FloorLog) — agent chỉ giữ quyền SIẾT RISK, không siết floor
+    // nữa (hai nguồn đè nhau lên cùng ba số thì floor nhảy loạn, không ai giải thích được)
+    if (cfg.floorAuto === true) {
+      const nextRisk = Math.max(10, cfg.riskPct <= 10 ? 10 : cfg.riskPct === 25 ? 10 : cfg.riskPct === 50 ? 25 : 10);
+      if (nextRisk === cfg.riskPct) {
+        return {
+          patch: null,
+          kind: "skip",
+          note: `floors auto-managed (floorAuto ON) · risk already ${cfg.riskPct}% · exp ${stats.expectancy}% n=${stats.n}`,
+        };
+      }
+      return {
+        patch: { riskPct: nextRisk as AutoConfig["riskPct"] },
+        kind: "promote",
+        note: `tighten RISK ONLY (floors auto-managed): exp ${stats.expectancy}% WR ${stats.winRate.toFixed(0)}% n=${stats.n} → risk ${nextRisk}%`,
+      };
+    }
     const nextScore = Math.min(85, Math.round(cfg.minScore + 2));
     const nextAcc = Math.min(85, Math.round(cfg.minAcc + 1));
     const nextRisk = Math.max(10, cfg.riskPct <= 10 ? 10 : cfg.riskPct === 25 ? 10 : cfg.riskPct === 50 ? 25 : 10);

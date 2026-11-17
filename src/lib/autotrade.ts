@@ -531,6 +531,15 @@ export interface AutoTradeRow {
   autopsy: string | null;
   /** entry-policy fingerprint for self-improve agent */
   methodId: string | null;
+  // ── 0.3.2 · TP1 partial → runner (trade-mgmt.ts) ──
+  /** ROE % đã bank tại TP1 (null = lệnh thường chưa qua TP1) */
+  p1Pct: number | null;
+  /** phần stake đã bank tại TP1, 0..1 */
+  p1Share: number | null;
+  /** TP mở rộng của runner (price move %) — null = chưa vào runner phase */
+  tp2Pct: number | null;
+  /** mức khoá lời hiện tại của trail runner (price move %, ≥0; 0 = hoà vô) */
+  trailPct: number | null;
   createdAt: string;
 }
 
@@ -706,8 +715,9 @@ const DIGEST_HR = "━━━━━━━━━━━━━━━━━━";
 const sideTag = (side: string): string => (side === "LONG" ? "LONG 🟢" : side === "SHORT" ? "SHORT 🔴" : "NEUTRAL ⚪");
 /** Số dòng tối đa của mục "Lệnh đã chạy" — giữ digest dưới trần 4096 ký tự Telegram */
 const DIGEST_LIST_MAX = 40;
-/** exitKind → icon kết quả (null/không rõ = ✋ đóng tay) */
-const DIGEST_KIND: Record<string, string> = { tp: "✅", sl: "🔻", flip: "🔄", manual: "✋" };
+/** exitKind → icon kết quả (null/không rõ = ✋ đóng tay; trail = runner bị
+ *  trail/BE stop đưa về — 0.3.2) */
+const DIGEST_KIND: Record<string, string> = { tp: "✅", sl: "🔻", flip: "🔄", manual: "✋", trail: "🪂" };
 
 /**
  * Digest body — counts OPENS as well as closes inside the window (an hourly
@@ -828,6 +838,24 @@ export interface AutoConfig {
   whaleFilter: boolean;
   /** broadcast the "TOP coin tiềm năng" scan digest to Telegram every 5 min */
   broadcast: boolean;
+  /** 0.3.2 — FLOOR ĐỘNG: learner (dynamic-floor.ts) tự chỉnh minAuc/minAcc/minScore
+   *  theo toàn bộ lịch sử lệnh + PHE, mỗi 6h, có lý do ghi FloorLog. Tắt = floor
+   *  tĩnh như trước, panel chỉnh tay là chốt. */
+  floorAuto: boolean;
+  /** 0.3.2 — TP1 PARTIAL → RUNNER: chạm TP lần đầu chỉ chốt runnerSharePct%, phần
+   *  còn lại chạy tiếp với SL về hoà vô (BE), TP mở rộng ×runnerTpMult và trail
+   *  khoá lời runnerTrailLock × quãng đi. false = đóng toàn bộ tại TP như cũ. */
+  runnerOn: boolean;
+  /** phần chốt tại TP1, % stake (30/50/70 — 50 = nửa chốt, nửa chạy) */
+  runnerSharePct: number;
+  /** TP runner mở rộng = tpPct × hệ số này (1..5) */
+  runnerTpMult: number;
+  /** trail runner khoá mỗi lần quãng đi thuận × hệ số này (0..1) */
+  runnerTrailLock: number;
+  /** 0.3.2 — SL CONFIRM: SL phải được thấy vượt liên tục N nhịp watcher (20s/nhịp)
+   *  HOẶC vượt sâu ≥ 15% bề rộng stop mới chốt — wick quét SL một nhịp không còn
+   *  quét sạch stop ("SL non"). 0 = tắt, hành vi cũ chạm là đóng. */
+  slConfirmTicks: number;
   /** LẬT CHIỀU TỰ ĐỘNG — khi lệnh đang mở và scan mới của CÙNG cặp/khung đảo
    *  chiều với tín hiệu đạt đủ ngưỡng chất lượng (cùng gate vào lệnh + noise band
    *  + không regressed), engine đóng lệnh cũ (exitKind "flip") và mở lệnh
@@ -863,8 +891,20 @@ export const AUTO_DEFAULTS: AutoConfig = {
   whaleFilter: true,
   broadcast: true,
   autoFlip: true,
+  // 0.3.2 — floor động + quản lý thoát lệnh (TP1 runner + SL confirm): bật sẵn
+  // vì sửa đúng hai pain đã nêu: "chốt sớm/SL non" và "tăng RR mất dòng lệnh"
+  floorAuto: true,
+  runnerOn: true,
+  runnerSharePct: 50,
+  runnerTpMult: 2,
+  runnerTrailLock: 0.5,
+  slConfirmTicks: 2,
 };
 export const COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
+/** phần chốt TP1 cho runner — choices panel (0.3.2) */
+export const RUNNER_SHARE_CHOICES = [30, 50, 70] as const;
+/** nhịp confirm SL — choices panel, đơn vị nhịp watcher 20s (0.3.2; 0 = tắt) */
+export const SL_CONFIRM_CHOICES = [0, 2, 3, 5] as const;
 /** DCA adds allowed into a losing position (model still confirming) */
 export const DCA_CHOICES = [0, 1, 2] as const;
 export const RISK_CHOICES = [10, 25, 50, 100] as const;
@@ -947,6 +987,21 @@ export function loadAutoConfig(): AutoConfig {
       whaleFilter: p.whaleFilter !== false,
       broadcast: p.broadcast !== false,
       autoFlip: p.autoFlip !== false,
+      // 0.3.2 — floor động + runner/SL-confirm: thiếu field (cfg cũ) → mặc định BẬT
+      floorAuto: p.floorAuto !== false,
+      runnerOn: p.runnerOn !== false,
+      runnerSharePct: RUNNER_SHARE_CHOICES.includes(p.runnerSharePct as (typeof RUNNER_SHARE_CHOICES)[number])
+        ? (p.runnerSharePct as number)
+        : AUTO_DEFAULTS.runnerSharePct,
+      runnerTpMult: typeof p.runnerTpMult === "number" && p.runnerTpMult >= 1 && p.runnerTpMult <= 5
+        ? p.runnerTpMult
+        : AUTO_DEFAULTS.runnerTpMult,
+      runnerTrailLock: typeof p.runnerTrailLock === "number" && p.runnerTrailLock > 0 && p.runnerTrailLock <= 1
+        ? p.runnerTrailLock
+        : AUTO_DEFAULTS.runnerTrailLock,
+      slConfirmTicks: SL_CONFIRM_CHOICES.includes(p.slConfirmTicks as (typeof SL_CONFIRM_CHOICES)[number])
+        ? (p.slConfirmTicks as number)
+        : AUTO_DEFAULTS.slConfirmTicks,
     };
   } catch {
     return AUTO_DEFAULTS;
