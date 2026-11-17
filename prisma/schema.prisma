@@ -126,6 +126,15 @@ model AutoTrade {
   autopsy       String?
   /** fingerprint of entry policy (gates/stake/lev/TF) at open — self-improve agent */
   methodId      String?
+  // ── 0.3.3 · TP1 PARTIAL → RUNNER (xem src/lib/trade-mgmt.ts) ─────────
+  /** ROE % SAU PHÍ đã bank tại TP1 (null = lệnh thường chưa qua TP1) */
+  p1Pct         Float?
+  /** phần stake đã bank tại TP1, 0..1 (runnerSharePct/100) */
+  p1Share       Float?
+  /** TP mở rộng của runner (price move %) — null = chưa vào runner phase */
+  tp2Pct        Float?
+  /** mức khoá lời hiện tại của trail runner (price move %, ≥0; 0 = hoà vô) */
+  trailPct      Float?
   createdAt     DateTime  @default(now())
 
   @@index([status, createdAt])

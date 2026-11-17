@@ -874,6 +874,15 @@ export interface AutoTradeRow {
   autopsy: string | null;
   /** entry-policy fingerprint for self-improve agent */
   methodId: string | null;
+  // ── 0.3.3 · TP1 partial → runner (trade-mgmt.ts) ──
+  /** ROE % SAU PHÍ đã bank tại TP1 (null = lệnh thường chưa qua TP1) */
+  p1Pct: number | null;
+  /** phần stake đã bank tại TP1, 0..1 */
+  p1Share: number | null;
+  /** TP mở rộng của runner (price move %) — null = chưa vào runner phase */
+  tp2Pct: number | null;
+  /** mức khoá lời hiện tại của trail runner (price move %, ≥0; 0 = hoà vô) */
+  trailPct: number | null;
   createdAt: string;
 }
 
@@ -1148,9 +1157,9 @@ const sideTag = (side: string): string => (side === "LONG" ? "LONG 🟢" : side 
 /** Số dòng tối đa của bảng lệnh — giữ digest dưới trần 4096 ký tự Telegram */
 const DIGEST_LIST_MAX = 40;
 /** exitKind → icon kết quả đứng ĐẦU dòng bảng (mỗi dòng đúng 1 icon → cột thẳng) */
-const DIGEST_KIND: Record<string, string> = { tp: "✅", sl: "❌", flip: "🔄", manual: "✋" };
+const DIGEST_KIND: Record<string, string> = { tp: "✅", sl: "❌", flip: "🔄", manual: "✋", trail: "🪢" };
 /** exitKind → mã 2 ký tự trong bảng monospace */
-const DIGEST_KIND_CODE: Record<string, string> = { tp: "TP", sl: "SL", flip: "FL", manual: "MN" };
+const DIGEST_KIND_CODE: Record<string, string> = { tp: "TP", sl: "SL", flip: "FL", manual: "MN", trail: "TL" };
 /** bỏ đuôi USDT cho gọn bảng (DOGEUSDT → DOGE) */
 const baseSym = (s: string): string => s.replace(/USDT$/, "");
 
@@ -1334,6 +1343,22 @@ export interface AutoConfig {
   trailActPct: number;
   /** khoảng cách % từ đỉnh/đáy tốt nhất tới stop trailing */
   trailDistPct: number;
+  /** 0.3.3 — TP1 PARTIAL → RUNNER: chạm TP lần đầu chỉ chốt runnerSharePct% stake
+   *  (sau phí), phần còn lại chạy tiếp với SL về hoà vô (BE), TP mở rộng
+   *  ×runnerTpMult và trail ratchet khoá lời runnerTrailLock × quãng đi. false =
+   *  đóng toàn bộ tại TP như cũ. Trả lời "chốt sớm" — một nửa vẫn chạy tiếp,
+   *  muốn RR cao hơn không cần đẩy TP xa tới mức không còn lệnh nào chạm. */
+  runnerOn: boolean;
+  /** phần chốt tại TP1, % stake (30/50/70 — 50 = nửa chốt, nửa chạy) */
+  runnerSharePct: number;
+  /** TP runner mở rộng = tpPct × hệ số này (1..5) */
+  runnerTpMult: number;
+  /** trail runner khoá mỗi lần quãng đi thuận × hệ số này (0..1), CHỈ TĂNG */
+  runnerTrailLock: number;
+  /** 0.3.3 — SL CONFIRM: SL phải được thấy vượt liên tục N nhịp watcher (20s/nhịp)
+   *  HOẶC vượt sâu ≥ 15% bề rộng stop mới chốt — wick quét SL một nhịp rồi quay
+   *  đầu không còn quét sạch stop ("SL non"). 0 = tắt, hành vi cũ chạm là đóng. */
+  slConfirmTicks: number;
 }
 
 export const AUTO_DEFAULTS: AutoConfig = {
@@ -1377,8 +1402,20 @@ export const AUTO_DEFAULTS: AutoConfig = {
   trailAuto: true,
   trailActPct: 1,
   trailDistPct: 0.8,
+  // 0.3.3 — TP1→runner + SL confirm: bật sẵn vì sửa đúng hai pain user báo:
+  // "các lệnh bị chốt sớm và SL non… tăng RR thì ko bắt lệnh dc nữa" — TP1 bank
+  // nửa, runner chạy ra RR cao hơn; SL đợi confirm, wick nông không quét sạch.
+  runnerOn: true,
+  runnerSharePct: 50,
+  runnerTpMult: 2,
+  runnerTrailLock: 0.5,
+  slConfirmTicks: 2,
 };
 export const COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
+/** phần chốt TP1 cho runner — choices panel (0.3.3) */
+export const RUNNER_SHARE_CHOICES = [30, 50, 70] as const;
+/** nhịp confirm SL — choices panel, đơn vị nhịp watcher 20s (0.3.3; 0 = tắt) */
+export const SL_CONFIRM_CHOICES = [0, 2, 3, 5] as const;
 /** FLIP cooldown choices — đồng bộ với COOLDOWN_CHOICES. 0 = tắt. */
 export const FLIP_COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
 /** DCA adds allowed into a losing position (model still confirming) */
@@ -1484,6 +1521,20 @@ export function loadAutoConfig(): AutoConfig {
         typeof p.trailActPct === "number" && p.trailActPct > 0 ? Math.min(10, Math.max(0.2, p.trailActPct)) : AUTO_DEFAULTS.trailActPct,
       trailDistPct:
         typeof p.trailDistPct === "number" && p.trailDistPct > 0 ? Math.min(10, Math.max(0.1, p.trailDistPct)) : AUTO_DEFAULTS.trailDistPct,
+      // 0.3.3 — TP1→runner + SL confirm: thiếu field (cfg cũ) → mặc định BẬT
+      runnerOn: p.runnerOn !== false,
+      runnerSharePct: RUNNER_SHARE_CHOICES.includes(p.runnerSharePct as (typeof RUNNER_SHARE_CHOICES)[number])
+        ? (p.runnerSharePct as number)
+        : AUTO_DEFAULTS.runnerSharePct,
+      runnerTpMult:
+        typeof p.runnerTpMult === "number" && p.runnerTpMult >= 1 && p.runnerTpMult <= 5 ? p.runnerTpMult : AUTO_DEFAULTS.runnerTpMult,
+      runnerTrailLock:
+        typeof p.runnerTrailLock === "number" && p.runnerTrailLock > 0 && p.runnerTrailLock <= 1
+          ? p.runnerTrailLock
+          : AUTO_DEFAULTS.runnerTrailLock,
+      slConfirmTicks: SL_CONFIRM_CHOICES.includes(p.slConfirmTicks as (typeof SL_CONFIRM_CHOICES)[number])
+        ? (p.slConfirmTicks as number)
+        : AUTO_DEFAULTS.slConfirmTicks,
     };
   } catch {
     return AUTO_DEFAULTS;

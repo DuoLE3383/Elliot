@@ -25,6 +25,7 @@ import { db } from "@/lib/db";
 import { isCorruptDbError, corruptDbHint } from "@/lib/db-hardening";
 import { readAutoState, readOpenPosition, readWallet, serialize } from "@/lib/autostate";
 import { feeRoe } from "@/lib/autotrade";
+import { combineClosePnl } from "@/lib/trade-mgmt";
 import { autopsyClosedTrade } from "@/lib/autopsy";
 import { auditBook, repairBook } from "@/lib/audit-book";
 
@@ -199,11 +200,13 @@ export async function PATCH(req: NextRequest) {
   // ROE SAU PHÍ (0.2.77) — giữ nguyên bit công thức với closeTradeDirect của
   // engine.ts (một settlement, hai cửa vào): trừ round-trip 2 bên phí giao
   // dịch, thanh lý vẫn −100, phí không kéo ROE xuống dưới đáy −100.
-  let pnlPct = Math.round((movePct * row.leverage - feeRoe(row.leverage)) * 100) / 100;
+  let remPnl = Math.round((movePct * row.leverage - feeRoe(row.leverage)) * 100) / 100;
   // liquidation guard: an adverse move of 100/leverage % wipes the margin
   const adverse = row.side === "SHORT" ? -movePct : movePct;
-  if (row.leverage > 1 && adverse <= -(100 / row.leverage)) pnlPct = -100;
-  else if (pnlPct < -100) pnlPct = -100;
+  if (row.leverage > 1 && adverse <= -(100 / row.leverage)) remPnl = -100;
+  else if (remPnl < -100) remPnl = -100;
+  // 0.3.3 — COMBINE CLOSE: lệnh đã qua TP1 partial → ROE tổng = share×p1 + (1−share)×rem
+  const pnlPct = combineClosePnl(row.p1Pct, row.p1Share, remPnl);
 
   const capitalBefore = row.capitalBefore ?? 1000;
   // only the STAKED share of equity takes risk: delta = stake × ROE

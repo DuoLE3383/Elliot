@@ -1,0 +1,59 @@
+0.3.3 — QUẢN LÝ THOÁT LỆNH: TP1 PARTIAL → RUNNER + SL CONFIRM (hết "chốt sớm / SL non"; tăng RR không còn giết dòng lệnh)
+
+Trả lời trực tiếp phản hồi của user: "các lệnh bị chốt sớm và SL non.... tăng RR thì ko bắt lệnh dc nữa".
+Port phần exit-mgmt từ bản sandbox (87e212d, nhánh sandbox/0.3.2-exit-mgmt) lên NỀN 0.3.2 DQF hiện hành —
+bỏ dynamic-floor.ts trùng lặp (DQF/dqf.ts của 0.3.2 giữ NGUYÊN, không đụng), giữ đúng một hệ sàn động.
+
+(1) src/lib/trade-mgmt.ts (MỚI, thuần không IO — test độc lập được):
+  · SL CONFIRM — slConfirmStep: máy trạng thái chạm SL; giá phải vượt SL trong ≥ slConfirmTicks
+    lần đo LIÊN TIẾP của watcher (20s/nhịp, đo theo elapsed nên cycle 5m và watcher 20s chấm
+    thống nhất) HOẶC vượt sâu ≥ SL_DEEP_FRAC (15%) × bề rộng stop thì chốt ngay. Wick quét SL
+    một nhịp rồi quay đầu → lệnh SỐNG ("SL non" hết). confirmTicks ≤ 0/1 = hành vi cũ chạm là đóng.
+    Liquidation vẫn tức thời. State slPending sống qua restart (engine.json).
+  · TP1 PARTIAL → RUNNER — tp1Plan: chạm TP lần đầu KHÔNG đóng toàn bộ; chốt runnerSharePct%
+    (mặc định 50%, SAU PHÍ round-trip riêng — cùng settlement 0.2.77), phần còn lại thành runner:
+    SL về HOÀ VÔ (breakeven, trailPct=0 — rủi ro = 0) · TP mở rộng tpPct × runnerTpMult (mặc định
+    ×2) · trail ratchet khoá lời runnerTrailLock × quãng đi (mặc định 50%, CHỈ TĂNG). KHÔNG arm khi
+    lệnh đã DCA (avg đã dời, stake đã nhân — chốt toàn bộ như cũ). → "chốt sớm" hết vì một nửa vẫn
+    chạy tiếp; muốn RR cao không cần đẩy TP xa tới mức không còn lệnh nào chạm — runner chạy ra RR.
+  · trailHit / trailRatchet / runnerTp2 / movePct1x / combineClosePnl — pure helpers.
+    COMBINE CLOSE: ROE tổng lúc đóng = share × p1Pct (banked, sau phí riêng) + (1−share) × phần
+    còn lại (sau phí round-trip riêng) — một lệnh vẫn MỘT dòng sổ, chuỗi capitalBefore/After
+    không phá vỡ; runner quét liq −100% vẫn không âm quá vốn thật.
+
+(2) engine.ts — MỘT luồng chấm thoát: evalExit() dùng chung watcher 20s + cycle 5m (không đường
+    nào đóng trước làm hỏng TP1 partial):
+    · runner phase (đã bank TP1 — state nằm trên ROW AutoTrade, sống qua restart): liq → TP2 →
+      BE/trail hit (exitKind "trail") → ratchet trailPct (ghi ROW, chỉ tăng) → near-TP2 warn
+      one-shot (NEAR_FRAC, tái dùng flag warned.tp). KHÔNG còn SL gốc, KHÔNG DCA, KHÔNG trailing cũ.
+    · normal phase giữ nguyên thứ tự ưu tiên cũ: trailing 0.2.61 (updateTrail) → liq → TP/SL →
+      DCA-at-stop; chỉ thêm: TP hit → arm runner (ghi p1Pct SAU PHÍ + p1Share + tp2Pct + trailPct=0,
+      reset p.trail + warned + slPending, Telegram msgTp1, fail-open đóng toàn bộ nếu ghi DB lỗi);
+      SL hit → dcaRescue giữ ưu tiên TRƯỚC confirm → SL confirm (sâu = ngay, nông = đợi nhịp kế).
+    · closeTradeDirect + PATCH /api/autotrade: combineClosePnl cho lệnh có p1Pct (kể cả đường đóng
+      tay) — settlement một nguồn, hai cửa vào cùng công thức sau phí.
+    · exitKind "trail" đã có từ 0.2.61 — runner-trail tái dùng đúng kind đó; bổ sung icon 🪢 + mã TL
+      vào DIGEST_KIND/DIGEST_KIND_CODE (trước đây trail rơi vào nhánh "✋/—").
+
+(3) AutoConfig +5 knob (mặc định BẬT — sửa đúng hai pain đã nêu): runnerOn=true · runnerSharePct=50
+    (choices 30/50/70) · runnerTpMult=2 (1..5) · runnerTrailLock=0.5 (0.1..1) · slConfirmTicks=2
+    (choices 0/2/3/5 — 0 = tắt). loadAutoConfig/AUTO_DEFAULTS bù field cho cfg cũ; engine.json cũ
+    tự có default qua {...AUTO_DEFAULTS, ...raw.cfg}.
+
+(4) DB: AutoTrade +4 cột p1Pct/p1Share/tp2Pct/trailPct (prisma schema + SCHEMA_COLUMNS ALTER — DB
+    đang chạy tự migrate lúc boot, không mất dữ liệu); autostate.serialize trả đủ 4 field cho UI.
+    KHÔNG thêm bảng mới (khác bản sandbox — FloorLog thuộc dynamic-floor bị bỏ).
+
+(5) UI/i18n: Auto panel thêm hàng "🪁 TP1 → Runner" (toggle + share 30/50/70 + TP× + khoá) và nhóm
+    "SL confirm ×N" cạnh khối Trailing stop, cùng style button/tooltip; i18n vi+en đủ 8 key mới
+    (auto.runner.*, auto.slconfirm.*) — tooltip diễn giải đủ cơ chế + trade-off.
+
+(6) Test: scripts/test-trade-mgmt.ts MỚI 30/30 pass (SL confirm 7 nhánh · trail/BE/ratchet · TP2 ·
+    tp1Plan share/DCA/100% · combine close 5 nhánh kể cả liq −100% · move 1x LONG/SHORT). Hồi quy
+    trên nền 0.3.2: test-dqf 32/32 (DQF không đổi) · test-atr-sltp ALL PASS · test-dca ALL PASS.
+    tsc sạch · eslint sạch (9 file đụng) · next build thành công · smoke boot standalone: GET /
+    200, /api/stats JSON ok, bootstrap DB + WAL ok (DATABASE_URL smoke riêng, không đụng DB thật).
+
+Lưu ý vận hành: trailing stop (0.2.61, mặc định OFF) giữ nguyên vai trò TRƯỚC TP1; sau TP1 trail
+riêng của runner tiếp quản. Nếu để trailing bật với act/dist nhỏ, nó vẫn có thể chốt tại chỗ trước
+khi lệnh chạm TP1 — muốn runner chạy xa thì nới/tắt trailing trên panel (đã có knob riêng từ 0.2.63).

@@ -16,7 +16,9 @@ import {
   resetAutoCapital,
   RISK_CHOICES,
   roeOf,
+  RUNNER_SHARE_CHOICES,
   sendTelegram,
+  SL_CONFIRM_CHOICES,
   TP_MODES,
   telegramConfigured,
   telegramStatus,
@@ -844,6 +846,95 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                 <span className="text-zinc-600">{t(lang, "auto.trail.unit")}</span>
               </label>
             )}
+          </div>
+          {/* 0.3.3 — TP1→runner + SL confirm: hai cơ chế thoát lệnh mới trả lời
+              "chốt sớm/SL non/tăng RR mất dòng lệnh" */}
+          <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t(lang, "auto.runner")}>
+            <button
+              type="button"
+              onClick={() => updateCfg({ runnerOn: !cfg.runnerOn })}
+              aria-pressed={cfg.runnerOn}
+              title={t(lang, "auto.runner.tip", { sh: cfg.runnerSharePct, t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}
+              className={`h-7 rounded-md border px-2 text-[11px] ${
+                cfg.runnerOn
+                  ? "border-teal-700 bg-teal-950/40 text-teal-300"
+                  : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+              }`}
+            >
+              🪁 {t(lang, "auto.runner")}
+            </button>
+            {cfg.runnerOn && (
+              <>
+                <span
+                  className="mr-0.5 text-[11px] text-zinc-500"
+                  title={t(lang, "auto.runner.tip", { sh: cfg.runnerSharePct, t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}
+                >
+                  {t(lang, "auto.runner.share")}
+                </span>
+                {RUNNER_SHARE_CHOICES.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => updateCfg({ runnerSharePct: m })}
+                    className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
+                      cfg.runnerSharePct === m
+                        ? "border-teal-700 bg-teal-950/40 text-teal-300"
+                        : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                    }`}
+                  >
+                    {m}%
+                  </button>
+                ))}
+                <span className="ml-1 text-[11px] text-zinc-500" title={t(lang, "auto.runner.tip", { sh: cfg.runnerSharePct, t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}>
+                  {t(lang, "auto.runner.tp")}
+                </span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={5}
+                  step={0.5}
+                  value={cfg.runnerTpMult}
+                  onChange={(e) => updateCfg({ runnerTpMult: Math.min(5, Math.max(1, Number(e.target.value) || 2)) })}
+                  aria-label={t(lang, "auto.runner.tp")}
+                  title={t(lang, "auto.runner.tip", { sh: cfg.runnerSharePct, t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}
+                  className="h-7 w-12 border-teal-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-teal-300"
+                />
+                <span className="text-[11px] text-zinc-500" title={t(lang, "auto.runner.tip", { sh: cfg.runnerSharePct, t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}>
+                  {t(lang, "auto.runner.lock")}
+                </span>
+                <Input
+                  type="number"
+                  min={0.1}
+                  max={1}
+                  step={0.1}
+                  value={cfg.runnerTrailLock}
+                  onChange={(e) => updateCfg({ runnerTrailLock: Math.min(1, Math.max(0.1, Number(e.target.value) || 0.5)) })}
+                  aria-label={t(lang, "auto.runner.lock")}
+                  title={t(lang, "auto.runner.tip", { sh: cfg.runnerSharePct, t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}
+                  className="h-7 w-12 border-teal-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-teal-300"
+                />
+              </>
+            )}
+            <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.slconfirm")}>
+              <span className="mr-0.5 text-[11px] text-zinc-500" title={t(lang, "auto.slconfirm.tip", { n: cfg.slConfirmTicks })}>
+                {t(lang, "auto.slconfirm")}
+              </span>
+              {SL_CONFIRM_CHOICES.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => updateCfg({ slConfirmTicks: m })}
+                  title={t(lang, "auto.slconfirm.tip", { n: m })}
+                  className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
+                    cfg.slConfirmTicks === m
+                      ? "border-amber-700 bg-amber-950/40 text-amber-300"
+                      : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                  }`}
+                >
+                  {m === 0 ? t(lang, "auto.cfg.cooldownOff") : `×${m}`}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">

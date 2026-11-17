@@ -84,6 +84,11 @@ const SCHEMA_COLUMNS: { table: string; column: string; ddl: string }[] = [
   { table: "AutoTrade", column: "llmReason", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "llmReason" TEXT` },
   { table: "AutoTrade", column: "autopsy", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "autopsy" TEXT` },
   { table: "AutoTrade", column: "methodId", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "methodId" TEXT` },
+  // 0.3.3 — TP1 partial → runner (trade-mgmt.ts)
+  { table: "AutoTrade", column: "p1Pct", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "p1Pct" REAL` },
+  { table: "AutoTrade", column: "p1Share", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "p1Share" REAL` },
+  { table: "AutoTrade", column: "tp2Pct", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "tp2Pct" REAL` },
+  { table: "AutoTrade", column: "trailPct", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "trailPct" REAL` },
 ];
 const MODEL_TABLES = ["User", "Post", "Suggestion", "FinetuneRun", "AutoTrade", "BcastVerdict", "SignalTotal", "DiveReport", "StrategyVariant", "ImproveEvent", "EvolveLog", "DryRunState", "VulcanBook", "WyckoffBook", "LiveBook"];
 /** exported for the /api health diagnostic */

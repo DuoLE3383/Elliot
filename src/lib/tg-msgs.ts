@@ -147,6 +147,29 @@ export const msgLlmVeto = (r: ScanRow, v: LlmVerdict): string =>
     `💬 ${escHtml(v.reasons.slice(0, 3).join(" · ")) || "—"}`,
   ].join("\n");
 
+/** 0.3.3 — TP1 PARTIAL → RUNNER: chạm TP lần đầu, chốt một phần (SAU PHÍ — cùng
+ *  settlement 0.2.77 với closeTradeDirect), phần còn lại chuyển runner (SL về
+ *  hoà vô, TP mở rộng, trail ratchet khoá lời). Tham số khai báo structural
+ *  (AutoTradeRow subset) để tránh vòng import. */
+export const msgTp1 = (
+  r: { symbol: string; interval: string; side: string; entryPrice: number; tpPct: number; leverage: number; stakePct?: number | null },
+  price: number,
+  share: number,
+  tp2Pct: number,
+): string => {
+  const roe = roeOf(r.side, r.entryPrice, price, r.leverage);
+  const bankRoe = Math.round((r.tpPct * r.leverage - feeRoe(r.leverage)) * 100) / 100;
+  return [
+    `🪙 <b>TP1 PARTIAL — RUNNER ARMED</b>`,
+    `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
+    HR,
+    `✅ Banked <b>${(share * 100).toFixed(0)}%</b> stake tại TP1 (+${bankRoe.toFixed(1)}% ROE phần banked, sau phí)`,
+    `🛡️ Phần còn lại: SL về <b>HOÀ VÔ</b> (breakeven) — rủi ro = 0`,
+    `🏁 TP mở rộng: <b>+${tp2Pct.toFixed(2)}%</b> giá (từ ${r.tpPct.toFixed(2)}%) — để lời chạy`,
+    `📈 Price ${fmtPrice(price)} · ROE ${roe >= 0 ? "+" : ""}${roe.toFixed(1)}% · trail khoá 50% quãng đi`,
+  ].join("\n");
+};
+
 /**
  * Autopsy notice — lệnh ĐÃ ĐÓNG được LLM phân tích chuyên sâu (cả thắng lẫn thua): tag chế độ
  * thắng/thua + bài học + các why trích số. Tham số khai báo structural (không
