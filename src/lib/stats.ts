@@ -119,7 +119,42 @@ export interface StatsSnapshot {
   at: number;
   /** 0.3.2 — công tắc DQF (sàn chất lượng động) — trang /stats dùng cho Switch */
   dqfOn?: boolean;
+  /** 0.3.4 — khối số liệu CẤU TRÚC cho dashboard redesign (KPI + rail + sơ đồ):
+   *  pipeline thật của engine từng chặng + sổ thoát lệnh + 10 lệnh thoát gần
+   *  nhất — client KHÔNG parse chuỗi metrics (k/v là chữ hiển thị). */
+  flow: StatsFlow;
   sections: StatSection[];
+}
+
+/** một lệnh thoát gần đây — feed “Sự kiện” của trang /stats */
+export interface StatsRecentExit {
+  symbol: string;
+  interval: string;
+  side: string;
+  exitKind: string | null;
+  pnlPct: number | null;
+  exitTime: string | null; // ISO
+}
+export interface StatsFlow {
+  universePairs: number;
+  scanRows: number;
+  scanAgeMin: number | null;
+  scanStale: boolean;
+  gatePass: number;
+  gateBest: string | null;
+  bcastPass: number;
+  bcastTotal: number;
+  open: { symbol: string; side: string; interval: string; hours: number; roe: number | null } | null;
+  /** sổ thoát lệnh — 0.3.3 thêm trail (TP1 partial → runner trailing stop) */
+  exits: { tp: number; sl: number; trail: number; flip: number; manual: number; legacy: number };
+  closed: number;
+  wins: number;
+  netPnlPct: number; // tổng ROE các lệnh đã đóng
+  capital: number | null;
+  winRateLb: number; // Wilson 95% cận dưới trên closed (auto stats)
+  last7d: number;
+  sg: { total: number; win: number; loss: number; flat: number; hitRate: number | null };
+  recent: StatsRecentExit[];
 }
 
 const min = (ms: number): number => Math.round(ms / 60_000);
@@ -153,6 +188,29 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
   const now = Date.now();
   const eng = engineSnapshot(); // không ném — tự catch bên trong qua try ở caller
   const cfg = eng.cfg;
+
+  // 0.3.4 — khối flow cho dashboard: các safe() bên dưới ghi số thật vào đây
+  // ngay lúc query; section nào lỗi thì chặng tương ứng giữ mặc định (0/null).
+  const flow: StatsFlow = {
+    universePairs: UNIVERSE.length,
+    scanRows: 0,
+    scanAgeMin: null,
+    scanStale: true,
+    gatePass: 0,
+    gateBest: null,
+    bcastPass: 0,
+    bcastTotal: 0,
+    open: null,
+    exits: { tp: 0, sl: 0, trail: 0, flip: 0, manual: 0, legacy: 0 },
+    closed: 0,
+    wins: 0,
+    netPnlPct: 0,
+    capital: null,
+    winRateLb: 0,
+    last7d: 0,
+    sg: { total: 0, win: 0, loss: 0, flat: 0, hitRate: null },
+    recent: [],
+  };
 
   // ─── 1. Market Model — dự báo xu hướng (thay panel Trading sessions 0.2.68) ─
   // Dự báo = TỔNG HỢP output các model đang chạy, không phải model mới:
@@ -414,6 +472,10 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
   // ─── 4. Auto Trade — Dry-run ──────────────────────────────────────────────
   const auto = await safe("auto", async () => {
     const st = await readAutoState();
+    // 0.3.4 — ghi vào flow cho KPI “Net result”
+    flow.capital = st.capital;
+    flow.netPnlPct = st.stats.netPnlPct;
+    flow.winRateLb = st.stats.closed > 0 ? wilsonLB(st.stats.wins, st.stats.closed) : 0;
     const lw = pval("LESSON_WEIGHT", LESSON_WEIGHT);
     const newestClosed = st.trades.find((t) => t.status === "closed") ?? null;
     // kiểm chéo sổ vốn: trades đang mở phải có capitalBefore == capitalAfter của
@@ -558,6 +620,16 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     );
     const bcast = await db.bcastVerdict.findMany();
     const pass = bcast.filter((b) => b.verdict === "pass").length;
+    // 0.3.4 — ghi vào flow cho Signal Flow Map
+    flow.scanRows = rows.length;
+    flow.scanAgeMin = age;
+    flow.scanStale = stale;
+    flow.gatePass = cands.length;
+    flow.gateBest = cands[0]
+      ? `${cands[0].symbol.replace("USDT", "")} ${cands[0].interval} · score ${cands[0].score.toFixed(1)}`
+      : null;
+    flow.bcastPass = pass;
+    flow.bcastTotal = bcast.length;
     const biasStack = [
       { label: "LONG", n: rows.filter((r) => r.bias === "LONG").length },
       { label: "SHORT", n: rows.filter((r) => r.bias === "SHORT").length },
@@ -624,6 +696,8 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         ? ((o.side === "SHORT" ? (o.entryPrice - last) / o.entryPrice : (last - o.entryPrice) / o.entryPrice) * 100 * o.leverage)
         : null;
     const slDist = last != null ? Math.abs((last - o.entryPrice) / o.entryPrice) * 100 - o.slPct : null;
+    // 0.3.4 — ghi vào flow cho node “Position”
+    flow.open = { symbol: o.symbol, side: o.side, interval: o.interval, hours: durH, roe: roe };
     return {
       state: (durH > 24 ? "warn" : "ok") as StatState,
       note:
@@ -663,6 +737,12 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     const worst = pnls.length ? Math.min(...pnls) : null;
     const avg = pnls.length ? pnls.reduce((a, b) => a + b, 0) / pnls.length : null;
     const last7d = closed.filter((r) => r.exitTime && now - new Date(r.exitTime).getTime() < 7 * 86_400_000).length;
+    // 0.3.4 — ghi vào flow cho Exit Scorecard + KPI (trail = TP1 partial → runner)
+    flow.exits = { tp: kinds.tp, sl: kinds.sl, trail: kinds.trail, flip: kinds.flip, manual: kinds.manual, legacy: unlabeled };
+    flow.closed = closed.length;
+    flow.wins = closed.filter((r) => (r.pnlPct ?? 0) > 0).length;
+    flow.netPnlPct = pnls.reduce((a, b) => a + b, 0);
+    flow.last7d = last7d;
     // PnL 20 lệnh đóng gần nhất (cũ → mới) — client vẽ cột xanh/đỏ
     // (0.2.91) mỗi cột kèm chi tiết hover: phía · kiểu đóng + thời điểm
     const pnlBars = closed
@@ -762,6 +842,8 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       if (outcomeOf(r.bias as XgbBiasRow, r.entryPrice, r.exitPrice) !== r.outcome) mismatch += 1;
     }
     const judged = win + loss;
+    // 0.3.4 — ghi vào flow cho KPI “Đề xuất PHE”
+    flow.sg = { total: rows.length, win, loss, flat, hitRate: judged > 0 ? (win / judged) * 100 : null };
     const avgPnl =
       res.filter((r) => r.outcome !== "flat" && r.pnlPct != null).length > 0
         ? res.filter((r) => r.outcome !== "flat" && r.pnlPct != null).reduce((a, r) => a + (r.pnlPct ?? 0), 0) /
@@ -828,5 +910,25 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     };
   });
 
-  return { at: now, dqfOn: readDqfFile().on, sections: [market, combo, universe, auto, dqfSec, dock, openPos, hist, sg] };
+  // ─── 0.3.4 — 10 lệnh thoát gần nhất cho feed “Sự kiện” (read-only, lỗi thì để rỗng) ──
+  try {
+    const recent = await db.autoTrade.findMany({
+      where: { status: "closed" },
+      orderBy: { exitTime: "desc" },
+      take: 10,
+      select: { symbol: true, interval: true, side: true, exitKind: true, pnlPct: true, exitTime: true },
+    });
+    flow.recent = recent.map((r) => ({
+      symbol: r.symbol,
+      interval: r.interval,
+      side: r.side,
+      exitKind: r.exitKind,
+      pnlPct: r.pnlPct,
+      exitTime: r.exitTime ? new Date(r.exitTime).toISOString() : null,
+    }));
+  } catch {
+    flow.recent = [];
+  }
+
+  return { at: now, dqfOn: readDqfFile().on, flow, sections: [market, combo, universe, auto, dqfSec, dock, openPos, hist, sg] };
 }

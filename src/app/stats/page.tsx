@@ -22,6 +22,16 @@
 //       đề có dot trạng thái + 2 số headline + badge ok/warn, bấm mới mở
 //       metrics/charts/basis → trang mặc định vừa 1-2 màn hình, hết dàn trải.
 //   (3) Nút "Mở tất cả / Thu gọn" + node "LLM dive → /ai" nhảy trang.
+// 0.3.4 — DASHBOARD REDESIGN (tham chiếu flow-map monitoring dashboard):
+//   (1) SIDEBAR trái (lg+) điều hướng trạm — bấm item dùng đúng logic goTo
+//       (tự mở trạm + cuộn + phát sáng); mobile đổi thành dải chip cuộn ngang.
+//   (2) KPI "Net result" (3 thẻ: vốn paper / lệnh dry-run / đề xuất PHE) — số
+//       từ khối `flow` cấu trúc mới của /api/stats (không parse chuỗi metrics).
+//   (3) RAIL phải: Sự kiện gần đây (10 lệnh thoát mới nhất + vị thế đang mở),
+//       Kiểm tra sức khoẻ (5 trạng thái section), Bảng điểm thoát lệnh
+//       (TP/SL/Trail/Flip/Manual/Legacy — trail = TP1 partial → runner 0.3.3).
+//   TOÀN BỘ nội dung audit + PipeMap + Stage accordion + tabs + công tắc DQF
+//   GIỮ NGUYÊN — chỉ thay lớp vỏ bố cục và nền dashboard tối.
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,12 +57,24 @@ import type { StatChart, StatTone } from "@/lib/stats";
 import { fetchView, type ViewPayload } from "@/lib/view";
 import { DEFAULT_SETTINGS, DEFAULT_WYCKOFF, SYMBOLS, type EngineSettings } from "@/lib/types";
 import {
+  Activity,
   ArrowLeft,
+  Bot,
   CheckCircle2,
+  Crosshair,
+  FlaskConical,
+  Globe,
   HelpCircle,
+  History,
+  Layers,
+  LayoutDashboard,
+  Radar,
   RefreshCw,
   ScrollText,
+  Sparkles,
+  Target,
   TriangleAlert,
+  type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
@@ -73,7 +95,32 @@ interface StatsSnapshot {
   at: number;
   /** 0.3.2 — công tắc DQF (sàn chất lượng động) */
   dqfOn?: boolean;
+  /** 0.3.4 — khối số liệu cấu trúc cho KPI + rail (khớp src/lib/stats.ts) */
+  flow: StatsFlow;
   sections: StatSection[];
+}
+
+/** khối flow — hình dạng khớp StatsFlow của src/lib/stats.ts (khai tại chỗ để
+ *  trang client không kéo db/engine vào bundle trình duyệt) */
+interface StatsFlow {
+  universePairs: number;
+  scanRows: number;
+  scanAgeMin: number | null;
+  scanStale: boolean;
+  gatePass: number;
+  gateBest: string | null;
+  bcastPass: number;
+  bcastTotal: number;
+  open: { symbol: string; side: string; interval: string; hours: number; roe: number | null } | null;
+  exits: { tp: number; sl: number; trail: number; flip: number; manual: number; legacy: number };
+  closed: number;
+  wins: number;
+  netPnlPct: number;
+  capital: number | null;
+  winRateLb: number;
+  last7d: number;
+  sg: { total: number; win: number; loss: number; flat: number; hitRate: number | null };
+  recent: { symbol: string; interval: string; side: string; exitKind: string | null; pnlPct: number | null; exitTime: string | null }[];
 }
 
 const PICK_TFS = ["5m", "15m", "1h", "4h"];
@@ -81,6 +128,41 @@ const PICK_TFS = ["5m", "15m", "1h", "4h"];
 // + giá trị đặc biệt "ALL" = journal gộp mọi cặp qua /api/journal
 const PICK_ALL = "ALL";
 const PICK_SYMBOLS: readonly string[] = SYMBOLS;
+
+// ─── 0.3.4 — dashboard redesign: bảng màu + điều hướng + helper ─────────────
+const APP_VERSION = "0.3.4";
+const C = {
+  ok: "#34d399", // đạt / xanh lục
+  warn: "#fbbf24", // chờ / cần rà soát
+  bad: "#f87171", // bị chặn / cắt SL
+  info: "#22d3ee", // trail (TP1→Runner)
+  flip: "#a78bfa", // đảo chiều
+  idle: "#475569", // trống / legacy
+};
+/** sidebar + chip mobile — key = id trạm (giữ đúng logic goTo mở + cuộn + flash) */
+const NAV: { key: string; icon: LucideIcon }[] = [
+  { key: "overview", icon: LayoutDashboard },
+  { key: "st-market", icon: Activity },
+  { key: "st-universe", icon: Globe },
+  { key: "st-combo", icon: Target },
+  { key: "st-dock", icon: Radar },
+  { key: "st-auto", icon: Bot },
+  { key: "st-dqf", icon: Layers },
+  { key: "st-open", icon: Crosshair },
+  { key: "st-hist", icon: History },
+  { key: "st-journal", icon: ScrollText },
+  { key: "st-lab", icon: FlaskConical },
+];
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return "";
+  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (m < 60) return `${Math.max(1, m)}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+const signed = (v: number, digits = 2): string => `${v >= 0 ? "+" : ""}${v.toFixed(digits)}`;
 
 // 0.2.67 — màu ngữ nghĩa cho MỌI field: server gắn tone theo ngưỡng thật,
 // client chỉ tra bảng — không tự suy từ chữ nên không bao giờ lệch màu.
@@ -171,6 +253,8 @@ export default function StatsPage() {
   /** 0.2.85 — trạm đang mở (accordion) + trạm đang phát vòng sáng */
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [flash, setFlash] = useState<string | null>(null);
+  /** 0.3.4 — item sidebar/chip đang hoạt động (đổi khi bấm điều hướng) */
+  const [nav, setNav] = useState("overview");
   /** 0.3.2 — công tắc DQF (sàn chất lượng động học từ toàn bộ Elliott session) */
   const [dqfOn, setDqfOn] = useState<boolean>(true);
   const [dqfBusy, setDqfBusy] = useState(false);
@@ -315,6 +399,20 @@ export default function StatsPage() {
     });
   }, []);
 
+  /** 0.3.4 — điều hướng sidebar/chip: đánh dấu item + dùng đúng goTo (mở trạm
+   *  + cuộn + flash); "overview" cuộn lên đầu; "dive" đi thẳng /ai qua goTo. */
+  const goNav = useCallback(
+    (id: string) => {
+      setNav(id);
+      if (id === "overview") {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      goTo(id);
+    },
+    [goTo],
+  );
+
   /** 0.2.82 — Lab (dời từ terminal): nạp config biến thể vào utp.settings
    *  (localStorage, merge qua cấu hình ĐÃ LƯU — giữ leverage/utOn của người
    *  dùng). StrategyLab đã markVariantApplied ở DB trước khi onApply chạy;
@@ -453,9 +551,68 @@ export default function StatsPage() {
 
   const allOpen = STAGE_IDS.every((id) => open[id]);
 
+  // 0.3.4 — thẻ sơ đồ dùng ở cả nhánh snap / !snap (giữ map hiển thị lúc nạp
+  // như 0.3.3); onNodeClick đổi sang goNav để sidebar/chip đồng bộ highlight.
+  const pipeCard = (
+    <Card className="border-[#1d2433] bg-[#10151f]">
+      <CardContent className="py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-1.5">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-zinc-100">{t(lang, "stats.flow.title")}</p>
+            <p className="truncate text-[11px] text-zinc-500">{t(lang, "stats.flow.sub")}</p>
+          </div>
+          <span className="hidden text-[10px] text-zinc-500 md:inline">🖱️ {t(lang, "stats.hoverHint")}</span>
+        </div>
+        <PipeMap nodes={pipeNodes} onNodeClick={goNav} hint={t(lang, "flow.hint")} />
+      </CardContent>
+    </Card>
+  );
+
   return (
-    <div className="min-h-screen bg-transparent text-zinc-200">
-      <div className="space-y-4 p-3 sm:p-5">
+    <div className="min-h-screen bg-[#0a0e15] text-zinc-200">
+      <div className="mx-auto flex max-w-[1600px]">
+        {/* ─── 0.3.4 — SIDEBAR điều hướng trạm (lg+); bấm item tự mở + cuộn + flash ── */}
+        <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col justify-between border-r border-[#161c29] bg-[#0b0f17] px-3 py-4 lg:flex">
+          <div>
+            <div className="flex items-center gap-2 px-2 pb-5">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#16202f]">
+                <Activity className="h-4 w-4 text-emerald-400" />
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold tracking-widest text-zinc-100">{t(lang, "stats.nav.brand")}</p>
+                <p className="truncate text-[10px] uppercase tracking-wider text-zinc-500">{t(lang, "stats.nav.brandSub")}</p>
+              </div>
+            </div>
+            <nav className="space-y-0.5">
+              {NAV.map((n) => (
+                <button
+                  key={n.key}
+                  onClick={() => goNav(n.key)}
+                  className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors ${
+                    nav === n.key ? "bg-[#16202f] text-zinc-100" : "text-zinc-500 hover:bg-[#131926] hover:text-zinc-300"
+                  }`}
+                >
+                  <n.icon className={`h-3.5 w-3.5 shrink-0 ${nav === n.key ? "text-emerald-400" : ""}`} />
+                  <span className="truncate text-xs font-medium">{t(lang, `stats.nav.${n.key}`)}</span>
+                </button>
+              ))}
+            </nav>
+          </div>
+          <div className="space-y-1 px-2">
+            <Link href="/" className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-zinc-500 transition-colors hover:bg-[#131926] hover:text-zinc-300">
+              <ArrowLeft className="h-3.5 w-3.5" /> {t(lang, "stats.nav.terminal")}
+            </Link>
+            <Link href="/ai" className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-zinc-500 transition-colors hover:bg-[#131926] hover:text-zinc-300">
+              <Sparkles className="h-3.5 w-3.5" /> {t(lang, "stats.nav.ai")}
+            </Link>
+            <p className="px-2.5 pb-1 pt-2 text-[10px] leading-relaxed text-zinc-600">
+              v{APP_VERSION} · {t(lang, "stats.nav.paper")}
+            </p>
+          </div>
+        </aside>
+
+        <main className="min-w-0 flex-1 p-3 sm:p-5">
+          <div className="space-y-4">
         <header className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant="outline" className="h-8 gap-1.5 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800" asChild>
             <Link href="/">
@@ -494,13 +651,74 @@ export default function StatsPage() {
           </Link>
         </p>
 
-        {/* ── 0.2.85 — PipeMap: sơ đồ suy diễn chữ S — line điện CHẠY rõ theo
-            hướng mũi tên; node đang xử lý glow + halo; bấm node → trạm tự mở ── */}
-        <Card className="border-zinc-800 bg-zinc-900/60">
-          <CardContent className="py-3">
-            <PipeMap nodes={pipeNodes} onNodeClick={goTo} hint={t(lang, "flow.hint")} />
-          </CardContent>
-        </Card>
+        {/* dải chip điều hướng cho mobile (0.3.4) */}
+        <div className="flex gap-1.5 overflow-x-auto pb-1 lg:hidden">
+          {NAV.map((n) => (
+            <button
+              key={n.key}
+              onClick={() => goNav(n.key)}
+              className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                nav === n.key
+                  ? "border-[#233149] bg-[#16202f] text-zinc-100"
+                  : "border-[#1d2433] bg-[#10151f] text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              <n.icon className={`h-3 w-3 ${nav === n.key ? "text-emerald-400" : ""}`} />
+              {t(lang, `stats.nav.${n.key}`)}
+            </button>
+          ))}
+        </div>
+
+        {/* ── 0.3.4 — dashboard row: PipeMap + KPI “Net result” trái · Events/Health/Scorecard phải.
+            Khi chưa có snap: chỉ hiện thẻ sơ đồ như 0.3.3 (kèm skeleton trạm phía dưới). ── */}
+        {snap ? (
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_300px]">
+            <div className="min-w-0 space-y-3">
+              {pipeCard}
+              <div className="grid gap-3 sm:grid-cols-3">
+                <KpiCard
+                  title={t(lang, "stats.kpi.equity")}
+                  big={snap.flow.capital != null ? `$${snap.flow.capital.toFixed(2)}` : "—"}
+                  bigColor={snap.flow.netPnlPct > 0 ? C.ok : snap.flow.netPnlPct < 0 ? C.bad : "#e2e8f0"}
+                  sub="start $1000"
+                  rows={[
+                    { k: "Net ROE sum", v: signed(snap.flow.netPnlPct) + "%", color: snap.flow.netPnlPct > 0 ? C.ok : snap.flow.netPnlPct < 0 ? C.bad : C.idle },
+                    { k: t(lang, "stats.kpi.wilson"), v: `${snap.flow.winRateLb.toFixed(0)}%`, color: snap.flow.winRateLb >= 50 ? C.ok : snap.flow.winRateLb >= 30 ? C.warn : C.bad },
+                  ]}
+                />
+                <KpiCard
+                  title={t(lang, "stats.kpi.trades")}
+                  big={String(snap.flow.closed)}
+                  bigColor="#e2e8f0"
+                  sub={`${snap.flow.wins} ${t(lang, "stats.kpi.wins")} · ${Math.max(0, snap.flow.closed - snap.flow.wins)} ${t(lang, "stats.kpi.losses")}`}
+                  rows={[
+                    { k: "TP / SL", v: `${snap.flow.exits.tp} / ${snap.flow.exits.sl}` },
+                    { k: "Trail / Flip", v: `${snap.flow.exits.trail} / ${snap.flow.exits.flip}` },
+                    { k: t(lang, "stats.kpi.last7d"), v: `${snap.flow.last7d}`, color: C.info },
+                  ]}
+                />
+                <KpiCard
+                  title={t(lang, "stats.kpi.signals")}
+                  big={snap.flow.sg.hitRate != null ? `${snap.flow.sg.hitRate.toFixed(0)}%` : "—"}
+                  bigColor={snap.flow.sg.hitRate == null ? "#e2e8f0" : snap.flow.sg.hitRate >= 50 ? C.ok : snap.flow.sg.hitRate >= 40 ? C.warn : C.bad}
+                  sub="side-aware hit-rate"
+                  rows={[
+                    { k: `${t(lang, "stats.kpi.wins")} / ${t(lang, "stats.kpi.losses")}`, v: `${snap.flow.sg.win} / ${snap.flow.sg.loss}` },
+                    { k: t(lang, "stats.kpi.flat"), v: `${snap.flow.sg.flat}`, color: C.idle },
+                    { k: t(lang, "stats.kpi.await"), v: `${snap.flow.sg.total - snap.flow.sg.win - snap.flow.sg.loss - snap.flow.sg.flat}`, color: C.warn },
+                  ]}
+                />
+              </div>
+            </div>
+            <div className="min-w-0 space-y-3">
+              <EventsCard flow={snap.flow} lang={lang} />
+              <HealthCard sections={snap.sections} lang={lang} warnCount={counts.warn} />
+              <ScoreCard flow={snap.flow} lang={lang} />
+            </div>
+          </div>
+        ) : (
+          pipeCard
+        )}
 
         {err && !snap && (
           <Card className="border-rose-900 bg-rose-950/30">
@@ -970,6 +1188,8 @@ export default function StatsPage() {
             </Stage>
           </div>
         )}
+          </div>
+        </main>
       </div>
     </div>
   );
@@ -1019,4 +1239,157 @@ function Metric({
   hintVi?: string;
 }) {
   return <Field m={{ k, v, sub, tone, hint, hintVi }} lang={lang} />;
+}
+
+// ─── 0.3.4 — KPI "Net result" (thẻ số lớn + hàng nhỏ, số từ flow cấu trúc) ───
+function KpiCard({ title, big, bigColor, sub, rows }: {
+  title: string;
+  big: string;
+  bigColor: string;
+  sub: string;
+  rows: { k: string; v: string; color?: string }[];
+}) {
+  return (
+    <div className="rounded-xl border border-[#1d2433] bg-[#10151f] px-4 py-3">
+      <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">{title}</p>
+      <p className="mt-1 font-mono text-2xl font-bold" style={{ color: bigColor }}>{big}</p>
+      <p className="truncate text-[10px] text-zinc-500">{sub}</p>
+      <div className="mt-2.5 space-y-1.5 border-t border-[#1a2130] pt-2.5">
+        {rows.map((r, i) => (
+          <div key={i} className="flex items-center justify-between gap-2 text-[11px]">
+            <span className="truncate text-zinc-500">{r.k}</span>
+            <span className="shrink-0 font-mono font-semibold" style={{ color: r.color ?? "#e2e8f0" }}>{r.v}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── 0.3.4 — Rail: Sự kiện gần đây (vị thế đang mở + 10 lệnh thoát mới nhất) ──
+function EventsCard({ flow, lang }: { flow: StatsFlow; lang: Lang }) {
+  const kindColor = (kind: string | null): string =>
+    kind === "tp" ? C.ok : kind === "sl" ? C.bad : kind === "trail" ? C.info : kind === "flip" ? C.flip : kind === "manual" ? C.warn : C.idle;
+  const rows: { color: string; line1: string; line2: string; time: string }[] = [];
+  if (flow.open) {
+    rows.push({
+      color: C.warn,
+      line1: `${t(lang, "stats.flow.pos.open")} · ${flow.open.side} ${flow.open.symbol.replace("USDT", "")} ${flow.open.interval}`,
+      line2: `${flow.open.hours.toFixed(1)}h${flow.open.roe != null ? ` · ROE ${signed(flow.open.roe)}%` : ""}`,
+      time: "now",
+    });
+  }
+  for (const r of flow.recent) {
+    rows.push({
+      color: kindColor(r.exitKind),
+      line1: `${(r.exitKind ?? "—").toUpperCase()} · ${r.symbol.replace("USDT", "")} ${r.interval}`,
+      line2: `${r.side}${r.pnlPct != null ? ` · ${signed(r.pnlPct)}%` : ""}`,
+      time: timeAgo(r.exitTime),
+    });
+  }
+  return (
+    <div className="rounded-xl border border-[#1d2433] bg-[#10151f] px-4 py-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-300">{t(lang, "stats.rail.events")}</p>
+        <span className="flex h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+      </div>
+      <div className="mt-2 max-h-[200px] space-y-1.5 overflow-y-auto pr-1">
+        {rows.length === 0 ? (
+          <p className="py-3 text-center text-[11px] leading-relaxed text-zinc-600">{t(lang, "stats.rail.noEvents")}</p>
+        ) : (
+          rows.slice(0, 12).map((e, i) => (
+            <div key={i} className="flex items-start gap-2 rounded-md px-1 py-0.5 hover:bg-[#131926]">
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: e.color }} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[11px] font-medium text-zinc-200">{e.line1}</p>
+                <p className="truncate font-mono text-[10px] text-zinc-500">{e.line2}</p>
+              </div>
+              <span className="shrink-0 text-[10px] text-zinc-600">{e.time}</span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── 0.3.4 — Rail: Kiểm tra sức khoẻ (trạng thái section, server gắn state) ──
+function HealthCard({ sections, lang, warnCount }: { sections: StatSection[]; lang: Lang; warnCount: number }) {
+  const stateOf = (key: string): "ok" | "warn" | "na" => sections.find((s) => s.key === key)?.state ?? "na";
+  const items: { key: string; label: string }[] = [
+    { key: "market", label: t(lang, "stats.health.market") },
+    { key: "universe", label: t(lang, "stats.health.universe") },
+    { key: "dock", label: t(lang, "stats.health.scan") },
+    { key: "auto", label: t(lang, "stats.health.equity") },
+    { key: "dqf", label: t(lang, "stats.health.dqf") },
+  ];
+  const pill = (state: "ok" | "warn" | "na") => (
+    <span
+      className={`shrink-0 rounded-full px-2 py-0.5 font-mono text-[9px] font-semibold uppercase ${
+        state === "ok" ? "bg-emerald-950 text-emerald-400" : state === "warn" ? "bg-amber-950 text-amber-400" : "bg-zinc-800 text-zinc-400"
+      }`}
+    >
+      {state === "ok" ? "OK" : state === "warn" ? "WARN" : "N/A"}
+    </span>
+  );
+  return (
+    <div className="rounded-xl border border-[#1d2433] bg-[#10151f] px-4 py-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-300">{t(lang, "stats.rail.health")}</p>
+        {warnCount > 0 && (
+          <span className="rounded-full bg-amber-950 px-2 py-0.5 text-[9px] font-semibold uppercase text-amber-400">
+            {t(lang, "stats.rail.warnCount", { n: warnCount })}
+          </span>
+        )}
+      </div>
+      <div className="mt-2 space-y-1.5">
+        {items.map((it) => (
+          <div key={it.key} className="flex items-center justify-between gap-2">
+            <span className="truncate text-[11px] text-zinc-400">{it.label}</span>
+            {pill(stateOf(it.key))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── 0.3.4 — Rail: Bảng điểm thoát lệnh (trail = TP1 partial → runner 0.3.3) ──
+function ScoreCard({ flow, lang }: { flow: StatsFlow; lang: Lang }) {
+  const e = flow.exits;
+  const rows: { label: string; n: number; color: string }[] = [
+    { label: t(lang, "stats.score.tp"), n: e.tp, color: C.ok },
+    { label: t(lang, "stats.score.sl"), n: e.sl, color: C.bad },
+    { label: t(lang, "stats.score.trail"), n: e.trail, color: C.info },
+    { label: t(lang, "stats.score.flip"), n: e.flip, color: C.flip },
+    { label: t(lang, "stats.score.manual"), n: e.manual, color: C.warn },
+    { label: t(lang, "stats.score.legacy"), n: e.legacy, color: C.idle },
+  ];
+  const total = Math.max(1, flow.closed);
+  return (
+    <div className="rounded-xl border border-[#1d2433] bg-[#10151f] px-4 py-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-300">{t(lang, "stats.rail.scorecard")}</p>
+        <span className="font-mono text-[10px] text-zinc-500">{flow.closed} closed</span>
+      </div>
+      <div className="mt-2 space-y-2">
+        {rows.map((r) => (
+          <div key={r.label}>
+            <div className="flex items-center justify-between gap-2 text-[10px]">
+              <span className="truncate text-zinc-400">{r.label}</span>
+              <span className="shrink-0 font-mono text-zinc-300">
+                {r.n} · {Math.round((r.n / total) * 100)}%
+              </span>
+            </div>
+            <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-[#161c29]">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{ width: `${r.n > 0 ? Math.max(3, (r.n / total) * 100) : 0}%`, background: r.color }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
