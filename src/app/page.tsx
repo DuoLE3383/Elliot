@@ -1227,7 +1227,7 @@ export default function Home() {
           <>
             {/* ── LEFT: watchlist + sessions — hidden on mobile unless toggled ── */}
             <div
-              className={`${showExtra ? "flex" : "hidden"} rail-scroll order-3 min-h-0 flex-col gap-3 lg:order-1 lg:flex lg:overflow-y-auto lg:pr-0.5`}
+              className={`${showExtra ? "flex" : "hidden"} rail-scroll order-1 min-h-0 flex-col gap-3 lg:order-1 lg:flex lg:overflow-y-auto lg:pr-0.5`}
             >
               <Watchlist
                 lang={lang}
@@ -1247,7 +1247,6 @@ export default function Home() {
               {/* 0.2.97 — universe 8h dời từ /auto về watchlist: đề xuất pair
                   ATR+trending, người dùng tự bấm thêm vào watchlist */}
               <UniverseCard lang={lang} existing={allPairs} onAddSymbol={(s) => void addPair(s)} />
-              <SessionsPanel lang={lang} stats={view.sessStats} whale={view.whale} cycles={view.cycles} forecast={view.forecast} />
             </div>
 
             {/* ── mobile toggle for the low-traffic areas (order-3 → sits right
@@ -1263,7 +1262,7 @@ export default function Home() {
 
             {/* ── CENTER: chart — terminal thuần (>0.2.82 tab Suggestions /
                 Lab / Analysis dời hẳn sang /stats, nối tiếp Journal 0.2.80) ── */}
-            <div className="rail-scroll order-1 flex min-h-0 flex-col gap-3 lg:order-2 lg:overflow-y-auto lg:pr-0.5">
+            <div className="rail-scroll order-2 flex min-h-0 flex-col gap-3 lg:order-2 lg:overflow-y-auto lg:pr-0.5">
               {/* gap-3/py-3 override the Card defaults (gap-6/py-6) — reclaims ~72px
                   of chart height; on lg the card fills the WHOLE visible rail height
                   (h-full + flex-none) nên chart chiếm trọn cột terminal.
@@ -1387,7 +1386,7 @@ export default function Home() {
             </div>
 
             {/* ── RIGHT: controls first, then Auto, analytics in tabs ──── */}
-            <div className="rail-scroll order-2 flex min-h-0 flex-col gap-3 lg:order-3 lg:overflow-y-auto lg:pl-0.5">
+            <div className="rail-scroll order-3 flex min-h-0 flex-col gap-3 lg:order-3 lg:overflow-y-auto lg:pl-0.5">
               {false && <SignalDock
                 lang={lang}
                 smaPeriod={settings.smaPeriod}
@@ -1415,7 +1414,40 @@ export default function Home() {
                 onUnpin={() => setPinnedTime(null)}
                 pinnedSig={pinnedSig}
               />}
-              {/* Auto Trade — tách sang trang riêng /auto (0.2.95): rail hẹp
+                            {/* analytical panels share one tabbed card — the rail no longer
+                  scrolls past three stacked cards to reach Auto Trade;
+                  on mobile the card is part of the toggleable low-traffic areas */}
+              <Tabs defaultValue="wyckoff" className={`shrink-0 ${showExtra ? "" : "hidden lg:block"}`}>
+                <TabsList className="h-8 w-full justify-start overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <TabsTrigger
+                    value="context"
+                    className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+                  >
+                    {t(lang, "tabs.context")}
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="wyckoff"
+                    className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+                  >
+                    {t(lang, "tabs.wyckoff")}
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="context" className="mt-2">
+                  <RailContext
+                    lang={lang}
+                    a={view.analysis}
+                    stats={view.sessStats}
+                    whale={view.whale}
+                    openPaper={view.open ?? undefined}
+                    confirmed={confirmedSignal}
+                  />
+                </TabsContent>
+                <TabsContent value="wyckoff" className="mt-2">
+                  <WyckoffPanel lang={lang} wy={wyckoff} on={wySettings.enabled} sens={wySettings.sens} />
+                </TabsContent>
+              </Tabs>
+              <SessionsPanel lang={lang} stats={view.sessStats} whale={view.whale} cycles={view.cycles} forecast={view.forecast} />
+{/* Auto Trade — tách sang trang riêng /auto (0.2.95): rail hẹp
                   không đủ cho sổ dry-run A/B; launcher còn hiển thị vị thế
                   đang mở để biết engine còn sống */}
               <Button
@@ -1470,38 +1502,7 @@ export default function Home() {
                   <ChevronRight className="h-3.5 w-3.5 text-zinc-500" />
                 </span>
               </Button>
-              {/* analytical panels share one tabbed card — the rail no longer
-                  scrolls past three stacked cards to reach Auto Trade;
-                  on mobile the card is part of the toggleable low-traffic areas */}
-              <Tabs defaultValue="context" className={`shrink-0 ${showExtra ? "" : "hidden lg:block"}`}>
-                <TabsList className="h-8 w-full justify-start overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <TabsTrigger
-                    value="context"
-                    className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
-                  >
-                    {t(lang, "tabs.context")}
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="wyckoff"
-                    className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
-                  >
-                    {t(lang, "tabs.wyckoff")}
-                  </TabsTrigger>
-                </TabsList>
-                <TabsContent value="context" className="mt-2">
-                  <RailContext
-                    lang={lang}
-                    a={view.analysis}
-                    stats={view.sessStats}
-                    whale={view.whale}
-                    openPaper={view.open ?? undefined}
-                    confirmed={confirmedSignal}
-                  />
-                </TabsContent>
-                <TabsContent value="wyckoff" className="mt-2">
-                  <WyckoffPanel lang={lang} wy={wyckoff} on={wySettings.enabled} sens={wySettings.sens} />
-                </TabsContent>
-              </Tabs>
+
               <p className="px-1 pb-1 text-[10px] leading-snug text-zinc-700">{t(lang, "footer.note")}</p>
             </div>
           </>
