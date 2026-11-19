@@ -358,6 +358,8 @@ function loadEngine(): void {
       if (raw.live && typeof raw.live === "object") {
         p.live = { on: raw.live.on === true, confirmedAt: typeof raw.live.confirmedAt === "number" ? raw.live.confirmedAt : null };
       }
+      if ((raw as any).trailById && typeof (raw as any).trailById === "object") (p as any).trailById = (raw as any).trailById;
+      if ((raw as any).slPendingById && typeof (raw as any).slPendingById === "object") (p as any).slPendingById = (raw as any).slPendingById;
       if (raw.trail && typeof raw.trail === "object" && typeof raw.trail.id === "string") {
         p.trail = {
           id: raw.trail.id,
