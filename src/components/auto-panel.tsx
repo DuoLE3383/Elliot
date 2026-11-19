@@ -1382,18 +1382,45 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                 {(((open.capitalBefore ?? capitalNow) * (open.stakePct ?? 100)) / 100).toFixed(2)} USDT · {open.stakePct ?? 100}%
                 <span className="text-zinc-500">
                   {" "}
-                  · {t(lang, "auto.pos.notional")} {((((open.capitalBefore ?? capitalNow) * (open.stakePct ?? 100)) / 100) * open.leverage).toFixed(2)}
+                  · {t(lang, "auto.pos.notional")} {(((((open.capitalBefore ?? capitalNow) * (open.stakePct ?? 100)) / 100) * open.leverage)).toFixed(2)} USDT
                 </span>
               </span>
-              <span className="text-zinc-500">SL</span>
+                            <span className="text-zinc-500">PNL (USDT)</span>
+              <span className="text-right font-mono text-zinc-200">
+                {(() => {
+                  const margin = ((open.capitalBefore ?? capitalNow) * (open.stakePct ?? 100)) / 100;
+                  const mark = tickers[open.symbol]?.price ?? open.entryPrice;
+                  const move = open.side === "SHORT" ? (open.entryPrice - mark) / open.entryPrice : (mark - open.entryPrice) / open.entryPrice;
+                  const roi = move * open.leverage * 100;
+                  const pnl = (margin * roi) / 100;
+                  return (
+                    <>
+                      {pnl >= 0 ? "+" : ""}{pnl.toFixed(2)} · ROI {roi >= 0 ? "+" : ""}{roi.toFixed(2)}%
+                    </>
+                  );
+                })()}
+              </span>
+              <span className="text-zinc-500">Giá đánh dấu · Giá thanh lý</span>
+              <span className="text-right font-mono text-zinc-200">
+                {(() => {
+                  const mark = tickers[open.symbol]?.price ?? open.entryPrice;
+                  const liq = open.side === "SHORT" ? open.entryPrice * (1 + 1 / open.leverage) : open.entryPrice * (1 - 1 / open.leverage);
+                  return (
+                    <>
+                      {fmtPrice(mark)} · <span className="text-rose-300">{fmtPrice(liq)}</span>
+                    </>
+                  );
+                })()}
+              </span>
+<span className="text-zinc-500">SL</span>
               <span className="text-right font-mono text-rose-300">
                 {fmtPrice(slPrice(open.side, open.entryPrice, open.slPct))} · −{open.slPct.toFixed(1)}%
-                <span className="text-zinc-500"> (ROE −{(open.slPct * open.leverage).toFixed(1)}%)</span>
+                <span className="text-zinc-500"> (ROI −{(open.slPct * open.leverage).toFixed(1)}%)</span>
               </span>
               <span className="text-zinc-500">TP</span>
               <span className="text-right font-mono text-emerald-300">
                 {fmtPrice(tpPrice(open.side, open.entryPrice, open.tpPct))} · +{open.tpPct.toFixed(1)}%
-                <span className="text-zinc-500"> (ROE +{(open.tpPct * open.leverage).toFixed(1)}%)</span>
+                <span className="text-zinc-500"> (ROI +{(open.tpPct * open.leverage).toFixed(1)}%)</span>
               </span>
               {cfg.trailOn && (
                 <>
