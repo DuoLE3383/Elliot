@@ -57,6 +57,59 @@ const AGENT_UI_PRESETS: Record<string, any> = {
 };
 
 
+
+// ─── CONFLUENCE TABLE — Multi-TF đồng thuận / xung đột ───
+function ConfluenceTable({ onPickPair }: { onPickPair: (sym: string, itv: string) => void }) {
+  const [data, setData] = useState<any[]>([]);
+  const [at, setAt] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/confluence", { cache: "no-store" });
+        const d = await r.json();
+        if (alive && Array.isArray(d.rows)) { setData(d.rows); setAt(d.at); }
+      } catch {}
+    };
+    load();
+    const id = setInterval(load, 30000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+  if (!data.length) return null;
+  const TFS = ["5m", "15m", "1h", "4h"];
+  const strong = data.filter((r: any) => r.verdict === "STRONG").length;
+  const lean = data.filter((r: any) => r.verdict === "LEAN").length;
+  const conflict = data.filter((r: any) => r.verdict === "CONFLICT").length;
+  const cell = (tf: any) => {
+    if (!tf) return <span className="text-zinc-700">—</span>;
+    const c = tf.side === "LONG" ? "text-emerald-400" : tf.side === "SHORT" ? "text-rose-400" : "text-zinc-500";
+    const arrow = tf.side === "LONG" ? "▲" : tf.side === "SHORT" ? "▼" : "→";
+    return <span className={c}>{arrow}{tf.score.toFixed(0)}</span>;
+  };
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text- font-medium uppercase tracking-wide text-zinc-400">Confluence · Multi-TF</span>
+        <span className="font-mono text- text-zinc-500">✅ {strong} STRONG · ⚠️ {lean} LEAN · ❌ {conflict} CONFLICT</span>
+      </div>
+      <div className="overflow-hidden rounded-lg border border-zinc-800">
+        <div className="grid grid-cols-[minmax(0,1fr)_44px_44px_44px_44px_52px] gap-x-1 border-b border-zinc-800 bg-zinc-950/60 px-1.5 py-1 text- font-semibold uppercase tracking-wide text-zinc-500">
+          <span>Symbol</span><span>5m</span><span>15m</span><span>1h</span><span>4h</span><span className="text-right">Verdict</span>
+        </div>
+        {data.slice(0, 12).map((r: any) => (
+          <button key={r.symbol} type="button" onClick={() => onPickPair(r.symbol, "15m")}
+            className="grid w-full grid-cols-[minmax(0,1fr)_44px_44px_44px_44px_52px] items-center gap-x-1 px-1.5 py-1 text-left font-mono text- hover:bg-zinc-800/60">
+            <span className="truncate text-zinc-200">{r.symbol.replace("USDT", "")}</span>
+            {TFS.map((tf) => <span key={tf}>{cell(r.tfs?.[tf])}</span>)}
+            <span className={`text-right text- font-bold ${r.verdict === "STRONG" ? "text-emerald-400" : r.verdict === "LEAN" ? "text-amber-400" : "text-zinc-500"}`}>{r.verdict} {r.agree}</span>
+          </button>
+        ))}
+      </div>
+      <p className="text- leading-snug text-zinc-600">Bấm 1 dòng để xem symbol đó. STRONG = tất cả khung đồng thuận · LEAN = lệch khung nhỏ · CONFLICT = đứng ngoài.</p>
+    </div>
+  );
+}
+
 interface Props {
   lang: Lang;
   /** every watched pair (defaults + user customs) */
@@ -1257,6 +1310,8 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
           </p>
         )}
         {!cfg.on && status && <p className="font-mono text-[11px] text-zinc-500">{status}</p>}
+
+        <ConfluenceTable onPickPair={onPickPair} />
 
         {/* best pick + ranking */}
         {best ? (

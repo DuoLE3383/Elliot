@@ -239,6 +239,46 @@ export function confluenceBlend(rows: ScanRow[]): ScanRow[] {
   return out;
 }
 
+// ─── CONFLUENCE TABLE — Multi-TF đồng thuận / xung đột ───
+// Đọc từ ScanRow[] đã blend. Không đổi prob/score, chỉ tổng hợp để hiển thị.
+// Verdict: STRONG (4/4) · LEAN (3/4, khung lệch là khung nhỏ) · CONFLICT (2/2 hoặc khung lớn lệch)
+export function confluenceTable(rows: ScanRow[]): Array<{
+  symbol: string; tfs: Record<string, { side: string; score: number; prob: number }>;
+  longW: number; shortW: number; agree: string; verdict: "STRONG" | "LEAN" | "CONFLICT"; action: string;
+}> {
+  const TF_W: Record<string, number> = { "1h": 3, "4h": 3, "15m": 2, "5m": 1, "1m": 1, "30m": 1, "1d": 3, "1w": 3 };
+  const bySym = new Map<string, ScanRow[]>();
+  for (const r of rows) {
+    const l = bySym.get(r.symbol);
+    if (l) l.push(r); else bySym.set(r.symbol, [r]);
+  }
+  const out: ReturnType<typeof confluenceTable> = [];
+  for (const [symbol, group] of bySym) {
+    const tfs: Record<string, { side: string; score: number; prob: number }> = {};
+    let longW = 0, shortW = 0, nLong = 0, nShort = 0;
+    for (const r of group) {
+      const side = r.prob > 0.56 ? "LONG" : r.prob < 0.44 ? "SHORT" : "FLAT";
+      tfs[r.interval] = { side, score: r.score ?? 0, prob: r.prob };
+      const w = TF_W[r.interval] ?? 1;
+      if (side === "LONG") { longW += w; shortW += 0; nLong++; }
+      else if (side === "SHORT") { shortW += w; nShort++; }
+    }
+    const total = nLong + nShort;
+    let verdict: "STRONG" | "LEAN" | "CONFLICT" = "CONFLICT";
+    let agree = `${Math.max(nLong, nShort)}/${total || 1}`;
+    let action = "Đứng ngoài — xung đột";
+    if (total >= 3 && (nLong === total || nShort === total)) { verdict = "STRONG"; action = nLong ? "Ưu tiên LONG" : "Ưu tiên SHORT"; }
+    else if (total >= 3 && Math.max(nLong, nShort) === total - 1) {
+      // 3/4 — chỉ LEAN nếu khung lệch là khung nhỏ (5m/1m), khung lớn lệch → CONFLICT
+      const minority = group.find((r) => (r.prob > 0.56 ? "LONG" : r.prob < 0.44 ? "SHORT" : "FLAT") !== (nLong > nShort ? "LONG" : "SHORT") && (r.prob > 0.56 || r.prob < 0.44));
+      if (!minority || (TF_W[minority.interval] ?? 1) <= 1) { verdict = "LEAN"; action = nLong > nShort ? "Nghiêng LONG" : "Nghiêng SHORT"; }
+    }
+    out.push({ symbol, tfs, longW, shortW, agree, verdict, action });
+  }
+  const rank = { STRONG: 0, LEAN: 1, CONFLICT: 2 };
+  return out.sort((a, b) => rank[a.verdict] - rank[b.verdict] || b.longW + b.shortW - (a.longW + a.shortW));
+}
+
 /**
  * Pick the best tradeable row whose combo is NOT in an SL cooldown. A combo
  * that just stopped out tends to stay hostile — re-entering it immediately is
