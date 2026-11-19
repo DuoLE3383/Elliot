@@ -1382,7 +1382,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                 {(((open.capitalBefore ?? capitalNow) * (open.stakePct ?? 100)) / 100).toFixed(2)} USDT · {open.stakePct ?? 100}%
                 <span className="text-zinc-500">
                   {" "}
-                  · {t(lang, "auto.pos.notional")} {(((((open.capitalBefore ?? capitalNow) * (open.stakePct ?? 100)) / 100) * open.leverage)).toFixed(2)} USDT
+                  · {t(lang, "auto.pos.notional")} {(((((open.capitalBefore ?? capitalNow) * (open.stakePct ?? 100)) / 100) * open.leverage)).toFixed(2)} USDT ({open.leverage}x)
                 </span>
               </span>
                             <span className="text-zinc-500">PNL (USDT)</span>
@@ -1395,7 +1395,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                   const pnl = (margin * roi) / 100;
                   return (
                     <>
-                      {pnl >= 0 ? "+" : ""}{pnl.toFixed(2)} · ROI {roi >= 0 ? "+" : ""}{roi.toFixed(2)}%
+                      {pnl >= 0 ? "+$" : "-$"}{Math.abs(pnl).toFixed(2)} · ROI {roi >= 0 ? "+" : ""}{roi.toFixed(2)}%
                     </>
                   );
                 })()}
