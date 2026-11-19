@@ -266,3 +266,11 @@ html, body {
     animation: none !important;
   }
 }
+
+/* ── 0.3.4 — ApmFlowMap (trang /stats layout APM): băng hover sáng lên ────── */
+.apm-band {
+  transition: opacity 0.15s ease;
+}
+.apm-band:hover {
+  opacity: 1 !important;
+}

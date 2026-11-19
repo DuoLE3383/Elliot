@@ -1,43 +1,38 @@
 "use client";
 
-// ─── /stats — Thống kê & đối chiếu logic ─────────────────────────────────────
-// Trả lời 3 câu hỏi cho MỖI phần của app (market model, win rate pair/TF,
-// universe scan, auto dry-run, signal dock, lệnh đang mở, auto history,
-// suggestion history, trade journal, deep analysis):
-//   1. CƠ SỞ LOGIC — số liệu được đưa ra từ nguồn nào, công thức nào
-//      (i18n stats.basis.* — khớp chữ với code thật).
-//   2. NHẤT QUÁN với logic engine chưa — kiểm chéo chạy THẬT trên server
-//      (hai đường tính độc lập, chấm lại outcome từ giá, đối chiếu sổ vốn…).
-//   3. CHUẨN XÁC bao nhiêu % — Wilson 95% cận dưới cho tỉ lệ (độ tin cậy của
-//      con số), 100% cho số đếm/mô tả; note nói rõ vì sao.
-// 0.2.84 — gom 8 section dàn trải thành 5 chương + FlowMap (hàng pill nối line
-// 20px — quá bé, không thấy "line chạy").
-// 0.2.85 — LÀM LẠI THEO FEEDBACK "kết quả khá tệ · line phải CHẠY rõ · nội
-// dung vẫn dàn trải":
-//   (1) PipeMap (components/pipe-map.tsx): sơ đồ chữ S 2 hàng SVG thật —
-//       node toạ độ cố định, connector elbow có DÒNG ĐIỆN CHẠY (dash trượt)
-//       + mũi tên hướng suy diễn, line tô màu node ĐÍCH; node đang xử lý
-//       glow + halo; bấm node → trạm liên quan TỰ MỞ + cuộn + phát sáng.
-//   (2) Stage accordion (components/stage-panel.tsx): 9 trạm gọn — hàng tiêu
-//       đề có dot trạng thái + 2 số headline + badge ok/warn, bấm mới mở
-//       metrics/charts/basis → trang mặc định vừa 1-2 màn hình, hết dàn trải.
-//   (3) Nút "Mở tất cả / Thu gọn" + node "LLM dive → /ai" nhảy trang.
+// ─── /stats — APM CONTROL ROOM (0.3.4, thiết kế lại theo ảnh tham chiếu) ────
+// User yêu cầu "thiết kế lại Y NHƯ" ảnh NetGitFinancial (Dribbble — giao diện
+// Application Performance Monitoring): shell APM 3 vùng:
+//   • TOP BAR — ☰ + brand + pill phải (Dive /ai · EN/VI · Refresh lime)
+//   • SIDEBAR TRÁI — điều hướng từng "trạm" (icon + nhãn, active sáng)
+//   • CENTER — "Trading Flow Map": sơ đồ phễu Sankey 2 cột node nối bằng
+//     dải băng cong DÀY THEO SỐ LƯỢNG, MÀU THEO TÌNH TRẠNG (lime Success /
+//     đỏ Error / xám Normal / đỏ đứt Pending) + cột "Net result" bên phải map
+//     + tabs đáy (Equity / Win rate / Exits) — y cấu trúc "Application Flow
+//     Map + Net result + Load/Response/Errors" của ảnh.
+//   • RAIL PHẢI — Events · Gate Health · Engine Health · Session Health ·
+//     Trade Scorecard (bar + count) — y cấu trúc Events/Business Transaction
+//     Health/Nodes Health/Server Health/Transaction Scorecard của ảnh.
+// Bấm node/side bar → CENTER đổi sang trang chi tiết trạm (metrics + charts +
+// cơ sở logic + nhất quán + độ tin cậy Wilson — GIỮ NGUYÊN 100% nội dung kiểm
+// toán của các bản 0.2.x/0.3.x, chỉ đổi lớp vỏ). DQF giữ công tắc riêng.
+// Dữ liệu: /api/stats (snapshot 9 section + khối `flow` số liệu thô 0.3.4) +
+// /api/journal + /api/view cho 2 trạm client (journal/lab) — không đổi API.
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChartBox } from "@/components/stat-charts";
+import { ApmFlowMap, type ApmFlowCounts } from "@/components/apm-flow";
 import { Journal } from "@/components/journal";
 import { DeepAnalysis } from "@/components/analysis";
 import { StrategyPies } from "@/components/strategy-pies";
 import { StrategyLab } from "@/components/strategy-lab";
 import { SuggestionHistory } from "@/components/suggestions";
-import { PipeMap, type PipeNodeDef } from "@/components/pipe-map";
-import { Stage } from "@/components/stage-panel";
-import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtPct, t, type Lang } from "@/lib/i18n";
+import { SESSIONS } from "@/lib/market";
 import type { VariantRow } from "@/lib/history";
 import type { KpiStats } from "@/lib/papers";
 import type { Paper } from "@/lib/types";
@@ -47,12 +42,24 @@ import type { StatChart, StatTone } from "@/lib/stats";
 import { fetchView, type ViewPayload } from "@/lib/view";
 import { DEFAULT_SETTINGS, DEFAULT_WYCKOFF, SYMBOLS, type EngineSettings } from "@/lib/types";
 import {
-  ArrowLeft,
+  Activity,
+  Bot,
   CheckCircle2,
+  Crosshair,
+  FlaskConical,
+  Globe,
   HelpCircle,
+  History,
+  Layers,
+  Lightbulb,
+  Menu,
+  Percent,
+  Radar,
   RefreshCw,
   ScrollText,
+  SlidersHorizontal,
   TriangleAlert,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
@@ -71,21 +78,17 @@ interface StatSection {
 }
 interface StatsSnapshot {
   at: number;
-  /** 0.3.2 — công tắc DQF (sàn chất lượng động) */
   dqfOn?: boolean;
+  flow?: import("@/lib/stats").StatsFlow | null;
   sections: StatSection[];
 }
 
 const PICK_TFS = ["5m", "15m", "1h", "4h"];
-// 0.2.38: dùng đúng danh sách cặp tiêu chuẩn của engine (SYMBOLS — 11 staples)
-// + giá trị đặc biệt "ALL" = journal gộp mọi cặp qua /api/journal
 const PICK_ALL = "ALL";
 const PICK_SYMBOLS: readonly string[] = SYMBOLS;
 
 // 0.2.67 — màu ngữ nghĩa cho MỌI field: server gắn tone theo ngưỡng thật,
 // client chỉ tra bảng — không tự suy từ chữ nên không bao giờ lệch màu.
-//   ok = xanh lá (tốt) · warn = vàng (cần chú ý) · bad = đỏ (xấu)
-//   info = teal (mô tả/số liệu live) · dim = xám (không dữ liệu/chân trang)
 const TONE_TEXT: Record<StatTone, string> = {
   ok: "text-emerald-400",
   warn: "text-amber-300",
@@ -93,7 +96,6 @@ const TONE_TEXT: Record<StatTone, string> = {
   info: "text-teal-300",
   dim: "text-zinc-400",
 };
-/** viền trái ô field cùng màu với giá trị — nhìn lướt là biết tình trạng */
 const TONE_EDGE: Record<StatTone, string> = {
   ok: "border-l-emerald-500/60",
   warn: "border-l-amber-500/60",
@@ -101,50 +103,68 @@ const TONE_EDGE: Record<StatTone, string> = {
   info: "border-l-teal-500/60",
   dim: "border-l-zinc-600/50",
 };
-/** 0.2.85 — nền chip headline trên hàng Stage (cùng họ màu với field) */
-const TONE_CHIP: Record<StatTone, string> = {
-  ok: "bg-emerald-950/70 text-emerald-300",
-  warn: "bg-amber-950/70 text-amber-300",
-  bad: "bg-rose-950/70 text-rose-300",
-  info: "bg-teal-950/70 text-teal-300",
-  dim: "bg-zinc-900 text-zinc-400",
-};
 const toneText = (tone?: StatTone): string => (tone ? TONE_TEXT[tone] : "text-zinc-100");
 const toneEdge = (tone?: StatTone): string => (tone ? TONE_EDGE[tone] : "border-l-zinc-800/80");
-const toneChip = (tone?: StatTone): string => (tone ? TONE_CHIP[tone] : "bg-zinc-900 text-zinc-300");
+
+// ── bảng màu APM khớp ảnh tham chiếu ──
+const LIME = "#c8f542";
+const GREY = "#9aa0a6";
 
 /** một dòng bảng con theo cặp của /api/journal?symbol=ALL */
-interface PerPair {
-  symbol: string;
-  kpi: KpiStats;
-  signals: number;
-}
-interface JournalAllResp {
-  kpi: KpiStats;
-  basis: number;
-  per: PerPair[] | null;
-  failed: string[];
-  /** 0.2.80 — papers nối liền mọi cặp cho bảng tương tác */
-  papers: Paper[];
-}
-/** 0.2.52 — response 1 cặp của /api/journal (chỉ cần kpi + basis)
- *  0.2.80 — thêm papers: bảng journal tương tác cùng nguồn với KPI */
+interface PerPair { symbol: string; kpi: KpiStats; signals: number }
+interface JournalAllResp { kpi: KpiStats; basis: number; per: PerPair[] | null; failed: string[]; papers: Paper[] }
 type JournalOneResp = { kpi: KpiStats; basis: number; papers: Paper[] };
 
-// 0.2.85 — 9 trạm của pipeline + id element tương ứng (node PipeMap bấm vào
-// đây); thứ tự = luồng suy diễn: thị trường → gate → lệnh → lịch sử → lab
-const STAGE_IDS = [
-  "st-market",
-  "st-universe",
-  "st-combo",
-  "st-dock",
-  "st-auto",
-  "st-open",
-  "st-hist",
-  "st-journal",
-  "st-lab",
+// ─── điều hướng sidebar — 12 trạm (flow = tổng quan, còn lại = chi tiết) ────
+const NAV = [
+  { id: "flow", key: "apm.nav.flow", icon: Activity },
+  { id: "market", key: "apm.nav.market", icon: Globe },
+  { id: "universe", key: "apm.nav.universe", icon: Layers },
+  { id: "combo", key: "apm.nav.combo", icon: Percent },
+  { id: "dock", key: "apm.nav.dock", icon: Radar },
+  { id: "auto", key: "apm.nav.auto", icon: Bot },
+  { id: "dqf", key: "apm.nav.dqf", icon: SlidersHorizontal },
+  { id: "open", key: "apm.nav.open", icon: Crosshair },
+  { id: "hist", key: "apm.nav.hist", icon: History },
+  { id: "sg", key: "apm.nav.sg", icon: Lightbulb },
+  { id: "journal", key: "apm.nav.journal", icon: ScrollText },
+  { id: "lab", key: "apm.nav.lab", icon: FlaskConical },
 ] as const;
-type StageId = (typeof STAGE_IDS)[number];
+type ViewId = (typeof NAV)[number]["id"];
+
+const SESS_NAME: Record<string, string> = {
+  sydney: "Sydney", tokyo: "Tokyo", london: "London", newyork: "New York",
+};
+
+/** ô field có tooltip — React state (mouseenter + tap), không CSS :hover
+ *  (Tailwind 4 bọc group-hover trong @media(hover:hover) — state chạy mọi nơi).
+ *  Đặt ở MODULE LEVEL để state tooltip không bị reset khi trang re-render. */
+function Field({ m, lang }: { m: StatMetric; lang: Lang }) {
+  const [show, setShow] = useState(false);
+  const hint = lang === "vi" ? m.hintVi ?? m.hint : m.hint;
+  return (
+    <div
+      className={`relative min-w-0 rounded-lg border border-l-2 border-[#232329] bg-[#0b0b0e] px-2.5 py-1.5 ${m.wide ? "sm:col-span-2" : ""} ${toneEdge(m.tone)}`}
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+      onClick={() => setShow((v) => !v)}
+    >
+      <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">{m.k}</p>
+      <p className={`font-mono text-[13px] font-semibold ${toneText(m.tone)} ${m.wide ? "" : "truncate"}`}>{m.v}</p>
+      {m.sub && <p className={`text-[10px] text-zinc-500 ${m.wide ? "" : "truncate"}`}>{m.sub}</p>}
+      {hint && show && (
+        <div className="pointer-events-none absolute bottom-full left-0 z-50 mb-1 w-64 rounded-md border border-[#3a3a42] bg-[#15151a] px-2.5 py-1.5 text-[10px] leading-snug text-zinc-300 shadow-xl">
+          {hint}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Metric cho trạm client-side (journal) — wrapper của Field */
+function Metric({ lang, k, v, sub, tone, hint, hintVi }: { lang: Lang; k: string; v: string; sub?: string; tone?: StatTone; hint?: string; hintVi?: string }) {
+  return <Field m={{ k, v, sub, tone, hint, hintVi }} lang={lang} />;
+}
 
 export default function StatsPage() {
   const [lang, setLang] = useState<Lang>("en");
@@ -152,53 +172,23 @@ export default function StatsPage() {
   const [at, setAt] = useState(0);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  // trạm đang xem — mặc định Flow Overview (màn hình chính của ảnh tham chiếu)
+  const [view, setView] = useState<ViewId>("flow");
+  const [navOpen, setNavOpen] = useState(false); // drawer mobile
 
-  // combo picker cho 2 section client-side
+  // combo picker cho 2 trạm client-side
   const [pickSym, setPickSym] = useState<string>("BTCUSDT");
   const [pickTf, setPickTf] = useState("15m");
   const [journal, setJournal] = useState<(KpiStats & { basis: string }) | null>(null);
   const [journalPer, setJournalPer] = useState<{ per: PerPair[]; failed: string[] } | null>(null);
-  /** 0.2.80 — danh sách lệnh giấy của card journal (bảng tương tác + CSV) */
   const [journalPapers, setJournalPapers] = useState<Paper[] | null>(null);
-  /** 0.2.82 — toàn bộ /api/view của combo đang chọn (pies/n/gate cho tab
-   *  Analysis; trước đây chỉ giữ view.analysis cho card Deep analysis cũ) */
-  const [view, setView] = useState<ViewPayload | null>(null);
+  const [viewPayload, setViewPayload] = useState<ViewPayload | null>(null);
   const [clientBusy, setClientBusy] = useState(false);
-  /** 0.2.82 — biến thể Lab áp dụng gần nhất (note xác nhận trong tab) */
   const [labApplied, setLabApplied] = useState<{ name: string; sl: number; tp: number; key: number; period: number } | null>(null);
-  /** 0.2.82 — bumped khi bấm Refresh → tab Suggestions/Lab tải lại theo combo */
   const [tabsRefresh, setTabsRefresh] = useState(0);
-  /** 0.2.85 — trạm đang mở (accordion) + trạm đang phát vòng sáng */
-  const [open, setOpen] = useState<Record<string, boolean>>({});
-  const [flash, setFlash] = useState<string | null>(null);
-  /** 0.3.2 — công tắc DQF (sàn chất lượng động học từ toàn bộ Elliott session) */
+  // 0.3.2 — công tắc DQF (sàn chất lượng động học từ toàn bộ Elliott session)
   const [dqfOn, setDqfOn] = useState<boolean>(true);
   const [dqfBusy, setDqfBusy] = useState(false);
-
-  // đồng bộ công tắc DQF từ snapshot (nguồn thật = file server)
-  useEffect(() => {
-    if (typeof snap?.dqfOn === "boolean") setDqfOn(snap.dqfOn);
-  }, [snap?.dqfOn]);
-
-  const toggleDqf = useCallback(
-    async (on: boolean) => {
-      setDqfBusy(true);
-      setDqfOn(on); // optimistic — snapshot kế sẽ xác nhận lại
-      try {
-        const res = await fetch("/api/dqf", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ on }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      } catch {
-        setDqfOn(!on); // lỗi → rollback, giữ nguyên giá trị cũ
-      } finally {
-        setDqfBusy(false);
-      }
-    },
-    [],
-  );
 
   useEffect(() => {
     // English is the app's main language (0.2.58): boot EN every visit — the
@@ -222,12 +212,11 @@ export default function StatsPage() {
     }
   }, []);
 
-  // 2 section client-side — 0.2.35: tính Ở SERVER (setting MẶC ĐỊNH)
-  // 0.2.38: pickSym = ALL → journal gộp 11 cặp qua /api/journal (phân tích sâu ẩn)
-  // 0.2.52: journal 1 cặp CŨNG qua /api/journal — cùng cửa sổ 200 nến với ALL
-  // (fetchView chỉ còn phục vụ thẻ phân tích sâu — cửa sổ 500 nến của engine)
+  // 2 trạm client-side — tính Ở SERVER qua /api/journal (200 nến) + /api/view
+  // (500 nến deep analysis) — giữ nguyên cơ chế 0.2.52/0.2.80/0.2.82.
   useEffect(() => {
     let alive = true;
+    if (view !== "journal" && view !== "lab") return;
     setClientBusy(true);
     (async () => {
       if (pickSym === PICK_ALL) {
@@ -239,20 +228,19 @@ export default function StatsPage() {
           setJournal({ ...j.kpi, basis: String(j.basis) });
           setJournalPer({ per: j.per ?? [], failed: j.failed ?? [] });
           setJournalPapers(j.papers ?? []);
-          setView(null);
+          setViewPayload(null);
         } catch {
           if (alive) {
             setJournal(null);
             setJournalPer(null);
             setJournalPapers(null);
-            setView(null);
+            setViewPayload(null);
           }
         }
         setClientBusy(false);
         return;
       }
       setJournalPer(null);
-      // song song: journal 200 nến (/api/journal) + phân tích sâu 500 nến (/api/view)
       const jReq = fetch(
         `/api/journal?interval=${encodeURIComponent(pickTf)}&symbol=${encodeURIComponent(pickSym)}`,
         { cache: "no-store" },
@@ -272,13 +260,13 @@ export default function StatsPage() {
       if (!alive) return;
       setJournal(j ? { ...j.kpi, basis: String(j.basis) } : null);
       setJournalPapers(j ? j.papers : null);
-      setView(v);
+      setViewPayload(v);
       setClientBusy(false);
     })();
     return () => {
       alive = false;
     };
-  }, [pickSym, pickTf]);
+  }, [pickSym, pickTf, view]);
 
   useEffect(() => {
     void load();
@@ -292,33 +280,31 @@ export default function StatsPage() {
     localStorage.setItem("utp.lang", next);
   };
 
-  /** toggle 1 trạm accordion */
-  const toggleStage = useCallback((id: string) => {
-    setOpen((o) => ({ ...o, [id]: !o[id] }));
-  }, []);
+  /** 0.3.2 — công tắc DQF */
+  const toggleDqf = useCallback(
+    async (on: boolean) => {
+      setDqfBusy(true);
+      setDqfOn(on); // optimistic — snapshot kế sẽ xác nhận lại
+      try {
+        const res = await fetch("/api/dqf", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ on }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      } catch {
+        setDqfOn(!on); // lỗi → rollback
+      } finally {
+        setDqfBusy(false);
+      }
+    },
+    [],
+  );
+  useEffect(() => {
+    if (typeof snap?.dqfOn === "boolean") setDqfOn(snap.dqfOn);
+  }, [snap?.dqfOn]);
 
-  /** 0.2.85 — bấm node trên PipeMap: TỰ MỞ trạm liên quan → cuộn tới → phát
-   *  vòng sáng; node "dive" đặc biệt — nhảy sang /ai (root-cause của LLM nằm
-   *  ở đó). rAF: đợi trạm render xong (đã mở) rồi mới đo vị trí cuộn. */
-  const goTo = useCallback((id: string) => {
-    if (id === "dive") {
-      window.location.assign("/ai");
-      return;
-    }
-    setOpen((o) => ({ ...o, [id]: true }));
-    requestAnimationFrame(() => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
-      setFlash(id);
-      window.setTimeout(() => setFlash((f) => (f === id ? null : f)), 1600);
-    });
-  }, []);
-
-  /** 0.2.82 — Lab (dời từ terminal): nạp config biến thể vào utp.settings
-   *  (localStorage, merge qua cấu hình ĐÃ LƯU — giữ leverage/utOn của người
-   *  dùng). StrategyLab đã markVariantApplied ở DB trước khi onApply chạy;
-   *  trang chủ đọc lại cấu hình này ở lần tải kế tiếp (note trong tab nói rõ). */
+  // 0.2.82 — Lab apply variant → utp.settings (giữ nguyên cơ chế cũ)
   const applyVariantStats = useCallback((v: VariantRow) => {
     try {
       const raw = localStorage.getItem("utp.settings");
@@ -348,31 +334,41 @@ export default function StatsPage() {
 
   const counts = { ok: 0, warn: 0, na: 0 };
   for (const s of snap?.sections ?? []) counts[s.state] += 1;
-  if (journal) counts[journal.closed > 0 && journal.winRate >= 50 ? "ok" : "warn"] += 1;
-  if (view?.analysis) counts.ok += 1;
+  if (journal && (view === "journal" || view === "lab")) counts[journal.closed > 0 && journal.winRate >= 50 ? "ok" : "warn"] += 1;
 
-  // section theo key (0.2.85 — dùng cho Stage trạm, không còn Chapter)
   const byKey: Record<string, StatSection | undefined> = {};
   for (const s of snap?.sections ?? []) byKey[s.key] = s;
 
-  // node PipeMap — id = element id của trạm; active = đang nạp/xử lý
-  const pipeNodes: PipeNodeDef[] = [
-    { id: "st-market", label: t(lang, "stats.node.market.t"), sub: t(lang, "stats.node.market.sub"), tone: "cyan", active: loading },
-    { id: "st-universe", label: t(lang, "stats.node.universe.t"), sub: t(lang, "stats.node.universe.sub"), tone: "sky", active: loading },
-    { id: "st-combo", label: t(lang, "stats.node.gate.t"), sub: t(lang, "stats.node.gate.sub"), tone: "amber", active: loading },
-    { id: "st-dock", label: t(lang, "stats.node.dock.t"), sub: t(lang, "stats.node.dock.sub"), tone: "violet", active: loading },
-    { id: "st-auto", label: t(lang, "stats.node.auto.t"), sub: t(lang, "stats.node.auto.sub"), tone: "emerald", active: loading },
-    { id: "st-dqf", label: t(lang, "stats.node.dqf.t"), sub: t(lang, "stats.node.dqf.sub"), tone: "teal", active: loading },
-    { id: "st-open", label: t(lang, "stats.node.open.t"), sub: t(lang, "stats.node.open.sub"), tone: "rose", active: loading },
-    { id: "st-hist", label: t(lang, "stats.node.hist.t"), sub: t(lang, "stats.node.hist.sub"), tone: "orange", active: loading },
-    { id: "st-journal", label: t(lang, "stats.node.journal.t"), sub: t(lang, "stats.node.journal.sub"), tone: "fuchsia", active: clientBusy },
-    { id: "st-lab", label: t(lang, "stats.node.lab.t"), sub: t(lang, "stats.node.lab.sub"), tone: "blue", active: clientBusy },
-    { id: "dive", label: t(lang, "stats.node.dive.t"), sub: t(lang, "stats.node.dive.sub"), tone: "teal" },
-  ];
+  const flow = snap?.flow ?? null;
+  // bấm node trên sơ đồ → mở trạm chi tiết tương ứng
+  const nodeToView = (id: string): ViewId =>
+    id === "st-universe" ? "universe" : id === "st-dock" ? "dock" : id === "st-open" ? "open" : "hist";
+  const onFlowNode = useCallback((id: string) => {
+    setView(nodeToView(id));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  // ── số liệu thô cho sơ đồ (flow null → khung số 0, trang vẫn sống) ──
+  const fc: ApmFlowCounts = {
+    universePool: flow?.universePool ?? 0,
+    publishedTop: flow?.publishedTop ?? 0,
+    uptrend: flow?.uptrend ?? 0,
+    scanCombos: flow?.scanCombos ?? 0,
+    scanAgeMin: flow?.scanAgeMin ?? null,
+    gatePass: flow?.gatePass ?? 0,
+    neutral: flow?.neutral ?? 0,
+    tradesTotal: flow?.tradesTotal ?? 0,
+    closedTrades: flow?.closedTrades ?? 0,
+    tp: flow?.tp ?? 0,
+    sl: flow?.sl ?? 0,
+    flip: flow?.flip ?? 0,
+    manual: flow?.manual ?? 0,
+    open: flow?.open ?? null,
+  };
 
   const stateBadge = (state: "ok" | "warn" | "na") =>
     state === "ok" ? (
-      <Badge className="gap-1 border-0 bg-emerald-950 text-emerald-400 hover:bg-emerald-950">
+      <Badge className="gap-1 border-0 bg-[#101a08] text-[#c8f542] hover:bg-[#101a08]">
         <CheckCircle2 className="h-3 w-3" /> {t(lang, "stats.ok")}
       </Badge>
     ) : state === "warn" ? (
@@ -396,36 +392,11 @@ export default function StatsPage() {
     </span>
   );
 
-  /** 0.2.85 — chip headline trên hàng trạm: 2 số đầu của section (số được tác
-   *  giả đặt đầu luôn là chỉ số nhận diện) + badge ok/warn + độ chính xác */
-  const stageAside = (s?: StatSection) =>
-    s ? (
-      <>
-        {s.metrics.slice(0, 2).map((m, i) => (
-          <span
-            key={i}
-            title={lang === "vi" ? m.hintVi ?? m.hint : m.hint}
-            className={`hidden items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px] md:inline-flex ${toneChip(m.tone)}`}
-          >
-            <span className="text-zinc-500">{m.k}</span>
-            <span className="font-semibold">{m.v}</span>
-          </span>
-        ))}
-        {accBadge(s.accPct, s.accNote)}
-        {stateBadge(s.state)}
-      </>
-    ) : null;
-
-  /** nội dung 1 trạm (thay SectionCard cũ — bỏ Card lồng Card): grid metrics +
-   *  charts + 2 dòng cơ sở/nhất quán. Field giữ tooltip hover/tap. */
+  /** nội dung 1 trạm server: metrics + charts + basis/consistency */
   const secBody = (k: string): ReactNode => {
     const s = byKey[k];
     if (!s) {
-      return (
-        <p className="rounded-lg border border-dashed border-zinc-800 p-4 text-xs text-zinc-600">
-          — {t(lang, "stats.chEmpty")}
-        </p>
-      );
+      return <p className="rounded-lg border border-dashed border-[#2a2a31] p-4 text-xs text-zinc-600">— {t(lang, "stats.chEmpty")}</p>;
     }
     return (
       <div className="space-y-2.5">
@@ -437,7 +408,7 @@ export default function StatsPage() {
         {s.charts?.map((c, i) => (
           <ChartBox key={i} chart={c} lang={lang} />
         ))}
-        <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 p-2.5">
+        <div className="space-y-1.5 rounded-lg border border-[#232329] bg-[#0b0b0e] p-2.5">
           <p className="text-[11px] leading-relaxed text-zinc-400">
             <span className="font-semibold text-zinc-300">📌 {t(lang, "stats.basis")}: </span>
             {t(lang, `stats.basis.${s.key}`)}
@@ -451,334 +422,324 @@ export default function StatsPage() {
     );
   };
 
-  const allOpen = STAGE_IDS.every((id) => open[id]);
+  /** khung panel APM dùng chung */
+  const Panel = ({ children, className = "" }: { children: ReactNode; className?: string }) => (
+    <div className={`rounded-2xl border border-[#232329] bg-[#101014]/95 shadow-[0_1px_0_rgba(255,255,255,0.03)_inset] ${className}`}>{children}</div>
+  );
 
-  return (
-    <div className="min-h-screen bg-transparent text-zinc-200">
-      <div className="space-y-4 p-3 sm:p-5">
-        <header className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="outline" className="h-8 gap-1.5 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800" asChild>
-            <Link href="/">
-              <ArrowLeft className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">← Terminal</span>
-            </Link>
-          </Button>
-          <div className="min-w-0 flex-1">
-            <h1 className="flex items-center gap-2 text-base font-bold text-zinc-100 sm:text-lg">
-              <ScrollText className="h-5 w-5 text-teal-400" />
-              {t(lang, "stats.title")}
-            </h1>
-            <p className="truncate text-[11px] text-zinc-500">{t(lang, "stats.sub")}</p>
-          </div>
-          <Button size="sm" variant="outline" className="h-8 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800" onClick={switchLang}>
-            {lang === "vi" ? "EN" : "VI"}
-          </Button>
-          <Button size="sm" className="h-8 gap-1.5 bg-zinc-100 px-2.5 text-xs text-zinc-900 hover:bg-zinc-200" disabled={loading} onClick={() => { setTabsRefresh((k) => k + 1); void load(); }}>
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-            <span className="hidden sm:inline">{t(lang, "stats.refresh")}</span>
-          </Button>
-        </header>
+  /** thanh tiêu đề panel: chấm màu + nhãn + phần phải tuỳ ý */
+  const PanelHead = ({ label, right, dot = "#8b8b94" }: { label: string; right?: ReactNode; dot?: string }) => (
+    <div className="flex items-center justify-between gap-2 border-b border-[#1d1d23] px-4 py-2.5">
+      <p className="flex min-w-0 items-center gap-2 text-[12.5px] font-semibold text-zinc-100">
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dot }} />
+        <span className="truncate">{label}</span>
+      </p>
+      {right}
+    </div>
+  );
 
-        <p className="text-[10px] text-zinc-600">
-          {at > 0 && (
-            <>
-              {t(lang, "stats.updated")}: {new Date(at).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB")} ·{" "}
-            </>
-          )}
-          {t(lang, "stats.summary", counts)}
-          {" · "}
-          <span className="text-zinc-500">🖱️ {t(lang, "stats.hoverHint")}</span>
-          {" · "}
-          <Link href="/ai" className="underline decoration-dotted hover:text-zinc-400">
-            /ai → Root-cause dive (LLM)
-          </Link>
-        </p>
+  /** hàng thanh %-dùng chung cho 3 widget Health (kiểu Latency/Capacity/Conversion) */
+  const BarRow = ({ label, sub, pct, color, badge }: { label: string; sub?: string; pct: number; color: string; badge?: ReactNode }) => (
+    <div className="flex items-center gap-2.5 px-4 py-1.5">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="truncate text-[11px] text-zinc-300">{label}</p>
+          {sub && <p className="shrink-0 font-mono text-[9.5px] text-zinc-500">{sub}</p>}
+        </div>
+        <div className="mt-1 flex items-center gap-1">
+          {[0, 1, 2].map((seg) => {
+            const segPct = Math.min(1, Math.max(0, pct * 3 - seg));
+            return (
+              <span key={seg} className="h-[5px] flex-1 overflow-hidden rounded-full bg-[#1c1c22]">
+                <span className="block h-full rounded-full" style={{ width: `${segPct * 100}%`, background: color, opacity: seg === 0 ? 1 : seg === 1 ? 0.75 : 0.5 }} />
+              </span>
+            );
+          })}
+        </div>
+      </div>
+      {badge}
+    </div>
+  );
 
-        {/* ── 0.2.85 — PipeMap: sơ đồ suy diễn chữ S — line điện CHẠY rõ theo
-            hướng mũi tên; node đang xử lý glow + halo; bấm node → trạm tự mở ── */}
-        <Card className="border-zinc-800 bg-zinc-900/60">
-          <CardContent className="py-3">
-            <PipeMap nodes={pipeNodes} onNodeClick={goTo} hint={t(lang, "flow.hint")} />
-          </CardContent>
-        </Card>
-
-        {err && !snap && (
-          <Card className="border-rose-900 bg-rose-950/30">
-            <CardContent className="flex items-center gap-2 p-4 text-sm text-rose-300">
-              <TriangleAlert className="h-4 w-4" /> {err}
-            </CardContent>
-          </Card>
-        )}
-
-        {!snap && !err && (
-          <div className="space-y-2">
-            {STAGE_IDS.map((id) => (
-              <Skeleton key={id} className="h-12 rounded-xl border border-zinc-800 bg-zinc-900" />
+  // ── RAIL PHẢI — Events / Gate Health / Engine Health / Session Health / Scorecard
+  // (đọc snap + byKey qua closure của component — KHÔNG nhận prop)
+  const Rail = () => {
+    // Events tổng hợp từ snapshot (toàn bộ số liệu do server cung cấp)
+    const ev: { dot: string; text: string; right?: string; dim?: boolean }[] = [];
+    if (flow) {
+      if (flow.scanAgeMin == null) ev.push({ dot: GREY, text: t(lang, "apm.ev.never"), dim: true });
+      else if (flow.scanAgeMin > 15) ev.push({ dot: "#fbbf24", text: t(lang, "apm.ev.staleScan"), right: `${flow.scanAgeMin}m` });
+      else ev.push({ dot: LIME, text: t(lang, "apm.ev.scan"), right: `${flow.scanAgeMin}m` });
+      ev.push({
+        dot: flow.universeAgeMin != null && flow.universeAgeMin <= 480 ? "#38bdf8" : "#fbbf24",
+        text: t(lang, "apm.ev.universe"),
+        right: flow.universeAgeMin != null ? `${flow.universeAgeMin}m` : t(lang, "apm.ev.never"),
+      });
+      ev.push({
+        dot: flow.activeSessions.length ? LIME : "#8b8b94",
+        text: flow.activeSessions.length
+          ? t(lang, "apm.ev.session", { s: flow.activeSessions.join(" + ") })
+          : t(lang, "apm.ev.quiet"),
+        right: `${flow.nextSession} ${Math.round(flow.nextInMin / 60)}h`,
+        dim: flow.activeSessions.length === 0,
+      });
+      ev.push(
+        flow.open
+          ? { dot: "#f4525c", text: t(lang, "apm.ev.openpos", { sym: flow.open.symbol.replace("USDT", ""), side: flow.open.side, h: flow.open.ageH.toFixed(1) }), right: flow.open.roe != null ? `${flow.open.roe >= 0 ? "+" : ""}${flow.open.roe.toFixed(1)}%` : undefined }
+          : { dot: "#8b8b94", text: t(lang, "apm.ev.flat"), dim: true },
+      );
+      ev.push({ dot: snap?.dqfOn ? LIME : "#8b8b94", text: snap?.dqfOn ? t(lang, "apm.ev.dqfOn") : t(lang, "apm.ev.dqfOff"), right: "DQF" });
+      ev.push(
+        flow.warn > 0
+          ? { dot: "#fbbf24", text: t(lang, "apm.ev.warn", { n: flow.warn }), right: `${flow.warn}/${flow.ok + flow.warn + flow.na}` }
+          : { dot: LIME, text: t(lang, "apm.ev.allOk"), right: `${flow.ok}` },
+      );
+      if (flow.last7d > 0) ev.push({ dot: "#a78bfa", text: t(lang, "apm.ev.last7d", { n: flow.last7d }), right: "7d" });
+    }
+    // Gate Health 3 thanh
+    const freshPct = flow?.scanAgeMin != null ? Math.max(0, 1 - flow.scanAgeMin / 15) : 0;
+    const passPct = flow && flow.scanCombos > 0 ? flow.gatePass / flow.scanCombos : 0;
+    const bcPct = flow && flow.bcastTotal > 0 ? flow.bcastPass / flow.bcastTotal : 0;
+    // Engine Health — 3 kiểm chéo chính (state section do server chấm)
+    const engRows = [
+      { label: t(lang, "apm.eng.chain"), sub: t(lang, "apm.eng.chainSub"), state: byKey.auto?.state ?? "na" },
+      { label: t(lang, "apm.eng.labels"), sub: t(lang, "apm.eng.labelsSub", { n: flow?.unlabeled ?? 0 }), state: byKey.hist?.state ?? "na" },
+      { label: t(lang, "apm.eng.outcomes"), sub: t(lang, "apm.eng.outcomesSub"), state: byKey.sg?.state ?? "na" },
+    ];
+    // Session Health — phiên theo timestamp server (snap.at) để SSR = client
+    const activeSet = new Set((flow?.activeSessions ?? []).map((x) => x));
+    // Trade Scorecard
+    const sc = [
+      { label: t(lang, "apm.score.tp"), n: fc.tp, color: LIME },
+      { label: t(lang, "apm.score.sl"), n: fc.sl, color: "#f4525c" },
+      { label: t(lang, "apm.score.flip"), n: fc.flip, color: "#fbbf24" },
+      { label: t(lang, "apm.score.manual"), n: fc.manual, color: "#8b8b94" },
+    ];
+    const scMax = Math.max(...sc.map((r) => r.n), fc.closedTrades, 1);
+    return (
+      <div className="space-y-3">
+        <Panel>
+          <PanelHead label={t(lang, "apm.rail.events")} dot="#a78bfa" right={<span className="rounded-full bg-[#1a1a20] px-2 py-0.5 font-mono text-[10px] text-zinc-400">{ev.length}</span>} />
+          <div className="divide-y divide-[#1a1a20]">
+            {ev.length === 0 && <p className="px-4 py-3 text-[11px] text-zinc-600">—</p>}
+            {ev.map((e, i) => (
+              <div key={i} className={`flex items-center gap-2.5 px-4 py-2 ${e.dim ? "opacity-60" : ""}`}>
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: e.dot }} />
+                <p className="min-w-0 flex-1 truncate text-[11px] leading-snug text-zinc-300">{e.text}</p>
+                {e.right && <span className="shrink-0 font-mono text-[10px] text-zinc-500">{e.right}</span>}
+              </div>
             ))}
           </div>
-        )}
+        </Panel>
 
-        {snap && (
-          <div className="space-y-2">
-            {/* nút gom/mở toàn bộ — mặc định trang thu gọn cho hết dàn trải */}
-            <div className="flex items-center justify-end">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 gap-1 px-2 text-[11px] text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
-                onClick={() => {
-                  const next: Record<string, boolean> = {};
-                  if (!allOpen) for (const id of STAGE_IDS) next[id] = true;
-                  setOpen(next);
-                }}
-              >
-                {allOpen ? t(lang, "ui.collapseAll") : t(lang, "ui.expandAll")}
-              </Button>
-            </div>
+        <Panel>
+          <PanelHead label={t(lang, "apm.rail.gate")} dot={LIME} right={<span className="rounded-full bg-[#1a1a20] px-2 py-0.5 font-mono text-[10px] text-zinc-400">3</span>} />
+          <div className="py-1">
+            <BarRow label={t(lang, "apm.gate.fresh")} sub={t(lang, "apm.gate.freshSub", { n: flow?.scanAgeMin ?? 0 })} pct={freshPct} color={LIME} />
+            <BarRow label={t(lang, "apm.gate.pass")} sub={t(lang, "apm.gate.passSub", { n: flow?.gatePass ?? 0, m: flow?.scanCombos ?? 0 })} pct={passPct} color={LIME} />
+            <BarRow label={t(lang, "apm.gate.bcast")} sub={t(lang, "apm.gate.bcastSub", { n: flow?.bcastPass ?? 0, m: flow?.bcastTotal ?? 0 })} pct={bcPct} color={LIME} />
+          </div>
+        </Panel>
 
-            {/* ── 9 trạm theo luồng suy diễn ── */}
-            <Stage
-              id="st-market"
-              tone="cyan"
-              title={t(lang, "stats.section.market")}
-              note={t(lang, "stats.ch1.note")}
-              active={loading}
-              open={!!open["st-market"]}
-              flashing={flash === "st-market"}
-              onToggle={() => toggleStage("st-market")}
-              aside={stageAside(byKey.market)}
-            >
-              {secBody("market")}
-            </Stage>
-
-            <Stage
-              id="st-universe"
-              tone="sky"
-              title={t(lang, "stats.section.universe")}
-              note={t(lang, "stats.ch1.note")}
-              active={loading}
-              open={!!open["st-universe"]}
-              flashing={flash === "st-universe"}
-              onToggle={() => toggleStage("st-universe")}
-              aside={stageAside(byKey.universe)}
-            >
-              {secBody("universe")}
-            </Stage>
-
-            <Stage
-              id="st-combo"
-              tone="amber"
-              title={t(lang, "stats.section.combo")}
-              note={t(lang, "stats.ch2.note")}
-              active={loading}
-              open={!!open["st-combo"]}
-              flashing={flash === "st-combo"}
-              onToggle={() => toggleStage("st-combo")}
-              aside={stageAside(byKey.combo)}
-            >
-              {secBody("combo")}
-            </Stage>
-
-            <Stage
-              id="st-dock"
-              tone="violet"
-              title={t(lang, "stats.section.dock")}
-              note={t(lang, "stats.ch2.note")}
-              active={loading}
-              open={!!open["st-dock"]}
-              flashing={flash === "st-dock"}
-              onToggle={() => toggleStage("st-dock")}
-              aside={stageAside(byKey.dock)}
-            >
-              {secBody("dock")}
-            </Stage>
-
-            <Stage
-              id="st-auto"
-              tone="emerald"
-              title={t(lang, "stats.section.auto")}
-              note={t(lang, "stats.ch3.note")}
-              active={loading}
-              open={!!open["st-auto"]}
-              flashing={flash === "st-auto"}
-              onToggle={() => toggleStage("st-auto")}
-              aside={stageAside(byKey.auto)}
-            >
-              {secBody("auto")}
-            </Stage>
-
-            {/* 0.3.2 — DQF: sàn chất lượng động học từ toàn bộ Elliott session */}
-            <Stage
-              id="st-dqf"
-              tone="teal"
-              title={t(lang, "stats.section.dqf")}
-              note={t(lang, "stats.ch3.note")}
-              active={loading}
-              open={!!open["st-dqf"]}
-              flashing={flash === "st-dqf"}
-              onToggle={() => toggleStage("st-dqf")}
-              aside={stageAside(byKey.dqf)}
-            >
-              <div className="mb-2.5 flex items-center justify-between gap-3 rounded-md border border-zinc-800 bg-zinc-950/40 px-3 py-2">
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-zinc-200">{t(lang, "stats.dqf.toggle")}</p>
-                  <p className="text-[10px] leading-snug text-zinc-500">{t(lang, "stats.dqf.toggle.sub")}</p>
+        <Panel>
+          <PanelHead label={t(lang, "apm.rail.engine")} dot="#38bdf8" right={<span className="rounded-full bg-[#1a1a20] px-2 py-0.5 font-mono text-[10px] text-zinc-400">3</span>} />
+          <div className="divide-y divide-[#1a1a20]">
+            {engRows.map((r, i) => (
+              <div key={i} className="flex items-center gap-2.5 px-4 py-2">
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: r.state === "ok" ? LIME : r.state === "warn" ? "#fbbf24" : "#8b8b94" }} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[11px] text-zinc-300">{r.label}</p>
+                  <p className="truncate text-[9.5px] text-zinc-500">{r.sub}</p>
                 </div>
-                <Switch
-                  checked={dqfOn}
-                  disabled={dqfBusy}
-                  onCheckedChange={(v) => void toggleDqf(v)}
-                  aria-label={t(lang, "stats.dqf.toggle")}
-                />
+                <div className="w-16 shrink-0">
+                  <span className="block h-[5px] overflow-hidden rounded-full bg-[#1c1c22]">
+                    <span className="block h-full rounded-full" style={{ width: r.state === "ok" ? "100%" : r.state === "warn" ? "45%" : "8%", background: r.state === "ok" ? LIME : r.state === "warn" ? "#fbbf24" : "#8b8b94" }} />
+                  </span>
+                </div>
               </div>
-              {secBody("dqf")}
-            </Stage>
+            ))}
+          </div>
+        </Panel>
 
-            <Stage
-              id="st-open"
-              tone="rose"
-              title={t(lang, "stats.section.open")}
-              note={t(lang, "stats.ch3.note")}
-              active={loading}
-              open={!!open["st-open"]}
-              flashing={flash === "st-open"}
-              onToggle={() => toggleStage("st-open")}
-              aside={stageAside(byKey.open)}
-            >
-              {secBody("open")}
-            </Stage>
-
-            {/* hist + sg gom 1 trạm — cùng là "kết quả đã chốt" */}
-            <Stage
-              id="st-hist"
-              tone="orange"
-              title={`${t(lang, "stats.section.hist")} · ${t(lang, "stats.section.sg")}`}
-              note={t(lang, "stats.ch4.note")}
-              active={loading}
-              open={!!open["st-hist"]}
-              flashing={flash === "st-hist"}
-              onToggle={() => toggleStage("st-hist")}
-              aside={stageAside(byKey.hist)}
-            >
-              <div className="grid gap-3 xl:grid-cols-2">
-                {secBody("hist")}
-                {secBody("sg")}
-              </div>
-            </Stage>
-
-            {/* ── Trade journal — tính Ở SERVER, luôn qua /api/journal (200 nến, 0.2.52) ── */}
-            <Stage
-              id="st-journal"
-              tone="fuchsia"
-              title={`${t(lang, "stats.section.journal")} · ${pickSym === PICK_ALL ? t(lang, "stats.pick.all") : pickSym.replace("USDT", "")} ${pickTf}`}
-              note={t(lang, "stats.ch4.note")}
-              active={clientBusy}
-              open={!!open["st-journal"]}
-              flashing={flash === "st-journal"}
-              onToggle={() => toggleStage("st-journal")}
-              aside={
-                journal ? (
-                  <>
-                    <span className={`hidden rounded px-1.5 py-0.5 font-mono text-[10px] md:inline ${TONE_CHIP[journal.closed > 0 && journal.winRate >= 50 ? "ok" : "warn"]}`}>
-                      WR {journal.winRate.toFixed(0)}%
+        <Panel>
+          <PanelHead label={t(lang, "apm.rail.sessions")} dot="#22d3ee" right={<span className="rounded-full bg-[#1a1a20] px-2 py-0.5 font-mono text-[10px] text-zinc-400">{activeSet.size}/4</span>} />
+          <div className="divide-y divide-[#1a1a20]">
+            {SESSIONS.map((s) => {
+              const on = activeSet.has(SESS_NAME[s.key]);
+              return (
+                <div key={s.key} className="flex items-center gap-2.5 px-4 py-2">
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${on ? "animate-pulse" : ""}`} style={{ background: on ? LIME : "#3a3a42" }} />
+                  <p className={`min-w-0 flex-1 truncate text-[11px] ${on ? "text-zinc-200" : "text-zinc-500"}`}>{SESS_NAME[s.key]}</p>
+                  <span className="shrink-0 font-mono text-[9.5px] text-zinc-600">{s.from}–{s.to}h</span>
+                  <span className="w-14 shrink-0">
+                    <span className="block h-[5px] overflow-hidden rounded-full bg-[#1c1c22]">
+                      <span className="block h-full rounded-full" style={{ width: on ? "100%" : "10%", background: on ? LIME : "#3a3a42" }} />
                     </span>
-                    {accBadge(journal.closed > 0 ? journal.winRate : 0, `${journal.closed} closed`)}
-                  </>
-                ) : null
-              }
-            >
-              <div className="space-y-2.5">
-                {journal ? (
-                  <>
-                    <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
-                      <Metric
-                        lang={lang}
-                        k={t(lang, "stats.j.trades")}
-                        v={String(journal.total)}
-                        sub={`${journal.closed} closed · ${journal.open} open`}
-                        tone="info"
-                        hint="UT-Bot signals inside the 200-candle journal window; sub = how many produced closed vs still-open paper trades."
-                        hintVi="Tín hiệu UT-Bot trong cửa sổ 200 nến; dòng dưới = số đã đóng và số chưa chốt."
-                      />
-                      <Metric
-                        lang={lang}
-                        k="Win rate"
-                        v={`${journal.winRate.toFixed(0)}%`}
-                        sub={`${journal.wins} wins / ${journal.losses} losses`}
-                        tone={journal.closed === 0 ? "dim" : journal.winRate >= 50 ? "ok" : journal.winRate >= 40 ? "warn" : "bad"}
-                        hint="Wins ÷ closed trades inside the window. Tint: ≥50% green, 40–49% amber, <40% red."
-                        hintVi="Thắng ÷ số lệnh đóng trong cửa sổ. Màu: ≥50% xanh, 40–49% vàng, <40% đỏ."
-                      />
-                      <Metric
-                        lang={lang}
-                        k="TP / SL"
-                        v={`${journal.tpCount} / ${journal.slCount}`}
-                        tone={journal.tpCount > journal.slCount ? "ok" : journal.tpCount < journal.slCount ? "bad" : "info"}
-                        hint="TP hits vs SL hits among closed trades in the window — the raw exit mix."
-                        hintVi="Số lệnh chạm TP so với chạm SL trong cửa sổ — cơ cấu kết thúc thô."
-                      />
-                      <Metric
-                        lang={lang}
-                        k={t(lang, "stats.j.flips")}
-                        v={String(journal.flipCount)}
-                        sub={`net ${fmtPct(journal.flipNetPnl)}`}
-                        tone="info"
-                        hint="Flip closes (engine reversed the side mid-trade); sub = their net PnL contribution."
-                        hintVi="Lệnh đóng flip (engine đảo giữa chừng); dòng dưới = PnL ròng chúng đóng góp."
-                      />
-                      <Metric
-                        lang={lang}
-                        k={t(lang, "stats.j.net")}
-                        v={fmtPct(journal.netPnl)}
-                        tone={journal.netPnl > 0 ? "ok" : journal.netPnl < 0 ? "bad" : "dim"}
-                        hint="Net ROE sum over closed trades in the window (leverage-inclusive, not compounded)."
-                        hintVi="Tổng ROE ròng các lệnh đã đóng trong cửa sổ (đã gồm đòn bẩy, chưa compounding)."
-                      />
-                      <Metric
-                        lang={lang}
-                        k="UT-Bot signals"
-                        v={journal.basis}
-                        tone="info"
-                        hint="Raw signal count the journal was computed from — the base for every number above."
-                        hintVi="Số tín hiệu UT-Bot dùng để tính sổ — gốc của mọi số phía trên."
-                      />
-                    </div>
-                    <ChartBox
-                      lang={lang}
-                      chart={{
-                        kind: "stack",
-                        items: [
-                          { label: "TP", n: journal.tpCount },
-                          { label: "SL", n: journal.slCount },
-                          { label: "flip", n: journal.flipCount },
-                        ],
-                        hint: "Exit mix inside the journal window: TP (green) vs SL (red) vs flip closes (amber).",
-                        hintVi: "Cơ cấu kết thúc trong cửa sổ sổ lệnh: TP (xanh) vs SL (đỏ) vs đóng flip (vàng).",
-                      }}
-                    />
-                    {/* 0.2.80 — bảng journal tương tác: CÙNG nguồn /api/journal với
-                        các ô KPI phía trên nên số liệu khớp 1:1 (cùng cửa sổ 200
-                        nến, cùng default settings). ALL: trộn mọi cặp + cột Symbol
-                        + bảng con theo cặp phía dưới vẫn giữ nguyên. */}
-                    <div className="border-t border-zinc-800/70 pt-2.5">
-                      <Journal
-                        lang={lang}
-                        papers={journalPapers ?? []}
-                        symbol={pickSym}
-                        interval={pickTf}
-                        bare
-                        showSymbol={pickSym === PICK_ALL}
-                        maxListClass="max-h-[26rem]"
-                      />
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-xs text-zinc-500">— {clientBusy ? "…" : "failed to load candles"}</p>
-                )}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </Panel>
 
-                {/* bảng con theo cặp — chỉ khi chọn “Tất cả cặp” */}
+        <Panel>
+          <PanelHead
+            label={t(lang, "apm.rail.score")}
+            dot="#f4525c"
+            right={<span className="rounded-full bg-[#1a1a20] px-2 py-0.5 font-mono text-[10px] text-zinc-400">{t(lang, "apm.score.totalSub", { n: fc.closedTrades })}</span>}
+          />
+          <div className="divide-y divide-[#1a1a20]">
+            {sc.map((r, i) => (
+              <div key={i} className="flex items-center gap-2.5 px-4 py-2">
+                <p className="w-24 shrink-0 truncate text-[11px] text-zinc-300">{r.label}</p>
+                <span className="h-[6px] min-w-0 flex-1 overflow-hidden rounded-full bg-[#1c1c22]">
+                  <span className="block h-full rounded-full" style={{ width: `${(r.n / scMax) * 100}%`, background: r.color }} />
+                </span>
+                <span className="w-8 shrink-0 text-right font-mono text-[11px] font-semibold" style={{ color: r.color }}>{r.n}</span>
+              </div>
+            ))}
+            <div className="flex items-center gap-2.5 px-4 py-2">
+              <p className="w-24 shrink-0 truncate text-[11px] text-zinc-300">{t(lang, "apm.score.open")}</p>
+              <span className="h-[6px] min-w-0 flex-1 overflow-hidden rounded-full bg-[#1c1c22] border border-dashed border-[#f4525c55]">
+                <span className="block h-full rounded-full" style={{ width: fc.open ? "100%" : "0%", background: "#f4525c" }} />
+              </span>
+              <span className="w-8 shrink-0 text-right font-mono text-[11px] font-semibold text-[#f4525c]">{fc.open ? 1 : 0}</span>
+            </div>
+          </div>
+        </Panel>
+      </div>
+    );
+  };
+
+  // ── cột "Net result" (bên phải sơ đồ — y ảnh tham chiếu) ──
+  const NetCard = ({ label, value, sub, color = "#e9e9ec" }: { label: string; value: string; sub?: string; color?: string }) => (
+    <div className="rounded-xl border border-[#232329] bg-[#101014]/95 px-3 py-2.5">
+      <p className="text-[9.5px] uppercase tracking-wide text-zinc-500">{label}</p>
+      <p className="mt-0.5 truncate font-mono text-[19px] font-bold leading-tight" style={{ color }}>{value}</p>
+      {sub && <p className="mt-0.5 truncate text-[9.5px] text-zinc-500">{sub}</p>}
+    </div>
+  );
+  const netColumn = () => {
+    const eq = flow?.equity ?? null;
+    const openRoe = flow?.open?.roe ?? null;
+    const wilson = flow?.wilson ?? 0;
+    return (
+      <div className="space-y-2">
+        <NetCard label={t(lang, "apm.net.label")} value={eq != null ? `$${eq.toFixed(2)}` : "—"} sub={t(lang, "apm.net.startSub")} color={eq != null && eq >= 1000 ? LIME : "#e9e9ec"} />
+        <NetCard label={t(lang, "apm.net.netroe")} value={`${(flow?.netRoe ?? 0) >= 0 ? "+" : ""}${(flow?.netRoe ?? 0).toFixed(2)}%`} sub={`${fc.closedTrades} ${t(lang, "apm.net.closed").toLowerCase()}`} color={(flow?.netRoe ?? 0) >= 0 ? LIME : "#f4525c"} />
+        <NetCard label={t(lang, "apm.net.winrate")} value={`${(flow?.winRate ?? 0).toFixed(0)}%`} sub={t(lang, "apm.net.wilsonSub", { n: wilson.toFixed(0) })} />
+        <NetCard label={t(lang, "apm.net.closed")} value={`${fc.closedTrades}`} sub={`${flow?.wins ?? 0} wins · ${fc.sl} SL`} />
+        <NetCard label={t(lang, "apm.net.avg")} value={`${(flow?.avgRoe ?? 0) >= 0 ? "+" : ""}${(flow?.avgRoe ?? 0).toFixed(2)}%`} color={(flow?.avgRoe ?? 0) >= 0 ? LIME : "#f4525c"} />
+        <NetCard
+          label={t(lang, "apm.net.unreal")}
+          value={openRoe != null ? `${openRoe >= 0 ? "+" : ""}${openRoe.toFixed(2)}%` : "—"}
+          sub={flow?.open ? t(lang, "apm.net.openSub", { sym: flow.open.symbol.replace("USDT", ""), side: flow.open.side, h: flow.open.ageH.toFixed(1) }) : t(lang, "apm.band.flat")}
+          color={openRoe != null ? (openRoe >= 0 ? LIME : "#f4525c") : "#8b8b94"}
+        />
+      </div>
+    );
+  };
+
+  // ── tabs đáy view flow: Equity / Win rate / Exits (y cấu trúc Load/Response/Errors)
+  // Equity curve nằm ở section auto (line $); Win rate ở combo (bars max 100);
+  // Exit mix ở hist (stack) — tra theo kind cho chắc, không theo index.
+  const eqChart = byKey.auto?.charts?.find((c) => c.kind === "line");
+  const wrChart = byKey.combo?.charts?.find((c) => c.kind === "bars" && c.max === 100);
+  const exChart = byKey.hist?.charts?.find((c) => c.kind === "stack");
+
+  const bottomTabs = (
+    <Panel>
+      <Tabs defaultValue="equity">
+        <div className="border-b border-[#1d1d23] px-3 py-2">
+          <TabsList className="h-8 justify-start rounded-lg border border-[#232329] bg-[#0b0b0e] p-0.5">
+            {[
+              { v: "equity", label: t(lang, "apm.tab.equity") },
+              { v: "wr", label: t(lang, "apm.tab.wr") },
+              { v: "exits", label: t(lang, "apm.tab.exits") },
+            ].map((tb) => (
+              <TabsTrigger key={tb.v} value={tb.v} className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-[#1c1c22] data-[state=active]:text-[#c8f542]">
+                {tb.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
+        <div className="p-3">
+          <TabsContent value="equity" className="mt-0">
+            {eqChart ? <ChartBox chart={eqChart} lang={lang} /> : <p className="p-4 text-xs text-zinc-600">— {t(lang, "apm.tab.empty")}</p>}
+          </TabsContent>
+          <TabsContent value="wr" className="mt-0">
+            {wrChart ? <ChartBox chart={wrChart} lang={lang} /> : <p className="p-4 text-xs text-zinc-600">— {t(lang, "apm.tab.empty")}</p>}
+          </TabsContent>
+          <TabsContent value="exits" className="mt-0">
+            {exChart ? <ChartBox chart={exChart} lang={lang} /> : <p className="p-4 text-xs text-zinc-600">— {t(lang, "apm.tab.empty")}</p>}
+          </TabsContent>
+        </div>
+      </Tabs>
+    </Panel>
+  );
+
+  // ── bộ chọn combo (journal + lab) ──
+  const comboPicker = (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-[11px] font-medium text-zinc-400">{t(lang, "stats.pick")}:</span>
+      <select
+        value={pickSym}
+        onChange={(e) => setPickSym(e.target.value)}
+        className="h-7 rounded-md border border-[#2a2a31] bg-[#0b0b0e] px-2 font-mono text-xs text-zinc-200"
+      >
+        <option value={PICK_ALL}>{t(lang, "stats.pick.all")}</option>
+        {PICK_SYMBOLS.map((s) => (
+          <option key={s} value={s}>{s.replace("USDT", "")}</option>
+        ))}
+      </select>
+      {PICK_TFS.map((tf) => (
+        <Button
+          key={tf}
+          size="sm"
+          variant="outline"
+          className={`h-7 px-2 font-mono text-xs ${pickTf === tf ? "border-zinc-500 bg-[#1c1c22] text-zinc-100" : "border-[#232329] text-zinc-400 hover:bg-[#1c1c22]"}`}
+          onClick={() => setPickTf(tf)}
+        >
+          {tf}
+        </Button>
+      ))}
+      {clientBusy && <RefreshCw className="h-3.5 w-3.5 animate-spin text-zinc-500" />}
+    </div>
+  );
+
+  // ── trang chi tiết trạm (center khi view != flow) ──
+  const navItem = NAV.find((n) => n.id === view);
+  const stationView = () => {
+    if (view === "journal") {
+      return (
+        <Panel>
+          <PanelHead
+            label={`${t(lang, "stats.section.journal")} · ${pickSym === PICK_ALL ? t(lang, "stats.pick.all") : pickSym.replace("USDT", "")} ${pickTf}`}
+            dot="#e879f9"
+            right={journal ? accBadge(journal.closed > 0 ? journal.winRate : 0, `${journal.closed} closed`) : undefined}
+          />
+          <div className="space-y-2.5 p-3">
+            {comboPicker}
+            {journal ? (
+              <>
+                <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
+                  <Metric lang={lang} k={t(lang, "stats.j.trades")} v={String(journal.total)} sub={`${journal.closed} closed · ${journal.open} open`} tone="info"
+                    hint="UT-Bot signals inside the 200-candle journal window; sub = closed vs still-open paper trades."
+                    hintVi="Tín hiệu UT-Bot trong cửa sổ 200 nến; dòng dưới = số đã đóng và số chưa chốt." />
+                  <Metric lang={lang} k="Win rate" v={`${journal.winRate.toFixed(0)}%`} sub={`${journal.wins} wins / ${journal.losses} losses`}
+                    tone={journal.closed === 0 ? "dim" : journal.winRate >= 50 ? "ok" : journal.winRate >= 40 ? "warn" : "bad"} />
+                  <Metric lang={lang} k="TP / SL" v={`${journal.tpCount} / ${journal.slCount}`}
+                    tone={journal.tpCount > journal.slCount ? "ok" : journal.tpCount < journal.slCount ? "bad" : "info"} />
+                  <Metric lang={lang} k={t(lang, "stats.j.flips")} v={String(journal.flipCount)} sub={`net ${fmtPct(journal.flipNetPnl)}`} tone="info" />
+                  <Metric lang={lang} k={t(lang, "stats.j.net")} v={fmtPct(journal.netPnl)} tone={journal.netPnl > 0 ? "ok" : journal.netPnl < 0 ? "bad" : "dim"} />
+                  <Metric lang={lang} k="UT-Bot signals" v={journal.basis} tone="info" />
+                </div>
+                <ChartBox lang={lang} chart={{ kind: "stack", items: [{ label: "TP", n: journal.tpCount }, { label: "SL", n: journal.slCount }, { label: "flip", n: journal.flipCount }] }} />
+                <div className="border-t border-[#1d1d23] pt-2.5">
+                  <Journal lang={lang} papers={journalPapers ?? []} symbol={pickSym} interval={pickTf} bare showSymbol={pickSym === PICK_ALL} maxListClass="max-h-[26rem]" />
+                </div>
                 {journalPer && journalPer.per.length > 0 && (
-                  <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 p-2.5">
+                  <div className="space-y-1.5 rounded-lg border border-[#232329] bg-[#0b0b0e] p-2.5">
                     <p className="text-[11px] font-semibold text-zinc-300">{t(lang, "stats.journal.per")}</p>
                     <div className="overflow-x-auto">
                       <table className="w-full border-collapse text-left font-mono text-[11px]">
@@ -792,15 +753,13 @@ export default function StatsPage() {
                         </thead>
                         <tbody>
                           {journalPer.per.map((p) => (
-                            <tr key={p.symbol} className="border-t border-zinc-800/70">
+                            <tr key={p.symbol} className="border-t border-[#1d1d23]">
                               <td className="py-1 pr-2 text-zinc-200">{p.symbol.replace("USDT", "")}</td>
                               <td className="py-1 pr-2 text-right text-zinc-400">{p.kpi.closed}</td>
                               <td className={`py-1 pr-2 text-right ${p.kpi.closed > 0 && p.kpi.winRate >= 50 ? "text-emerald-400" : "text-zinc-400"}`}>
                                 {p.kpi.closed > 0 ? `${p.kpi.winRate.toFixed(0)}%` : "—"}
                               </td>
-                              <td className={`py-1 text-right ${p.kpi.netPnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                                {fmtPct(p.kpi.netPnl)}
-                              </td>
+                              <td className={`py-1 text-right ${p.kpi.netPnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{fmtPct(p.kpi.netPnl)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -808,215 +767,336 @@ export default function StatsPage() {
                     </div>
                     <p className="text-[10px] text-zinc-500">{t(lang, "stats.journal.perNote")}</p>
                     {journalPer.failed.length > 0 && (
-                      <p className="text-[10px] text-amber-300/80">
-                        {t(lang, "stats.journal.failed", { pairs: journalPer.failed.join(", ") })}
-                      </p>
+                      <p className="text-[10px] text-amber-300/80">{t(lang, "stats.journal.failed", { pairs: journalPer.failed.join(", ") })}</p>
                     )}
                   </div>
                 )}
-
-                <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 p-2.5">
+                <div className="space-y-1.5 rounded-lg border border-[#232329] bg-[#0b0b0e] p-2.5">
                   <p className="text-[11px] leading-relaxed text-zinc-400">
                     <span className="font-semibold text-zinc-300">📌 {t(lang, "stats.basis")}: </span>
                     {t(lang, "stats.basis.journal")}
                   </p>
                   <p className="text-[11px] leading-relaxed text-amber-300/80">⚠️ {t(lang, "stats.journalNote")}</p>
                 </div>
-              </div>
-            </Stage>
-
-            {/* ── Lab & Phân tích: bộ chọn combo + 3 tab terminal ── */}
-            <Stage
-              id="st-lab"
-              tone="blue"
-              title={t(lang, "stats.section.analysis")}
-              note={t(lang, "stats.ch5.note")}
-              active={clientBusy}
-              open={!!open["st-lab"]}
-              flashing={flash === "st-lab"}
-              onToggle={() => toggleStage("st-lab")}
-            >
-              {/* combo picker cho 2 section client-side */}
-              <div className="mb-2.5 flex flex-wrap items-center gap-2">
-                <span className="text-[11px] font-medium text-zinc-400">{t(lang, "stats.pick")}:</span>
-                <select
-                  value={pickSym}
-                  onChange={(e) => setPickSym(e.target.value)}
-                  className="h-7 rounded-md border border-zinc-700 bg-zinc-950 px-2 font-mono text-xs text-zinc-200"
-                >
-                  <option value={PICK_ALL}>{t(lang, "stats.pick.all")}</option>
-                  {PICK_SYMBOLS.map((s) => (
-                    <option key={s} value={s}>
-                      {s.replace("USDT", "")}
-                    </option>
-                  ))}
-                </select>
-                {PICK_TFS.map((tf) => (
-                  <Button
-                    key={tf}
-                    size="sm"
-                    variant="outline"
-                    className={`h-7 px-2 font-mono text-xs ${
-                      pickTf === tf ? "border-zinc-500 bg-zinc-800 text-zinc-100" : "border-zinc-800 text-zinc-400 hover:bg-zinc-800"
-                    }`}
-                    onClick={() => setPickTf(tf)}
-                  >
-                    {tf}
-                  </Button>
-                ))}
-                {clientBusy && <RefreshCw className="h-3.5 w-3.5 animate-spin text-zinc-500" />}
-              </div>
-
-              {/* 0.2.82 — TERMINAL TABS (dời từ trang chủ): Suggestions / Lab /
-                  Analysis — cùng bộ chọn pickSym/pickTf phía trên điều khiển;
-                  ALL: Suggestions khoá scope "all" (forceAll), Lab + Analysis
-                  yêu cầu cặp cụ thể. Lab Apply ghi utp.settings → trang chủ đọc
-                  ở lần tải kế tiếp (note xác nhận ngay trong tab). */}
-              <Tabs defaultValue="suggest">
-                <TabsList className="h-8 w-full justify-start overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <TabsTrigger
-                    value="suggest"
-                    className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
-                  >
-                    {t(lang, "tabs.suggest")}
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="lab"
-                    className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
-                  >
-                    {t(lang, "tabs.lab")}
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="analysis"
-                    className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
-                  >
-                    {t(lang, "tabs.analysis")}
-                  </TabsTrigger>
-                </TabsList>
-                <TabsContent value="suggest" className="mt-2.5">
-                  <SuggestionHistory
-                    lang={lang}
-                    symbol={pickSym}
-                    interval={pickTf}
-                    refreshKey={tabsRefresh}
-                    forceAll={pickSym === PICK_ALL}
-                  />
-                </TabsContent>
-                <TabsContent value="lab" className="mt-2.5">
-                  {pickSym === PICK_ALL ? (
-                    <p className="rounded-lg border border-dashed border-zinc-800 p-6 text-center text-xs text-zinc-500">
-                      {t(lang, "stats.labAll")}
-                    </p>
-                  ) : (
-                    <>
-                      {labApplied && (
-                        <p className="mb-2.5 rounded-lg border border-teal-800/60 bg-teal-950/30 px-3 py-2 text-[11px] leading-relaxed text-teal-300">
-                          {t(lang, "sl.applyToast", {
-                            name: labApplied.name,
-                            sl: labApplied.sl.toFixed(1),
-                            tp: labApplied.tp.toFixed(1),
-                            key: String(labApplied.key),
-                            period: String(labApplied.period),
-                          })}{" "}
-                          · {t(lang, "stats.labApplied")}
-                        </p>
-                      )}
-                      <StrategyLab
-                        lang={lang}
-                        symbol={pickSym}
-                        interval={pickTf}
-                        refreshKey={tabsRefresh}
-                        onApply={applyVariantStats}
-                      />
-                    </>
-                  )}
-                </TabsContent>
-                <TabsContent value="analysis" className="mt-2.5">
-                  {pickSym === PICK_ALL ? (
-                    <p className="text-xs leading-relaxed text-zinc-500">— {t(lang, "stats.analysisAll")}</p>
-                  ) : view ? (
-                    <div className="space-y-2.5">
-                      {/* 0.2.82 — DeepAnalysis + pies thay card Deep analysis cũ:
-                          cùng /api/view + DEFAULT_SETTINGS (một nguồn sự thật với
-                          cửa sổ journal), thêm ô cổng SMA + 3 donut preset —
-                          giữ basis note của card cũ. */}
-                      <DeepAnalysis
-                        lang={lang}
-                        a={view.analysis}
-                        smaFilter={DEFAULT_SETTINGS.smaFilter}
-                        smaPeriod={DEFAULT_SETTINGS.smaPeriod}
-                        gateLong={view.gate.long}
-                        gateShort={view.gate.short}
-                        smaValue={view.gate.sma}
-                      />
-                      <StrategyPies
-                        lang={lang}
-                        pies={view.pies}
-                        n={view.n}
-                        leverage={DEFAULT_SETTINGS.leverage}
-                      />
-                      <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 p-2.5">
-                        <p className="text-[11px] leading-relaxed text-zinc-400">
-                          <span className="font-semibold text-zinc-300">📌 {t(lang, "stats.basis")}: </span>
-                          {t(lang, "stats.basis.analysis")}
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-zinc-500">— {clientBusy ? "…" : "failed to load candles"}</p>
-                  )}
-                </TabsContent>
-              </Tabs>
-            </Stage>
+              </>
+            ) : (
+              <p className="text-xs text-zinc-500">— {clientBusy ? "…" : "failed to load candles"}</p>
+            )}
           </div>
-        )}
+        </Panel>
+      );
+    }
+    if (view === "lab") {
+      return (
+        <Panel>
+          <PanelHead label={t(lang, "stats.section.analysis")} dot="#60a5fa" />
+          <div className="space-y-2.5 p-3">
+            {comboPicker}
+            <Tabs defaultValue="suggest">
+              <TabsList className="h-8 w-full justify-start overflow-x-auto rounded-lg border border-[#232329] bg-[#0b0b0e] p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {[
+                  { v: "suggest", label: t(lang, "tabs.suggest") },
+                  { v: "lab", label: t(lang, "tabs.lab") },
+                  { v: "analysis", label: t(lang, "tabs.analysis") },
+                ].map((tb) => (
+                  <TabsTrigger key={tb.v} value={tb.v} className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-[#1c1c22] data-[state=active]:text-[#c8f542]">
+                    {tb.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              <TabsContent value="suggest" className="mt-2.5">
+                <SuggestionHistory lang={lang} symbol={pickSym} interval={pickTf} refreshKey={tabsRefresh} forceAll={pickSym === PICK_ALL} />
+              </TabsContent>
+              <TabsContent value="lab" className="mt-2.5">
+                {pickSym === PICK_ALL ? (
+                  <p className="rounded-lg border border-dashed border-[#2a2a31] p-6 text-center text-xs text-zinc-500">{t(lang, "stats.labAll")}</p>
+                ) : (
+                  <>
+                    {labApplied && (
+                      <p className="mb-2.5 rounded-lg border border-teal-800/60 bg-teal-950/30 px-3 py-2 text-[11px] leading-relaxed text-teal-300">
+                        {t(lang, "sl.applyToast", {
+                          name: labApplied.name,
+                          sl: labApplied.sl.toFixed(1),
+                          tp: labApplied.tp.toFixed(1),
+                          key: String(labApplied.key),
+                          period: String(labApplied.period),
+                        })}{" "}
+                        · {t(lang, "stats.labApplied")}
+                      </p>
+                    )}
+                    <StrategyLab lang={lang} symbol={pickSym} interval={pickTf} refreshKey={tabsRefresh} onApply={applyVariantStats} />
+                  </>
+                )}
+              </TabsContent>
+              <TabsContent value="analysis" className="mt-2.5">
+                {pickSym === PICK_ALL ? (
+                  <p className="text-xs leading-relaxed text-zinc-500">— {t(lang, "stats.analysisAll")}</p>
+                ) : viewPayload ? (
+                  <div className="space-y-2.5">
+                    <DeepAnalysis
+                      lang={lang}
+                      a={viewPayload.analysis}
+                      smaFilter={DEFAULT_SETTINGS.smaFilter}
+                      smaPeriod={DEFAULT_SETTINGS.smaPeriod}
+                      gateLong={viewPayload.gate.long}
+                      gateShort={viewPayload.gate.short}
+                      smaValue={viewPayload.gate.sma}
+                    />
+                    <StrategyPies lang={lang} pies={viewPayload.pies} n={viewPayload.n} leverage={DEFAULT_SETTINGS.leverage} />
+                    <div className="space-y-1.5 rounded-lg border border-[#232329] bg-[#0b0b0e] p-2.5">
+                      <p className="text-[11px] leading-relaxed text-zinc-400">
+                        <span className="font-semibold text-zinc-300">📌 {t(lang, "stats.basis")}: </span>
+                        {t(lang, "stats.basis.analysis")}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-zinc-500">— {clientBusy ? "…" : "failed to load candles"}</p>
+                )}
+              </TabsContent>
+            </Tabs>
+          </div>
+        </Panel>
+      );
+    }
+    // các trạm server (market/universe/combo/dock/auto/dqf/open/hist/sg)
+    const s = byKey[view];
+    return (
+      <Panel>
+        <PanelHead
+          label={t(lang, `stats.section.${view}`)}
+          dot={view === "dqf" ? "#2dd4bf" : LIME}
+          right={s ? (<span className="flex items-center gap-1.5">{accBadge(s.accPct, s.accNote)}{stateBadge(s.state)}</span>) : undefined}
+        />
+        <div className="space-y-2.5 p-3">
+          {view === "dqf" && (
+            <div className="mb-2.5 flex items-center justify-between gap-3 rounded-lg border border-[#232329] bg-[#0b0b0e] px-3 py-2">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-zinc-200">{t(lang, "stats.dqf.toggle")}</p>
+                <p className="text-[10px] leading-snug text-zinc-500">{t(lang, "stats.dqf.toggle.sub")}</p>
+              </div>
+              <Switch checked={dqfOn} disabled={dqfBusy} onCheckedChange={(v) => void toggleDqf(v)} aria-label={t(lang, "stats.dqf.toggle")} />
+            </div>
+          )}
+          {secBody(view)}
+        </div>
+      </Panel>
+    );
+  };
+
+  // điều hướng bấm: đổi view + đóng drawer mobile + về đầu trang
+  const go = (id: ViewId) => {
+    setView(id);
+    setNavOpen(false);
+    window.scrollTo({ top: 0 });
+  };
+
+  return (
+    <div className="min-h-screen text-zinc-200">
+      {/* ── TOP BAR ── */}
+      <header className="sticky top-0 z-40 border-b border-[#1d1d23] bg-[#0b0b0e]/95 backdrop-blur">
+        <div className="flex h-12 items-center gap-2 px-3 sm:px-4">
+          <button
+            type="button"
+            aria-label={t(lang, "apm.menu")}
+            onClick={() => setNavOpen((v) => !v)}
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#232329] text-zinc-400 hover:bg-[#1c1c22] hover:text-zinc-200 xl:hidden"
+          >
+            {navOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+          </button>
+          <div className="flex min-w-0 items-baseline gap-2">
+            <p className="truncate text-[15px] font-bold tracking-tight text-zinc-50">{t(lang, "apm.brand")}</p>
+            <span className="hidden text-[10px] text-zinc-500 sm:inline">APM</span>
+          </div>
+          {/* điều hướng nhanh md–xl (xl+ đã có sidebar) */}
+          <nav className="ml-3 hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto md:flex xl:hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {NAV.map((n) => (
+              <button
+                key={n.id}
+                type="button"
+                onClick={() => go(n.id)}
+                className={`shrink-0 rounded-lg px-2.5 py-1 text-[11px] transition-colors ${
+                  view === n.id ? "bg-[#1c1c22] text-[#c8f542]" : "text-zinc-400 hover:bg-[#1c1c22] hover:text-zinc-200"
+                }`}
+              >
+                {t(lang, n.key)}
+              </button>
+            ))}
+          </nav>
+          <div className="ml-auto flex items-center gap-1.5">
+            <Link
+              href="/ai"
+              className="hidden h-8 items-center gap-1.5 rounded-lg border border-[#232329] px-2.5 text-[11px] text-zinc-300 hover:bg-[#1c1c22] sm:flex"
+            >
+              {t(lang, "apm.nav.back").replace("← ", "")} · Dive
+            </Link>
+            <Button size="sm" variant="outline" className="h-8 border-[#232329] px-2.5 text-xs text-zinc-300 hover:bg-[#1c1c22]" onClick={switchLang}>
+              {lang === "vi" ? "EN" : "VI"}
+            </Button>
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => { setTabsRefresh((k) => k + 1); void load(); }}
+              className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold text-black transition hover:brightness-110 disabled:opacity-60"
+              style={{ background: LIME }}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+              <span className="hidden sm:inline">{t(lang, "stats.refresh")}</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div className="flex">
+        {/* ── SIDEBAR TRÁI (xl+ cố định; <xl overlay drawer) ── */}
+        <aside
+          className={`fixed inset-y-0 left-0 z-50 w-56 shrink-0 overflow-y-auto border-r border-[#1d1d23] bg-[#0c0c10] pt-3 transition-transform duration-200 xl:sticky xl:top-12 xl:z-0 xl:h-[calc(100vh-3rem)] xl:translate-x-0 ${
+            navOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
+          <div className="flex items-center justify-between px-3 pb-2 xl:hidden">
+            <p className="text-[10px] uppercase tracking-widest text-zinc-600">{t(lang, "apm.mobileNav")}</p>
+            <button type="button" onClick={() => setNavOpen(false)} className="text-zinc-500 hover:text-zinc-200">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <nav className="space-y-0.5 px-2 pb-6">
+            {NAV.map((n) => {
+              const Icon = n.icon;
+              const active = view === n.id;
+              const s = n.id in byKey && n.id !== "flow" && n.id !== "journal" && n.id !== "lab" ? byKey[n.id] : undefined;
+              const dot = s ? (s.state === "ok" ? LIME : s.state === "warn" ? "#fbbf24" : "#8b8b94") : undefined;
+              return (
+                <button
+                  key={n.id}
+                  type="button"
+                  onClick={() => go(n.id)}
+                  className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[12px] transition-colors ${
+                    active ? "bg-[#1c1c22] font-semibold text-zinc-50" : "text-zinc-400 hover:bg-[#16161b] hover:text-zinc-200"
+                  }`}
+                >
+                  <Icon className={`h-3.5 w-3.5 shrink-0 ${active ? "text-[#c8f542]" : "text-zinc-500"}`} />
+                  <span className="min-w-0 flex-1 truncate">{t(lang, n.key)}</span>
+                  {dot && <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dot }} />}
+                  {active && <span className="h-4 w-0.5 rounded-full" style={{ background: LIME }} />}
+                </button>
+              );
+            })}
+            <div className="mt-3 border-t border-[#1d1d23] pt-3">
+              <Link href="/" className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12px] text-zinc-400 hover:bg-[#16161b] hover:text-zinc-200">
+                <Crosshair className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+                {t(lang, "apm.nav.back")}
+              </Link>
+            </div>
+          </nav>
+        </aside>
+        {navOpen && <div className="fixed inset-0 z-40 bg-black/60 xl:hidden" onClick={() => setNavOpen(false)} />}
+
+        {/* ── CENTER + RAIL ── */}
+        <main className="min-w-0 flex-1 p-3 sm:p-4">
+          {err && !snap && (
+            <Panel className="mb-3">
+              <div className="flex items-center gap-2 p-4 text-sm text-rose-300">
+                <TriangleAlert className="h-4 w-4" /> {err}
+              </div>
+            </Panel>
+          )}
+
+          {!snap && !err && (
+            <div className="space-y-3">
+              <Skeleton className="h-[420px] rounded-2xl border border-[#232329] bg-[#101014]" />
+              <div className="grid gap-3 md:grid-cols-2">
+                {[0, 1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-24 rounded-2xl border border-[#232329] bg-[#101014]" />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {snap && view === "flow" && (
+            <div className="space-y-3">
+              {/* sơ đồ + cột Net result */}
+              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_180px]">
+                <Panel>
+                  <PanelHead
+                    label={t(lang, "apm.flow.title")}
+                    dot={LIME}
+                    right={
+                      <span className="flex items-center gap-2">
+                        {/* legend tình trạng — y các chip Normal/Success/Error/Pending ảnh ref */}
+                        {[
+                          { c: LIME, l: t(lang, "apm.band.success") },
+                          { c: "#f4525c", l: t(lang, "apm.band.error") },
+                          { c: "#9aa0a6", l: t(lang, "apm.band.normal") },
+                          { c: "#f4525c", l: t(lang, "apm.band.pending"), dash: true },
+                        ].map((x) => (
+                          <span key={x.l} className="hidden items-center gap-1 text-[9.5px] text-zinc-500 sm:flex">
+                            <span className="h-1.5 w-1.5 rounded-full" style={{ background: x.c, opacity: x.dash ? 0.6 : 1 }} />
+                            {x.l}
+                          </span>
+                        ))}
+                        <span className={`h-1.5 w-1.5 rounded-full ${loading ? "animate-pulse" : ""}`} style={{ background: loading ? "#fbbf24" : "#3a3a42" }} />
+                      </span>
+                    }
+                  />
+                  <div className="px-2 pb-1 pt-2 sm:px-3">
+                    <ApmFlowMap lang={lang} f={fc} onNodeClick={onFlowNode} />
+                  </div>
+                  <div className="border-t border-[#1d1d23] px-4 py-2 text-[10px] leading-relaxed text-zinc-600">
+                    {t(lang, "apm.flow.sub")}
+                    {at > 0 && <> · {t(lang, "stats.updated")}: {new Date(at).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB")}</>}
+                    {" · "}
+                    <span>{t(lang, "stats.summary", counts)}</span>
+                    {" · "}
+                    <Link href="/ai" className="underline decoration-dotted hover:text-zinc-400">/ai → Root-cause dive (LLM)</Link>
+                  </div>
+                </Panel>
+                <div className="hidden xl:block">{netColumn()}</div>
+                {/* Net result xếp ngang cho màn nhỏ — không mất thông tin */}
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:hidden">
+                  {[
+                    { l: t(lang, "apm.net.equity"), v: flow?.equity != null ? `$${flow.equity.toFixed(2)}` : "—", c: flow?.equity != null && flow.equity >= 1000 ? LIME : undefined },
+                    { l: t(lang, "apm.net.netroe"), v: `${(flow?.netRoe ?? 0) >= 0 ? "+" : ""}${(flow?.netRoe ?? 0).toFixed(2)}%`, c: (flow?.netRoe ?? 0) >= 0 ? LIME : "#f4525c" },
+                    { l: t(lang, "apm.net.winrate"), v: `${(flow?.winRate ?? 0).toFixed(0)}%` },
+                    { l: t(lang, "apm.net.closed"), v: `${fc.closedTrades}` },
+                    { l: t(lang, "apm.net.avg"), v: `${(flow?.avgRoe ?? 0) >= 0 ? "+" : ""}${(flow?.avgRoe ?? 0).toFixed(2)}%`, c: (flow?.avgRoe ?? 0) >= 0 ? LIME : "#f4525c" },
+                    { l: t(lang, "apm.net.unreal"), v: flow?.open?.roe != null ? `${flow.open.roe >= 0 ? "+" : ""}${flow.open.roe.toFixed(2)}%` : "—" },
+                  ].map((x) => (
+                    <div key={x.l} className="rounded-xl border border-[#232329] bg-[#101014]/95 px-3 py-2">
+                      <p className="text-[9.5px] uppercase tracking-wide text-zinc-500">{x.l}</p>
+                      <p className="mt-0.5 truncate font-mono text-[16px] font-bold" style={{ color: x.c ?? "#e9e9ec" }}>{x.v}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* tabs đáy — Equity / Win rate / Exits */}
+              {bottomTabs}
+
+              {/* Rail xếp chồng cho màn <2xl */}
+              <div className="grid gap-3 lg:grid-cols-2 2xl:hidden">{Rail()}</div>
+            </div>
+          )}
+
+          {snap && view !== "flow" && (
+            <div className="space-y-3">
+              <p className="flex items-center gap-1.5 text-[11px] text-zinc-500">
+                <button type="button" onClick={() => go("flow")} className="underline decoration-dotted hover:text-zinc-300">
+                  {t(lang, "apm.flow.title")}
+                </button>
+                <span>/</span>
+                <span className="text-zinc-300">{navItem ? t(lang, navItem.key) : ""}</span>
+              </p>
+              {stationView()}
+            </div>
+          )}
+        </main>
+
+        {/* ── RAIL PHẢI cố định (2xl+) — y cột phải ảnh tham chiếu ── */}
+        <aside className="sticky top-12 hidden h-[calc(100vh-3rem)] w-[330px] shrink-0 overflow-y-auto border-l border-[#1d1d23] bg-[#0c0c10] p-3 2xl:block">
+          <Rail />
+        </aside>
       </div>
     </div>
   );
-}
-
-/** ô field có tooltip — hiện bằng REACT STATE (mouseenter/mouseleave + tap để
- *  hỗ trợ cả cảm ứng), không dùng CSS :hover vì Tailwind 4 bọc group-hover
- *  trong @media (hover:hover) — variant bị tắt trên touch/headless. */
-function Field({ m, lang }: { m: StatMetric; lang: Lang }) {
-  const [show, setShow] = useState(false);
-  const hint = lang === "vi" ? m.hintVi ?? m.hint : m.hint;
-  return (
-    <div
-      className={`relative min-w-0 rounded-md border border-l-2 border-zinc-800/80 bg-zinc-950/50 px-2.5 py-1.5 ${m.wide ? "sm:col-span-2" : ""} ${toneEdge(m.tone)}`}
-      onMouseEnter={() => setShow(true)}
-      onMouseLeave={() => setShow(false)}
-      onClick={() => setShow((v) => !v)} // cảm ứng: bấm bật/tắt hint
-    >
-      <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">{m.k}</p>
-      <p className={`font-mono text-[13px] font-semibold ${toneText(m.tone)} ${m.wide ? "" : "truncate"}`}>{m.v}</p>
-      {m.sub && <p className={`text-[10px] text-zinc-500 ${m.wide ? "" : "truncate"}`}>{m.sub}</p>}
-      {hint && show && (
-        <div className="pointer-events-none absolute bottom-full left-0 z-50 mb-1 w-64 rounded-md border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-[10px] leading-snug text-zinc-300 shadow-xl">
-          {hint}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Metric cho 2 section client-side (journal + analysis) — wrapper của Field */
-function Metric({
-  lang,
-  k,
-  v,
-  sub,
-  tone,
-  hint,
-  hintVi,
-}: {
-  lang: Lang;
-  k: string;
-  v: string;
-  sub?: string;
-  tone?: StatTone;
-  hint?: string;
-  hintVi?: string;
-}) {
-  return <Field m={{ k, v, sub, tone, hint, hintVi }} lang={lang} />;
 }

@@ -115,10 +115,58 @@ export interface StatSection {
   /** 0.2.68 — các biểu đồ kèm section (client render dưới lưới field) */
   charts?: StatChart[];
 }
+/** 0.3.4 — khối số liệu THÔ cho layout APM của trang /stats (sơ đồ phễu
+ *  Sankey + rail phải Events/Health/Scorecard + cột Net result). Tách khỏi
+ *  metrics dạng chữ để client không phải parse string — mọi số đây là số
+ *  nguyên/thật từ cùng nguồn DB + engine với các section. */
+export interface StatsFlow {
+  // ── phễu quét (trái sơ đồ) ──
+  universePool: number; // tổng cặp UNIVERSE (11 staples + mở rộng)
+  publishedTop: number; // cặp được chấm điểm lần re-rank gần nhất
+  uptrend: number; // trong đó đang uptrend
+  universeAgeMin: number | null;
+  scanCombos: number; // combo quét lần scan gần nhất
+  scanAgeMin: number | null;
+  gatePass: number; // ứng viên qua đủ cổng (isTradeable + regress + noise)
+  directional: number; // combo có phía LONG/SHORT
+  neutral: number; // combo NEUTRAL (bỏ qua)
+  bcastPass: number;
+  bcastTotal: number;
+  // ── sổ lệnh (giữa/phải sơ đồ) ──
+  tradesTotal: number;
+  openTrades: number;
+  closedTrades: number;
+  wins: number;
+  winRate: number; // %
+  wilson: number; // Wilson 95% LB — độ tin cậy cận dưới
+  netRoe: number; // % tổng ROE ròng
+  avgRoe: number; // % ROE bình quân/lệnh
+  tp: number;
+  sl: number;
+  flip: number;
+  manual: number;
+  unlabeled: number;
+  last7d: number;
+  // ── dry-run vốn + lệnh đang mở ──
+  autoOn: boolean;
+  equity: number | null;
+  open: { symbol: string; side: string; roe: number | null; ageH: number } | null;
+  // ── phiên ──
+  activeSessions: string[];
+  nextSession: string;
+  nextInMin: number; // đếm ngược mở phiên kế (phút)
+  // ── tình trạng kiểm chéo các section ──
+  ok: number;
+  warn: number;
+  na: number;
+}
+
 export interface StatsSnapshot {
   at: number;
   /** 0.3.2 — công tắc DQF (sàn chất lượng động) — trang /stats dùng cho Switch */
   dqfOn?: boolean;
+  /** 0.3.4 — số liệu thô cho sơ đồ APM (null = DB chết, trang vẫn render) */
+  flow?: StatsFlow | null;
   sections: StatSection[];
 }
 
@@ -153,6 +201,25 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
   const now = Date.now();
   const eng = engineSnapshot(); // không ném — tự catch bên trong qua try ở caller
   const cfg = eng.cfg;
+
+  // 0.3.4 — đọc trạng thái dry-run MỘT lần dùng chung cho 3 nơi (auto / open
+  // / flow) thay vì mỗi section tự đọc; DB chết → null, safe() từng section
+  // vẫn tự xử lý đúng
+  const st0 = await readAutoState().catch(() => null);
+  // giá live cho lệnh đang mở — fetch MỘT lần dùng chung (trước đây open tự
+  // fetch; giờ flow + open chia sẻ, tiết kiệm 1 round-trip Binance mỗi poll)
+  let livePrice: number | null = null;
+  if (st0?.open?.symbol) {
+    try {
+      const r = await fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${st0.open.symbol}`, {
+        signal: AbortSignal.timeout(2500),
+        cache: "no-store",
+      });
+      if (r.ok) livePrice = Number((await r.json()).price) || null;
+    } catch {
+      livePrice = null;
+    }
+  }
 
   // ─── 1. Market Model — dự báo xu hướng (thay panel Trading sessions 0.2.68) ─
   // Dự báo = TỔNG HỢP output các model đang chạy, không phải model mới:
@@ -413,7 +480,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
 
   // ─── 4. Auto Trade — Dry-run ──────────────────────────────────────────────
   const auto = await safe("auto", async () => {
-    const st = await readAutoState();
+    const st = st0 ?? (await readAutoState());
     const lw = pval("LESSON_WEIGHT", LESSON_WEIGHT);
     const newestClosed = st.trades.find((t) => t.status === "closed") ?? null;
     // kiểm chéo sổ vốn: trades đang mở phải có capitalBefore == capitalAfter của
@@ -594,7 +661,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
 
   // ─── 6. Open auto position ────────────────────────────────────────────────
   const openPos = await safe("open", async () => {
-    const st = await readAutoState();
+    const st = st0 ?? (await readAutoState());
     const o = st.open;
     if (!o) {
       return {
@@ -608,17 +675,8 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     }
     const durMs = now - new Date(o.entryTime).getTime();
     const durH = durMs / 3_600_000;
-    // giá live best-effort (2.5s) — không có giá thì vẫn hiển thị phần còn lại
-    let last: number | null = null;
-    try {
-      const r = await fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${o.symbol}`, {
-        signal: AbortSignal.timeout(2500),
-        cache: "no-store",
-      });
-      if (r.ok) last = Number((await r.json()).price) || null;
-    } catch {
-      last = null;
-    }
+    // giá live do buildStatsSnapshot fetch sẵn MỘT lần dùng chung với flow
+    const last: number | null = livePrice;
     const roe =
       last != null
         ? ((o.side === "SHORT" ? (o.entryPrice - last) / o.entryPrice : (last - o.entryPrice) / o.entryPrice) * 100 * o.leverage)
@@ -828,5 +886,95 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     };
   });
 
-  return { at: now, dqfOn: readDqfFile().on, sections: [market, combo, universe, auto, dqfSec, dock, openPos, hist, sg] };
+  // ─── 0.3.4 — khối FLOW cho sơ đồ APM: 1 query sổ lệnh + số liệu đã có ──
+  // DB chết → flow = null, trang vẫn render các section bình thường.
+  const flow = await (async (): Promise<StatsFlow | null> => {
+    try {
+      const rows = await db.autoTrade.findMany({
+        select: { status: true, exitKind: true, pnlPct: true, exitTime: true },
+        orderBy: { createdAt: "desc" },
+        take: 2000,
+      });
+      const closedRows = rows.filter((r) => r.status === "closed");
+      const wins = closedRows.filter((r) => (r.pnlPct ?? 0) > 0).length;
+      const kinds = { tp: 0, sl: 0, flip: 0, manual: 0 };
+      for (const r of closedRows) {
+        const k = (r.exitKind ?? "") as keyof typeof kinds;
+        if (k in kinds) kinds[k] += 1;
+      }
+      const pnls = closedRows.map((r) => r.pnlPct ?? 0);
+      const sumPnl = pnls.reduce((a, b) => a + b, 0);
+      // đúng bộ lọc ứng viên của auto-cycle (cùng công thức với section dock)
+      const scanRows: ScanRow[] = eng.scan?.rows ?? [];
+      const nb = pval("NOISE_BAND", NOISE_BAND);
+      const cands = scanRows.filter(
+        (r) => isTradeable(r, cfg.minAuc, cfg.minAcc, cfg.minScore) && !r.regressed && Math.abs(r.prob - 0.5) >= nb,
+      );
+      const bcast = await db.bcastVerdict.findMany();
+      const uRows = eng.universe?.rows ?? [];
+      const o = st0?.open ?? null;
+      const ageH = o?.entryTime ? (now - new Date(o.entryTime).getTime()) / 3_600_000 : 0;
+      const roe =
+        o && livePrice != null
+          ? (o.side === "SHORT"
+              ? (o.entryPrice - livePrice) / o.entryPrice
+              : (livePrice - o.entryPrice) / o.entryPrice) *
+            100 *
+            o.leverage
+          : null;
+      const active = sessionOf(now);
+      const h = new Date(now).getUTCHours();
+      let nextIn = 999;
+      let nextKey: SessionKey = "sydney";
+      for (const s of SESSIONS) {
+        const wait = (s.from - h + 24) % 24;
+        if (wait > 0 && wait < nextIn) {
+          nextIn = wait;
+          nextKey = s.key;
+        }
+      }
+      const cnt = { ok: 0, warn: 0, na: 0 };
+      for (const s of [market, combo, universe, auto, dqfSec, dock, openPos, hist, sg]) cnt[s.state] += 1;
+      return {
+        universePool: UNIVERSE.length,
+        publishedTop: uRows.length,
+        uptrend: uRows.filter((r) => r.trend > 0).length,
+        universeAgeMin: eng.universe ? min(now - eng.universe.at) : null,
+        scanCombos: scanRows.length,
+        scanAgeMin: eng.scan ? min(now - eng.scan.at) : null,
+        gatePass: cands.length,
+        directional: scanRows.filter((r) => r.bias !== "NEUTRAL").length,
+        neutral: scanRows.filter((r) => r.bias === "NEUTRAL").length,
+        bcastPass: bcast.filter((b) => b.verdict === "pass").length,
+        bcastTotal: bcast.length,
+        tradesTotal: rows.length,
+        openTrades: rows.length - closedRows.length,
+        closedTrades: closedRows.length,
+        wins,
+        winRate: closedRows.length > 0 ? (wins / closedRows.length) * 100 : 0,
+        wilson: wilsonLB(wins, closedRows.length),
+        netRoe: st0?.stats.netPnlPct ?? sumPnl,
+        avgRoe: pnls.length ? sumPnl / pnls.length : 0,
+        tp: kinds.tp,
+        sl: kinds.sl,
+        flip: kinds.flip,
+        manual: kinds.manual,
+        unlabeled: closedRows.length - kinds.tp - kinds.sl - kinds.flip - kinds.manual,
+        last7d: closedRows.filter((r) => r.exitTime && now - new Date(r.exitTime).getTime() < 7 * 86_400_000).length,
+        autoOn: cfg.on,
+        equity: st0?.capital ?? null,
+        open: o ? { symbol: o.symbol, side: o.side, roe, ageH } : null,
+        activeSessions: active.map((s) => SESSION_VI[s]),
+        nextSession: SESSION_VI[nextKey],
+        nextInMin: nextIn === 999 ? 0 : nextIn * 60,
+        ok: cnt.ok,
+        warn: cnt.warn,
+        na: cnt.na,
+      };
+    } catch {
+      return null;
+    }
+  })();
+
+  return { at: now, dqfOn: readDqfFile().on, flow, sections: [market, combo, universe, auto, dqfSec, dock, openPos, hist, sg] };
 }
