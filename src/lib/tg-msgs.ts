@@ -69,7 +69,7 @@ const kindTag = (k: string | null): string =>
     : k === "sl"
       ? "STOP LOSS 🔻"
       : k === "trail"
-        ? "TRAILING STOP 🪢"
+        ? "TRAILING STOP 🚉"
         : k === "flip"
           ? "FLIP 🔄"
           : "MANUAL CLOSE ✋";
