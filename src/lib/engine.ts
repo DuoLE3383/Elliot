@@ -169,10 +169,14 @@ interface EnginePersisted {
    *  tắt/lỗi dữ liệu), atrPct/lev là đầu vào của phép đề xuất, src ghi nguồn
    *  ("atr" | "cfg"), auto = đã thử đề xuất cho lệnh này chưa (chỉ thử 1 lần). */
   trail: { id: string; peak: number; act: number; dist: number; atrPct: number; lev: number; src: "atr" | "cfg"; auto: boolean };
+  /** per-trade trail - multi-position khong ghi de peak nhau */
+  trailById: Record<string, { peak: number; act: number; dist: number; atrPct: number; lev: number; src: "atr" | "cfg"; auto: boolean }>;
   llmLast: { symbol: string; interval: string; side: string; verdict: string; reason: string; ms: number; at: number } | null;
   /** 0.3.3 — SL confirm: lần đo đầu thấy giá vượt SL (đợi nhịp kế tiếp xác nhận
    *  để wick một nhịp không quét sạch stop); null = không có gì đang chờ */
   slPending: SlPending | null;
+  /** per-trade SL-confirm - moi lenh cho confirm rieng */
+  slPendingById: Record<string, SlPending>;
   /** 0.2.97 — cờ bật/tắt từng sổ chiến lược (sổ B đi theo cfg.on như cũ).
    *  Tắt = không mở lệnh MỚI; vị thế đang mở vẫn được exit bình thường. */
   books: { a: boolean; c: boolean };
@@ -218,6 +222,29 @@ function dropTradeState(id: string): void {
   const p = g.__elliottEngine!.p;
   if (p.warnedById) delete p.warnedById[id];
   if (p.dcaById) delete p.dcaById[id];
+  if ((p as any).trailById) delete (p as any).trailById[id];
+  if ((p as any).slPendingById) delete (p as any).slPendingById[id];
+}
+/** per-trade trail: lay/tape entry theo tradeId - migrate slot cu neu trung id */
+function trailOf(id: string, entryPrice = 0): { peak: number; act: number; dist: number; atrPct: number; lev: number; src: "atr" | "cfg"; auto: boolean } {
+  const p = g.__elliottEngine!.p as any;
+  if (!p.trailById) p.trailById = {};
+  if (!p.trailById[id]) {
+    if (p.trail?.id === id) p.trailById[id] = { peak: p.trail.peak, act: p.trail.act, dist: p.trail.dist, atrPct: p.trail.atrPct, lev: p.trail.lev, src: p.trail.src, auto: p.trail.auto };
+    else p.trailById[id] = { peak: entryPrice, act: 0, dist: 0, atrPct: 0, lev: 0, src: "cfg", auto: false };
+  }
+  return p.trailById[id];
+}
+function slPendingGet(id: string): SlPending | null {
+  const p = g.__elliottEngine!.p as any;
+  if (p.slPendingById?.[id]) return p.slPendingById[id];
+  if (p.slPending?.id === id) { if (!p.slPendingById) p.slPendingById = {}; p.slPendingById[id] = p.slPending; return p.slPending; }
+  return null;
+}
+function slPendingSet(id: string, v: SlPending | null): void {
+  const p = g.__elliottEngine!.p as any;
+  if (!p.slPendingById) p.slPendingById = {};
+  if (v) p.slPendingById[id] = v; else delete p.slPendingById[id];
 }
 function defaults(): { p: EnginePersisted; v: EngineVolatile } {
   return {
@@ -233,8 +260,10 @@ function defaults(): { p: EnginePersisted; v: EngineVolatile } {
       dca: { id: "", count: 0, stake0: 0, prices: [] },
       dcaById: {},
       trail: { id: "", peak: 0, act: 0, dist: 0, atrPct: 0, lev: 0, src: "cfg", auto: false },
+      trailById: {},
       llmLast: null,
       slPending: null,
+      slPendingById: {},
       books: { a: true, c: true },
       live: { on: false, confirmedAt: null },
     },
@@ -490,9 +519,7 @@ async function closeTradeDirect(
   });
   // trailing state của lệnh vừa đóng hết giá trị — dọn ngay để snapshot không
   // hiển thị đỉnh cũ (lệnh mới có id khác thì updateTrail cũng tự reset)
-  if (eng().p.trail.id === id) {
-    eng().p.trail = { id: "", peak: 0, act: 0, dist: 0, atrPct: 0, lev: 0, src: "cfg", auto: false };
-  }
+  // trail/slPending per-trade cua lenh vua dong - dropTradeState ben duoi xoa
   // per-trade warned/dca cua lenh vua dong het gia tri - xoa de map khong ro
   // (chi goi SAU khi DB da closed - dong fail thi state giu lai de nhip sau dong tiep)
   dropTradeState(id);
@@ -2030,23 +2057,20 @@ async function updateTrail(
 ): Promise<{ stop: number | null; hit: boolean; act: number; dist: number; atrPct: number; lev: number; src: "atr" | "cfg" }> {
   const { p } = eng();
   if (!c.trailOn) return { stop: null, hit: false, act: 0, dist: 0, atrPct: 0, lev: 0, src: "cfg" };
-  if (p.trail.id !== open.id) {
-    p.trail = { id: open.id, peak: open.entryPrice, act: 0, dist: 0, atrPct: 0, lev: 0, src: "cfg", auto: false };
-    persistEngine();
-  }
+  const tr = trailOf(open.id, open.entryPrice);
   // khoá đề xuất riêng cho lệnh — chỉ chạy 1 lần kể cả user bật trailAuto giữa chừng
-  if (c.trailAuto && !p.trail.auto) {
-    p.trail.auto = true; // đặt TRƯỚC await — tick song song không đo lại
-    p.trail.lev = open.leverage;
+  if (c.trailAuto && !tr.auto) {
+    tr.auto = true; // đặt TRƯỚC await — tick song song không đo lại
+    tr.lev = open.leverage;
     try {
       const kl = await fetchKlinesDirect(open.symbol, open.interval, 100);
       const live = atrLevelsAtEntry(kl); // chỉ lấy atrPct — sl/tp của lệnh không đụng vào
       if (live) {
         const lv = trailAutoLevels(live.atrPct, open.leverage);
-        p.trail.act = lv.actPct;
-        p.trail.dist = lv.distPct;
-        p.trail.atrPct = Math.round(live.atrPct * 100) / 100;
-        p.trail.src = "atr";
+        tr.act = lv.actPct;
+        tr.dist = lv.distPct;
+        tr.atrPct = Math.round(live.atrPct * 100) / 100;
+        tr.src = "atr";
         console.log(
           `[engine] trail đề xuất ${open.symbol} ${open.interval}: ATR ${live.atrPct.toFixed(2)}% × lev ${open.leverage} (scale ${lv.levScale}) → act ${lv.actPct}% · dist ${lv.distPct}%`,
         );
@@ -2054,24 +2078,24 @@ async function updateTrail(
     } catch {
       // klines lỗi — dùng số thủ công, không retry trong lệnh này
     }
-    if (p.trail.src !== "atr") {
-      p.trail.act = c.trailActPct;
-      p.trail.dist = c.trailDistPct;
-      p.trail.src = "cfg";
+    if (tr.src !== "atr") {
+      tr.act = c.trailActPct;
+      tr.dist = c.trailDistPct;
+      tr.src = "cfg";
     }
     persistEngine();
   }
-  const useAuto = c.trailAuto && p.trail.src === "atr";
-  const act = useAuto ? p.trail.act : c.trailActPct;
-  const dist = useAuto ? p.trail.dist : c.trailDistPct;
-  const peak = trailNextPeak(open.side, p.trail.peak, price);
-  if (peak !== p.trail.peak) {
-    p.trail = { ...p.trail, peak };
+  const useAuto = c.trailAuto && tr.src === "atr";
+  const act = useAuto ? tr.act : c.trailActPct;
+  const dist = useAuto ? tr.dist : c.trailDistPct;
+  const peak = trailNextPeak(open.side, tr.peak, price);
+  if (peak !== tr.peak) {
+    tr.peak = peak;
     persistEngine();
   }
   const stop = trailStopPrice(open.side, open.entryPrice, peak, act, dist);
   const hit = stop != null && (open.side === "SHORT" ? price >= stop : price <= stop);
-  return { stop, hit, act, dist, atrPct: p.trail.atrPct, lev: p.trail.lev, src: p.trail.src };
+  return { stop, hit, act, dist, atrPct: tr.atrPct, lev: tr.lev, src: tr.src };
 }
 
 // ─── evalExit — MỘT nơi chấm thoát lệnh, dùng chung watcher + cycle (0.3.3) ──
@@ -2162,8 +2186,8 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
           `[engine] TP1 partial ${open.symbol} ${open.interval} — bank ${(plan.share * 100).toFixed(0)}% stake (+${p1Net.toFixed(1)}% ROE sau phí) · runner TP2 ${plan.tp2Pct.toFixed(2)}% · SL về HOÀ VÔ`,
         );
         Object.assign(warnedOf(open.id), { tp: false, sl: false });
-        p.trail = { id: "", peak: 0, act: 0, dist: 0, atrPct: 0, lev: 0, src: "cfg", auto: false };
-        p.slPending = null;
+        if ((p as any).trailById) delete (p as any).trailById[open.id];
+        slPendingSet(open.id, null);
         persistEngine();
         if (tgReady()) void tgSendMessage(msgTp1(open, price, plan.share, plan.tp2Pct), "HTML");
         return { tp1: true };
@@ -2177,7 +2201,7 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
     // last-chance DCA at the stop itself — giữ nguyên hành vi cũ (ưu tiên trước
     // confirm; never on liquidation — liq đã return ở trên)
     if (await dcaRescue(open, price, "cross")) {
-      p.slPending = null;
+      slPendingSet(open.id, null);
       persistEngine();
       return { dca: true };
     }
@@ -2185,8 +2209,8 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
     // nhịp kế tiếp xác nhận — quét một nhịp rồi quay đầu không còn quét sạch stop
     const adverse1x = -movePct1x(open.side, open.entryPrice, price);
     const deep = adverse1x >= Math.abs(open.slPct) * (1 + SL_DEEP_FRAC);
-    const step = slConfirmStep(p.slPending, open.id, Date.now(), true, deep, c.slConfirmTicks);
-    p.slPending = step.next;
+    const step = slConfirmStep(slPendingGet(open.id), open.id, Date.now(), true, deep, c.slConfirmTicks);
+    slPendingSet(open.id, step.next);
     persistEngine();
     if (step.close) return { closed: await closeTradeDirect(open.id, price, "sl"), kind: "sl" };
     if (step.next && Date.now() - step.next.since < 1_000) {
@@ -2197,8 +2221,8 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
     return { pending: true };
   }
   // không chạm gì — xoá pending cũ nếu còn treo
-  if (p.slPending) {
-    p.slPending = null;
+  if (slPendingGet(open.id)) {
+    slPendingSet(open.id, null);
     persistEngine();
   }
   return null;
@@ -2349,10 +2373,9 @@ export function engineSnapshot(): {
     bcast: bcastCache ?? { at: 0, pass: 0, total: 0, cooldown: 0, rows: [] },
     cycle: { lastAt: v.lastCycleAt, status: v.lastCycleStatus, nextAt: p.nextCycleAt },
     floors: dqfEffectiveSync(p.cfg),
+    trails: (p as any).trailById ?? {},
     trail:
-      p.trail.id && p.trail.peak > 0
-        ? { id: p.trail.id, peak: p.trail.peak, act: p.trail.act, dist: p.trail.dist, atrPct: p.trail.atrPct, lev: p.trail.lev, src: p.trail.src }
-        : null,
+      (() => { const es = Object.entries((p as any).trailById ?? {}); if (!es.length) return null; const [tid, tr] = es[0] as any; return tr.peak > 0 ? { id: tid, peak: tr.peak, act: tr.act, dist: tr.dist, atrPct: tr.atrPct, lev: tr.lev, src: tr.src } : null; })(),
     llmLast: p.llmLast,
     jobs: jobViews(),
     workers: { pool: xgbPoolSize(), bundled: xgbPoolAvailable() },
