@@ -642,6 +642,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   };
 
   return (
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
     <Card className="border-zinc-800 bg-zinc-900/60">
       <CardHeader className="px-3 pb-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1361,6 +1362,22 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
         )}
         {!cfg.on && status && <p className="font-mono text-[11px] text-zinc-500">{status}</p>}
 
+    </CardContent>
+    </Card>
+    <Card className="border-zinc-800 bg-zinc-900/60">
+      <CardHeader className="px-3 pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-1.5 text-base font-semibold text-zinc-100">
+            {t(lang, "auto.pos.open")}
+          </CardTitle>
+          {open && (
+            <Badge variant="outline" className={`border-zinc-700 font-mono ${sideClass(open.side)}`}>
+              {open.side}
+            </Badge>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3 px-3 pt-0">
         {/* open position */}
         {open ? (
           <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-2.5">
@@ -1924,5 +1941,6 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
         </div>
       </CardContent>
     </Card>
+    </div>
   );
 }
