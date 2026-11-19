@@ -1299,7 +1299,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
             onClick={() => void doScan()}
           >
             <ScanLine className="mr-1.5 h-3.5 w-3.5" />
-            {t(lang, "auto.scan")} ({scanning?.total ?? pairs.length * INTERVALS.length})
+            {t(lang, "auto.scan")} ({scanning?.total ?? pairs.length * (cfg.runTf?.length ?? INTERVALS.length)})
           </Button>
           <Button size="sm" variant="outline" className="h-8 border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800" disabled={tgState === "sending"} onClick={() => void checkTg()}>
             <Send className="mr-1.5 h-3 w-3" />
