@@ -492,8 +492,11 @@ async function closeTradeDirect(
   // hiển thị đỉnh cũ (lệnh mới có id khác thì updateTrail cũng tự reset)
   if (eng().p.trail.id === id) {
     eng().p.trail = { id: "", peak: 0, act: 0, dist: 0, atrPct: 0, lev: 0, src: "cfg", auto: false };
-    persistEngine();
   }
+  // per-trade warned/dca cua lenh vua dong het gia tri - xoa de map khong ro
+  // (chi goi SAU khi DB da closed - dong fail thi state giu lai de nhip sau dong tiep)
+  dropTradeState(id);
+  persistEngine();
   if (pval("AUTOPSY_ON", AUTOPSY_ON)) {
     const { p } = eng();
     void (() => { const ep = resolveLlmEndpoint({ url: p.cfg.llmUrl, model: p.cfg.llmModel }); void autopsyClosedTrade(updated, { url: ep.url, model: ep.model }); })();
