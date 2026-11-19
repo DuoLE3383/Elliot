@@ -84,28 +84,28 @@ function ConfluenceTable({ onPickPair }: { onPickPair: (sym: string, itv: string
     if (!tf) return <span className="text-zinc-700">—</span>;
     const c = tf.side === "LONG" ? "text-emerald-400" : tf.side === "SHORT" ? "text-rose-400" : "text-zinc-500";
     const arrow = tf.side === "LONG" ? "▲" : tf.side === "SHORT" ? "▼" : "→";
-    return <span className={c}>{arrow}{tf.score.toFixed(0)}</span>;
+    return <span className={c}>{arrow}{Math.abs(tf.score).toFixed(0)}</span>;
   };
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between">
-        <span className="text- font-medium uppercase tracking-wide text-zinc-400">Confluence · Multi-TF</span>
-        <span className="font-mono text- text-zinc-500">✅ {strong} STRONG · ⚠️ {lean} LEAN · ❌ {conflict} CONFLICT</span>
+    <div className="flex h-full flex-col space-y-1.5">
+      <div className="flex items-center justify-between rounded-lg border border-violet-800/60 bg-violet-950/20 px-2.5 py-1.5">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-violet-400">Confluence · Multi-TF</span>
+        <span className="whitespace-nowrap font-mono text-[10px] text-zinc-400">✅ {strong} STRONG · ⚠️ {lean} LEAN · ❌ {conflict} CONFLICT</span>
       </div>
-      <div className="overflow-hidden rounded-lg border border-zinc-800">
-        <div className="grid grid-cols-[minmax(0,1fr)_44px_44px_44px_44px_52px] gap-x-1 border-b border-zinc-800 bg-zinc-950/60 px-1.5 py-1 text- font-semibold uppercase tracking-wide text-zinc-500">
+      <div className="flex-1 overflow-hidden rounded-lg border border-zinc-800">
+        <div className="grid grid-cols-[minmax(0,1fr)_34px_34px_34px_34px_68px] gap-x-1 border-b border-zinc-800 bg-zinc-950/60 px-1.5 py-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
           <span>Symbol</span><span>5m</span><span>15m</span><span>1h</span><span>4h</span><span className="text-right">Verdict</span>
         </div>
-        {data.slice(0, 12).map((r: any) => (
+        {data.slice(0, 8).map((r: any) => (
           <button key={r.symbol} type="button" onClick={() => onPickPair(r.symbol, "15m")}
-            className="grid w-full grid-cols-[minmax(0,1fr)_44px_44px_44px_44px_52px] items-center gap-x-1 px-1.5 py-1 text-left font-mono text- hover:bg-zinc-800/60">
+            className="grid w-full grid-cols-[minmax(0,1fr)_34px_34px_34px_34px_68px] items-center gap-x-1 px-1.5 py-[2px] text-left font-mono text-[10px] hover:bg-zinc-800/60">
             <span className="truncate text-zinc-200">{r.symbol.replace("USDT", "")}</span>
             {TFS.map((tf) => <span key={tf}>{cell(r.tfs?.[tf])}</span>)}
-            <span className={`text-right text- font-bold ${r.verdict === "STRONG" ? "text-emerald-400" : r.verdict === "LEAN" ? "text-amber-400" : "text-zinc-500"}`}>{r.verdict} {r.agree}</span>
+            <span className={`whitespace-nowrap text-right text-[9px] font-bold ${r.verdict === "STRONG" ? "text-emerald-400" : r.verdict === "LEAN" ? "text-amber-400" : "text-zinc-500"}`}>{r.verdict} {r.agree}</span>
           </button>
         ))}
       </div>
-      <p className="text- leading-snug text-zinc-600">Bấm 1 dòng để xem symbol đó. STRONG = tất cả khung đồng thuận · LEAN = lệch khung nhỏ · CONFLICT = đứng ngoài.</p>
+      <p className="text-[10px] leading-snug text-zinc-600">Bấm 1 dòng để xem symbol đó. STRONG = tất cả khung đồng thuận · LEAN = lệch khung nhỏ · CONFLICT = đứng ngoài.</p>
     </div>
   );
 }
@@ -138,7 +138,7 @@ interface Props {
 }
 
 /** rescan when the snapshot is older than this */
-const TOP_N = 6;
+const TOP_N = 8;
 
 /** last LLM risk-officer review (server-side), shown next to the config row */
 interface LlmLast {
@@ -912,6 +912,38 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                 🤖 {t(lang, "auto.trail.auto")}
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  localStorage.setItem("elliott-beta-custom", JSON.stringify(cfg));
+                  pushToast({ kind: "xgb", text: "Beta Test da save custom" });
+                } catch {
+                  pushToast({ kind: "error", text: "Khong save duoc Beta custom" });
+                }
+              }}
+              title="Luu cau hinh dang chinh tay thanh Beta custom"
+              className="h-7 rounded-md border border-violet-700/60 bg-violet-950/40 px-2 text-xs text-violet-300 hover:bg-violet-950/60"
+            >
+              Beta Test
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  const raw = localStorage.getItem("elliott-beta-custom");
+                  if (!raw) { pushToast({ kind: "warn", text: "Chua co Beta custom nao" }); return; }
+                  updateCfg(JSON.parse(raw));
+                  pushToast({ kind: "xgb", text: "Da load Beta custom" });
+                } catch {
+                  pushToast({ kind: "error", text: "Beta custom loi, save lai di" });
+                }
+              }}
+              title="Load lai Beta custom da save"
+              className="h-7 rounded-md border border-zinc-800 bg-zinc-950/40 px-2 text-xs text-zinc-400 hover:bg-zinc-800"
+            >
+              Load Beta
+            </button>
             {cfg.trailOn && cfg.trailAuto && (
               <span className="w-full text-[10px] leading-tight text-zinc-600" title={t(lang, "auto.trail.autoTip")}>
                 {t(lang, "auto.trail.autoDesc")}
@@ -1311,186 +1343,6 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
         )}
         {!cfg.on && status && <p className="font-mono text-[11px] text-zinc-500">{status}</p>}
 
-        <ConfluenceTable onPickPair={onPickPair} />
-
-        {/* best pick + ranking */}
-        {best ? (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between rounded-lg border border-teal-800/60 bg-teal-950/20 px-2.5 py-1.5">
-              <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-teal-400">
-                {t(lang, "auto.best")}
-              </span>
-              <span className="flex items-center gap-2">
-                {flipped && (
-                  <span
-                    title={t(lang, "auto.best.flip.tip")}
-                    className="rounded border border-amber-700/60 bg-amber-950/40 px-1.5 py-0.5 text-[9px] font-bold text-amber-400"
-                  >
-                    ⚠ {t(lang, "auto.best.flip")}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  className="font-mono text-xs font-bold text-zinc-100 hover:text-teal-300"
-                  onClick={() => onPickPair(best.symbol, best.interval)}
-                >
-                  {best.symbol} {best.interval} <span className={sideClass(best.bias)}>{best.bias}</span> · {best.score.toFixed(1)}
-                </button>
-              </span>
-            </div>
-            <div className="overflow-hidden rounded-lg border border-zinc-800">
-              {/* cột số co đúng nội dung (kể cả nhãn vi "HƯỚNG"), PAIR (1fr)
-                  nhận toàn bộ phần còn lại — hết cảnh truncate "XMR…" */}
-              <div className="grid grid-cols-[minmax(0,1fr)_39px_41px_42px_30px_28px_38px] gap-x-0.5 border-b border-zinc-800 bg-zinc-950/60 px-1.5 py-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
-                <span>{t(lang, "auto.col.pair")}</span>
-                <span>{t(lang, "auto.col.tf")}</span>
-                <span>{t(lang, "auto.col.side")}</span>
-                <span className="text-right">{t(lang, "auto.col.prob")}</span>
-                <span className="text-right">{t(lang, "auto.col.auc")}</span>
-                <span className="text-right">{t(lang, "auto.col.acc")}</span>
-                <span className="text-right">{t(lang, "auto.col.score")}</span>
-              </div>
-              {rows.slice(0, TOP_N).map((r, i) => {
-                const tradeable = r.bias !== "NEUTRAL" && r.auc >= ef.minAuc && r.acc >= ef.minAcc && (ef.minScore <= 0 || r.score >= ef.minScore);
-                const why = blockedWhy(r);
-                return (
-                  <button
-                    key={`${r.symbol}-${r.interval}`}
-                    type="button"
-                    onClick={() => onPickPair(r.symbol, r.interval)}
-                    title={why ? t(lang, "auto.block.tip", { why }) : undefined}
-                    className={`grid w-full grid-cols-[minmax(0,1fr)_39px_41px_42px_30px_28px_38px] items-center gap-x-0.5 px-1.5 py-1 text-left font-mono text-[10px] hover:bg-zinc-800/60 ${
-                      i === 0 ? "bg-teal-950/20" : ""
-                    }`}
-                  >
-                    <span className="truncate text-zinc-200">
-                      {r.symbol}
-                      {r.regressed && (
-                        <span
-                          title={t(lang, "auto.regress.tip", { auc: (r.champAuc ?? 0).toFixed(2) })}
-                          className="ml-1 text-amber-500"
-                        >
-                          ↓
-                        </span>
-                      )}
-                      {r.whale?.tag === "whale" && (
-                        <span title={`🐋 volZ ${(r.whale.volZ ?? 0).toFixed(1)}σ`} className="ml-1 text-amber-400">🐋</span>
-                      )}
-                      {r.whale?.tag === "watch" && (
-                        <span title={`volZ ${(r.whale.volZ ?? 0).toFixed(1)}σ`} className="ml-1 text-zinc-600">🐋</span>
-                      )}
-                    </span>
-                    <span className="text-zinc-500">{r.interval}</span>
-                    <span className={sideClass(r.bias)}>{r.bias === "NEUTRAL" ? "—" : r.bias}</span>
-                    <span className="text-right text-zinc-300" title={r.bias === "SHORT" ? t(lang, "auto.col.prob.tip") : undefined}>
-                      {(probShown(r) * 100).toFixed(1)}%
-                    </span>
-                    <span className={`text-right ${r.auc >= ef.minAuc ? "text-emerald-400" : "text-zinc-500"}`}>{r.auc.toFixed(2)}</span>
-                    <span className={`text-right ${r.acc >= ef.minAcc ? "text-emerald-400" : "text-zinc-500"}`}>{r.acc.toFixed(0)}%</span>
-                    <span className={`text-right font-bold ${tradeable && !r.regressed ? "text-teal-300" : "text-zinc-600"}`}>{r.score.toFixed(1)}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <p className="text-[10px] leading-snug text-zinc-600">{t(lang, "auto.rank.hint")}</p>
-            {/* 0.3.2 — sàn HIỆU LỰC engine đang lọc: DQF tự học thì hiện rõ để
-                user thấy bảng đổi màu theo sàn động, không nhầm với cfg panel */}
-            {ef.src === "dqf" && (
-              <p
-                className="mt-0.5 text-[10px] font-medium text-teal-400"
-                title={t(lang, "auto.dqf.floors.tip")}
-              >
-                {t(lang, "auto.dqf.floors", { s: Math.round(ef.minScore), a: ef.minAuc.toFixed(2), c: Math.round(ef.minAcc) })}
-              </p>
-            )}
-          </div>
-        ) : (
-          !scanning && <p className="text-[11px] text-zinc-600">{t(lang, "auto.scan.empty")}</p>
-        )}
-
-        {/* train history — every backend train is persisted (FinetuneRun); the
-            🏆 badge marks the best run per combo, the champion–challenger bar
-            every fresh train must clear before it may trade */}
-        {trainHist && (trainHist.total > 0 || trainHist.latest.length > 0) && (
-          <div className="border-t border-zinc-800 pt-2">
-            <div className="flex items-center justify-between">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">{t(lang, "auto.trainhist.title")}</p>
-              <span className="font-mono text-[10px] text-zinc-600">{t(lang, "auto.trainhist.total", { n: trainHist.total })}</span>
-            </div>
-            <div className="rail-scroll mt-1.5 max-h-32 space-y-0.5 overflow-y-auto pr-0.5">
-              {trainHist.latest.map((r, i) => (
-                <button
-                  key={`${r.symbol}-${r.interval}-${r.at}-${i}`}
-                  type="button"
-                  onClick={() => onPickPair(r.symbol, r.interval)}
-                  className="flex w-full items-center gap-2 rounded px-1.5 py-0.5 font-mono text-[10px] hover:bg-zinc-800/60"
-                >
-                  <span className="shrink-0 text-zinc-600">
-                    {new Date(r.at).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}
-                  </span>
-                  <span className="truncate text-zinc-300">
-                    {r.symbol} {r.interval}
-                  </span>
-                  {r.best && (
-                    <span title={t(lang, "auto.trainhist.champ")} className="shrink-0">
-                      🏆
-                    </span>
-                  )}
-                  <span className="ml-auto shrink-0 text-zinc-400">AUC {r.auc.toFixed(2)}</span>
-                  <span className={`shrink-0 ${r.acc >= ef.minAcc ? "text-emerald-400" : "text-zinc-500"}`}>{r.acc.toFixed(0)}%</span>
-                </button>
-              ))}
-            </div>
-            <p className="mt-1 text-[10px] leading-snug text-zinc-600">{t(lang, "auto.trainhist.hint")}</p>
-          </div>
-        )}
-
-        {/* broadcast verdicts — MỘT thuật toán gate (bcast-gate.gateRow) upsert
-            vào bảng BcastVerdict của custom.db; Telegram chỉ đăng combo "pass"
-            của CÙNG bảng này nên panel và TG không thể lệch nhau */}
-        {bcastSnap && bcastSnap.total > 0 && (
-          <div className="border-t border-zinc-800 pt-2">
-            <div className="flex items-center justify-between">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">{t(lang, "auto.bcast.title")}</p>
-              <span className="font-mono text-[10px] text-zinc-600">
-                {bcastSnap.pass}/{bcastSnap.total} {t(lang, "auto.bcast.pass")}
-              </span>
-            </div>
-            <div className="rail-scroll mt-1.5 max-h-32 space-y-0.5 overflow-y-auto pr-0.5">
-              {bcastSnap.rows.slice(0, 24).map((r, i) => {
-                const pass = r.verdict === "pass";
-                return (
-                  <button
-                    key={`${r.symbol}-${r.interval}-${i}`}
-                    type="button"
-                    onClick={() => onPickPair(r.symbol, r.interval)}
-                    title={`${r.symbol} ${r.interval} · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(0)}% · ${new Date(r.at).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}`}
-                    className="flex w-full items-center gap-2 rounded px-1.5 py-0.5 font-mono text-[10px] hover:bg-zinc-800/60"
-                  >
-                    <span className="shrink-0">{pass ? "✅" : "❌"}</span>
-                    <span className="truncate text-zinc-300">
-                      {r.symbol} {r.interval}
-                    </span>
-                    <span className={r.side === "SHORT" ? "shrink-0 text-rose-400" : "shrink-0 text-emerald-400"}>
-                      {r.side === "SHORT" ? "SELL" : r.side === "LONG" ? "BUY" : "—"}
-                    </span>
-                    <span className="ml-auto shrink-0 text-zinc-400">{r.score.toFixed(1)}</span>
-                    <span className={`shrink-0 ${pass ? "text-emerald-400" : "text-zinc-500"}`}>
-                      {pass ? "TG" : r.reason}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            <p className="mt-1 text-[10px] leading-snug text-zinc-600">{t(lang, "auto.bcast.hint")}</p>
-          </div>
-        )}
-
-        {/* 0.2.97 — universe đã DỜI sang Watchlist (dashboard): "universe không
-            phải nằm trong auto mà nằm ở watch list mới đúng". Panel auto chỉ
-            còn trade: rank/scan/bcast/vị thế. */}
-        <p className="border-t border-zinc-800 pt-2 text-[10px] leading-snug text-zinc-600">{t(lang, "auto.noiseBand", { band: NOISE_BAND })}</p>
-
         {/* open position */}
         {open ? (
           <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-2.5">
@@ -1593,12 +1445,12 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
         <div className="grid grid-cols-3 gap-2">
           <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
             <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">{t(lang, "auto.capital.now")}</p>
-            <p className="mt-0.5 truncate font-mono text-sm font-bold text-zinc-100">{capitalNow.toFixed(2)}</p>
+            <p className="mt-0.5 truncate font-mono text- font-bold text-zinc-100">{capitalNow.toFixed(2)}</p>
             <p className="truncate text-[9px] text-zinc-600">{t(lang, "auto.capital.start", { n: auto?.walletCapital ?? cfg.capital })}</p>
           </div>
           <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
             <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">Net ROE</p>
-            <p className={`mt-0.5 truncate font-mono text-sm font-bold ${(auto?.stats.netPnlPct ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+            <p className={`mt-0.5 truncate font-mono text- font-bold ${(auto?.stats.netPnlPct ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
               {(auto?.stats.netPnlPct ?? 0) >= 0 ? "+" : ""}
               {(auto?.stats.netPnlPct ?? 0).toFixed(1)}%
             </p>
@@ -1606,12 +1458,196 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
           </div>
           <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
             <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">Win</p>
-            <p className="mt-0.5 truncate font-mono text-sm font-bold text-zinc-100">{(auto?.stats.winRate ?? 0).toFixed(0)}%</p>
+            <p className="mt-0.5 truncate font-mono text- font-bold text-zinc-100">{(auto?.stats.winRate ?? 0).toFixed(0)}%</p>
             <p className="truncate text-[9px] text-zinc-600">
               {auto?.stats.wins ?? 0}/{auto?.stats.closed ?? 0}
             </p>
           </div>
         </div>
+
+        <div className="grid items-stretch gap-3 lg:grid-cols-2">
+          <ConfluenceTable onPickPair={onPickPair} />
+          <div className="flex h-full flex-col">
+        {/* best pick + ranking */}
+        {best ? (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between rounded-lg border border-teal-800/60 bg-teal-950/20 px-2.5 py-1.5">
+              <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-teal-400">
+                {t(lang, "auto.best")}
+              </span>
+              <span className="flex items-center gap-2">
+                {flipped && (
+                  <span
+                    title={t(lang, "auto.best.flip.tip")}
+                    className="rounded border border-amber-700/60 bg-amber-950/40 px-1.5 py-0.5 text-[9px] font-bold text-amber-400"
+                  >
+                    ⚠ {t(lang, "auto.best.flip")}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="font-mono text-xs font-bold text-zinc-100 hover:text-teal-300"
+                  onClick={() => onPickPair(best.symbol, best.interval)}
+                >
+                  {best.symbol} {best.interval} <span className={sideClass(best.bias)}>{best.bias}</span> · {best.score.toFixed(1)}
+                </button>
+              </span>
+            </div>
+            <div className="flex-1 overflow-hidden rounded-lg border border-zinc-800">
+              {/* cột số co đúng nội dung (kể cả nhãn vi "HƯỚNG"), PAIR (1fr)
+                  nhận toàn bộ phần còn lại — hết cảnh truncate "XMR…" */}
+              <div className="grid grid-cols-[minmax(0,1fr)_39px_41px_42px_30px_28px_38px] gap-x-0.5 border-b border-zinc-800 bg-zinc-950/60 px-1.5 py-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
+                <span>{t(lang, "auto.col.pair")}</span>
+                <span>{t(lang, "auto.col.tf")}</span>
+                <span>{t(lang, "auto.col.side")}</span>
+                <span className="text-right">{t(lang, "auto.col.prob")}</span>
+                <span className="text-right">{t(lang, "auto.col.auc")}</span>
+                <span className="text-right">{t(lang, "auto.col.acc")}</span>
+                <span className="text-right">{t(lang, "auto.col.score")}</span>
+              </div>
+              {rows.slice(0, TOP_N).map((r, i) => {
+                const tradeable = r.bias !== "NEUTRAL" && r.auc >= ef.minAuc && r.acc >= ef.minAcc && (ef.minScore <= 0 || r.score >= ef.minScore);
+                const why = blockedWhy(r);
+                return (
+                  <button
+                    key={`${r.symbol}-${r.interval}`}
+                    type="button"
+                    onClick={() => onPickPair(r.symbol, r.interval)}
+                    title={why ? t(lang, "auto.block.tip", { why }) : undefined}
+                    className={`grid w-full grid-cols-[minmax(0,1fr)_39px_41px_42px_30px_28px_38px] items-center gap-x-0.5 px-1.5 py-1 text-left font-mono text-[10px] hover:bg-zinc-800/60 ${
+                      i === 0 ? "bg-teal-950/20" : ""
+                    }`}
+                  >
+                    <span className="truncate text-zinc-200">
+                      {r.symbol}
+                      {r.regressed && (
+                        <span
+                          title={t(lang, "auto.regress.tip", { auc: (r.champAuc ?? 0).toFixed(2) })}
+                          className="ml-1 text-amber-500"
+                        >
+                          ↓
+                        </span>
+                      )}
+                      {r.whale?.tag === "whale" && (
+                        <span title={`🐋 volZ ${(r.whale.volZ ?? 0).toFixed(1)}σ`} className="ml-1 text-amber-400">🐋</span>
+                      )}
+                      {r.whale?.tag === "watch" && (
+                        <span title={`volZ ${(r.whale.volZ ?? 0).toFixed(1)}σ`} className="ml-1 text-zinc-600">🐋</span>
+                      )}
+                    </span>
+                    <span className="text-zinc-500">{r.interval}</span>
+                    <span className={sideClass(r.bias)}>{r.bias === "NEUTRAL" ? "—" : r.bias}</span>
+                    <span className="text-right text-zinc-300" title={r.bias === "SHORT" ? t(lang, "auto.col.prob.tip") : undefined}>
+                      {(probShown(r) * 100).toFixed(1)}%
+                    </span>
+                    <span className={`text-right ${r.auc >= ef.minAuc ? "text-emerald-400" : "text-zinc-500"}`}>{r.auc.toFixed(2)}</span>
+                    <span className={`text-right ${r.acc >= ef.minAcc ? "text-emerald-400" : "text-zinc-500"}`}>{r.acc.toFixed(0)}%</span>
+                    <span className={`text-right font-bold ${tradeable && !r.regressed ? "text-teal-300" : "text-zinc-600"}`}>{r.score.toFixed(1)}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] leading-snug text-zinc-600">{t(lang, "auto.rank.hint")}</p>
+            {/* 0.3.2 — sàn HIỆU LỰC engine đang lọc: DQF tự học thì hiện rõ để
+                user thấy bảng đổi màu theo sàn động, không nhầm với cfg panel */}
+            {ef.src === "dqf" && (
+              <p
+                className="mt-0.5 text-[10px] font-medium text-teal-400"
+                title={t(lang, "auto.dqf.floors.tip")}
+              >
+                {t(lang, "auto.dqf.floors", { s: Math.round(ef.minScore), a: ef.minAuc.toFixed(2), c: Math.round(ef.minAcc) })}
+              </p>
+            )}
+          </div>
+        ) : (
+          !scanning && <p className="text-[11px] text-zinc-600">{t(lang, "auto.scan.empty")}</p>
+        )}
+
+          </div>
+        </div>
+
+        {/* train history — every backend train is persisted (FinetuneRun); the
+            🏆 badge marks the best run per combo, the champion–challenger bar
+            every fresh train must clear before it may trade */}
+        {trainHist && (trainHist.total > 0 || trainHist.latest.length > 0) && (
+          <div className="border-t border-zinc-800 pt-2">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">{t(lang, "auto.trainhist.title")}</p>
+              <span className="font-mono text-[10px] text-zinc-600">{t(lang, "auto.trainhist.total", { n: trainHist.total })}</span>
+            </div>
+            <div className="rail-scroll mt-1.5 max-h-32 space-y-0.5 overflow-y-auto pr-0.5">
+              {trainHist.latest.map((r, i) => (
+                <button
+                  key={`${r.symbol}-${r.interval}-${r.at}-${i}`}
+                  type="button"
+                  onClick={() => onPickPair(r.symbol, r.interval)}
+                  className="flex w-full items-center gap-2 rounded px-1.5 py-0.5 font-mono text-[10px] hover:bg-zinc-800/60"
+                >
+                  <span className="shrink-0 text-zinc-600">
+                    {new Date(r.at).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}
+                  </span>
+                  <span className="truncate text-zinc-300">
+                    {r.symbol} {r.interval}
+                  </span>
+                  {r.best && (
+                    <span title={t(lang, "auto.trainhist.champ")} className="shrink-0">
+                      🏆
+                    </span>
+                  )}
+                  <span className="ml-auto shrink-0 text-zinc-400">AUC {r.auc.toFixed(2)}</span>
+                  <span className={`shrink-0 ${r.acc >= ef.minAcc ? "text-emerald-400" : "text-zinc-500"}`}>{r.acc.toFixed(0)}%</span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-[10px] leading-snug text-zinc-600">{t(lang, "auto.trainhist.hint")}</p>
+          </div>
+        )}
+
+        {/* broadcast verdicts — MỘT thuật toán gate (bcast-gate.gateRow) upsert
+            vào bảng BcastVerdict của custom.db; Telegram chỉ đăng combo "pass"
+            của CÙNG bảng này nên panel và TG không thể lệch nhau */}
+        {bcastSnap && bcastSnap.total > 0 && (
+          <div className="border-t border-zinc-800 pt-2">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">{t(lang, "auto.bcast.title")}</p>
+              <span className="font-mono text-[10px] text-zinc-600">
+                {bcastSnap.pass}/{bcastSnap.total} {t(lang, "auto.bcast.pass")}
+              </span>
+            </div>
+            <div className="rail-scroll mt-1.5 max-h-32 space-y-0.5 overflow-y-auto pr-0.5">
+              {bcastSnap.rows.slice(0, 24).map((r, i) => {
+                const pass = r.verdict === "pass";
+                return (
+                  <button
+                    key={`${r.symbol}-${r.interval}-${i}`}
+                    type="button"
+                    onClick={() => onPickPair(r.symbol, r.interval)}
+                    title={`${r.symbol} ${r.interval} · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(0)}% · ${new Date(r.at).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}`}
+                    className="flex w-full items-center gap-2 rounded px-1.5 py-0.5 font-mono text-[10px] hover:bg-zinc-800/60"
+                  >
+                    <span className="shrink-0">{pass ? "✅" : "❌"}</span>
+                    <span className="truncate text-zinc-300">
+                      {r.symbol} {r.interval}
+                    </span>
+                    <span className={r.side === "SHORT" ? "shrink-0 text-rose-400" : "shrink-0 text-emerald-400"}>
+                      {r.side === "SHORT" ? "SELL" : r.side === "LONG" ? "BUY" : "—"}
+                    </span>
+                    <span className="ml-auto shrink-0 text-zinc-400">{r.score.toFixed(1)}</span>
+                    <span className={`shrink-0 ${pass ? "text-emerald-400" : "text-zinc-500"}`}>
+                      {pass ? "TG" : r.reason}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1 text-[10px] leading-snug text-zinc-600">{t(lang, "auto.bcast.hint")}</p>
+          </div>
+        )}
+
+        {/* 0.2.97 — universe đã DỜI sang Watchlist (dashboard): "universe không
+            phải nằm trong auto mà nằm ở watch list mới đúng". Panel auto chỉ
+            còn trade: rank/scan/bcast/vị thế. */}
+        <p className="border-t border-zinc-800 pt-2 text-[10px] leading-snug text-zinc-600">{t(lang, "auto.noiseBand", { band: NOISE_BAND })}</p>
 
         {/* RÀ SỔ + WIN RATE THEO PHÍA (0.2.87) — lịch sử dry-run trộn nhiều phiên
             bản công thức (trước 0.2.77 gross ROE, DCA ghi entry trung bình cộng
