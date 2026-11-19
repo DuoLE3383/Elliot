@@ -274,6 +274,24 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   // RESET VỐN (0.2.86) — hai bước: nút mở dải xác nhận → nhập vốn → xác nhận.
   // resetAmount khời tạo = vốn hiện tại; sau khi API trả về, refreshAuto() vẽ lại.
   const [resetOpen, setResetOpen] = useState(false);
+  const [confluenceMap, setConfluenceMap] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/confluence", { cache: "no-store" });
+        const d = await r.json();
+        if (alive && Array.isArray(d.rows)) {
+          const m: Record<string, string> = {};
+          for (const row of d.rows) m[row.symbol] = row.verdict + " " + row.agree;
+          setConfluenceMap(m);
+        }
+      } catch {}
+    };
+    load();
+    const id = setInterval(load, 30000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
   const [resetAmount, setResetAmount] = useState<string>("");
   const [resetBusy, setResetBusy] = useState(false);
   // RÀ SỔ DRY-RUN (0.2.87) — audit/repair state
@@ -1520,6 +1538,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                   >
                     <span className="truncate text-zinc-200">
                       {r.symbol}
+                      {confluenceMap[r.symbol] ? <span className="ml-1 text-xs text-violet-400">· {confluenceMap[r.symbol]}</span> : null}
                       {r.regressed && (
                         <span
                           title={t(lang, "auto.regress.tip", { auc: (r.champAuc ?? 0).toFixed(2) })}
