@@ -2361,6 +2361,8 @@ export function engineSnapshot(): {
   wyckoff: { breadth: number | null; status: string; tickAt: number };
   /** tổng tín hiệu tích luỹ per combo `SYM|TF` (bảng SignalTotal — 0.2.32) */
   signalTotals: Record<string, number>;
+  /** trail per-trade `tradeId -> trail` (multi-position) — panel đọc trails, trail giữ lại cho tương thích cũ */
+  trails: Record<string, any>;
 } {
   const { p, v } = eng();
   return {

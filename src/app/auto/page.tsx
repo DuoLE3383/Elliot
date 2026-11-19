@@ -42,7 +42,7 @@ import {
 
 interface Toast {
   id: number;
-  kind: "entry" | "flip" | "error" | "warn" | "wy" | "xgb";
+  kind: "entry" | "flip" | "error" | "warn" | "wy" | "xgb" | "success";
   side?: "LONG" | "SHORT";
   text: string;
 }

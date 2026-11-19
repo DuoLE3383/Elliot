@@ -1388,7 +1388,7 @@ export default function Home() {
 
             {/* ── RIGHT: controls first, then Auto, analytics in tabs ──── */}
             <div className="rail-scroll order-2 flex min-h-0 flex-col gap-3 lg:order-3 lg:overflow-y-auto lg:pl-0.5">
-              <SignalDock
+              {false && <SignalDock
                 lang={lang}
                 smaPeriod={settings.smaPeriod}
                 slPct={settings.slPct}
@@ -1407,14 +1407,14 @@ export default function Home() {
                 gateShort={gateInfo.short}
                 smaValue={gateInfo.sma}
                 onToggleGate={toggleGate}
-                openPaper={view.open ?? undefined}
-                pending={view.pending ?? undefined}
-                papers={view.papers}
+                openPaper={view?.open ?? undefined}
+                pending={view?.pending ?? undefined}
+                papers={view?.papers ?? []}
                 pinnedIndex={pinnedIndex}
                 lastClose={lastClose}
                 onUnpin={() => setPinnedTime(null)}
                 pinnedSig={pinnedSig}
-              />
+              />}
               {/* Auto Trade — tách sang trang riêng /auto (0.2.95): rail hẹp
                   không đủ cho sổ dry-run A/B; launcher còn hiển thị vị thế
                   đang mở để biết engine còn sống */}

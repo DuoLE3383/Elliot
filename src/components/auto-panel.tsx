@@ -134,7 +134,7 @@ interface Props {
    *  (đừng đè cờ thật bằng default {a:true,c:true} trước khi đọc được trạng thái). */
   syncReady?: boolean;
   onPickPair: (symbol: string, interval: string) => void;
-  pushToast: (toast: { kind: "entry" | "flip" | "error" | "warn" | "wy" | "xgb"; text: string }) => void;
+  pushToast: (toast: { kind: "entry" | "flip" | "error" | "warn" | "wy" | "xgb" | "success"; text: string }) => void;
 }
 
 /** rescan when the snapshot is older than this */
