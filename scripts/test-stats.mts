@@ -2,7 +2,8 @@
 // Kiểm:
 //   1. wilsonLB — cận dưới Wilson 95%: mẫu nhỏ phải XUỐNG THẤP (60% trên 5
 //      lệnh không được nghe oai), mẫu lớn tiệm cận tỉ lệ thật, 0/0 → 0.
-//   2. buildStatsSnapshot trên DB thật (file tạm): đủ 8 section, mỗi section
+//   2. buildStatsSnapshot trên DB thật (file tạm): đủ 9 section (0.3.5 APM:
+//      thêm market + dqf, sessions → market), mỗi section
 //      đủ hình dạng (state/note/accPct/metrics), giá trị biên DB rỗng:
 //      combo/hist/sg nhất quan (ok) khi chưa có dữ liệu lệch, open = na.
 //   3. Chuỗi kiểm chéo không ném — DB chết từng section phải degrade "na"
@@ -47,11 +48,11 @@ check("0/0 → 0 (không có mẫu thì không tin gì)", wilsonLB(0, 0) === 0);
   check("cùng 50%: LB(10) < LB(50) < LB(200)", wilsonLB(5, 10) < wilsonLB(25, 50) && wilsonLB(25, 50) < wilsonLB(100, 200));
 }
 
-console.log("\n═══ 2. buildStatsSnapshot — DB thật, 8 section ═══");
+console.log("\n═══ 2. buildStatsSnapshot — DB thật, 9 section ═══");
 const snap = await buildStatsSnapshot();
-check("đủ 8 section server-side", snap.sections.length === 8, `got ${snap.sections.length}`);
+check("đủ 9 section server-side", snap.sections.length === 9, `got ${snap.sections.length}`);
 const keys = snap.sections.map((s) => s.key);
-for (const k of ["sessions", "combo", "universe", "auto", "dock", "open", "hist", "sg"]) {
+for (const k of ["market", "combo", "universe", "auto", "dqf", "dock", "open", "hist", "sg"]) {
   check(`section ${k} có mặt`, keys.includes(k));
 }
 for (const s of snap.sections) {
@@ -61,7 +62,8 @@ for (const s of snap.sections) {
   );
 }
 const byKey = Object.fromEntries(snap.sections.map((s) => [s.key, s]));
-check("sessions: ok, accPct 100 (cấu hình tĩnh)", byKey.sessions.state === "ok" && byKey.sessions.accPct === 100);
+check("market: có mặt + state hợp lệ (dự báo tổng hợp model)", ["ok", "warn", "na"].includes(byKey.market.state));
+check("dqf: có mặt + state hợp lệ (sàn chất lượng động)", ["ok", "warn", "na"].includes(byKey.dqf.state));
 check("combo: DB rỗng → nhất quan (ok), accPct 0 (không mẫu)", byKey.combo.state === "ok" && byKey.combo.accPct === 0);
 check("open: DB rỗng → na (không có lệnh mở)", byKey.open.state === "na");
 check("hist: DB rỗng → ok (không lệnh thiếu nhãn)", byKey.hist.state === "ok");
