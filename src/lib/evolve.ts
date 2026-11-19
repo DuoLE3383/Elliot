@@ -398,10 +398,11 @@ export async function evolveRound(bridge: EvolveBridge): Promise<EvolveOutcome> 
         `vượt mốc: exp ${r3(best.metrics!.expectancy)} vs ${r3(baseMetrics.expectancy)}%/lệnh · DD ${r2(best.metrics!.maxDd)} vs ${r2(baseMetrics.maxDd)}% · ${best.hypothesis}`;
       await logRow(comboTag(combo), "promote", best.name, detail, before, best.config, { base: baseMetrics, best: best.metrics });
       bridge.tg(
-        `🧬 <b>TỰ TIẾN HOÁ</b> — áp cho engine: <b>${best.name}</b>\n` +
+        `🧬 <b>TỰ TIẾN HOÁ</b> — Agent HEDGE · Book B (XGB) · áp cho engine: <b>${best.name}</b>\n` +
           `<code>${cfgShort(best.config)}</code> · sân thử <code>${comboTag(combo)}</code>\n` +
           `Backtest: ${mLine(best.metrics)}\nMốc cũ: ${mLine(baseMetrics)}\n` +
-          `⏳ Theo dõi ${WATCH_N()} lệnh giấy tới — tệ hơn mốc sẽ tự hoàn tác.`,
+          `⏳ Theo dõi ${WATCH_N()} lệnh giấy tới — nếu exp thực < ${r3(baseMetrics.expectancy)}%/lệnh (mốc − 0.1) sẽ TỰ HOÀN TÁC về cfg cũ.\n` +
+          `🔒 GRAIL: B cần ≥20 lệnh đóng · C hết RISK_OFF mới mở.`,
       );
       bridge.log(`promote "${best.name}" trên ${comboTag(combo)} — ${cfgShort(best.config)}`);
       return { decision: "promote", combo: comboTag(combo), note: `${best.name} — ${detail}` };

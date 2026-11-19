@@ -40,10 +40,28 @@ import { msgClose, slPrice, tpPrice } from "@/lib/tg-msgs";
 import { NOISE_BAND } from "@/lib/xgb";
 import { Bot, Play, RotateCcw, ScanLine, Send, Square, ListChecks } from "lucide-react";
 
+// ─── AGENTS — VAULT / HEDGE / ALPHA / GRAIL ───
+const AGENTS = [
+  { id: "VAULT", icon: "🗄", desc: "Safe · giu von" },
+  { id: "HEDGE", icon: "⚖", desc: "Balanced" },
+  { id: "ALPHA", icon: "🚀", desc: "Aggressive" },
+  { id: "GRAIL", icon: "👑", desc: "Elliott" },
+] as const;
+
+// AGENT UI PRESETS — bấm Agent là panel đổi số theo, không chỉ đổi nút
+const AGENT_UI_PRESETS: Record<string, any> = {
+  VAULT: { riskPct: 0.5, minAuc: 0.82, minAcc: 80, minScore: 72, runTf: ["15m", "1h"], cooldownMin: 120, runnerSharePct: 30, runnerTpMult: 2, runnerTrailLock: 0.7, slConfirmTicks: 2 },
+  HEDGE: { riskPct: 1.0, minAuc: 0.78, minAcc: 76, minScore: 66, runTf: ["5m", "15m", "1h"], cooldownMin: 60, runnerSharePct: 50, runnerTpMult: 2, runnerTrailLock: 0.5, slConfirmTicks: 2 },
+  ALPHA: { riskPct: 2.0, minAuc: 0.74, minAcc: 72, minScore: 60, runTf: ["5m", "15m", "1h", "4h"], cooldownMin: 30, runnerSharePct: 70, runnerTpMult: 2.5, runnerTrailLock: 0.3, slConfirmTicks: 2 },
+  GRAIL: { riskPct: 1.0, minAuc: 0.80, minAcc: 78, minScore: 70, runTf: ["15m", "1h"], cooldownMin: 60, runnerSharePct: 50, runnerTpMult: 2, runnerTrailLock: 0.5, slConfirmTicks: 2 },
+};
+
+
 interface Props {
   lang: Lang;
   /** every watched pair (defaults + user customs) */
   pairs: string[];
+
   /** user leverage — applied to dry-run positions */
   leverage: number;
   /** set user leverage from THIS panel (writes the page settings state → syncs to engine) */
@@ -664,6 +682,31 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
       </CardHeader>
 
       <CardContent className="space-y-3 px-3 pt-0">
+      {/* ─── AGENT SELECTOR — thay panel so cu ─── */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        {AGENTS.map((a) => {
+          const cur = (cfg as any)?.agent || "HEDGE";
+          const locked = a.id === "GRAIL";
+          const active = cur === a.id;
+          return (
+            <button
+              key={a.id}
+              disabled={locked}
+              title={locked ? "GRAIL locked — mo sau khi B du 20 lenh + C het RISK_OFF" : a.desc}
+              onClick={() => {
+                const pr = AGENT_UI_PRESETS[a.id] || {};
+                onCfgChange({ agent: a.id, ...pr } as any);
+                pushToast({ kind: "success", text: `Agent ${a.id} đã set — Risk ${pr.riskPct}% · Gate ${pr.minScore}/${pr.minAuc}/${pr.minAcc} · TF ${pr.runTf?.join("/")}` });
+              }}
+              style={{ flex: 1, padding: "10px 6px", borderRadius: 10, cursor: locked ? "not-allowed" : "pointer", opacity: locked ? 0.5 : 1, border: active ? "2px solid #22c55e" : "1px solid #333", background: active ? "#14532d" : "#111", color: "#fff", textAlign: "center" }}
+            >
+              <div style={{ fontSize: 16 }}>{a.icon} {a.id}{locked ? " 🔒" : ""}</div>
+              <div style={{ fontSize: 11, opacity: 0.7 }}>{a.desc}</div>
+            </button>
+          );
+        })}
+      </div>
+
         {/* config — risk control first: equity share per trade + TP/SL source */}
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-1.5 text-[11px] text-zinc-500">

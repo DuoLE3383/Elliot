@@ -260,6 +260,8 @@ function loadEngine(): void {
       const p = g.__elliottEngine.p;
       if (raw.cfg) {
         p.cfg = { ...AUTO_DEFAULTS, ...raw.cfg };
+        // AGENTS — Agent là nguồn duy nhất, panel số cũ vô hiệu
+        p.cfg = applyAgentPreset(p.cfg);
         // 0.2.74: "atr" (ATR thuần) → "dyn" (pair × time × volume) — một nguồn
         // với loadAutoConfig/syncEngine, engine.json cũ map thẳng
         p.cfg.tpMode = sanitizeTpMode(p.cfg.tpMode);
@@ -1339,6 +1341,34 @@ async function llmGate(
   return { verdict: lastVerdict, vetoed };
 }
 
+
+// B 0.3.4 — dynamic leverage 5x-20x theo score + ATR
+// score vừa đủ gate -> 5x, mạnh +15 điểm -> 20x, ATR to -> tự hạ lev
+// Trần cứng 20x — không bao giờ vượt, dù score cao tới đâu
+
+// ─── AGENTS — VAULT / HEDGE / ALPHA / GRAIL ───
+// Panel số cũ vẫn hiện nhưng VÔ HIỆU — engine chỉ đọc agent rồi map ra số.
+// User chỉ chọn Agent, không chỉnh Risk/Leverage/Gate/TF tay nữa.
+const AGENT_PRESETS = {
+  VAULT:  { riskPct: 0.5, minAuc: 0.82, minAcc: 80, minScore: 72, runTf: ["15m", "1h"], cooldownMin: 120, runnerSharePct: 30, runnerTpMult: 2, runnerTrailLock: 0.7, slConfirmTicks: 2 },
+  HEDGE:  { riskPct: 1.0, minAuc: 0.78, minAcc: 76, minScore: 66, runTf: ["5m", "15m", "1h"], cooldownMin: 60,  runnerSharePct: 50, runnerTpMult: 2, runnerTrailLock: 0.5, slConfirmTicks: 2 },
+  ALPHA:  { riskPct: 2.0, minAuc: 0.74, minAcc: 72, minScore: 60, runTf: ["5m", "15m", "1h", "4h"], cooldownMin: 30, runnerSharePct: 70, runnerTpMult: 2.5, runnerTrailLock: 0.3, slConfirmTicks: 2 },
+  GRAIL:  { riskPct: 1.0, minAuc: 0.80, minAcc: 78, minScore: 70, runTf: ["15m", "1h"], cooldownMin: 60,  runnerSharePct: 50, runnerTpMult: 2, runnerTrailLock: 0.5, slConfirmTicks: 2 },
+} as const;
+function applyAgentPreset(cfg: any): any {
+  const id = (cfg?.agent || "HEDGE") as keyof typeof AGENT_PRESETS;
+  if (id === "GRAIL") return cfg; // GRAIL locked — chưa map, giữ HEDGE
+  const pr = AGENT_PRESETS[id] || AGENT_PRESETS.HEDGE;
+  return { ...cfg, ...pr };
+}
+
+function dynLeverage(score: number, minScore: number, atrPct: number): number {
+  const scorePart = 5 + Math.min(15, Math.max(0, score - minScore)) * 1.0;
+  const volPart = Math.max(0.33, Math.min(1, 0.6 / Math.max(0.3, atrPct)));
+  const lev = Math.round(scorePart * volPart);
+  return Math.min(20, Math.max(5, lev));
+}
+
 async function cycleTick(): Promise<void> {
   const { p, v } = eng();
   const c = p.cfg;
@@ -1539,13 +1569,24 @@ async function cycleTick(): Promise<void> {
     // ROE-at-SL không phình theo lev (lin: ref/lev, chỉ thu hẹp khi lev > ref)
     // + mui an toàn thanh khoản (SL ≤ TP_LIQ_SAFE% đường tới liq — áp MỌI mode,
     // manual chỉ bỏ qua scale, không bỏ qua mui). R:R giữ nguyên.
-    const levScale = c.tpMode === "manual" ? 1 : levNormScale(p.leverage);
-    const adj = levAdjSlTp(entrySl, entryTp, levScale, p.leverage);
+    // B 0.3.4 — dynamic lev riêng cho lệnh này (không dùng p.leverage chung)
+    const tradeLev = dynLeverage(best.score, c.minScore, live?.atrPct ?? entrySl);
+    console.log(`[engine] B 0.3.4 dynLev @ ${best.symbol} ${best.interval}: score ${best.score.toFixed(1)} · ATR ${(live?.atrPct ?? entrySl).toFixed(2)}% -> x${tradeLev}`);
+    const levScale = c.tpMode === "manual" ? 1 : levNormScale(tradeLev);
+    const adj = levAdjSlTp(entrySl, entryTp, levScale, tradeLev);
     const finalSl = adj.slPct;
     const finalTp = adj.tpPct;
+    // B 0.3.4 — SL-noise guard: SL phải >= 0.8x ATR, nếu không skip
+    // (SL nằm trong noise = bị quét như lệnh FLOKI cũ)
+    const atrNow = live?.atrPct ?? entrySl;
+    if (finalSl < atrNow * 0.8) {
+      console.log(`[engine] B 0.3.4 noise_block ${best.symbol} ${best.interval} — SL ${finalSl.toFixed(2)}% < 0.8x ATR ${atrNow.toFixed(2)}% -> skip`);
+      v.lastCycleStatus = `noise_block ${best.symbol} — SL < 0.8x ATR`;
+      return;
+    }
     if (finalSl !== entrySl || finalTp !== entryTp) {
       console.log(
-        `[engine] SL/TP lev-adjust @ ×${p.leverage}: ${entrySl}/${entryTp}% → ${finalSl}/${finalTp}% (scale ${levScale.toFixed(2)} · liq-cap ${((pval("TP_LIQ_SAFE", TP_LIQ_SAFE) / 100) * (100 / p.leverage)).toFixed(2)}%)`,
+        `[engine] SL/TP lev-adjust @ ×${tradeLev}: ${entrySl}/${entryTp}% → ${finalSl}/${finalTp}% (scale ${levScale.toFixed(2)} · liq-cap ${((pval("TP_LIQ_SAFE", TP_LIQ_SAFE) / 100) * (100 / p.leverage)).toFixed(2)}%)`,
       );
     }
 
@@ -1617,7 +1658,7 @@ async function cycleTick(): Promise<void> {
         entryPrice: price,
         slPct: finalSl,
         tpPct: finalTp,
-        leverage: p.leverage,
+        leverage: tradeLev,
         stakePct: stakeUsed,
         prob: best.prob,
         acc: best.acc,
@@ -2157,6 +2198,8 @@ export function syncEngine(input: {
   const { p } = eng();
   if (input.cfg) {
     p.cfg = { ...p.cfg, ...input.cfg };
+    // AGENTS — sync từ browser cũng phải qua preset, panel số vô hiệu
+    p.cfg = applyAgentPreset(p.cfg);
     // 0.2.74: "atr" → "dyn" — tab cũ còn cache giá trị pre-0.2.74 cũng map
     // thẳng khi sync (một nguồn với loadAutoConfig/loadEngine)
     p.cfg.tpMode = sanitizeTpMode(p.cfg.tpMode);
@@ -2403,6 +2446,7 @@ export function startEngineScheduler(): void {
         try {
           await runAgentTick(p.cfg, p.leverage, (patch) => {
             p.cfg = { ...p.cfg, ...patch };
+            // AGENTS — KHÔNG preset ở đây: đây là self-improve evolve, không phải panel
             persistEngine();
           });
         } catch (e) {

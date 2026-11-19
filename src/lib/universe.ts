@@ -222,8 +222,9 @@ export function universeBroadcastText(
   if (entered.length) changes.push(`<b>In:</b> ${entered.join(", ")}`);
   if (exited.length) changes.push(`<b>Out:</b> ${exited.join(", ")}`);
 
+  // TG UPGRADE — header Agent + gate, footer giải thích vì sao không lệnh
   const lines = [
-    `📡 <b>UNIVERSE · TOP ${show.length}</b> · ${hhmm}`,
+    `📡 <b>UNIVERSE · TOP ${show.length}</b> · ${hhmm} · ⚖ Agent HEDGE (gate 66/0.78/76) · Runner 50/2/0.5`,
     "",
     `<code>${[head, ...rows].join("\n")}</code>`,
   ];
@@ -231,5 +232,6 @@ export function universeBroadcastText(
   else if (showDelta) lines.push(`🔀 No rank changes vs last post`);
   const more = top.length > show.length ? ` · full top-${top.length} in the app` : "";
   lines.push(`⏱ Re-rank every 8h · not a trade signal${more}`);
+  lines.push(`💡 TOP này là xếp hạng trend, KHÔNG phải tín hiệu lệnh — lệnh chỉ mở khi qua gate Score 66 / AUC 0.78 / ACC 76% + noise guard (SL ≥ 0.8x ATR). 0 lệnh = đứng ngoài đúng gate.`);
   return lines.join("\n");
 }

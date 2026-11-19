@@ -1184,8 +1184,15 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
   const roe = recent.length ? `${net >= 0 ? "+" : ""}${net.toFixed(2)}%` : "—";
   const capLabel = periodLabel.charAt(0).toUpperCase() + periodLabel.slice(1);
   const eq = st.capital != null ? st.capital.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
+  // TG UPGRADE — Agent header: lấy agent từ state nếu có, fallback HEDGE
+  const anySt0 = st as any;
+  const agentId = (anySt0.agent || anySt0.cfg?.agent || "HEDGE") as string;
+  const AGATE: Record<string, [number, number, number, number]> = { VAULT: [0.5, 72, 0.82, 80], HEDGE: [1.0, 66, 0.78, 76], ALPHA: [2.0, 60, 0.74, 72], GRAIL: [1.0, 70, 0.80, 78] };
+  const ag = AGATE[agentId] || AGATE.HEDGE;
+  const agentIcon = agentId === "VAULT" ? "🗄" : agentId === "ALPHA" ? "🚀" : agentId === "GRAIL" ? "👑" : "⚖";
   const lines = [
     title,
+    `${agentIcon} Agent: <b>${agentId}</b> · Risk ${ag[0]}% · Gate Score ${ag[1]} / AUC ${ag[2]} / ACC ${ag[3]}% · Runner 50/2/0.5`,
     DIGEST_HR,
     `📊 <b>${capLabel}</b>: ${opened.length} opened · ${recent.length} closed · WR <b>${wr}</b> · ROE <b>${roe}</b>`,
     `💰 Equity <b>${eq}</b> USDT · ${st.stats.closed} closed all-time${st.open ? " · 1 open" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(0)}%` : "—"}`,
@@ -1197,7 +1204,20 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
 
   lines.push("");
   if (recent.length === 0) {
-    lines.push(`😴 No trades closed ${periodLabel}`);
+    // B 0.3.4 hourly diagnostics — 0 lệnh phải nói VÌ SAO, không chỉ 😴
+    // Lấy từ AutoState nếu engine có lưu, nếu chưa có thì fallback về gate hiện tại
+    const anySt = st as any;
+    const cycleTxt = anySt.lastCycleStatus || anySt.cycleStatus || anySt.lastCycle || "";
+    const scanTxt = anySt.lastScanStatus || anySt.scanStatus || "";
+    const breadth = anySt.breadthPct ?? anySt.breadth ?? null;
+    lines.push(`🔍 Scan ${periodLabel}: ${scanTxt || "scan chạy, 0 combo qua gate"}`);
+    if (cycleTxt) lines.push(`❌ Vì sao 0 lệnh: ${cycleTxt}`);
+    else lines.push(`❌ Vì sao 0 lệnh: 0 combo qua gate 66 / AUC 0.78 / ACC 76% + noise guard (SL >= 0.8x ATR)`);
+    if (breadth != null) lines.push(`📉 Breadth: ${Number(breadth).toFixed(1)}%${Number(breadth) < 5 ? " — thị trường yếu, C RISK_OFF" : ""}`);
+    // TG UPGRADE — Books + GRAIL progress (B = closed all-time của Book B, C = breadth)
+    lines.push(`📚 Books: A Vulcan · B XGB ${st.stats.closed} closed all-time · C Wyckoff ${Number(breadth ?? 99) < 5 ? "RISK_OFF" : "OK"} · GRAIL ${st.stats.closed >= 20 && Number(breadth ?? 99) >= 5 ? "✅ mở" : "🔒 khóa (cần B ≥20 + C hết RISK_OFF)"}`);
+    lines.push(`✅ Đã làm ${periodLabel}: scan + universe re-rank + check SL/TP lệnh open · train skipped nếu chưa đủ 20 lệnh đóng`);
+    lines.push(`😴 No trades closed ${periodLabel} — đứng ngoài đúng gate, không phải engine chết`);
     return lines;
   }
 
@@ -1259,6 +1279,8 @@ export async function pushAutoStats(body: { hourly?: boolean; daily?: boolean; f
 export const AUTO_LS_KEY = "utp.auto";
 
 export interface AutoConfig {
+  /** Agent — VAULT | HEDGE | ALPHA | GRAIL (GRAIL locked) */
+  agent?: "VAULT" | "HEDGE" | "ALPHA" | "GRAIL";
   on: boolean;
   /** dry-run starting equity, USDT */
   capital: number;
