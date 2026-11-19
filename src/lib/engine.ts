@@ -152,8 +152,12 @@ interface EnginePersisted {
   syncedAt: number | null;
   /** next paper-trade cycle due at (epoch ms) */
   nextCycleAt: number;
-  /** near-hit one-shot flags for the current position */
+  /** near-hit one-shot flags for the current position (legacy 1 slot - chi de doc file cu) */
   warned: { id: string; tp: boolean; sl: boolean };
+  /** per-trade: warned[tradeId] = {tp, sl} - multi-position khong ghi de nhau */
+  warnedById: Record<string, { tp: boolean; sl: boolean }>;
+  /** per-trade: dca[tradeId] = {count, stake0, prices} */
+  dcaById: Record<string, { count: number; stake0: number; prices: number[] }>;
   /** DCA bookkeeping for the current position — tranche prices give the exact
    *  notional-weighted average entry; survives restarts via engine.json */
   dca: { id: string; count: number; stake0: number; prices: number[] };
@@ -197,6 +201,24 @@ interface EngineGlobal {
 
 const g = globalThis as EngineGlobal;
 
+/** per-trade warned: lay/tape entry theo tradeId - khong bao gio ghi de lenh khac */
+function warnedOf(id: string): { tp: boolean; sl: boolean } {
+  const p = g.__elliottEngine!.p;
+  if (!p.warnedById) p.warnedById = {};
+  return (p.warnedById[id] ??= { tp: false, sl: false });
+}
+/** per-trade DCA: lay/tape entry theo tradeId */
+function dcaOf(id: string, stake0 = 0, entryPrice = 0): { count: number; stake0: number; prices: number[] } {
+  const p = g.__elliottEngine!.p;
+  if (!p.dcaById) p.dcaById = {};
+  return (p.dcaById[id] ??= { count: 0, stake0, prices: entryPrice > 0 ? [entryPrice] : [] });
+}
+/** lenh da dong -> xoa entry per-trade de map khong ro */
+function dropTradeState(id: string): void {
+  const p = g.__elliottEngine!.p;
+  if (p.warnedById) delete p.warnedById[id];
+  if (p.dcaById) delete p.dcaById[id];
+}
 function defaults(): { p: EnginePersisted; v: EngineVolatile } {
   return {
     p: {
@@ -207,7 +229,9 @@ function defaults(): { p: EnginePersisted; v: EngineVolatile } {
       syncedAt: null,
       nextCycleAt: 0,
       warned: { id: "", tp: false, sl: false },
+      warnedById: {},
       dca: { id: "", count: 0, stake0: 0, prices: [] },
+      dcaById: {},
       trail: { id: "", peak: 0, act: 0, dist: 0, atrPct: 0, lev: 0, src: "cfg", auto: false },
       llmLast: null,
       slPending: null,
@@ -241,7 +265,11 @@ function loadEngine(): void {
       p0.trail.auto = p0.trail.auto === true;
     }
     if (!p0.warned) p0.warned = { id: "", tp: false, sl: false };
+    if (!p0.warnedById) p0.warnedById = {};
+    if (p0.warned?.id && !p0.warnedById[p0.warned.id]) p0.warnedById[p0.warned.id] = { tp: p0.warned.tp, sl: p0.warned.sl };
     if (!p0.dca) p0.dca = { id: "", count: 0, stake0: 0, prices: [] };
+    if (!p0.dcaById) p0.dcaById = {};
+    if (p0.dca?.id && !p0.dcaById[p0.dca.id]) p0.dcaById[p0.dca.id] = { count: p0.dca.count, stake0: p0.dca.stake0, prices: [...p0.dca.prices] };
     if (!p0.books) p0.books = { a: true, c: true };
     if (!p0.live) p0.live = { on: false, confirmedAt: null };
     if (!p0.slPending) p0.slPending = null;
@@ -277,6 +305,9 @@ function loadEngine(): void {
       if (typeof raw.syncedAt === "number") p.syncedAt = raw.syncedAt;
       if (typeof raw.nextCycleAt === "number") p.nextCycleAt = raw.nextCycleAt;
       if (raw.warned && typeof raw.warned === "object") p.warned = raw.warned;
+      if ((raw as any).warnedById && typeof (raw as any).warnedById === "object") p.warnedById = (raw as any).warnedById;
+      if (p.warned?.id && !p.warnedById[p.warned.id]) p.warnedById[p.warned.id] = { tp: p.warned.tp, sl: p.warned.sl };
+      if ((raw as any).dcaById && typeof (raw as any).dcaById === "object") p.dcaById = (raw as any).dcaById;
       if (raw.dca && typeof raw.dca === "object" && typeof raw.dca.id === "string") {
         p.dca = {
           id: raw.dca.id,
@@ -284,6 +315,7 @@ function loadEngine(): void {
           stake0: typeof raw.dca.stake0 === "number" && raw.dca.stake0 > 0 ? raw.dca.stake0 : 0,
           prices: Array.isArray(raw.dca.prices) ? raw.dca.prices.filter((x) => typeof x === "number" && x > 0) : [],
         };
+        if (!p.dcaById[p.dca.id]) p.dcaById[p.dca.id] = { count: p.dca.count, stake0: p.dca.stake0, prices: [...p.dca.prices] };
       }
       if (raw.llmLast) p.llmLast = raw.llmLast;
       // 0.3.3 — SL confirm state (sống qua restart cùng engine.json)
@@ -1718,8 +1750,7 @@ async function cycleTick(): Promise<void> {
     const trade = serialize(created);
     mirrorLiveOpen(trade.symbol, trade.side === "SHORT" ? "SHORT" : "LONG", trade.id, tradeLev, stakeUsed);
     v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice}${stakeUsed < c.riskPct ? ` · stake ${stakeUsed}%` : ""}`;
-    p.warned = { id: trade.id, tp: false, sl: false };
-    p.dca = { id: trade.id, count: 0, stake0: stakeUsed, prices: [trade.entryPrice] };
+    warnedOf(trade.id); dcaOf(trade.id, stakeUsed, trade.entryPrice);
     persistEngine();
     if (tgReady()) {
       // note kẹp stake (envelope + tier) nối đuôi note SL/TP — 1 dòng, mọi nguồn thấy
@@ -1831,7 +1862,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
   }
 
   // 4) mở lệnh ngược chiều (DB race-safe như luồng thường)
-  const existing = await db.autoTrade.findFirst({ where: { status: "open" } });
+  const existing = await db.autoTrade.findFirst({ where: { status: "open", symbol: row.symbol, interval: row.interval } });
   if (existing) return true; // watcher/luồng khác vừa mở — đừng đụng vào
   const stNow = await readAutoState();
   const capitalNow = stNow.capital ?? c.capital;
@@ -1864,8 +1895,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
   const trade = serialize(created);
   mirrorLiveOpen(trade.symbol, trade.side === "SHORT" ? "SHORT" : "LONG", trade.id, p.leverage, stakeUsed);
   v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice} (lật từ ${from})${stakeUsed < c.riskPct ? ` · stake ${stakeUsed}% (trần ${stakeUsed}<${c.riskPct}%)` : ""}`;
-  p.warned = { id: trade.id, tp: false, sl: false };
-  p.dca = { id: trade.id, count: 0, stake0: stakeUsed, prices: [trade.entryPrice] };
+  warnedOf(trade.id); dcaOf(trade.id, stakeUsed, trade.entryPrice);
   persistEngine();
   if (tgReady()) {
     const capNote = stakeUsed < c.riskPct ? `🛡 stake ${c.riskPct}% → ${stakeUsed}% (trần RISK_MAX_STAKE)` : "";
@@ -1910,16 +1940,12 @@ async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "c
   const { p, v } = eng();
   const c = p.cfg;
   if (c.dcaMax <= 0) return false;
-  if (p.dca.id !== open.id) {
-    // state from an older process / manual open — rebuild from the row itself
-    p.dca = { id: open.id, count: 0, stake0: open.stakePct ?? c.riskPct, prices: [open.entryPrice] };
-    persistEngine();
-  }
-  if (p.dca.count >= c.dcaMax) return false;
+  const dcaSt = dcaOf(open.id, open.stakePct ?? c.riskPct, open.entryPrice);
+  if (dcaSt.count >= c.dcaMax) return false;
   // RISK ENVELOPE (0.2.79) — tổng stake (đã cam + bù) không vượt trần: bù
   // averaging-down khi stake đã đầy là martingale, SL phải được làm việc.
   // Đặt TRƯỚC mọi check scan/model — phép toán rẻ nhất và là hard cap.
-  const stake0Env = p.dca.stake0 || open.stakePct || c.riskPct;
+  const stake0Env = dcaSt.stake0 || open.stakePct || c.riskPct;
   if (!allowDcaAdd(open.stakePct ?? c.riskPct, stake0Env)) {
     console.info(
       `[engine] DCA ${open.symbol} ${open.interval} bỏ: tổng stake ${((open.stakePct ?? c.riskPct) + stake0Env).toFixed(2)}% vượt trần RISK_MAX_STAKE ${pval("RISK_MAX_STAKE", RISK_MAX_STAKE)}% — để SL làm việc`,
@@ -1940,9 +1966,9 @@ async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "c
     return false;
   }
 
-  const stake0 = p.dca.stake0 || open.stakePct || c.riskPct;
-  const tranchePrices = p.dca.prices.length > 0 ? p.dca.prices : [open.entryPrice];
-  const count = p.dca.count;
+  const stake0 = dcaSt.stake0 || open.stakePct || c.riskPct;
+  const tranchePrices = dcaSt.prices.length > 0 ? dcaSt.prices : [open.entryPrice];
+  const count = dcaSt.count;
   // 0.2.87 — SỬA SAI SỔ: mỗi bù DCA cam cùng NOTIONAL (stake0 % vốn) chứ không
   // cùng lượng coin → bình quân giá phải là TRUNG BÌNH ĐIỀU HÒA (tổng notional
   // chia tổng lượng = n / Σ(1/pᵢ)), KHÔNG phải trung bình cộng. Cộng đơn giản
@@ -1960,8 +1986,8 @@ async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "c
       data: { entryPrice: avgEntry, stakePct: newStakePct },
     });
     const trade = serialize(updated);
-    p.dca = { id: open.id, count: count + 1, stake0, prices: [...tranchePrices, price] };
-    p.warned = { id: open.id, tp: false, sl: false }; // new levels → fresh warns
+    dcaSt.count = count + 1; dcaSt.stake0 = stake0; dcaSt.prices = [...tranchePrices, price];
+    Object.assign(warnedOf(open.id), { tp: false, sl: false }); // new levels → fresh warns
     persistEngine();
     v.lastCycleStatus = `${open.symbol} ${open.interval} DCA #${count + 1}/${c.dcaMax} @ ${price}`;
     if (tgReady()) {
@@ -2098,12 +2124,9 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
       }
     }
     // near-TP2 warn one-shot (tái dùng flag warned.tp của vị thế này)
-    if (p.warned.id !== open.id) {
-      p.warned = { id: open.id, tp: false, sl: false };
-      persistEngine();
-    }
-    if (!p.warned.tp && tp2 > 0 && move1x >= tp2 * NEAR_FRAC && move1x < tp2) {
-      p.warned.tp = true;
+    const wRun = warnedOf(open.id);
+    if (!wRun.tp && tp2 > 0 && move1x >= tp2 * NEAR_FRAC && move1x < tp2) {
+      wRun.tp = true;
       persistEngine();
       if (tgReady() && !tgMuted("near")) void tgSendMessage(msgNear(open, price, "tp"), "HTML");
     }
@@ -2122,7 +2145,7 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
     // 0.3.3 — TP1 PARTIAL → RUNNER ("chốt sớm" hết: nửa bank, nửa chạy ra RR cao
     // hơn — muốn RR lớn không cần đẩy TP xa tới mức không còn lệnh nào chạm).
     // KHÔNG arm khi đã DCA (avg đã dời, stake đã nhân — chốt toàn bộ như cũ).
-    const plan = tp1Plan(c, open.tpPct, open.leverage, p.dca.id === open.id ? p.dca.count : 0);
+    const plan = tp1Plan(c, open.tpPct, open.leverage, dcaOf(open.id).count);
     if (plan) {
       try {
         // p1Pct lưu SAU PHÍ round-trip riêng của phần banked (cùng settlement
@@ -2135,7 +2158,7 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
         console.log(
           `[engine] TP1 partial ${open.symbol} ${open.interval} — bank ${(plan.share * 100).toFixed(0)}% stake (+${p1Net.toFixed(1)}% ROE sau phí) · runner TP2 ${plan.tp2Pct.toFixed(2)}% · SL về HOÀ VÔ`,
         );
-        p.warned = { id: open.id, tp: false, sl: false };
+        Object.assign(warnedOf(open.id), { tp: false, sl: false });
         p.trail = { id: "", peak: 0, act: 0, dist: 0, atrPct: 0, lev: 0, src: "cfg", auto: false };
         p.slPending = null;
         persistEngine();
@@ -2211,13 +2234,10 @@ async function watcherTick(): Promise<void> {
     const runner = (open.p1Pct ?? null) != null;
     if (runner || ex?.pending) continue; // runner: evalExit tự lo near-TP2 · pending: SL đã thấy, chờ nhịp kế
     // near-hit warning — once per side per position (normal phase)
-    if (p.warned.id !== open.id) {
-      p.warned = { id: open.id, tp: false, sl: false };
-      persistEngine();
-    }
+    const wNear = warnedOf(open.id);
     const near = nearHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
-    if (near && !p.warned[near]) {
-      p.warned[near] = true;
+    if (near && !wNear[near]) {
+      wNear[near] = true;
       persistEngine();
       if (tgReady() && !tgMuted("near")) void tgSendMessage(msgNear(open, price, near), "HTML");
     }
