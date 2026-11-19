@@ -1398,7 +1398,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
               {cfg.trailOn && (
                 <>
                   <span className="text-zinc-500" title={t(lang, "auto.trail.tip")}>
-                    🪢 Trail
+                    🚉 Trail
                   </span>
                   {(() => {
                     // peak + bộ thông số ĐÃ KHOÁ từ engine snapshot (id phải khớp

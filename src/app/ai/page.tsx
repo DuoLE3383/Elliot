@@ -1093,7 +1093,7 @@ export default function AiPage() {
             </div>
           </Stage>
 
-          {/* ── Trạm 7 · Tự tiến hoá ── */}
+          {/* ── Station 7 · Self-Evolution ── */}
           <Stage
             id="ai-evo"
             tone="indigo"

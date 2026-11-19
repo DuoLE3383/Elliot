@@ -1359,7 +1359,8 @@ function applyAgentPreset(cfg: any): any {
   const id = (cfg?.agent || "HEDGE") as keyof typeof AGENT_PRESETS;
   if (id === "GRAIL") return cfg; // GRAIL locked — chưa map, giữ HEDGE
   const pr = AGENT_PRESETS[id] || AGENT_PRESETS.HEDGE;
-  return { ...cfg, ...pr };
+  // Giữ runTf user đã bật/tắt — preset Agent không được ghi đè TF (nếu không Scan mãi 3 TF)
+  return { ...cfg, ...pr, runTf: cfg?.runTf?.length ? cfg.runTf : pr.runTf };
 }
 
 function dynLeverage(score: number, minScore: number, atrPct: number): number {
@@ -1617,7 +1618,7 @@ async function cycleTick(): Promise<void> {
     }
     if (finalSl !== entrySl || finalTp !== entryTp) {
       console.log(
-        `[engine] SL/TP lev-adjust @ ×${tradeLev}: ${entrySl}/${entryTp}% → ${finalSl}/${finalTp}% (scale ${levScale.toFixed(2)} · liq-cap ${((pval("TP_LIQ_SAFE", TP_LIQ_SAFE) / 100) * (100 / p.leverage)).toFixed(2)}%)`,
+        `[engine] SL/TP lev-adjust @ ×${tradeLev}: ${entrySl}/${entryTp}% → ${finalSl}/${finalTp}% (scale ${levScale.toFixed(2)} · liq-cap ${((pval("TP_LIQ_SAFE", TP_LIQ_SAFE) / 100) * (100 / tradeLev)).toFixed(2)}%)`,
       );
     }
 
@@ -1705,7 +1706,7 @@ async function cycleTick(): Promise<void> {
       },
     });
     const trade = serialize(created);
-    mirrorLiveOpen(trade.symbol, trade.side === "SHORT" ? "SHORT" : "LONG", trade.id, p.leverage, stakeUsed);
+    mirrorLiveOpen(trade.symbol, trade.side === "SHORT" ? "SHORT" : "LONG", trade.id, tradeLev, stakeUsed);
     v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice}${stakeUsed < c.riskPct ? ` · stake ${stakeUsed}%` : ""}`;
     p.warned = { id: trade.id, tp: false, sl: false };
     p.dca = { id: trade.id, count: 0, stake0: stakeUsed, prices: [trade.entryPrice] };

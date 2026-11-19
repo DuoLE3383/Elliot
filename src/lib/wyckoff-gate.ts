@@ -246,7 +246,7 @@ export async function breadthPct(symbols: string[]): Promise<{ pct: number; n: n
 // ── verdict chính — gọi từ engine trước khi mở lệnh LONG ─────────────────────
 
 /** Cổng LONG sổ B. Data lỗi → fail-open (ok=true, failOpen=true, lý do ghi rõ). */
-export async function wyckoffLongGate(symbol: string, universe: string[]): Promise<WyckoffVerdict> {
+export async function wyckoffLongGate(symbol: string, universe: string[], interval = "1d"): Promise<WyckoffVerdict> {
   const sym = symbol.toUpperCase();
   const base: Omit<WyckoffVerdict, "ok" | "reason" | "trigger" | "range" | "breadth" | "regime" | "upthrust" | "suggestedStopPct" | "failOpen"> = { side: "LONG", symbol: sym };
   if (!pval("WYCKOFF_GATE", WYCKOFF_GATE)) {
@@ -254,11 +254,15 @@ export async function wyckoffLongGate(symbol: string, universe: string[]): Promi
   }
   try {
     const now = Date.now();
-    const raw = await fetchKlinesDirect(sym, "1d", Math.max(pval("WY_RANGE_LOOKBACK", WY_RANGE_LOOKBACK) + 60, 150));
+    const tfMs: Record<string, number> = { "5m": 300_000, "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": DAY_MS };
+    const intervalMs = tfMs[interval] ?? DAY_MS;
+    // Range: 90 nến TF đang chọn (đủ dài để thấy tích luỹ) — nến ngày vẫn giữ cho breadth/regime
+    const lookback = interval === "1d" ? Math.max(pval("WY_RANGE_LOOKBACK", WY_RANGE_LOOKBACK) + 60, 150) : Math.max(pval("WY_RANGE_LOOKBACK", WY_RANGE_LOOKBACK) * 2 + 60, 240);
+    const raw = await fetchKlinesDirect(sym, interval, lookback);
     // chỉ nến ngày ĐÃ ĐÓNG — nến đang chạy không đủ tư cách làm trigger
-    const d = raw.filter((k) => k.t + DAY_MS <= now);
+    const d = raw.filter((k) => k.t + intervalMs <= now);
     if (d.length < 120) {
-      return { ...base, ok: true, reason: `fail-open: chỉ ${d.length} nến ngày đã đóng`, trigger: "none", range: null, breadth: null, regime: "unknown", upthrust: false, suggestedStopPct: null, failOpen: true };
+      return { ...base, ok: true, reason: `fail-open: chỉ ${d.length} nến ${interval} đã đóng`, trigger: "none", range: null, breadth: null, regime: "unknown", upthrust: false, suggestedStopPct: null, failOpen: true };
     }
     const tr = identifyTradingRange(d, pval("WY_RANGE_LOOKBACK", WY_RANGE_LOOKBACK));
     const { trigger, upthrust } = tr ? detectTriggers(d, tr) : { trigger: "none" as const, upthrust: false };
@@ -272,13 +276,13 @@ export async function wyckoffLongGate(symbol: string, universe: string[]): Promi
       tr && lastClose > 0 ? Math.max(((lastClose - (tr.support - 0.5 * (tr.atrPct / 100) * lastClose)) / lastClose) * 100, 0.1) : null;
 
     if (tr && upthrust && pval("WY_UPTHRUST_VETO", WY_UPTHRUST_VETO)) {
-      return { ...base, ok: false, reason: `Upthrust — nến ngày thủng đỉnh ${fmt(tr.resistance)} rồi đóng lại dưới đỉnh (failed breakout)`, trigger, range: tr, breadth, regime, upthrust: true, suggestedStopPct, failOpen: false };
+      return { ...base, ok: false, reason: `Upthrust — nến ${interval} thủng đỉnh ${fmt(tr.resistance)} rồi đóng lại dưới đỉnh (failed breakout)`, trigger, range: tr, breadth, regime, upthrust: true, suggestedStopPct, failOpen: false };
     }
     if (!tr) {
-      return { ...base, ok: false, reason: `không có trading range hợp lệ (width 4–45%, drift ≤18%, test ≥2 mặt mỗi biên trong ${pval("WY_RANGE_LOOKBACK", WY_RANGE_LOOKBACK)} nến ngày)`, trigger, range: null, breadth, regime, upthrust, suggestedStopPct: null, failOpen: false };
+      return { ...base, ok: false, reason: `không có trading range hợp lệ (width 4–45%, drift ≤18%, test ≥2 mặt mỗi biên trong ${pval("WY_RANGE_LOOKBACK", WY_RANGE_LOOKBACK)} nến ${interval})`, trigger, range: null, breadth, regime, upthrust, suggestedStopPct: null, failOpen: false };
     }
     if (trigger === "none") {
-      return { ...base, ok: false, reason: "range hợp lệ nhưng chưa có trigger Spring/SOS ở nến ngày cuối", trigger, range: tr, breadth, regime, upthrust, suggestedStopPct, failOpen: false };
+      return { ...base, ok: false, reason: `range hợp lệ nhưng chưa có trigger Spring/SOS ở nến ${interval} cuối`, trigger, range: tr, breadth, regime, upthrust, suggestedStopPct, failOpen: false };
     }
     if (regime === "RISK_OFF") {
       return { ...base, ok: false, reason: `trigger ${trigger} nhưng regime RISK_OFF (breadth ${breadth}% < ${breadthMin}% trên MA20) — verify: SOS RISK_OFF −1.77%/28.6%`, trigger, range: tr, breadth, regime, upthrust, suggestedStopPct, failOpen: false };

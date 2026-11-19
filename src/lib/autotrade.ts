@@ -436,9 +436,28 @@ export function bestTradeableAvoid(
   // 0.3.1 — phân loại cổng trượt ĐẦU TIÊN của từng dòng (đúng thứ tự điều kiện
   // dưới) — tổng blocked = số dòng bị loại, đối chiếu 1-1 với bảng scan UI.
   const blocked: GateBlocked = { floor: 0, regress: 0, whale: 0, band: 0, shortMin: 0, ev: 0 };
+  // HOT/WARM Combo (Fast Evolve) — tiến hóa sau mỗi lệnh, không chờ vòng evolveRound
+  // HOT: closed>=3 + WR>=60% + net>0 + không thua 2 liên tiếp -> gate riêng -5 / -0.02 / -3
+  // WARM: closed>=1 + WR>=50% -> gate riêng -2 score, không giảm AUC/ACC
+  // Vẫn phải qua regress / whale / noise / SHORT / EV như mọi row khác — HOT chỉ nới sàn, không miễn kiểm
+  const hotMap = new Map(comboStats(trades).map((c) => [`${c.symbol}|${c.interval}`, c]));
+  const last2Lost = (sym: string, itv: string): boolean => {
+    const closed = trades.filter((t) => t.symbol === sym && t.interval === itv && t.status === "closed");
+    return closed.length >= 2 && (closed[0].pnlPct ?? 0) <= 0 && (closed[1].pnlPct ?? 0) <= 0;
+  };
+  const effGate = (r: ScanRow): { auc: number; acc: number; score: number; tag: string } => {
+    const c = hotMap.get(`${r.symbol}|${r.interval}`);
+    if (!c) return { auc: minAuc, acc: minAcc, score: minScore, tag: "" };
+    if (c.closed >= 3 && c.winRate >= 60 && c.netPnlPct > 0 && !last2Lost(r.symbol, r.interval))
+      return { auc: minAuc - 0.02, acc: minAcc - 3, score: minScore - 5, tag: "HOT" };
+    if (c.closed >= 1 && c.winRate >= 50)
+      return { auc: minAuc, acc: minAcc, score: minScore - 2, tag: "WARM" };
+    return { auc: minAuc, acc: minAcc, score: minScore, tag: "" };
+  };
   const cands = rankRows(
     rows.filter((r) => {
-      if (!isTradeable(r, minAuc, minAcc, minScore)) {
+      const eff = effGate(r);
+      if (!isTradeable(r, eff.auc, eff.acc, eff.score)) {
         blocked.floor++;
         return false;
       }
@@ -465,6 +484,9 @@ export function bestTradeableAvoid(
       return true;
     }),
   );
+  const hotCount = cands.filter((r) => effGate(r).tag === "HOT").length;
+  const warmCount = cands.filter((r) => effGate(r).tag === "WARM").length;
+  if (hotCount > 0 || warmCount > 0) console.log(`[engine] HOT/WARM — ${hotCount} HOT / ${warmCount} WARM combo qua gate nới (HOT -5/-0.02/-3, WARM -2)`);
   const regressedCount = blocked.regress; // cùng ngữ nghĩa: đạt sàn nhưng tụt vs champion
   const free = cands.find((r) => slCooldownLeft(trades, r.symbol, r.interval, cooldownMin) === 0) ?? null;
   return { best: free, allInCooldown: free == null && cands.length > 0, cands, regressedCount, blocked };
@@ -1197,7 +1219,7 @@ const sideTag = (side: string): string => (side === "LONG" ? "LONG 🟢" : side 
 /** Số dòng tối đa của bảng lệnh — giữ digest dưới trần 4096 ký tự Telegram */
 const DIGEST_LIST_MAX = 40;
 /** exitKind → icon kết quả đứng ĐẦU dòng bảng (mỗi dòng đúng 1 icon → cột thẳng) */
-const DIGEST_KIND: Record<string, string> = { tp: "✅", sl: "❌", flip: "🔄", manual: "✋", trail: "🪢" };
+const DIGEST_KIND: Record<string, string> = { tp: "✅", sl: "❌", flip: "🔄", manual: "✋", trail: "🚉" };
 /** exitKind → mã 2 ký tự trong bảng monospace */
 const DIGEST_KIND_CODE: Record<string, string> = { tp: "TP", sl: "SL", flip: "FL", manual: "MN", trail: "TL" };
 /** bỏ đuôi USDT cho gọn bảng (DOGEUSDT → DOGE) */
@@ -1227,7 +1249,7 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
   // TG UPGRADE — Agent header: lấy agent từ state nếu có, fallback HEDGE
   const anySt0 = st as any;
   const agentId = (anySt0.agent || anySt0.cfg?.agent || "HEDGE") as string;
-  const AGATE: Record<string, [number, number, number, number]> = { VAULT: [0.5, 72, 0.82, 80], HEDGE: [1.0, 66, 0.78, 76], ALPHA: [2.0, 60, 0.74, 72], GRAIL: [1.0, 70, 0.80, 78] };
+  const AGATE: Record<string, [number, number, number, number]> = { VAULT: [0.5, 72, 0.82, 80], HEDGE: [1.0, 55, 0.72, 68], ALPHA: [2.0, 60, 0.74, 72], GRAIL: [1.0, 70, 0.80, 78] };
   const ag = AGATE[agentId] || AGATE.HEDGE;
   const agentIcon = agentId === "VAULT" ? "🗄" : agentId === "ALPHA" ? "🚀" : agentId === "GRAIL" ? "👑" : "⚖";
   const lines = [
@@ -1252,7 +1274,7 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
     const breadth = anySt.breadthPct ?? anySt.breadth ?? null;
     lines.push(`🔍 Scan ${periodLabel}: ${scanTxt || "scan chạy, 0 combo qua gate"}`);
     if (cycleTxt) lines.push(`❌ Vì sao 0 lệnh: ${cycleTxt}`);
-    else lines.push(`❌ Vì sao 0 lệnh: 0 combo qua gate 66 / AUC 0.78 / ACC 76% + noise guard (SL >= 0.8x ATR)`);
+    else lines.push(`❌ Vì sao 0 lệnh: 0 combo qua gate ${ag[1]} / AUC ${ag[2]} / ACC ${ag[3]}% + noise guard (SL >= 0.8x ATR)`);
     if (breadth != null) lines.push(`📉 Breadth: ${Number(breadth).toFixed(1)}%${Number(breadth) < 5 ? " — thị trường yếu, C RISK_OFF" : ""}`);
     // TG UPGRADE — Books + GRAIL progress (B = closed all-time của Book B, C = breadth)
     lines.push(`📚 Books: A Vulcan · B XGB ${st.stats.closed} closed all-time · C Wyckoff ${Number(breadth ?? 99) < 5 ? "RISK_OFF" : "OK"} · GRAIL ${st.stats.closed >= 20 && Number(breadth ?? 99) >= 5 ? "✅ mở" : "🔒 khóa (cần B ≥20 + C hết RISK_OFF)"}`);

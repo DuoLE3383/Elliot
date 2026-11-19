@@ -398,7 +398,7 @@ export async function evolveRound(bridge: EvolveBridge): Promise<EvolveOutcome> 
         `vượt mốc: exp ${r3(best.metrics!.expectancy)} vs ${r3(baseMetrics.expectancy)}%/lệnh · DD ${r2(best.metrics!.maxDd)} vs ${r2(baseMetrics.maxDd)}% · ${best.hypothesis}`;
       await logRow(comboTag(combo), "promote", best.name, detail, before, best.config, { base: baseMetrics, best: best.metrics });
       bridge.tg(
-        `🧬 <b>TỰ TIẾN HOÁ</b> — Agent HEDGE · Book B (XGB) · áp cho engine: <b>${best.name}</b>\n` +
+        `🧬 <b>SELF-EVOLUTION</b> — Agent HEDGE · Book B (XGB) · áp cho engine: <b>${best.name}</b>\n` +
           `<code>${cfgShort(best.config)}</code> · sân thử <code>${comboTag(combo)}</code>\n` +
           `Backtest: ${mLine(best.metrics)}\nMốc cũ: ${mLine(baseMetrics)}\n` +
           `⏳ Theo dõi ${WATCH_N()} lệnh giấy tới — nếu exp thực < ${r3(baseMetrics.expectancy)}%/lệnh (mốc − 0.1) sẽ TỰ HOÀN TÁC về cfg cũ.\n` +
@@ -449,7 +449,7 @@ export async function evolveWatch(bridge: EvolveBridge): Promise<EvolveOutcome> 
       const detail = `kết thúc theo dõi: ${w.n} lệnh thực exp ${r3(w.expectancy)}%/lệnh — tệ hơn mốc backtest ${r3(baseExp)} → hoàn tác về <code>${active.cfgBefore ? cfgShort(active.cfgBefore) : "—"}</code>`;
       await logRow(active.combo, "revert", active.name, detail, active.cfgAfter, active.cfgBefore, { watch: w });
       bridge.tg(
-        `↩️ <b>TỰ TIẾN HOÁ — HOÀN TÁC</b> ${active.combo}\n` +
+        `↩️ <b>SELF-EVOLUTION — REVERT</b> ${active.combo}\n` +
           `«${active.name}» không qua theo dõi: ${w.n} lệnh exp ${r3(w.expectancy)}%/lệnh vs mốc ${r3(baseExp)}%.\n` +
           `Cfg đã về: <code>${active.cfgBefore ? cfgShort(active.cfgBefore) : "—"}</code>`,
       );
