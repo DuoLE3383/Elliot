@@ -1351,7 +1351,7 @@ async function llmGate(
 // User chỉ chọn Agent, không chỉnh Risk/Leverage/Gate/TF tay nữa.
 const AGENT_PRESETS = {
   VAULT:  { riskPct: 0.5, minAuc: 0.82, minAcc: 80, minScore: 72, runTf: ["15m", "1h"], cooldownMin: 120, runnerSharePct: 30, runnerTpMult: 2, runnerTrailLock: 0.7, slConfirmTicks: 2 },
-  HEDGE:  { riskPct: 1.0, minAuc: 0.78, minAcc: 76, minScore: 66, runTf: ["5m", "15m", "1h"], cooldownMin: 60,  runnerSharePct: 50, runnerTpMult: 2, runnerTrailLock: 0.5, slConfirmTicks: 2 },
+  HEDGE:  { riskPct: 1.0, minAuc: 0.72, minAcc: 68, minScore: 55, runTf: ["5m", "15m", "1h"], cooldownMin: 60,  runnerSharePct: 50, runnerTpMult: 2, runnerTrailLock: 0.5, slConfirmTicks: 2 },
   ALPHA:  { riskPct: 2.0, minAuc: 0.74, minAcc: 72, minScore: 60, runTf: ["5m", "15m", "1h", "4h"], cooldownMin: 30, runnerSharePct: 70, runnerTpMult: 2.5, runnerTrailLock: 0.3, slConfirmTicks: 2 },
   GRAIL:  { riskPct: 1.0, minAuc: 0.80, minAcc: 78, minScore: 70, runTf: ["15m", "1h"], cooldownMin: 60,  runnerSharePct: 50, runnerTpMult: 2, runnerTrailLock: 0.5, slConfirmTicks: 2 },
 } as const;
@@ -1487,6 +1487,27 @@ async function cycleTick(): Promise<void> {
     let guardBlocked = 0;
     let memBlocked = 0;
     let memWhy = "";
+    // ── WYCKOFF PRE-FILTER — quét trước, không chặn sau ──
+    // C Wyckoff là cổng vào: LONG nào không có Spring/SOS ở nến ngày thì loại
+    // ngay khỏi cands, khỏi tốn công tính SL/TP dyn + noise + LLM.
+    // SHORT không đụng (sổ B SHORT đang net +45%). A Vulcan chỉ fallback khi
+    // cands rỗng sau pre-filter — không chạy song song với B.
+    // TP/SL/Trail/Flip/UT là Execution chung — A/B/C đều dùng chung.
+    {
+      const wyUniverse = [...new Set([...p.pairs, ...(v.scan?.rows ?? []).map((r) => r.symbol)])];
+      const kept: typeof cands = [];
+      let wyBlocked = 0;
+      for (const cand of cands) {
+        if (cand.bias !== "LONG") { kept.push(cand); continue; }
+        try {
+          const wy = await wyckoffLongGate(cand.symbol, wyUniverse, cand.interval);
+          if (!wy.ok) { wyBlocked++; continue; }
+          kept.push(cand);
+        } catch { kept.push(cand); } // fail-open — Wyckoff lỗi thì không giết engine
+      }
+      if (wyBlocked > 0) console.log(`[engine] Wyckoff pre-filter — loại ${wyBlocked}/${cands.length} LONG no Spring/SOS, còn ${kept.length} cands`);
+      cands.splice(0, cands.length, ...kept);
+    }
     for (const cand of cands) {
       const px = tickers[cand.symbol]?.price ?? 0;
       if (px <= 0) continue;
@@ -1574,11 +1595,21 @@ async function cycleTick(): Promise<void> {
     console.log(`[engine] B 0.3.4 dynLev @ ${best.symbol} ${best.interval}: score ${best.score.toFixed(1)} · ATR ${(live?.atrPct ?? entrySl).toFixed(2)}% -> x${tradeLev}`);
     const levScale = c.tpMode === "manual" ? 1 : levNormScale(tradeLev);
     const adj = levAdjSlTp(entrySl, entryTp, levScale, tradeLev);
-    const finalSl = adj.slPct;
-    const finalTp = adj.tpPct;
+    let finalSl = adj.slPct;
+    let finalTp = adj.tpPct;
     // B 0.3.4 — SL-noise guard: SL phải >= 0.8x ATR, nếu không skip
     // (SL nằm trong noise = bị quét như lệnh FLOKI cũ)
     const atrNow = live?.atrPct ?? entrySl;
+    // 5m SL floor: SL không được dưới max(1.5x ATR, 0.80%) — chống quét trên TF nhỏ
+    // dù lev-norm / ref có bị đổi lại. TP kéo theo cùng hệ số để giữ R:R.
+    if (best.interval === "5m") {
+      const slFloor = Math.max(atrNow * 1.5, 0.8);
+      if (finalSl < slFloor) {
+        const k = slFloor / finalSl;
+        finalSl = slFloor;
+        finalTp = finalTp * k;
+      }
+    }
     if (finalSl < atrNow * 0.8) {
       console.log(`[engine] B 0.3.4 noise_block ${best.symbol} ${best.interval} — SL ${finalSl.toFixed(2)}% < 0.8x ATR ${atrNow.toFixed(2)}% -> skip`);
       v.lastCycleStatus = `noise_block ${best.symbol} — SL < 0.8x ATR`;
@@ -1598,7 +1629,7 @@ async function cycleTick(): Promise<void> {
     // Data lỗi → fail-open (gate không được giết engine), lý do ghi rõ log.
     if (best.bias === "LONG") {
       const wyUniverse = [...new Set([...p.pairs, ...(v.scan?.rows ?? []).map((r) => r.symbol)])];
-      const wy = await wyckoffLongGate(best.symbol, wyUniverse);
+      const wy = await wyckoffLongGate(best.symbol, wyUniverse, best.interval);
       if (!wy.ok) {
         console.log(`[engine] Wyckoff gate CHẶN LONG ${best.symbol} ${best.interval} — ${wy.reason}`);
         v.lastCycleStatus = `LONG ${best.symbol} bị chặn cổng Wyckoff — ${wy.reason}`;
@@ -1688,7 +1719,7 @@ async function cycleTick(): Promise<void> {
         : "";
       const baseNote =
         c.tpMode === "dyn" && live
-          ? `📏 SL/TP động = ATR ${live.atrPct.toFixed(2)}% × ${coef} · time ×${live.heatMul.toFixed(2)} · vol ×${live.volMul.toFixed(2)}${levScale < 1 ? ` · lev-norm ×${levScale.toFixed(2)} @ ×${p.leverage}` : ""} → SL ${finalSl}% · TP ${finalTp}% — pair/time/volume đo tại entry`
+          ? `📏 SL/TP động = ATR ${live.atrPct.toFixed(2)}% × ${coef} · time ×${live.heatMul.toFixed(2)} · vol ×${live.volMul.toFixed(2)}${levScale < 1 ? ` · lev-norm ×${levScale.toFixed(2)} @ ×${tradeLev}` : ""} → SL ${finalSl}% · TP ${finalTp}% — pair/time/volume đo tại entry`
           : finalSl !== entrySl || finalTp !== entryTp
             ? `📏 SL/TP liq-capped @ ×${p.leverage}: ${entrySl}/${entryTp}% → ${finalSl}/${finalTp}% (max ${pval("TP_LIQ_SAFE", TP_LIQ_SAFE)}% of the liquidation distance)`
             : "";
@@ -1734,7 +1765,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
   // trái với llmGate chạy sau đóng — cổng cấu trúc phải rẻ và chạy trước).
   if (to === "LONG") {
     const wyUniverse = [...new Set([...p.pairs, ...(v.scan?.rows ?? []).map((r) => r.symbol)])];
-    const wy = await wyckoffLongGate(row.symbol, wyUniverse);
+    const wy = await wyckoffLongGate(row.symbol, wyUniverse, row.interval);
     if (!wy.ok) {
       console.log(`[engine] Wyckoff gate chặn flip→LONG ${row.symbol} — ${wy.reason} · giữ lệnh ${from} hiện tại`);
       v.lastCycleStatus = `flip→LONG bị chặn cổng Wyckoff — giữ lệnh cũ`;

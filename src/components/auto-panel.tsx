@@ -45,7 +45,7 @@ const AGENTS = [
   { id: "VAULT", icon: "🗄", desc: "Safe · giu von" },
   { id: "HEDGE", icon: "⚖", desc: "Balanced" },
   { id: "ALPHA", icon: "🚀", desc: "Aggressive" },
-  { id: "GRAIL", icon: "👑", desc: "Elliott" },
+  { id: "GRAIL", icon: "👑", desc: "Elliott 🏵" },
 ] as const;
 
 // AGENT UI PRESETS — bấm Agent là panel đổi số theo, không chỉ đổi nút
@@ -1299,7 +1299,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
             onClick={() => void doScan()}
           >
             <ScanLine className="mr-1.5 h-3.5 w-3.5" />
-            {t(lang, "auto.scan")} ({pairs.length}×{INTERVALS.length})
+            {t(lang, "auto.scan")} ({scanning?.total ?? pairs.length * INTERVALS.length})
           </Button>
           <Button size="sm" variant="outline" className="h-8 border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800" disabled={tgState === "sending"} onClick={() => void checkTg()}>
             <Send className="mr-1.5 h-3 w-3" />
@@ -1523,7 +1523,11 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                 <span className="text-right">{t(lang, "auto.col.acc")}</span>
                 <span className="text-right">{t(lang, "auto.col.score")}</span>
               </div>
-              {rows.slice(0, TOP_N).map((r, i) => {
+              {rows.filter((r) => {
+                if (Object.keys(confluenceMap).length === 0) return true;
+                const v = confluenceMap[r.symbol] ?? "";
+                return v.startsWith("STRONG") || v.startsWith("LEAN");
+              }).slice(0, TOP_N).map((r, i) => {
                 const tradeable = r.bias !== "NEUTRAL" && r.auc >= ef.minAuc && r.acc >= ef.minAcc && (ef.minScore <= 0 || r.score >= ef.minScore);
                 const why = blockedWhy(r);
                 return (
