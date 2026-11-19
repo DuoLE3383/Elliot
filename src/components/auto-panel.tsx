@@ -517,8 +517,8 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
     }
   };
 
-  const closeNow = async () => {
-    const open = auto?.open;
+  const closeNow = async (target?: AutoTradeRow | null) => {
+    const open = target ?? auto?.open;
     if (!open || closingRef.current) return;
     const price = tickers[open.symbol]?.price ?? open.entryPrice;
     // delegate to closeOpen — it refreshes stats BEFORE building the Telegram
@@ -569,7 +569,8 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   };
 
   const capitalNow = auto?.capital ?? cfg.capital;
-  const open = auto?.open ?? null;
+  const opens = auto?.opens ?? (auto?.open ? [auto.open] : []);
+  const open = opens[0] ?? null;
   const best = rows.length > 0 ? rows[0] : null;
   // 0.3.2 — sàn HIỆU LỰC engine đang lọc (DQF tự học hoặc passthrough cfg panel):
   // bảng scan + tooltip funnel tô theo ef; các ô nhập ở panel vẫn là cfg (kênh
@@ -1371,9 +1372,9 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
           <CardTitle className="flex items-center gap-1.5 text-base font-semibold text-zinc-100">
             POSITIONS OPENING
           </CardTitle>
-          {open && (
-            <Badge variant="outline" className={`border-zinc-700 font-mono ${sideClass(open.side)}`}>
-              {open.side}
+          {opens.length > 0 && (
+            <Badge variant="outline" className="border-zinc-700 font-mono text-zinc-200">
+              {opens.length} OPEN
             </Badge>
           )}
         </div>
@@ -1381,7 +1382,9 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
       <CardContent className="space-y-3 px-3 pt-0">
         {/* open position */}
         {open ? (
-          <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-2.5">
+          <>
+            {opens.map((open) => (
+          <div key={open.id} className="rounded-lg border border-zinc-700 bg-zinc-900 p-2.5">
             
             <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
               <span className="text-zinc-500">{t(lang, "auto.col.pair")}</span>
@@ -1490,11 +1493,13 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                 );
               })()}
             </div>
-            <Button size="sm" variant="outline" className="mt-2 h-7 w-full border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800" onClick={() => void closeNow()}>
+            <Button size="sm" variant="outline" className="mt-2 h-7 w-full border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800" onClick={() => void closeNow(open)}>
               <Square className="mr-1.5 h-3 w-3" />
               {t(lang, "auto.pos.close")}
             </Button>
           </div>
+            ))}
+          </>
         ) : (
           rows.length > 0 && <p className="text-[11px] text-zinc-600">{t(lang, "auto.pos.none")}</p>
         )}

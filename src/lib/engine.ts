@@ -1388,8 +1388,8 @@ async function cycleTick(): Promise<void> {
     }
 
     // 1) manage the open position against the live price
-    if (st.open) {
-      const open = st.open;
+    const opens = st.opens ?? (st.open ? [st.open] : []);
+    for (const open of opens) {
       const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
       const price = tickers[open.symbol]?.price ?? 0;
       if (price > 0) {
@@ -1400,7 +1400,7 @@ async function cycleTick(): Promise<void> {
           const closed = ex.closed;
           v.lastCycleStatus = `${closed.symbol} ${closed.interval} closed ${closed.exitKind ?? ""}`;
           void notifyClosed(closed);
-          return; // one position at a time — the next cycle re-evaluates entry
+          continue; // da dong 1 lenh - sang lenh ke — the next cycle re-evaluates entry
         }
         if (ex?.tp1 || ex?.dca || ex?.pending) {
           v.lastCycleStatus = ex.tp1
@@ -1408,7 +1408,7 @@ async function cycleTick(): Promise<void> {
             : ex.dca
               ? `${open.symbol} ${open.interval} DCA — giữ vị thế, SL/TP re-anchor`
               : `${open.symbol} ${open.interval} SL chờ confirm (wick nông)`;
-          return; // trạng thái mới đã ghi — chu kỳ sau quản lý tiếp
+          continue; // trạng thái mới đã ghi — chu kỳ sau quản lý tiếp
         }
         const roe = roeOf(open.side, open.entryPrice, price, open.leverage);
         const base = `${open.symbol} ${open.interval} ${open.side} · ROE ${roe >= 0 ? "+" : ""}${roe.toFixed(2)}%`;
@@ -1418,7 +1418,7 @@ async function cycleTick(): Promise<void> {
         // (flipDecision quyết định "đủ tin cậy"; tryFlip thực hiện đóng/mở).
         if (!c.autoFlip) {
           v.lastCycleStatus = base;
-          return;
+          continue;
         }
         const scan = v.scan && Date.now() - v.scan.at <= SCAN_TTL ? v.scan : null;
         const row = scan?.rows.find((r) => r.symbol === open.symbol && r.interval === open.interval);
@@ -1427,21 +1427,20 @@ async function cycleTick(): Promise<void> {
         const flipCd = flipCooldownLeft(st.trades, open.symbol, open.interval, c.flipCooldownMin);
         if (flipCd > 0) {
           v.lastCycleStatus = `${base} · flip chờ ${flipCd}ph (cooldown)`;
-          return;
+          continue;
         }
         const d = flipDecision(open, row, { ...c, minScore: fl.minScore, minAuc: fl.minAuc, minAcc: fl.minAcc });
         if (d.ok && row) {
           // tryFlip tự ghi status mọi nhánh (lật xong / LLM chặn / lỗi) —
           // trả xong là chu kỳ này xong, lệnh mới sống độc lập từ chu kỳ sau
           await tryFlip(open, row, price);
-          return;
+          continue;
         }
         // có tín hiệu ngược chiều nhưng chưa đạt ngưỡng → hiện rõ LÝ DO chờ,
         // không âm thầm; model đồng thuận/NEUTRAL → giữ status ROE như cũ
         v.lastCycleStatus =
           row && row.bias !== "NEUTRAL" && row.bias !== open.side ? `${base} · flip chờ: ${d.why}` : base;
       }
-      return;
     }
 
     // 2) no open position → rank the scan and enter the best tradeable row
@@ -1509,7 +1508,9 @@ async function cycleTick(): Promise<void> {
       if (wyBlocked > 0) console.log(`[engine] Wyckoff pre-filter — loại ${wyBlocked}/${cands.length} LONG no Spring/SOS, còn ${kept.length} cands`);
       cands.splice(0, cands.length, ...kept);
     }
+    const openKeys = new Set((st.opens ?? (st.open ? [st.open] : [])).map((o) => `${o.symbol}|${o.interval}`));
     for (const cand of cands) {
+      if (openKeys.has(`${cand.symbol}|${cand.interval}`)) continue; // multi: combo nay da co lenh
       const px = tickers[cand.symbol]?.price ?? 0;
       if (px <= 0) continue;
       if (slCooldownLeft(st.trades, cand.symbol, cand.interval, c.cooldownMin) !== 0) continue;
@@ -1661,10 +1662,12 @@ async function cycleTick(): Promise<void> {
     if (vetoed) return;
 
     // 3) open the position (DB race-safe — reject while another is open)
-    const existing = await db.autoTrade.findFirst({ where: { status: "open" } });
-    if (existing) return; // a watcher/other tab won the race
+    const existing = await db.autoTrade.findFirst({ where: { status: "open", symbol: best.symbol, interval: best.interval } });
+    if (existing) return; // combo nay vua co lenh (race) - cycle sau mo combo khac
     const stNow = await readAutoState();
     const capitalNow = stNow.capital ?? c.capital;
+    const usedMargin = (stNow.opens ?? (stNow.open ? [stNow.open] : [])).reduce((a, o) => a + ((o.capitalBefore ?? capitalNow) * (o.stakePct ?? 100)) / 100, 0);
+    // multi-position: von gioi han = tong margin, khong gioi han so lenh
     // RISK ENVELOPE (0.2.79) — stake cam = min(cfg.riskPct, RISK_MAX_STAKE):
     // lệnh ghi số ĐÃ KẸP (equity impact của lệnh = capitalBefore × stakePct ×
     // pnlPct), kẹp bị ghi rõ log + status + note Telegram — không âm thầm.
@@ -1677,6 +1680,13 @@ async function cycleTick(): Promise<void> {
     const strong = tierExtra <= 0 || best.score >= c.minScore + tierExtra;
     const stakeWanted = strong ? c.riskPct : Math.min(c.riskPct, Math.max(0.5, tierMin));
     const stakeUsed = clampStake(stakeWanted);
+    // multi: het von thi dung - margin lenh moi = capitalNow * stakeUsed%
+    const needMargin = (capitalNow * stakeUsed) / 100;
+    if (usedMargin + needMargin > capitalNow) {
+      console.log(`[engine] multi het von: da dung ${usedMargin.toFixed(2)} / ${capitalNow.toFixed(2)} - skip ${best.symbol} ${best.interval} (can ${needMargin.toFixed(2)})`);
+      v.lastCycleStatus = `het von - ${opens.length} lenh mo dung ${usedMargin.toFixed(0)}/${capitalNow.toFixed(0)} USDT`;
+      return;
+    }
     if (stakeUsed < c.riskPct) {
       console.log(
         `[engine] stake ${c.riskPct}% → ${stakeUsed}% (${strong ? `trần RISK_MAX_STAKE ${pval("RISK_MAX_STAKE", RISK_MAX_STAKE)}%` : `score ${best.score} < ngưỡng mạnh ${c.minScore + tierExtra} — tier nền ${tierMin}%`})`,
@@ -2176,11 +2186,13 @@ async function watcherTick(): Promise<void> {
   if (!c.on || !p.syncedAt) return;
   try {
     const st = await readAutoState();
-    const open = st.open;
-    if (!open) return;
+    const opens = st.opens ?? (st.open ? [st.open] : []);
+    if (opens.length === 0) return;
     const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
+    // multi-position: watcher quet TUNG lenh, khong chi lenh dau
+    for (const open of opens) {
     const price = tickers[open.symbol]?.price ?? 0;
-    if (price <= 0) return;
+    if (price <= 0) continue;
     // 0.3.3 — MỘT luồng chấm thoát (trailing / liq / TP1-runner / TP2 / runner-
     // trail / SL-confirm / DCA-at-stop) nằm trong evalExit — cùng thuật toán
     // với cycleTick §1, không đường nào đóng trước làm hỏng TP1 partial.
@@ -2193,11 +2205,11 @@ async function watcherTick(): Promise<void> {
           void cycleTick();
         }, 3_000);
       }
-      return;
+      continue;
     }
-    if (ex?.tp1 || ex?.dca) return; // trạng thái mới đã ghi — nhịp kế tiếp quản lý tiếp
+    if (ex?.tp1 || ex?.dca) continue; // trạng thái mới đã ghi — nhịp kế tiếp quản lý tiếp
     const runner = (open.p1Pct ?? null) != null;
-    if (runner || ex?.pending) return; // runner: evalExit tự lo near-TP2 · pending: SL đã thấy, chờ nhịp kế
+    if (runner || ex?.pending) continue; // runner: evalExit tự lo near-TP2 · pending: SL đã thấy, chờ nhịp kế
     // near-hit warning — once per side per position (normal phase)
     if (p.warned.id !== open.id) {
       p.warned = { id: open.id, tp: false, sl: false };
@@ -2212,6 +2224,7 @@ async function watcherTick(): Promise<void> {
     // price inside the near-SL band and the model still confident → DCA now,
     // before the stop ever fires (the warn above already announced the risk)
     if (near === "sl") await dcaRescue(open, price, "near");
+    } // end for opens
   } catch (e) {
     console.error(`[engine] watcher tick failed: ${e instanceof Error ? e.message : e}`);
   }

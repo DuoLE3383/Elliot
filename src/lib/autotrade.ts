@@ -983,6 +983,8 @@ export interface AutoAnalytics {
 export interface AutoState {
   trades: AutoTradeRow[];
   open: AutoTradeRow | null;
+  /** multi-position: tat ca lenh dang mo (open = opens[0] de tuong thich cu) */
+  opens?: AutoTradeRow[];
   capital: number | null;
   /** thời điểm lần "Reset vốn" gần nhất (null = chưa từng reset qua ví DryRunState) */
   resetAt?: string | null;

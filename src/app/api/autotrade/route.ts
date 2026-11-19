@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "symbol, interval, entryPrice required" }, { status: 400 });
   }
 
-  const existing = await db.autoTrade.findFirst({ where: { status: "open", symbol } });
+  const existing = await db.autoTrade.findFirst({ where: { status: "open", symbol, interval } });
   if (existing) {
     return NextResponse.json({ error: "position_open", open: serialize(existing) }, { status: 409 });
   }

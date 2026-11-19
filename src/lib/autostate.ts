@@ -239,7 +239,8 @@ export async function readAutoState(): Promise<AutoState> {
     },
   });
   const trades = rows.map(serialize);
-  const open = trades.find((t) => t.status === "open") ?? null;
+  const opens = trades.filter((t) => t.status === "open");
+  const open = opens[0] ?? null;
   const closed = trades.filter((t) => t.status === "closed");
   // equity = last settled capital; while a position is open and nothing has
   // settled yet, the entry-time capital is the best known equity — never "?"
@@ -250,6 +251,7 @@ export async function readAutoState(): Promise<AutoState> {
   return {
     trades,
     open,
+    opens,
     capital,
     resetAt: wallet.resetAt,
     walletCapital: wallet.capital,
@@ -267,17 +269,20 @@ export async function readAutoState(): Promise<AutoState> {
 /** Lightweight version of readAutoState for the home-page open-position strip:
  * reads only the open row + most recent closed capital — does not pull 200 historical
  * trades or the combo table. */
-export async function readOpenPosition(): Promise<{ open: TradeRow | null; capital: number | null }> {
+export async function readOpenPosition(): Promise<{ open: TradeRow | null; opens: TradeRow[]; capital: number | null }> {
   const row = await db.autoTrade.findFirst({ where: { status: "open" }, orderBy: { createdAt: "desc" } });
-  if (row) return { open: serialize(row), capital: row.capitalBefore };
+  if (row) {
+    const all = await db.autoTrade.findMany({ where: { status: "open" }, orderBy: { createdAt: "desc" } });
+    return { open: serialize(row), opens: all.map(serialize), capital: row.capitalBefore };
+  }
   // không có lệnh mở → vẫn trả vốn đã chốt gần nhất cho title/tooltip
   const last = await db.autoTrade.findFirst({
     where: { status: "closed" },
     orderBy: { createdAt: "desc" },
     select: { capitalAfter: true },
   });
-  if (last?.capitalAfter != null) return { open: null, capital: last.capitalAfter };
+  if (last?.capitalAfter != null) return { open: null, opens: [], capital: last.capitalAfter };
   // sổ trống → vốn từ ví (sau Reset vốn) — hết kiểu hiện "?" ngay sau reset
   const wallet = await readWallet();
-  return { open: null, capital: wallet.capital };
+  return { open: null, opens: [], capital: wallet.capital };
 }
