@@ -66,11 +66,7 @@ export const BCAST_ACC_MIN = 70;
 
 /** Khung nến dùng chấm điểm universe. */
 export const UNIVERSE_INTERVAL = "1h";
-<<<<<<< Updated upstream
 /** Nhịp xếp hạng lại universe — mỗi 8 giờ. */
-=======
-/** Nhịp xếp hạng lại quet — mỗi 8 giờ. */
->>>>>>> Stashed changes
 export const UNIVERSE_SCAN_MS = 8 * 3_600_000;
 /** Độ dài cửa sổ chấm điểm — 240 nến 1h = 10 ngày giá đóng. */
 export const UNIVERSE_LOOKBACK_CANDLES = 10 * 24;
@@ -473,11 +469,7 @@ export const LESSON_WEIGHT = 8;
 // train/val và cùng seed (RNG may mắn giữ hằng — khác nhau chỉ hyper), rồi giữ
 // bộ thắng theo AUC out-of-sample (hoà → logloss thấp hơn). Đây là "finetune
 // để tăng Prob" đúng nghĩa: mỗi combo tự tìm hyper hợp với dữ liệu của nó thay
-<<<<<<< Updated upstream
 // vì dùng chung một bộ cứng cho toàn universe. Winner được lưu vào finetuneRun
-=======
-// vì ăn theo một bộ cứng cho toàn pairs. Winner được lưu vào finetuneRun
->>>>>>> Stashed changes
 // (cột params JSON) để sau này nhìn lại combo nào hợp hyper nào.
 
 export interface XgbParams {
