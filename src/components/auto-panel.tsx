@@ -642,7 +642,8 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   };
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+    <>
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
     <Card className="border-zinc-800 bg-zinc-900/60">
       <CardHeader className="px-3 pb-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1381,12 +1382,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
         {/* open position */}
         {open ? (
           <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">{t(lang, "auto.pos.open")}</span>
-              <Badge variant="outline" className={`border-zinc-700 font-mono ${sideClass(open.side)}`}>
-                {open.side}
-              </Badge>
-            </div>
+            
             <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
               <span className="text-zinc-500">{t(lang, "auto.col.pair")}</span>
               <span className="text-right font-mono text-zinc-200">
@@ -1503,6 +1499,11 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
           rows.length > 0 && <p className="text-[11px] text-zinc-600">{t(lang, "auto.pos.none")}</p>
         )}
 
+      </CardContent>
+    </Card>
+    </div>
+    <Card className="border-zinc-800 bg-zinc-900/60 mt-4">
+      <CardContent className="space-y-3 px-3 pt-3">
         {/* capital + stats */}
         <div className="grid grid-cols-3 gap-2">
           <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
@@ -1941,6 +1942,6 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
         </div>
       </CardContent>
     </Card>
-    </div>
+    </>
   );
 }
