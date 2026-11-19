@@ -643,13 +643,13 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
 
   return (
     <>
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-    <Card className="border-zinc-800 bg-zinc-900/60">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+    <Card className="border-zinc-800 bg-zinc-900/60 h-full">
       <CardHeader className="px-3 pb-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-1.5 text-base font-semibold text-zinc-100">
             <Bot className="h-4 w-4 text-teal-400" />
-            {t(lang, "auto.title")}
+            SETTING
             {cfg.on && <span className="ml-1 inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-400" aria-hidden />}
           </CardTitle>
           <div className="flex items-center gap-2">
@@ -1365,11 +1365,11 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
 
     </CardContent>
     </Card>
-    <Card className="border-zinc-800 bg-zinc-900/60">
+    <Card className="border-zinc-800 bg-zinc-900/60 h-full">
       <CardHeader className="px-3 pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-1.5 text-base font-semibold text-zinc-100">
-            {t(lang, "auto.pos.open")}
+            OPENING
           </CardTitle>
           {open && (
             <Badge variant="outline" className={`border-zinc-700 font-mono ${sideClass(open.side)}`}>
