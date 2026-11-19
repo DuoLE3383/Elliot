@@ -1369,7 +1369,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
       <CardHeader className="px-3 pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-1.5 text-base font-semibold text-zinc-100">
-            OPENING
+            POSITIONS OPENING
           </CardTitle>
           {open && (
             <Badge variant="outline" className={`border-zinc-700 font-mono ${sideClass(open.side)}`}>
