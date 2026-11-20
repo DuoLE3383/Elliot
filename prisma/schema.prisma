@@ -345,6 +345,37 @@ model WyckoffBook {
 // qua Binance USDT-M (key trong binance-keys.json) và ghi KHỐP thời gian/giá
 // vào đây. Vốn sổ live = balance thật đọc từ /fapi/v2/account (không chuỗi
 // vốn ảo). Dry-run LUÔN chạy — live chỉ là lớp mirror, tắt live không ảnh hưởng sổ giấy.
+
+// ─── Liquid book — sổ dry-run CHIẾN LƯỢC D (Wyckoff Distribution SHORT) ───
+// Mirror WyckoffBook (C) nhưng chỉ SHORT. stopPrice = entry * (1 + sl), tpPrice = entry * (1 - tp).
+model LiquidBook {
+  id            String    @id @default(cuid())
+  symbol        String
+  side          String // luôn SHORT
+  trigger       String // upthrust | distribution
+  score         Float     @default(0)
+  breadth       Float?
+  entryPrice    Float
+  entryTime     DateTime  @default(now())
+  status        String    @default("open") // open | closed
+  stopPrice     Float
+  tpPrice       Float
+  peak          Float     @default(0)
+  trailArmed    Boolean   @default(false)
+  exitPrice     Float?
+  exitTime      DateTime?
+  exitKind      String? // tp | sl | manual
+  exitReason    String?
+  movePct       Float?
+  pnlPct        Float?
+  capitalBefore Float?
+  capitalAfter  Float?
+  createdAt     DateTime  @default(now())
+
+  @@index([symbol, status])
+  @@index([status, entryTime])
+}
+
 model LiveBook {
   id                 String    @id @default(cuid())
   symbol             String

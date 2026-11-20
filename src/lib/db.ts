@@ -65,6 +65,10 @@ const SCHEMA_SQL: string[] = [
   `CREATE TABLE IF NOT EXISTS "WyckoffBook" ("id" TEXT NOT NULL PRIMARY KEY, "symbol" TEXT NOT NULL, "side" TEXT NOT NULL, "trigger" TEXT NOT NULL, "score" REAL NOT NULL DEFAULT 0, "breadth" REAL, "entryPrice" REAL NOT NULL, "entryTime" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "status" TEXT NOT NULL DEFAULT 'open', "stopPrice" REAL NOT NULL, "stopKind" TEXT NOT NULL DEFAULT 'accum', "accumLow" REAL NOT NULL DEFAULT 0, "peak" REAL NOT NULL DEFAULT 0, "trailArmed" BOOLEAN NOT NULL DEFAULT false, "exitPrice" REAL, "exitTime" DATETIME, "exitKind" TEXT, "exitReason" TEXT, "movePct" REAL, "pnlPct" REAL, "capitalBefore" REAL, "capitalAfter" REAL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE INDEX IF NOT EXISTS "WyckoffBook_symbol_status_idx" ON "WyckoffBook"("symbol", "status")`,
   `CREATE INDEX IF NOT EXISTS "WyckoffBook_status_entryTime_idx" ON "WyckoffBook"("status", "entryTime")`,
+  `CREATE TABLE IF NOT EXISTS "LiquidBook" ("id" TEXT NOT NULL PRIMARY KEY, "symbol" TEXT NOT NULL, "side" TEXT NOT NULL, "trigger" TEXT NOT NULL, "score" REAL NOT NULL DEFAULT 0, "breadth" REAL, "entryPrice" REAL NOT NULL, "entryTime" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "status" TEXT NOT NULL DEFAULT 'open', "stopPrice" REAL NOT NULL, "tpPrice" REAL NOT NULL, "peak" REAL NOT NULL DEFAULT 0, "trailArmed" BOOLEAN NOT NULL DEFAULT false, "exitPrice" REAL, "exitTime" DATETIME, "exitKind" TEXT, "exitReason" TEXT, "movePct" REAL, "pnlPct" REAL, "capitalBefore" REAL, "capitalAfter" REAL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+  `CREATE INDEX IF NOT EXISTS "LiquidBook_symbol_status_idx" ON "LiquidBook"("symbol", "status")`,
+  `CREATE INDEX IF NOT EXISTS "LiquidBook_status_entryTime_idx" ON "LiquidBook"("status", "entryTime")`,
+
   `CREATE TABLE IF NOT EXISTS "LiveBook" ("id" TEXT NOT NULL PRIMARY KEY, "symbol" TEXT NOT NULL, "side" TEXT NOT NULL, "entryPrice" REAL NOT NULL, "entryTime" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "status" TEXT NOT NULL DEFAULT 'open', "qty" REAL NOT NULL, "notional" REAL NOT NULL DEFAULT 0, "leverage" REAL NOT NULL DEFAULT 1, "binanceOrderId" TEXT, "dryRunTradeId" TEXT, "exitPrice" REAL, "exitTime" DATETIME, "exitKind" TEXT, "binanceExitOrderId" TEXT, "movePct" REAL, "roePct" REAL, "balanceBefore" REAL, "balanceAfter" REAL, "note" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE INDEX IF NOT EXISTS "LiveBook_symbol_status_idx" ON "LiveBook"("symbol", "status")`,
   `CREATE INDEX IF NOT EXISTS "LiveBook_status_entryTime_idx" ON "LiveBook"("status", "entryTime")`,
@@ -90,7 +94,7 @@ const SCHEMA_COLUMNS: { table: string; column: string; ddl: string }[] = [
   { table: "AutoTrade", column: "tp2Pct", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "tp2Pct" REAL` },
   { table: "AutoTrade", column: "trailPct", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "trailPct" REAL` },
 ];
-const MODEL_TABLES = ["User", "Post", "Suggestion", "FinetuneRun", "AutoTrade", "BcastVerdict", "SignalTotal", "DiveReport", "StrategyVariant", "ImproveEvent", "EvolveLog", "DryRunState", "VulcanBook", "WyckoffBook", "LiveBook"];
+const MODEL_TABLES = ["User", "Post", "Suggestion", "FinetuneRun", "AutoTrade", "BcastVerdict", "SignalTotal", "DiveReport", "StrategyVariant", "ImproveEvent", "EvolveLog", "DryRunState", "VulcanBook", "WyckoffBook", "LiquidBook", "LiveBook"];
 /** exported for the /api health diagnostic */
 export { MODEL_TABLES };
 

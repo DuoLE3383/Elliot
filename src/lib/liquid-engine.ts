@@ -9,6 +9,7 @@ import { detectUpthrust, detectDistribution } from "./wyckoff-engine";
 import { identifyTradingRange } from "./wyckoff-gate";
 import { fetchKlinesDirect } from "./klines-direct";
 import { breadthPct } from "./wyckoff-gate";
+import { db } from "./db";
 
 // Pair lấy từ pair scan / Universe — KHÔNG hardcode, KHÔNG fallback.
 // startLiquidEngine(symbols: string[]) nhận symbols từ scheduler, scan fail -> STANDBY.
@@ -71,7 +72,19 @@ export async function startLiquidEngine(symbols: string[]) {
         const dec = decideLiquidShort(d, breadth, 0);
         lastReason = `${sym}: ${dec.reason}`;
         if (dec.action === "SHORT") {
-          console.log(`[liquid] SHORT signal ${sym} · ${dec.reason} · breadth ${breadth ?? "?"}%`);
+          const last: any = d[d.length - 1];
+          const entry = Number(last?.close ?? last?.c ?? last?.closePrice ?? 0);
+          if (entry > 0) {
+            const existing = await db.liquidBook.findFirst({ where: { symbol: sym, status: "open" } });
+            if (!existing) {
+              const stopPrice = entry * (1 + dec.stopPct / 100);
+              const tpPrice = entry * (1 - (dec.stopPct * 1.4) / 100);
+              await db.liquidBook.create({ data: { symbol: sym, side: "SHORT", trigger: dec.reason.slice(0, 80), score: 0, breadth, entryPrice: entry, status: "open", stopPrice, tpPrice } });
+              console.log(`[liquid] OPEN SHORT ${sym} @ ${entry} · SL ${stopPrice.toFixed(4)} · TP ${tpPrice.toFixed(4)} · ${dec.reason}`);
+            } else {
+              console.log(`[liquid] SKIP ${sym} - da co lenh mo`);
+            }
+          }
           break;
         }
       } catch { continue; }

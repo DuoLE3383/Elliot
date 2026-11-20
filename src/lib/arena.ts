@@ -35,6 +35,8 @@ export interface SymbolRow {
   bNet: number;
   cN: number;
   cNet: number;
+  dN: number;
+  dNet: number;
 }
 
 export interface LiveStats {
@@ -53,11 +55,14 @@ export interface ArenaSnapshot {
   b: BookStats;
   /** 0.2.97 — sổ C Wyckoff gốc (long-only nến ngày) */
   c: BookStats;
+  /** D — sổ Liquid (Wyckoff Distribution SHORT) */
+  d: BookStats;
   /** 0.2.97 — sổ LIVE mirror sổ B (bảng LiveBook, vốn = balance thật) */
   live: LiveStats;
   aEquity: EquityPoint[];
   bEquity: EquityPoint[];
   cEquity: EquityPoint[];
+  dEquity: EquityPoint[];
   bySymbol: SymbolRow[];
   generatedAt: string;
 }
@@ -114,13 +119,15 @@ function liveOnFlag(): boolean {
 
 /** Snapshot đầy đủ — đọc cả ba sổ dry-run + sổ live, ghép theo symbol. */
 export async function arenaSnapshot(): Promise<ArenaSnapshot> {
-  const [aRows, aOpen, bRows, bOpen, cRows, cOpen, lRows, lOpen] = await Promise.all([
+  const [aRows, aOpen, bRows, bOpen, cRows, cOpen, dRows, dOpen, lRows, lOpen] = await Promise.all([
     db.vulcanBook.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" } }),
     db.vulcanBook.count({ where: { status: "open" } }),
     db.autoTrade.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" } }),
     db.autoTrade.count({ where: { status: "open" } }),
     db.wyckoffBook.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" } }),
     db.wyckoffBook.count({ where: { status: "open" } }),
+    db.liquidBook.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" } }),
+    db.liquidBook.count({ where: { status: "open" } }),
     db.liveBook.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" } }),
     db.liveBook.count({ where: { status: "open" } }),
   ]);
@@ -128,14 +135,19 @@ export async function arenaSnapshot(): Promise<ArenaSnapshot> {
   const a = statsFromRoes(aRows.map((r) => ({ side: r.side, roe: r.roePct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter })));
   const b = statsFromRoes(bRows.map((r) => ({ side: r.side, roe: r.pnlPct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter })));
   const c = statsFromRoes(cRows.map((r) => ({ side: r.side, roe: r.pnlPct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter })));
+  const d = statsFromRoes(dRows.map((r) => ({ side: r.side, roe: r.pnlPct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter })));
   a.nOpen = aOpen;
   b.nOpen = bOpen;
   c.nOpen = cOpen;
+  d.nOpen = dOpen;
 
   const aEquity: EquityPoint[] = aRows
     .filter((r) => r.capitalAfter != null)
     .map((r) => ({ t: (r.exitTime ?? r.createdAt).toISOString(), capital: r.capitalAfter as number }));
   const bEquity: EquityPoint[] = bRows
+    .filter((r) => r.capitalAfter != null)
+    .map((r) => ({ t: (r.exitTime ?? r.createdAt).toISOString(), capital: r.capitalAfter as number }));
+  const dEquity: EquityPoint[] = dRows
     .filter((r) => r.capitalAfter != null)
     .map((r) => ({ t: (r.exitTime ?? r.createdAt).toISOString(), capital: r.capitalAfter as number }));
   const cEquity: EquityPoint[] = cRows
@@ -157,24 +169,30 @@ export async function arenaSnapshot(): Promise<ArenaSnapshot> {
 
   const symMap = new Map<string, SymbolRow>();
   for (const r of aRows) {
-    const e = symMap.get(r.symbol) ?? { symbol: r.symbol, aN: 0, aNet: 0, bN: 0, bNet: 0, cN: 0, cNet: 0 };
+    const e = symMap.get(r.symbol) ?? { symbol: r.symbol, aN: 0, aNet: 0, bN: 0, bNet: 0, cN: 0, cNet: 0, dN: 0, dNet: 0 };
     e.aN += 1;
     e.aNet = Math.round((e.aNet + (r.roePct ?? 0)) * 100) / 100;
     symMap.set(r.symbol, e);
   }
   for (const r of bRows) {
-    const e = symMap.get(r.symbol) ?? { symbol: r.symbol, aN: 0, aNet: 0, bN: 0, bNet: 0, cN: 0, cNet: 0 };
+    const e = symMap.get(r.symbol) ?? { symbol: r.symbol, aN: 0, aNet: 0, bN: 0, bNet: 0, cN: 0, cNet: 0, dN: 0, dNet: 0 };
     e.bN += 1;
     e.bNet = Math.round((e.bNet + (r.pnlPct ?? 0)) * 100) / 100;
     symMap.set(r.symbol, e);
   }
   for (const r of cRows) {
-    const e = symMap.get(r.symbol) ?? { symbol: r.symbol, aN: 0, aNet: 0, bN: 0, bNet: 0, cN: 0, cNet: 0 };
+    const e = symMap.get(r.symbol) ?? { symbol: r.symbol, aN: 0, aNet: 0, bN: 0, bNet: 0, cN: 0, cNet: 0, dN: 0, dNet: 0 };
     e.cN += 1;
     e.cNet = Math.round((e.cNet + (r.pnlPct ?? 0)) * 100) / 100;
     symMap.set(r.symbol, e);
   }
-  const bySymbol = [...symMap.values()].sort((x, y) => y.aN + y.bN + y.cN - (x.aN + x.bN + x.cN));
+  for (const r of dRows) {
+    const e = symMap.get(r.symbol) ?? { symbol: r.symbol, aN: 0, aNet: 0, bN: 0, bNet: 0, cN: 0, cNet: 0, dN: 0, dNet: 0 };
+    e.dN += 1;
+    e.dNet = Math.round((e.dNet + (r.pnlPct ?? 0)) * 100) / 100;
+    symMap.set(r.symbol, e);
+  }
+  const bySymbol = [...symMap.values()].sort((x, y) => y.aN + y.bN + y.cN + y.dN - (x.aN + x.bN + x.cN + x.dN));
 
-  return { a, b, c, live, aEquity, bEquity, cEquity, bySymbol, generatedAt: new Date().toISOString() };
+  return { a, b, c, d, live, aEquity, bEquity, cEquity, dEquity, bySymbol, generatedAt: new Date().toISOString() };
 }
