@@ -6,11 +6,11 @@
 // TB/streak), đường vốn SVG thuần, bảng theo lý do thoát / theo symbol / theo
 // khung / theo chiều, và 12 lệnh đóng gần nhất.
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
-import type { AutoAnalytics, AutoState } from "@/lib/autotrade";
+import type { AutoAnalytics, AutoState, BookKey } from "@/lib/autotrade";
 
 const num = (x: number, d = 2): string => String(Math.round(x * 10 ** d) / 10 ** d);
 const pctClass = (x: number): string => (x > 0 ? "text-emerald-400" : x < 0 ? "text-rose-400" : "text-zinc-400");
@@ -75,14 +75,16 @@ function MiniTable({ head, rows }: { head: string[]; rows: Array<Array<string | 
 }
 
 export function AutoAnalytics({ lang, auto }: { lang: Lang; auto: AutoState | null }) {
-  const a = auto?.analytics;
+  const [book, setBook] = useState<BookKey>('ALL');
+  const a = auto?.analyticsByBook?.[book] ?? auto?.analytics;
   if (!a) return null;
-  const closed = auto?.trades.filter((x) => x.status === "closed").slice(0, 12) ?? [];
+  const closed = auto?.recentByBook?.[book] ?? auto?.trades.filter((x) => x.status === 'closed').slice(0, 12) ?? [];
+  const tabs: Array<BookKey> = ['ALL', 'A', 'B', 'C', 'D'];
   const holdTxt = a.avgHoldMin >= 1440 ? `${(a.avgHoldMin / 1440).toFixed(1)}d` : a.avgHoldMin >= 60 ? `${(a.avgHoldMin / 60).toFixed(1)}h` : `${Math.round(a.avgHoldMin)}m`;
 
   const kpis: Array<{ label: string; value: string; cls?: string; tip?: string }> = [
-    { label: t(lang, "ana.kpi.net"), value: `${auto?.stats.netPnlPct != null ? (auto.stats.netPnlPct >= 0 ? "+" : "") + num(auto.stats.netPnlPct) : "—"}%`, cls: pctClass(auto?.stats.netPnlPct ?? 0) },
-    { label: t(lang, "ana.kpi.wr"), value: `${num(auto?.stats.winRate ?? 0, 1)}%`, tip: `${auto?.stats.wins ?? 0}/${auto?.stats.closed ?? 0}` },
+    { label: t(lang, "ana.kpi.net"), value: `${(a.netPnlPct ?? 0) >= 0 ? "+" : ""}${num(a.netPnlPct ?? 0)}%`, cls: pctClass(a.netPnlPct ?? 0) },
+    { label: t(lang, "ana.kpi.wr"), value: `${num(a.winRate ?? 0, 1)}%`, tip: `${a.wins ?? 0}/${a.closed ?? 0}` },
     { label: t(lang, "ana.kpi.exp"), value: `${a.expectancy >= 0 ? "+" : ""}${num(a.expectancy)}%`, cls: pctClass(a.expectancy), tip: t(lang, "ana.kpi.expTip") },
     { label: t(lang, "ana.kpi.pf"), value: num(a.profitFactor), cls: a.profitFactor >= 1 ? "text-emerald-400" : "text-rose-400", tip: t(lang, "ana.kpi.pfTip") },
     { label: t(lang, "ana.kpi.maxdd"), value: `−${num(a.maxDrawdownPct)}%`, cls: "text-rose-300", tip: t(lang, "ana.kpi.maxddTip") },
@@ -102,6 +104,16 @@ export function AutoAnalytics({ lang, auto }: { lang: Lang; auto: AutoState | nu
     <Card className="border-zinc-800 bg-zinc-900/60">
       <CardHeader className="px-3 pb-2">
         <CardTitle className="text-base font-semibold text-zinc-100">{t(lang, "ana.title")}</CardTitle>
+        <div className="mt-2 flex gap-1">
+          {tabs.map((tb) => (
+            <button key={tb} onClick={() => setBook(tb)} className={`rounded-md border px-2.5 py-1 font-mono text-xs ${book === tb ? 'border-emerald-500/60 bg-emerald-500/15 text-emerald-300' : 'border-zinc-700 text-zinc-400 hover:text-zinc-200'}`}>{tb === 'ALL' ? 'ALL' : `Book ${tb}`}</button>
+          ))}
+        </div>
+        <div className="mt-2 flex gap-1">
+          {tabs.map((tb) => (
+            <button key={tb} onClick={() => setBook(tb)} className={`rounded-md border px-2.5 py-1 font-mono text-xs ${book === tb ? 'border-emerald-500/60 bg-emerald-500/15 text-emerald-300' : 'border-zinc-700 text-zinc-400 hover:text-zinc-200'}`}>{tb === 'ALL' ? 'ALL' : `Book ${tb}`}</button>
+          ))}
+        </div>
         <p className="text-[11px] text-zinc-500">{t(lang, "ana.sub")}</p>
       </CardHeader>
       <CardContent className="space-y-3 px-3 pt-0">

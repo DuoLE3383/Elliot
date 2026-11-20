@@ -4,7 +4,7 @@
 // UI and the Telegram reports always quote the same numbers.
 
 import { db } from "@/lib/db";
-import { comboStats, type AutoAnalytics, type AutoState } from "@/lib/autotrade";
+import { comboStats, type AutoAnalytics, type AutoState, type BookKey, type BookRecent } from "@/lib/autotrade";
 
 // ─── Analytics chi tiết (0.2.97) — hàm thuần, test được độc lập ──────────────
 // Input: MỌI lệnh đóng xếp CŨ → MỚI (đúng chiều thời gian thoát) + vốn gốc ví
@@ -96,6 +96,10 @@ export function analyticsFromClosed(
     byInterval: byInterval.map((x) => ({ interval: x.kindOrName, n: x.n, net: x.net, wr: x.wr })),
     bySide: bySide.map((x) => ({ side: x.kindOrName, n: x.n, net: x.net, wr: x.wr })),
     equity,
+    closed: n,
+    wins: wins.length,
+    winRate: n ? Math.round((wins.length / n) * 1000) / 10 : 0,
+    netPnlPct: Math.round(pnls.reduce((a, x) => a + x, 0) * 100) / 100,
   };
 }
 
@@ -216,6 +220,11 @@ export async function readWallet(): Promise<WalletState> {
   }
 }
 
+
+type ClosedRow = { symbol: string; interval: string; side: string; pnlPct: number | null; exitKind: string | null; entryTime: Date; exitTime: Date | null; capitalAfter: number | null };
+function toRecent(book: BookKey, r: any): BookRecent { return { id: String(r.id), symbol: r.symbol, interval: r.interval ?? (book === 'A' ? '15m' : '1d'), side: r.side, pnlPct: r.pnlPct ?? r.roePct ?? null, exitKind: r.exitKind ?? null, exitTime: r.exitTime ? r.exitTime.toISOString() : null, entryTime: r.entryTime.toISOString(), entryPrice: r.entryPrice }; }
+function equityAll(events: Array<{ book: BookKey; exitTime: Date | null; entryTime: Date; capitalAfter: number | null }>): Array<{ t: string; capital: number }> { const last = new Map<BookKey, number>(); const out: Array<{ t: string; capital: number }> = []; const sorted = events.slice().sort((a, b) => (a.exitTime ?? a.entryTime).getTime() - (b.exitTime ?? b.entryTime).getTime()); for (const e of sorted) { if (e.capitalAfter != null) last.set(e.book, e.capitalAfter); if (!last.size) continue; let total = 0; for (const v of last.values()) total += v; out.push({ t: (e.exitTime ?? e.entryTime).toISOString(), capital: Math.round(total * 100) / 100 }); } return out; }
+
 export async function readAutoState(): Promise<AutoState> {
   const rows = await db.autoTrade.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
   // win-rate table aggregates the ENTIRE closed history, not just the last 200
@@ -238,6 +247,31 @@ export async function readAutoState(): Promise<AutoState> {
       capitalAfter: true,
     },
   });
+  const wallet = await readWallet();
+  const aClosed = await db.vulcanBook.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" }, select: { id: true, symbol: true, side: true, roePct: true, exitKind: true, entryTime: true, exitTime: true, capitalAfter: true, entryPrice: true } });
+  const cClosed = await db.wyckoffBook.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" }, select: { id: true, symbol: true, side: true, pnlPct: true, exitKind: true, entryTime: true, exitTime: true, capitalAfter: true, entryPrice: true } });
+  const dClosed = await db.liquidBook.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" }, select: { id: true, symbol: true, side: true, pnlPct: true, exitKind: true, entryTime: true, exitTime: true, capitalAfter: true, entryPrice: true } });
+  const mapRow = (r: any, interval: string, pnl: number | null): ClosedRow => ({ symbol: r.symbol, interval, side: r.side, pnlPct: pnl, exitKind: r.exitKind ?? null, entryTime: r.entryTime, exitTime: r.exitTime, capitalAfter: r.capitalAfter });
+  const aRows = aClosed.map((r) => mapRow(r, "15m", r.roePct));
+  const bRows: Array<ClosedRow> = closedAsc.map((r) => ({ symbol: r.symbol, interval: r.interval, side: r.side, pnlPct: r.pnlPct, exitKind: r.exitKind, entryTime: r.entryTime, exitTime: r.exitTime, capitalAfter: r.capitalAfter }));
+  const cRows = cClosed.map((r) => mapRow(r, "1d", r.pnlPct));
+  const dRows = dClosed.map((r) => mapRow(r, "1d", r.pnlPct));
+  const anaA = analyticsFromClosed(aRows, null);
+  const anaB = analyticsFromClosed(bRows, wallet.capital);
+  const anaC = analyticsFromClosed(cRows, null);
+  const anaD = analyticsFromClosed(dRows, null);
+  const allRows = [...aRows, ...bRows, ...cRows, ...dRows].sort((x, y) => (x.exitTime ?? x.entryTime).getTime() - (y.exitTime ?? y.entryTime).getTime());
+  const anaAll = analyticsFromClosed(allRows, null);
+  const allEvents = [...aClosed.map((r) => ({ book: "A" as BookKey, exitTime: r.exitTime, entryTime: r.entryTime, capitalAfter: r.capitalAfter })), ...closedAsc.map((r) => ({ book: "B" as BookKey, exitTime: r.exitTime, entryTime: r.entryTime, capitalAfter: r.capitalAfter })), ...cClosed.map((r) => ({ book: "C" as BookKey, exitTime: r.exitTime, entryTime: r.entryTime, capitalAfter: r.capitalAfter })), ...dClosed.map((r) => ({ book: "D" as BookKey, exitTime: r.exitTime, entryTime: r.entryTime, capitalAfter: r.capitalAfter }))];
+  anaAll.equity = equityAll(allEvents);
+  const byBook = { ALL: anaAll, A: anaA, B: anaB, C: anaC, D: anaD };
+  const recentByBook = {
+    ALL: [...aClosed.map((r) => toRecent("A", r)), ...rows.filter((r) => r.status === "closed").map((r) => toRecent("B", { ...r, pnlPct: r.pnlPct, interval: r.interval })), ...cClosed.map((r) => toRecent("C", r)), ...dClosed.map((r) => toRecent("D", r))].sort((x, y) => (y.exitTime ?? y.entryTime).localeCompare(x.exitTime ?? x.entryTime)).slice(0, 12),
+    A: aClosed.map((r) => toRecent("A", r)).sort((x, y) => (y.exitTime ?? y.entryTime).localeCompare(x.exitTime ?? x.entryTime)).slice(0, 12),
+    B: rows.filter((r) => r.status === "closed").map((r) => toRecent("B", { ...r, pnlPct: r.pnlPct, interval: r.interval })).sort((x, y) => (y.exitTime ?? y.entryTime).localeCompare(x.exitTime ?? x.entryTime)).slice(0, 12),
+    C: cClosed.map((r) => toRecent("C", r)).sort((x, y) => (y.exitTime ?? y.entryTime).localeCompare(x.exitTime ?? x.entryTime)).slice(0, 12),
+    D: dClosed.map((r) => toRecent("D", r)).sort((x, y) => (y.exitTime ?? y.entryTime).localeCompare(x.exitTime ?? x.entryTime)).slice(0, 12),
+  };
   const trades = rows.map(serialize);
   const opens = trades.filter((t) => t.status === "open");
   const open = opens[0] ?? null;
@@ -245,7 +279,6 @@ export async function readAutoState(): Promise<AutoState> {
   // equity = last settled capital; while a position is open and nothing has
   // settled yet, the entry-time capital is the best known equity — never "?"
   // 0.2.86: sổ TRỐNG (vừa Reset vốn) → rơi về ví DryRunState, không còn "?"
-  const wallet = await readWallet();
   const capital = closed[0]?.capitalAfter ?? open?.capitalBefore ?? wallet.capital ?? null;
   const wins = closed.filter((t) => (t.pnlPct ?? 0) > 0).length;
   return {
@@ -256,7 +289,9 @@ export async function readAutoState(): Promise<AutoState> {
     resetAt: wallet.resetAt,
     walletCapital: wallet.capital,
     byCombo: comboStats(allClosed),
-    analytics: analyticsFromClosed(closedAsc, wallet.capital),
+    analytics: anaB,
+    analyticsByBook: byBook,
+    recentByBook,
     stats: {
       closed: closed.length,
       wins,

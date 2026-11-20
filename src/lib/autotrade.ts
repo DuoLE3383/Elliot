@@ -968,6 +968,20 @@ export interface AutoStats {
 
 // ── ANALYTICS CHI TIẾT (0.2.97) — dịch từ lịch sử đóng, tính 1 nguồn ở
 // autostate.readAutoState (server) → /api/autotrade GET → bảng Analytics /auto.
+export type BookKey = 'ALL' | 'A' | 'B' | 'C' | 'D';
+
+export interface BookRecent {
+  id: string;
+  symbol: string;
+  interval: string;
+  side: string;
+  pnlPct: number | null;
+  exitKind: string | null;
+  exitTime: string | null;
+  entryTime: string;
+  entryPrice: number;
+}
+
 export interface AutoAnalytics {
   /** tổng % ROE trừ phí, trung bình trên lệnh đóng — điểm kỳ vọng mỗi lệnh */
   expectancy: number;
@@ -989,6 +1003,10 @@ export interface AutoAnalytics {
   bySide: Array<{ side: string; n: number; net: number; wr: number }>;
   /** đường vốn từ chuỗi capitalAfter (cũ → mới) */
   equity: Array<{ t: string; capital: number }>;
+  closed: number;
+  wins: number;
+  winRate: number;
+  netPnlPct: number;
 }
 
 export interface AutoState {
@@ -1006,6 +1024,8 @@ export interface AutoState {
   byCombo?: ComboStat[];
   /** 0.2.97 — phân tích chi tiết theo lý do thoát / symbol / khung / streak */
   analytics?: AutoAnalytics;
+  analyticsByBook?: Record<BookKey, AutoAnalytics>;
+  recentByBook?: Record<BookKey, Array<BookRecent>>;
 }
 
 const jsonHeaders = { "Content-Type": "application/json" };
