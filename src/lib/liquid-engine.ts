@@ -8,7 +8,7 @@
 import { detectUpthrust, detectDistribution } from "./wyckoff-engine";
 import { identifyTradingRange } from "./wyckoff-gate";
 import { fetchKlinesDirect } from "./klines-direct";
-import { breadthPct } from "./wyckoff-engine";
+import { breadthPct } from "./wyckoff-gate";
 
 // Pair lấy từ pair scan / Universe — KHÔNG hardcode, KHÔNG fallback.
 // startLiquidEngine(symbols: string[]) nhận symbols từ scheduler, scan fail -> STANDBY.
