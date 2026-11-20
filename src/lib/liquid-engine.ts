@@ -84,12 +84,15 @@ export async function startLiquidEngine(symbols: string[]) {
     let breadth: number | null = null;
     try { const b: any = await (breadthPct as any)(list); breadth = b?.pct ?? null; } catch { breadth = null; }
     let lastReason = "đang quét";
+    const reasonCount: Record<string, number> = {};
     for (const sym of list) {
       try {
         const d = await fetchKlinesDirect(sym, "1d", 120);
         if (!d || d.length < 90) continue;
         const dec = decideLiquidShort(d, breadth, 60);
         lastReason = `${sym}: ${dec.reason}`;
+        const key = dec.reason.split(" — ")[0].slice(0, 40);
+        reasonCount[key] = (reasonCount[key] ?? 0) + 1;
         if (dec.action === "SHORT") {
           const last: any = d[d.length - 1];
           const entry = Number(last?.close ?? last?.c ?? last?.closePrice ?? 0);
@@ -109,7 +112,7 @@ export async function startLiquidEngine(symbols: string[]) {
       } catch { continue; }
     }
     _liquidStatus = { state: "SCANNING", reason: lastReason, lastScan: new Date().toISOString() };
-    console.log(`[liquid] scan xong · breadth ${breadth ?? "?"}% · last: ${lastReason}`);
+    console.log(`[liquid] scan xong · breadth ${breadth ?? "?"}% · reasons: ${JSON.stringify(reasonCount)} · last: ${lastReason}`);
   };
   await scanOnce().catch((e) => { console.log(`[liquid] scan loi: ${String((e as any)?.message ?? e)}`); _liquidStatus = { state: "STANDBY", reason: "scan lỗi — thử lại sau 60s", lastScan: new Date().toISOString() }; });
   _liquidTimer = setInterval(() => { scanOnce().catch(() => {}); }, 60_000);
