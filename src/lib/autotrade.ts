@@ -725,6 +725,17 @@ export function trailMovePct(side: string, entry: number, peak: number): number 
  *  LONG: stop = đỉnh × (1 − dist%); SHORT: stop = đáy × (1 + dist%).
  *  Khi vừa armed, stop ≈ hoà vốn hoặc tốt hơn nếu dist ≤ act — đúng tinh thần
  *  "khoá lời"; trước đó SL tĩnh gốc vẫn là lưới an toàn duy nhất. */
+
+/** Trail ROI (B) — peakROI > 3% => stopROI = peakROI - 1%.
+ *  Tra ve gia stop tuong ung: LONG entry*(1+(stopROI)/lev/100),
+ *  SHORT entry*(1-(stopROI)/lev/100). ROI o day la % (vd 8.91 = +8.91%). */
+export function trailRoiStopPrice(side: string, entry: number, peakRoi: number, leverage: number): number | null {
+  if (!entry || !leverage || peakRoi <= 3) return null;
+  const stopRoi = peakRoi - 1;
+  const m = stopRoi / leverage / 100;
+  return side === "SHORT" ? entry * (1 - m) : entry * (1 + m);
+}
+
 export function trailStopPrice(side: string, entry: number, peak: number, actPct: number, distPct: number): number | null {
   if (!entry || !peak) return null;
   if (trailMovePct(side, entry, peak) < Math.abs(actPct)) return null;

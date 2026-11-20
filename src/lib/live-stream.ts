@@ -21,6 +21,14 @@ const FSTREAM_WS = "wss://fstream.binance.com/ws";
 
 export type LiveSrc = "ws" | "poll";
 
+const liveTails = new Map<string, Kline[]>();
+export function getLiveTail(symbol: string, interval: string): Kline[] | null {
+  return liveTails.get(`${symbol.toUpperCase()}:${interval}`) ?? null;
+}
+export function setLiveTail(symbol: string, interval: string, tail: Kline[]): void {
+  liveTails.set(`${symbol.toUpperCase()}:${interval}`, tail.slice(-2));
+}
+
 export interface TailEvent {
   symbol: string;
   interval: string;
@@ -121,7 +129,8 @@ export function startLiveStream(
 
   const push = (tail: Kline[], withTk: boolean) => {
     if (stopped) return;
-    onEvent({
+    setLiveTail(symbol, interval, lastTwo);
+      onEvent({
       symbol,
       interval,
       src: mode,

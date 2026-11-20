@@ -105,12 +105,12 @@ function Clocks({ lang }: { lang: Lang }) {
     sec === 0
       ? "--:--:--"
       : new Date(sec * 1000).toLocaleTimeString("en-GB", {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-          hour12: false,
-          timeZone: tz,
-        });
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+        timeZone: tz,
+      });
   return (
     <div className="hidden flex-col items-end leading-tight lg:flex" aria-hidden>
       <span className="font-mono text-[11px] text-zinc-300">
@@ -1068,9 +1068,8 @@ export default function Home() {
               <button
                 key={itv}
                 onClick={() => setIntervalTf(itv)}
-                className={`shrink-0 rounded-md px-2 py-1 font-mono text-xs font-semibold transition sm:px-2.5 ${
-                  interval === itv ? "bg-emerald-600 text-zinc-950" : "text-zinc-400 hover:text-zinc-200"
-                }`}
+                className={`shrink-0 rounded-md px-2 py-1 font-mono text-xs font-semibold transition sm:px-2.5 ${interval === itv ? "bg-emerald-600 text-zinc-950" : "text-zinc-400 hover:text-zinc-200"
+                  }`}
               >
                 <span className="sm:hidden">{itv}</span>
                 <span className="hidden sm:inline">{t(lang, `itv.${itv}`)}</span>
@@ -1081,11 +1080,10 @@ export default function Home() {
           {/* live badge — TRUNG THỰC: xanh nháy khi luồng SSE đang chảy, xám khi
               đang tự nối lại (mạng chớp/pm2 restart); tooltip kèm nguồn dữ liệu */}
           <span
-            className={`hidden shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium md:flex ${
-              liveOn
+            className={`hidden shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium md:flex ${liveOn
                 ? "border-emerald-900 bg-emerald-950/40 text-emerald-400"
                 : "border-zinc-800 bg-zinc-900 text-zinc-500"
-            }`}
+              }`}
             title={
               liveOn
                 ? liveMode === "ws"
@@ -1178,31 +1176,10 @@ export default function Home() {
       <TickerStrip lang={lang} pairs={allPairs} tickers={tickers} current={symbol} onSelect={setSymbol} />
 
 
-      {/* ── KPI row ────────────────────────────────────────────────── */}
-      <div className="shrink-0 px-3 pt-3">
-        {view ? (
-          <KpiCards
-            lang={lang}
-            stats={view.kpi}
-            openPaper={view.open ?? undefined}
-            leverage={settings.leverage}
-            openPnl={openPnl}
-            signals={view.signals}
-            totalSignals={sigTotals[`${symbol}|${interval}`] ?? null}
-            autoOpen={autoOpen}
-            tickers={tickers}
-            onPickAuto={(sym, itv) => {
-              setSymbol(sym);
-              if ((INTERVALS as readonly string[]).includes(itv)) setIntervalTf(itv as Interval);
-            }}
-          />
-        ) : (
-          <Skeleton className="h-[72px] rounded-lg border border-zinc-800 bg-zinc-900" />
-        )}
-      </div>
+      
 
       {/* ── Main terminal grid ─────────────────────────────────────── */}
-      <main className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-3 lg:grid lg:grid-cols-[276px_minmax(0,1fr)_324px] lg:overflow-hidden xl:grid-cols-[300px_minmax(0,1fr)_352px]">
+      <main className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-3 lg:grid lg:grid-cols-[300px_minmax(0,1fr)_300px] lg:overflow-hidden xl:grid-cols-[320px_minmax(0,1fr)_320px]">
         {error ? (
           <div className="lg:col-span-3">
             <Card className="border-rose-900 bg-rose-950/30">
@@ -1262,13 +1239,35 @@ export default function Home() {
 
             {/* ── CENTER: chart — terminal thuần (>0.2.82 tab Suggestions /
                 Lab / Analysis dời hẳn sang /stats, nối tiếp Journal 0.2.80) ── */}
-            <div className="rail-scroll order-2 flex min-h-0 flex-col gap-3 lg:order-2 lg:overflow-y-auto lg:pr-0.5">
+            <div className="rail-scroll order-2 flex min-h-0 w-full flex-col gap-3 lg:order-2 lg:overflow-hidden lg:pr-0.5">
               {/* gap-3/py-3 override the Card defaults (gap-6/py-6) — reclaims ~72px
                   of chart height; on lg the card fills the WHOLE visible rail height
                   (h-full + flex-none) nên chart chiếm trọn cột terminal.
                   lg:min-h keeps the chart usable on short viewports (the rail scrolls
                   instead of the card collapsing) */}
-              <Card className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden border-zinc-800 bg-zinc-900/60 py-3 lg:h-full lg:min-h-[460px] lg:flex-none">
+                  {/* ── KPI row ────────────────────────────────────────────────── */}
+      <div className="shrink-0 px-3 pt-3">
+        {view ? (
+          <KpiCards
+            lang={lang}
+            stats={view.kpi}
+            openPaper={view.open ?? undefined}
+            leverage={settings.leverage}
+            openPnl={openPnl}
+            signals={view.signals}
+            totalSignals={sigTotals[`${symbol}|${interval}`] ?? null}
+            autoOpen={autoOpen}
+            tickers={tickers}
+            onPickAuto={(sym, itv) => {
+              setSymbol(sym);
+              if ((INTERVALS as readonly string[]).includes(itv)) setIntervalTf(itv as Interval);
+            }}
+          />
+        ) : (
+          <Skeleton className="h-[72px] rounded-lg border border-zinc-800 bg-zinc-900" />
+        )}
+      </div>
+              <Card className="flex min-h-0 w-full flex-1 flex-col gap-3 overflow-hidden border-zinc-800 bg-zinc-900/60 py-3 lg:min-h-0 lg:flex-1">
                 <CardHeader className="shrink-0 border-b border-zinc-800/70 px-3 py-2.5">
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
@@ -1283,17 +1282,15 @@ export default function Home() {
                       </CardTitle>
                       {/* giá lớn chấm màu theo hướng tick gần nhất — như sàn */}
                       <span
-                        className={`font-mono text-sm font-bold transition-colors duration-300 ${
-                          live ? (live.up ? "text-emerald-400" : "text-rose-400") : "text-zinc-100"
-                        }`}
+                        className={`font-mono text-sm font-bold transition-colors duration-300 ${live ? (live.up ? "text-emerald-400" : "text-rose-400") : "text-zinc-100"
+                          }`}
                       >
                         {fmtPrice(lastClose)}
                       </span>
                       {activeTicker && (
                         <span
-                          className={`font-mono text-[11px] font-semibold ${
-                            tickerUp ? "text-emerald-400" : "text-rose-400"
-                          }`}
+                          className={`font-mono text-[11px] font-semibold ${tickerUp ? "text-emerald-400" : "text-rose-400"
+                            }`}
                         >
                           {tickerUp ? "+" : ""}
                           {activeTicker.changePct.toFixed(2)}%
@@ -1302,17 +1299,15 @@ export default function Home() {
                       {/* LIVE chip nhỏ cho mobile — desktop đã có badge ở thanh
                           terminal; mất kết nối thì xám, tooltip nói đang nối lại */}
                       <span
-                        className={`flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-bold tracking-wider md:hidden ${
-                          liveOn
+                        className={`flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-bold tracking-wider md:hidden ${liveOn
                             ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
                             : "border-zinc-700 text-zinc-500"
-                        }`}
+                          }`}
                         title={liveOn ? t(lang, "live.tip") : t(lang, "live.offTip")}
                       >
                         <span
-                          className={`inline-block h-1.5 w-1.5 rounded-full ${
-                            liveOn ? "animate-pulse bg-emerald-400" : "bg-zinc-600"
-                          }`}
+                          className={`inline-block h-1.5 w-1.5 rounded-full ${liveOn ? "animate-pulse bg-emerald-400" : "bg-zinc-600"
+                            }`}
                         />
                         {liveOn ? t(lang, "live.badge") : t(lang, "live.off")}
                       </span>
@@ -1360,7 +1355,7 @@ export default function Home() {
                   </div>
                 </CardHeader>
                 <CardContent className="flex min-h-0 flex-1 flex-col px-3 pb-2 pt-2">
-                  <div className="h-[340px] shrink-0 sm:h-[400px] lg:h-auto lg:min-h-[300px] lg:flex-1 lg:shrink">
+                  <div className="min-h-0 flex-1">
                     <PriceChart
                       klines={klines}
                       sma={view.sma}
@@ -1414,9 +1409,11 @@ export default function Home() {
                 onUnpin={() => setPinnedTime(null)}
                 pinnedSig={pinnedSig}
               />}
-                            {/* analytical panels share one tabbed card — the rail no longer
+              {/* analytical panels share one tabbed card — the rail no longer
                   scrolls past three stacked cards to reach Auto Trade;
                   on mobile the card is part of the toggleable low-traffic areas */}
+                                <SessionsPanel lang={lang} stats={view.sessStats} whale={view.whale} cycles={view.cycles} forecast={view.forecast} />
+
               <Tabs defaultValue="wyckoff" className={`shrink-0 ${showExtra ? "" : "hidden lg:block"}`}>
                 <TabsList className="h-8 w-full justify-start overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   <TabsTrigger
@@ -1446,8 +1443,7 @@ export default function Home() {
                   <WyckoffPanel lang={lang} wy={wyckoff} on={wySettings.enabled} sens={wySettings.sens} />
                 </TabsContent>
               </Tabs>
-              <SessionsPanel lang={lang} stats={view.sessStats} whale={view.whale} cycles={view.cycles} forecast={view.forecast} />
-{/* Auto Trade — tách sang trang riêng /auto (0.2.95): rail hẹp
+              {/* Auto Trade — tách sang trang riêng /auto (0.2.95): rail hẹp
                   không đủ cho sổ dry-run A/B; launcher còn hiển thị vị thế
                   đang mở để biết engine còn sống */}
               <Button
@@ -1489,11 +1485,10 @@ export default function Home() {
                     !xgbStale && (
                       <Badge
                         variant="outline"
-                        className={`h-5 px-1.5 text-[10px] ${
-                          xgb.auc >= 0.55
+                        className={`h-5 px-1.5 text-[10px] ${xgb.auc >= 0.55
                             ? "border-emerald-700 bg-emerald-950/40 text-emerald-300"
                             : "border-zinc-700 bg-zinc-900 text-zinc-400"
-                        }`}
+                          }`}
                       >
                         AUC {xgb.auc.toFixed(2)}
                       </Badge>
@@ -1521,8 +1516,7 @@ export default function Home() {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`pointer-events-auto rounded-lg border px-3.5 py-2.5 shadow-lg backdrop-blur ${
-              toast.kind === "flip"
+            className={`pointer-events-auto rounded-lg border px-3.5 py-2.5 shadow-lg backdrop-blur ${toast.kind === "flip"
                 ? "border-zinc-600 bg-[#020617]/90"
                 : toast.kind === "warn"
                   ? "border-amber-600 bg-amber-950/90"
@@ -1535,7 +1529,7 @@ export default function Home() {
                         : toast.side === "LONG"
                           ? "border-emerald-700 bg-emerald-950/90"
                           : "border-rose-700 bg-rose-950/90"
-            }`}
+              }`}
             role="status"
           >
             <p className="flex items-start gap-2 text-xs leading-relaxed text-zinc-100">
