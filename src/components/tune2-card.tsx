@@ -6,8 +6,7 @@
 //   2) bảng Strategy | Current RR | Quality Floor | Recommendation (A/B/C/D)
 //   3) card Key Insight (RR hợp lý · Quality Floor · Ưu tiên)
 // LOGIC GIỮ NGUYÊN 0.3.0: GET /api/tune2 (db/tune2-proposal.json), POST
-// refresh/apply/dismiss; apply sổ B → cfgPatch lên trang. D không có trong
-// engine tune2 → hiện hàng "—" và pill "Chờ dữ liệu" (trung thực, không bịa).
+// refresh/apply/dismiss; apply sổ B → cfgPatch lên trang. D đã có current RR/Floor từ /api/tune2 → hiện RR/Floor thật; pill vẫn "Chờ dữ liệu" cho tới khi đủ 5 lệnh đóng.
 // Recommendation: sổ có đề xuất pending → "Nâng nhẹ"; hết/không có → "Giữ".
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -185,9 +184,9 @@ export function Tune2Card({ lang, onBcfgApplied, pushToast }: Props) {
           </div>
           {(["a", "b", "c", "d"] as const).map((book) => {
             const meta = BOOK_META[book];
-            const isReal = book !== "d";
-            const cur = isReal ? data?.current[book] : undefined;
-            const stats = isReal ? data?.books[book] : null;
+            const isReal = true;
+            const cur = data?.current[book];
+            const stats = data?.books[book] ?? null;
             const pending = isReal ? pendingOf(book) : 0;
             const rec: "keep" | "up" | "wait" = !isReal || !stats || (stats.n ?? 0) < TUNE2_MIN_N ? "wait" : pending > 0 ? "up" : "keep";
             return (
