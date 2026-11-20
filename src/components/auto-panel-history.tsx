@@ -408,12 +408,13 @@ export function AutoHistory(props: any) {
           <div className="border-t border-zinc-800 pt-2">
             <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">{t(lang, "auto.combo.title")}</p>
             <div className="mt-1.5 overflow-hidden rounded-lg border border-zinc-800">
-              <div className="grid grid-cols-[1fr_30px_44px_44px_54px] gap-x-1 border-b border-zinc-800 bg-zinc-950/60 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
+              <div className="grid grid-cols-[1fr_30px_44px_44px_54px_64px] gap-x-1 border-b border-zinc-800 bg-zinc-950/60 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
                 <span>{t(lang, "auto.col.pair")}</span>
                 <span>{t(lang, "auto.col.tf")}</span>
                 <span className="text-right">{t(lang, "auto.combo.col.trades")}</span>
                 <span className="text-right">{t(lang, "auto.combo.col.win")}</span>
                 <span className="text-right">{t(lang, "auto.combo.col.net")}</span>
+                <span className="text-right">TOTAL PNL</span>
               </div>
               <div className="rail-scroll max-h-36 overflow-y-auto">
                 {(auto?.byCombo ?? []).map((c: any) => (
@@ -421,7 +422,7 @@ export function AutoHistory(props: any) {
                     key={`${c.symbol}-${c.interval}`}
                     type="button"
                     onClick={() => onPickPair(c.symbol, c.interval)}
-                    className="grid w-full grid-cols-[1fr_30px_44px_44px_54px] items-center gap-x-1 px-2 py-1 text-left font-mono text-[10px] hover:bg-zinc-800/60"
+                    className="grid w-full grid-cols-[1fr_30px_44px_44px_54px_64px] items-center gap-x-1 px-2 py-1 text-left font-mono text-[10px] hover:bg-zinc-800/60"
                   >
                     <span className="whitespace-normal leading-snug text-zinc-200">{c.symbol}</span>
                     <span className="text-zinc-500">{c.interval}</span>
@@ -431,6 +432,7 @@ export function AutoHistory(props: any) {
                       {c.netPnlPct >= 0 ? "+" : ""}
                       {c.netPnlPct.toFixed(1)}%
                     </span>
+                    <span className={`text-right ${((() => { const _t = (closedHist ?? []).filter((x: any) => x.symbol === c.symbol && x.interval === c.interval).reduce((s: number, x: any) => s + (x.capitalAfter != null && x.capitalBefore != null ? x.capitalAfter - x.capitalBefore : ((x.pnlPct ?? 0) / 100) * (((x.capitalBefore ?? capitalNow) * (x.stakePct ?? 100)) / 100)), 0); return _t; })()) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{((() => { const _t = (closedHist ?? []).filter((x: any) => x.symbol === c.symbol && x.interval === c.interval).reduce((s: number, x: any) => s + (x.capitalAfter != null && x.capitalBefore != null ? x.capitalAfter - x.capitalBefore : ((x.pnlPct ?? 0) / 100) * (((x.capitalBefore ?? capitalNow) * (x.stakePct ?? 100)) / 100)), 0); return _t; })()) >= 0 ? "+$" : "-$"}{Math.abs((() => { const _t = (closedHist ?? []).filter((x: any) => x.symbol === c.symbol && x.interval === c.interval).reduce((s: number, x: any) => s + (x.capitalAfter != null && x.capitalBefore != null ? x.capitalAfter - x.capitalBefore : ((x.pnlPct ?? 0) / 100) * (((x.capitalBefore ?? capitalNow) * (x.stakePct ?? 100)) / 100)), 0); return _t; })()).toFixed(2)}</span>
                   </button>
                 ))}
               </div>
@@ -458,8 +460,8 @@ export function AutoHistory(props: any) {
                 const hold = holdMs >= 3600000 ? `${(holdMs / 3600000).toFixed(1)}h` : holdMs >= 60000 ? `${Math.round(holdMs / 60000)}m` : holdMs > 0 ? `${Math.round(holdMs / 1000)}s` : "—";
                 const reason = r.exitKind === "tp" ? "TP" : r.exitKind === "sl" ? "SL" : r.exitKind === "trail" ? "TRAIL" : r.exitKind === "flip" ? "FLIP" : (r.exitKind ?? "—");
                 return (
-                <div key={r.id} className="rounded-md border border-zinc-800/80 bg-zinc-950/40 px-2 py-1 text-[10px]">
-                  <div className="flex items-center gap-2">
+                <div key={r.id} className="flex items-center gap-2 overflow-x-auto whitespace-nowrap rounded-md border border-zinc-800/80 bg-zinc-950/40 px-2 py-1 text-[10px]">
+                  <div className="flex shrink-0 items-center gap-2">
                     <span className="shrink-0 text-zinc-500">
                       {new Date(r.exitTime ?? r.entryTime).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}
                     </span>
@@ -470,7 +472,7 @@ export function AutoHistory(props: any) {
                     </span>
                     <span className="shrink-0 font-mono text-zinc-600">{r.exitKind === "tp" ? "TP" : r.exitKind === "sl" ? "SL" : r.exitKind === "trail" ? "TRAIL" : r.exitKind === "flip" ? "FLIP" : "..."}</span>
                   </div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0 font-mono text-[10px] text-zinc-500">
+                  <div className="flex shrink-0 items-center gap-x-2 font-mono text-[10px] text-zinc-500">
                     <span>{entry != null && exit != null ? `${Number(entry).toFixed(4)} -> ${Number(exit).toFixed(4)}` : "Entry -> Exit -"}</span>
                     {lev != null && <span>Lev {lev}x</span>}
                     {margin != null && <span>Margin ${Number(margin).toFixed(2)}</span>}

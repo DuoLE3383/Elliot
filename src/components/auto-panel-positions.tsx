@@ -85,25 +85,11 @@ export function AutoPositions(props: any) {
           const wins = closed.filter((x: any) => (x.pnlPct ?? 0) > 0).length;
           const wr = closed.length > 0 ? (wins / closed.length) * 100 : null;
           return (
-            <div className="flex items-center gap-4 rounded-xl border border-[#1e2d4d]/70 bg-[#0b1222]/60 px-3 py-2.5">
-              {/* donut + nhãn giữa */}
-              <div className="relative h-[86px] w-[86px] shrink-0" role="img" aria-label={t(lang, "auto2.perfUroe")}>
-                <svg viewBox="0 0 86 86" className="h-full w-full -rotate-90">
-                  <circle cx="43" cy="43" r={R} fill="none" stroke="#1c2947" strokeWidth="10" />
-                  {nOpen > 0 && longLen > 0 && (
-                    <circle cx="43" cy="43" r={R} fill="none" stroke="#10b981" strokeWidth="10" strokeLinecap="butt" strokeDasharray={`${longLen} ${C - longLen}`} />
-                  )}
-                  {nOpen > 0 && C - longLen > 0.5 && (
-                    <circle cx="43" cy="43" r={R} fill="none" stroke="#f43f5e" strokeWidth="10" strokeLinecap="butt" strokeDasharray={`${C - longLen} ${longLen}`} strokeDashoffset={-longLen} />
-                  )}
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className={`font-mono text-[13px] font-bold ${uRoe == null ? "text-zinc-600" : uRoe >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                    {uRoe == null ? "—" : `${uRoe >= 0 ? "+" : ""}${uRoe.toFixed(2)}%`}
-                  </span>
-                  <span className="text-center text-[8px] font-semibold uppercase leading-tight tracking-wide text-zinc-500">{t(lang, "auto2.perfUroe")}</span>
+            <div className="flex items-center gap-4 rounded-xl border-2 bg-[#0b1222]/60 px-3 py-2.5" style={{ borderColor: uRoe == null ? "#1e2d4d" : uRoe >= 0 ? "#10b981" : "#f43f5e" }}>
+              <div className="w-20 shrink-0 text-center">
+                  <div className={`font-mono text-lg font-bold ${uRoe == null ? "text-zinc-600" : uRoe >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{uRoe == null ? "—" : `${uRoe >= 0 ? "+" : ""}${uRoe.toFixed(2)}%`}</div>
+                  <div className="text-[8px] font-semibold uppercase leading-tight tracking-wide text-zinc-500">{t(lang, "auto2.perfUroe")}</div>
                 </div>
-              </div>
               {/* 4 hàng stats */}
               <dl className="grid min-w-0 flex-1 grid-cols-1 gap-y-1 font-mono text-[11px] sm:grid-cols-2 sm:gap-x-4">
                 <div className="flex items-baseline justify-between gap-2">
