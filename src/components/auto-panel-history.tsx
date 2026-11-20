@@ -426,23 +426,42 @@ export function AutoHistory(props: any) {
           {closedHist.length === 0 ? (
             <p className="mt-1 text-[11px] text-zinc-600">{t(lang, "auto.hist.empty")}</p>
           ) : (
-            <div className="rail-scroll mt-1.5 max-h-28 space-y-1 overflow-y-auto pr-0.5">
-              {closedHist.map((r) => (
-                <div key={r.id} className="flex items-center gap-2 rounded-md border border-zinc-800/80 bg-zinc-950/40 px-2 py-1 text-[10px]">
-                  <span className="shrink-0 text-zinc-500">
-                    {new Date(r.exitTime ?? r.createdAt).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}
-                  </span>
-                  <span className="truncate font-mono text-zinc-300">
-                    {r.symbol} {r.interval}
-                  </span>
-                  <span className={`shrink-0 font-mono ${sideClass(r.side)}`}>{r.side}</span>
-                  <span className={`ml-auto shrink-0 font-mono font-bold ${(r.pnlPct ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                    {(r.pnlPct ?? 0) >= 0 ? "+" : ""}
-                    {(r.pnlPct ?? 0).toFixed(2)}%
-                  </span>
-                  <span className="shrink-0 font-mono text-zinc-600">{r.exitKind === "tp" ? "TP" : r.exitKind === "sl" ? "SL" : r.exitKind === "trail" ? "🪢" : r.exitKind === "flip" ? "🔄" : "…"}</span>
+            <div className="rail-scroll mt-1.5 max-h-44 space-y-1 overflow-y-auto pr-0.5">
+              {closedHist.map((r: any) => {
+                const entry = r.entryPrice ?? r.entry ?? null;
+                const exit = r.exitPrice ?? r.closePrice ?? r.exit ?? null;
+                const lev = r.leverage ?? r.lev ?? null;
+                const margin = r.margin ?? r.stake ?? (r.qty && entry ? r.qty * entry / Math.max(1, lev ?? 1) : null);
+                const pnlUsd = r.pnlUsd ?? r.pnl ?? r.pnlDollar ?? null;
+                const t0 = r.createdAt ? new Date(r.createdAt).getTime() : 0;
+                const t1 = r.exitTime ? new Date(r.exitTime).getTime() : 0;
+                const holdMs = t0 && t1 ? Math.max(0, t1 - t0) : 0;
+                const hold = holdMs >= 3600000 ? `${(holdMs / 3600000).toFixed(1)}h` : holdMs >= 60000 ? `${Math.round(holdMs / 60000)}m` : holdMs > 0 ? `${Math.round(holdMs / 1000)}s` : "—";
+                const reason = r.closeReason ?? r.exitReason ?? r.reason ?? (r.exitKind === "tp" ? "TP" : r.exitKind === "sl" ? "SL" : r.exitKind === "trail" ? "TRAIL" : r.exitKind === "flip" ? "FLIP" : "—");
+                return (
+                <div key={r.id} className="rounded-md border border-zinc-800/80 bg-zinc-950/40 px-2 py-1 text-">
+                  <div className="flex items-center gap-2">
+                    <span className="shrink-0 text-zinc-500">
+                      {new Date(r.exitTime ?? r.createdAt).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}
+                    </span>
+                    <span className="truncate font-mono text-zinc-300">{r.symbol} {r.interval}</span>
+                    <span className={`shrink-0 font-mono ${sideClass(r.side)}`}>{r.side}</span>
+                    <span className={`ml-auto shrink-0 font-mono font-bold ${(r.pnlPct ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                      {(r.pnlPct ?? 0) >= 0 ? "+" : ""}{(r.pnlPct ?? 0).toFixed(2)}%
+                    </span>
+                    <span className="shrink-0 font-mono text-zinc-600">{r.exitKind === "tp" ? "TP" : r.exitKind === "sl" ? "SL" : r.exitKind === "trail" ? "TRAIL" : r.exitKind === "flip" ? "FLIP" : "..."}</span>
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0 font-mono text- text-zinc-500">
+                    <span>{entry != null && exit != null ? `${Number(entry).toFixed(4)} -> ${Number(exit).toFixed(4)}` : "Entry -> Exit -"}</span>
+                    {lev != null && <span>Lev {lev}x</span>}
+                    {margin != null && <span>Margin ${Number(margin).toFixed(2)}</span>}
+                    {pnlUsd != null && <span className={Number(pnlUsd) >= 0 ? "text-emerald-400" : "text-rose-400"}>PNL ${Number(pnlUsd) >= 0 ? "+" : ""}{Number(pnlUsd).toFixed(2)}</span>}
+                    <span>Giu {hold}</span>
+                    <span className="text-zinc-400">{reason}</span>
+                  </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
