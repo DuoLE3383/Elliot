@@ -19,6 +19,7 @@
 // Thuần (không IO) — API route đọc DB rồi truyền vào; test chạy trực tiếp.
 
 import { feeRoe } from "./params";
+import { combineClosePnl } from "./trade-mgmt";
 
 // ─── Kiểu đầu vào — struct tối thiểu, ăn khớp với AutoTradeRow ────────────────
 
@@ -32,6 +33,8 @@ export interface AuditTradeRow {
   stakePct: number | null;
   exitKind: string | null;
   pnlPct: number | null;
+  p1Pct?: number | null;
+  p1Share?: number | null;
   capitalBefore: number | null;
   capitalAfter: number | null;
   createdAt: string | Date;
@@ -84,16 +87,18 @@ export interface AuditReport {
  *  giá bị ghi −100 liều mạng. Giờ dùng thẳng movePct ≤ −(100/lev), một nguồn
  *  với liquidationHit() của engine (autotrade.ts) — kiểm thử hồi quy ở
  *  scripts/test-audit-book.mts chốt cả 4 góc LONG/SHORT × thắng/thua. */
-export function expectedPnlPctOf(row: Pick<AuditTradeRow, "side" | "entryPrice" | "exitPrice" | "leverage" | "exitKind">): number | null {
+export function expectedPnlPctOf(row: Pick<AuditTradeRow, "side" | "entryPrice" | "exitPrice" | "leverage" | "exitKind" | "p1Pct" | "p1Share">): number | null {
   const entry = row.entryPrice;
   const exit = row.exitPrice;
   const lev = row.leverage;
   if (!entry || !exit || !(lev > 0)) return null;
   const movePct = row.side === "SHORT" ? ((entry - exit) / entry) * 100 : ((exit - entry) / entry) * 100;
-  let pnl = Math.round((movePct * lev - feeRoe(lev)) * 100) / 100;
-  if (lev > 1 && movePct <= -(100 / lev)) pnl = -100;
-  else if (pnl < -100) pnl = -100;
-  return pnl;
+  let rem = Math.round((movePct * lev - feeRoe(lev)) * 100) / 100;
+  if (lev > 1 && movePct <= -(100 / lev)) rem = -100;
+  else if (rem < -100) rem = -100;
+  // FIX 0.3.x — lệnh Runner đã bank TP1: tổng = combine(p1, rem), không phải rem trần.
+  // Đây là lý do XAUT/NEAR/ATOM lưu pnlPct = rem (thiếu phần bank) mà Audit cũ vẫn báo clean.
+  return combineClosePnl(row.p1Pct ?? null, row.p1Share ?? null, rem);
 }
 
 const round2 = (v: number): number => Math.round(v * 100) / 100;
