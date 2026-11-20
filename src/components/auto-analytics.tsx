@@ -109,12 +109,7 @@ export function AutoAnalytics({ lang, auto }: { lang: Lang; auto: AutoState | nu
             <button key={tb} onClick={() => setBook(tb)} className={`rounded-md border px-2.5 py-1 font-mono text-xs ${book === tb ? 'border-emerald-500/60 bg-emerald-500/15 text-emerald-300' : 'border-zinc-700 text-zinc-400 hover:text-zinc-200'}`}>{tb === 'ALL' ? 'ALL' : `Book ${tb}`}</button>
           ))}
         </div>
-        <div className="mt-2 flex gap-1">
-          {tabs.map((tb) => (
-            <button key={tb} onClick={() => setBook(tb)} className={`rounded-md border px-2.5 py-1 font-mono text-xs ${book === tb ? 'border-emerald-500/60 bg-emerald-500/15 text-emerald-300' : 'border-zinc-700 text-zinc-400 hover:text-zinc-200'}`}>{tb === 'ALL' ? 'ALL' : `Book ${tb}`}</button>
-          ))}
-        </div>
-        <p className="text-[11px] text-zinc-500">{t(lang, "ana.sub")}</p>
+                <p className="text-[11px] text-zinc-500">{t(lang, "ana.sub")}</p>
       </CardHeader>
       <CardContent className="space-y-3 px-3 pt-0">
         {/* KPI row */}
