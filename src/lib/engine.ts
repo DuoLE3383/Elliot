@@ -54,6 +54,8 @@ import {
   slTpHit,
   trailNextPeak,
   trailStopPrice,
+  trailMovePct,
+  trailRoiStopPrice,
   trailAutoLevels,
   withChampion,
   confluenceBlend,
@@ -73,6 +75,7 @@ import { llmReview, resolveLlmEndpoint, type LlmVerdict } from "./llm";
 import { methodIdOf, methodSnapshot } from "./method";
 import { runAgentTick } from "./self-improve";
 import { fetchKlinesDirect, fetchBoard24h } from "./klines-direct";
+import { getLiveTail } from "./live-stream";
 import { wyckoffLongGate } from "./wyckoff-gate";
 import { startVulcanEngine } from "./vulcan-engine";
 import { startWyckoffEngine, wyckoffEngineStatus } from "./wyckoff-engine";
@@ -2095,8 +2098,14 @@ async function updateTrail(
     tr.peak = peak;
     persistEngine();
   }
-  const stop = trailStopPrice(open.side, open.entryPrice, peak, act, dist);
-  const hit = stop != null && (open.side === "SHORT" ? price >= stop : price <= stop);
+  // Trail ROI (B): peakROI > 3% => stopROI = peakROI - 1%, vuot mat act/dist cu
+  const peakRoi = trailMovePct(open.side, open.entryPrice, peak) * open.leverage;
+  const roiStop = trailRoiStopPrice(open.side, open.entryPrice, peakRoi, open.leverage);
+  const stop = roiStop ?? trailStopPrice(open.side, open.entryPrice, peak, act, dist);
+  const curRoi = trailMovePct(open.side, open.entryPrice, price) * open.leverage;
+  const hit = stop != null && (roiStop != null
+    ? curRoi <= peakRoi - 1
+    : open.side === "SHORT" ? price >= stop : price <= stop);
   return { stop, hit, act, dist, atrPct: tr.atrPct, lev: tr.lev, src: tr.src };
 }
 
@@ -2167,7 +2176,34 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
   //    runner bật thì cơ chế này chỉ có vai trò TRƯỚC TP1 (sau TP1 là trail
   //    riêng của runner phía trên — BE + ratchet, không đụng p.trail nữa).
   const trail = await updateTrail(open, price, c);
-  if (trail.hit) return { closed: await closeTradeDirect(open.id, price, "trail"), kind: "trail" };
+  if (trail.hit) {
+    // B: normal phase + chua bank lan nao -> bank 50% o stopROI, 50% con lai thanh runner,
+    // SL doi len dung gia trail (peakROI-1). Runner cham trail lan nua -> dong 100% (nhanh duoi).
+    const alreadyPartial = (open.p1Pct ?? null) != null;
+    if (!alreadyPartial && trail.stop != null) {
+      // stopRoi = ROI tai dung gia trail.stop (= peakROI - 1) - tinh tu gia, khong can peak
+      const stopMovePct = open.side === "SHORT"
+        ? ((open.entryPrice - trail.stop) / open.entryPrice) * 100
+        : ((trail.stop - open.entryPrice) / open.entryPrice) * 100;
+      const stopRoi = Math.round(stopMovePct * open.leverage * 100) / 100;
+      const slMove = Math.max(0.05, stopRoi / Math.max(1, open.leverage)); // % gia cua SL moi
+      try {
+        await db.autoTrade.update({
+          where: { id: open.id },
+          data: { p1Pct: stopRoi, p1Share: 0.5, tp2Pct: Math.max(open.tpPct * open.leverage, stopRoi + 2), trailPct: 0, slPct: open.side === "SHORT" ? -slMove : slMove },
+        });
+        console.log(`[engine] TRAIL ROI partial ${open.symbol} ${open.interval} — bank 50% @ ROI ${stopRoi.toFixed(2)}% · runner SL doi len ${slMove.toFixed(2)}% gia`);
+        if ((p as any).trailById) delete (p as any).trailById[open.id];
+        slPendingSet(open.id, null);
+        persistEngine();
+        if (tgReady()) void tgSendMessage(msgTp1(open, price, 0.5, Math.max(open.tpPct * open.leverage, stopRoi + 2)), "HTML");
+        return { tp1: true };
+      } catch (e) {
+        console.error(`[engine] TRAIL ROI partial failed: ${e instanceof Error ? e.message : e} — dong toan bo nhu cu`);
+      }
+    }
+    return { closed: await closeTradeDirect(open.id, price, "trail"), kind: "trail" };
+  }
   const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
   if (liq) return { closed: await closeTradeDirect(open.id, price, "sl"), kind: "sl" };
   if (kind === "tp") {
@@ -2243,7 +2279,33 @@ async function watcherTick(): Promise<void> {
     const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
     // multi-position: watcher quet TUNG lenh, khong chi lenh dau
     for (const open of opens) {
-    const price = tickers[open.symbol]?.price ?? 0;
+    const tickerPrice = tickers[open.symbol]?.price ?? 0;
+    // bat wick: lay low/high nen hien tai tu luong live chung (WS), fallback REST 2 nen
+    // SHORT: low cham TP + cap nhat peak, high cham SL/trail. LONG nguoc lai.
+    let wickLow = 0, wickHigh = 0;
+    const tail = getLiveTail(open.symbol, open.interval);
+    if (tail && tail.length) {
+      const k = tail[tail.length - 1];
+      wickLow = k.l; wickHigh = k.h;
+    } else {
+      try {
+        const kl = await fetchKlinesDirect(open.symbol, open.interval, 2);
+        const k = kl[kl.length - 1];
+        if (k) { wickLow = k.l; wickHigh = k.h; }
+      } catch { /* fallback ticker */ }
+    }
+    // chon gia de cham exit: neu wick da cham TP/SL/trail thi dung gia wick, khong thi ticker
+    let price = tickerPrice;
+    if (wickLow > 0 && wickHigh > 0) {
+      const tpP = open.side === "SHORT" ? open.entryPrice * (1 - Math.abs(open.tpPct) / 100) : open.entryPrice * (1 + Math.abs(open.tpPct) / 100);
+      const slP = open.side === "SHORT" ? open.entryPrice * (1 + Math.abs(open.slPct) / 100) : open.entryPrice * (1 - Math.abs(open.slPct) / 100);
+      if (open.side === "SHORT" && wickLow <= tpP) price = wickLow;
+      else if (open.side === "LONG" && wickHigh >= tpP) price = wickHigh;
+      else if (open.side === "SHORT" && wickHigh >= slP) price = wickHigh;
+      else if (open.side === "LONG" && wickLow <= slP) price = wickLow;
+      else if (open.side === "SHORT") price = Math.min(tickerPrice || wickLow, wickLow); // cap nhat peak trail bang low
+      else price = Math.max(tickerPrice || wickHigh, wickHigh);
+    }
     if (price <= 0) continue;
     // 0.3.3 — MỘT luồng chấm thoát (trailing / liq / TP1-runner / TP2 / runner-
     // trail / SL-confirm / DCA-at-stop) nằm trong evalExit — cùng thuật toán
@@ -2592,7 +2654,7 @@ export function startEngineScheduler(): void {
   // 0.2.93 — sổ A (Vulcan/DonchianBreakout port): engine riêng bảng VulcanBook,
   // bám nến 15m, KHÔNG đụng chuỗi vốn sổ B. VULCAN_A=0 để tắt.
   try {
-    startVulcanEngine();
+    startVulcanEngine([...UNIVERSE]);
   } catch (e) {
     console.error(`[vulcan] không khởi động được: ${e instanceof Error ? e.message : String(e)}`);
   }
