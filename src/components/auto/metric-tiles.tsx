@@ -82,9 +82,9 @@ function Tile({
       <div className="flex min-w-0 items-center gap-3">
         <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${iconClass}`}>{icon}</span>
         <div className="min-w-0">
-          <p className="truncate text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{label}</p>
-          <p className={`truncate font-mono text-[17px] font-bold leading-tight ${valueClass ?? "text-white"}`}>{value}</p>
-          {sub && <p className="truncate text-[9px] text-zinc-600">{sub}</p>}
+          <p className="whitespace-normal leading-snug text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{label}</p>
+          <p className={`whitespace-normal leading-snug font-mono text-[17px] font-bold leading-tight ${valueClass ?? "text-white"}`}>{value}</p>
+          {sub && <p className="whitespace-normal leading-snug text-[9px] text-zinc-600">{sub}</p>}
         </div>
       </div>
       <div className="shrink-0">{spark}</div>

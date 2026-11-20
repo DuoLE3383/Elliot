@@ -194,7 +194,7 @@ export function Tune2Card({ lang, onBcfgApplied, pushToast }: Props) {
               <div key={book} className="grid grid-cols-[minmax(0,1.4fr)_0.8fr_1fr_1.3fr] items-center gap-x-2 border-b border-[#16233f]/60 px-3 py-2.5 last:border-b-0">
                 <span className="flex min-w-0 items-center gap-2">
                   <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border font-mono text-[11px] font-black ${meta.badge}`}>{meta.letter}</span>
-                  <span className="truncate text-[12px] font-semibold text-zinc-100">{t(lang, meta.nameKey)}</span>
+                  <span className="whitespace-normal leading-snug text-[12px] font-semibold text-zinc-100">{t(lang, meta.nameKey)}</span>
                 </span>
                 <span className="text-right font-mono text-[13px] font-bold text-white">{isReal ? num(cur?.rr) : "—"}</span>
                 <span className="text-right font-mono text-[13px] font-bold text-white">{isReal ? num(cur?.floor) : "—"}</span>

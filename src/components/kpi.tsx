@@ -70,16 +70,16 @@ export function KpiCards({
   ) => (
     <div className="min-w-0 px-2.5 py-1" title={opts?.tip}>
       <div className="flex items-center justify-between gap-1">
-        <p className="truncate text-[9px] font-medium uppercase tracking-wide text-zinc-500">{label}</p>
+        <p className="whitespace-normal leading-snug text-[9px] font-medium uppercase tracking-wide text-zinc-500">{label}</p>
         {opts?.icon}
       </div>
       <p className="mt-0.5 flex items-baseline gap-1.5">
         <span className={`shrink-0 font-mono text-[13px] font-bold leading-tight ${opts?.valueClass ?? "text-zinc-100"}`}>
           {value}
         </span>
-        <span className="min-w-0 flex-1 truncate text-[10px] leading-tight text-zinc-500">{sub}</span>
+        <span className="min-w-0 flex-1 whitespace-normal leading-snug text-[10px] leading-tight text-zinc-500">{sub}</span>
       </p>
-      {opts?.sub2 && <p className="mt-px truncate text-[9px] leading-tight">{opts.sub2}</p>}
+      {opts?.sub2 && <p className="mt-px whitespace-normal leading-snug text-[9px] leading-tight">{opts.sub2}</p>}
       {opts?.bar != null && (
         <div className="mt-0.5 flex h-[3px] max-w-28 overflow-hidden rounded-full bg-zinc-800">
           <div className="bg-emerald-500" style={{ width: `${opts.bar}%` }} />

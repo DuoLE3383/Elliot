@@ -64,7 +64,7 @@ function StatTile({ icon, label, value, valueClass }: { icon: React.ReactNode; l
         {icon}
         {label}
       </p>
-      <p className={`mt-0.5 truncate font-mono text-sm font-bold ${valueClass ?? "text-zinc-100"}`}>{value}</p>
+      <p className={`mt-0.5 whitespace-normal leading-snug font-mono text-sm font-bold ${valueClass ?? "text-zinc-100"}`}>{value}</p>
     </div>
   );
 }
@@ -238,7 +238,7 @@ export function SuggestionHistory({ lang, symbol, interval, refreshKey, forceAll
             ))}
           </div>
         ) : filtered.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-zinc-800 p-6 text-center text-xs text-zinc-500">
+          <p className="rounded-lg border border-transparent border-zinc-800 p-6 text-center text-xs text-zinc-500">
             {rows.length === 0 ? t(lang, "sg.empty") : t(lang, "sg.filter.empty")}
           </p>
         ) : (

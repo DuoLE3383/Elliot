@@ -47,7 +47,7 @@ export function AutoPositions(props: any) {
               <span className="shrink-0 font-mono text-[12px] font-bold text-violet-300">
                 {agentId} Agent — {a.label}
               </span>
-              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-zinc-300" title={`current executing · Risk ${cfg?.riskPct ?? "?"}% · Gate ${cfg?.minScore ?? "?"}/${cfg?.minAuc ?? "?"}/${cfg?.minAcc ?? "?"} · TF ${(cfg?.runTf ?? []).join("/")} · Lev ×${lev}`}>
+              <span className="min-w-0 flex-1 whitespace-normal leading-snug font-mono text-[11px] text-zinc-300" title={`current executing · Risk ${cfg?.riskPct ?? "?"}% · Gate ${cfg?.minScore ?? "?"}/${cfg?.minAuc ?? "?"}/${cfg?.minAcc ?? "?"} · TF ${(cfg?.runTf ?? []).join("/")} · Lev ×${lev}`}>
                 current executing · Risk {cfg?.riskPct ?? "?"}% · Gate {cfg?.minScore ?? "?"}/{cfg?.minAuc ?? "?"}/{cfg?.minAcc ?? "?"} · TF {(cfg?.runTf ?? []).join("/")} · Lev ×{lev}
               </span>
               <span className={`ml-auto shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-bold ${locked ? "bg-amber-950/60 text-amber-300" : "bg-emerald-950/60 text-emerald-300"}`}>

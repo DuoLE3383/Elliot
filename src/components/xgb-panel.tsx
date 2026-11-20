@@ -48,8 +48,8 @@ interface Props {
 function Tile({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
   return (
     <div className="min-w-0 rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
-      <p className="truncate text-[10px] font-medium uppercase tracking-wide text-zinc-500">{label}</p>
-      <p className={`mt-0.5 truncate font-mono text-sm font-bold ${valueClass ?? "text-zinc-100"}`}>{value}</p>
+      <p className="whitespace-normal leading-snug text-[10px] font-medium uppercase tracking-wide text-zinc-500">{label}</p>
+      <p className={`mt-0.5 whitespace-normal leading-snug font-mono text-sm font-bold ${valueClass ?? "text-zinc-100"}`}>{value}</p>
     </div>
   );
 }
@@ -204,7 +204,7 @@ export function XgbPanel({
               <div className="space-y-1">
                 {result.importance.map((f) => (
                   <div key={f.name} className="flex items-center gap-2">
-                    <span className="w-16 shrink-0 truncate font-mono text-[10px] text-zinc-400">{f.name}</span>
+                    <span className="w-16 shrink-0 whitespace-normal leading-snug font-mono text-[10px] text-zinc-400">{f.name}</span>
                     <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-800">
                       <div
                         className="h-full rounded-full bg-teal-500/80"
@@ -302,7 +302,7 @@ export function XgbPanel({
           </Button>
           {allBusy && allTrain && (
             <>
-              <p className="truncate font-mono text-[11px] text-teal-300">
+              <p className="whitespace-normal leading-snug font-mono text-[11px] text-teal-300">
                 {t(lang, "xgb.trainAll.busy", { done: String(allTrain.done), total: String(allTrain.total), current: allTrain.current })}
                 {allTrain.workers > 1 ? ` ${t(lang, "xgb.trainAll.workers", { w: String(allTrain.workers) })}` : ""}
               </p>

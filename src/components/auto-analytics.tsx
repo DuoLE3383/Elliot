@@ -161,7 +161,7 @@ export function AutoAnalytics({ lang, auto }: { lang: Lang; auto: AutoState | nu
               {closed.map((tr) => (
                 <div key={tr.id} className="flex items-center gap-2 rounded px-1.5 py-0.5 font-mono text-[10px] hover:bg-zinc-800/60">
                   <span className="shrink-0 text-zinc-600">{new Date(tr.exitTime ?? tr.entryTime).toLocaleString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}</span>
-                  <span className="truncate text-zinc-300">
+                  <span className="whitespace-normal leading-snug text-zinc-300">
                     {tr.symbol} {tr.interval}
                   </span>
                   <Badge variant="outline" className={`shrink-0 border-zinc-700 px-1 py-0 text-[9px] ${tr.side === "SHORT" ? "text-rose-400" : "text-emerald-400"}`}>

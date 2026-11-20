@@ -112,7 +112,7 @@ export function ParamsEditor({ lang }: { lang: Lang }) {
               return (
                 <div key={it.key} className="min-w-0">
                   <div className="flex min-w-0 items-center justify-between gap-3 text-[11px]">
-                    <span className="min-w-0 shrink-0 truncate font-mono text-zinc-500" title={it.note}>
+                    <span className="min-w-0 shrink-0 whitespace-normal leading-snug font-mono text-zinc-500" title={it.note}>
                       {it.key}
                       {overridden && (
                         <span className="ml-1 rounded bg-amber-950/60 px-1 text-[9px] font-semibold uppercase text-amber-400">

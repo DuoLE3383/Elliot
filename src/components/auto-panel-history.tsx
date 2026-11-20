@@ -32,22 +32,22 @@ export function AutoHistory(props: any) {
         {/* capital + stats */}
         <div className="grid grid-cols-3 gap-2">
           <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
-            <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">{t(lang, "auto.capital.now")}</p>
-            <p className="mt-0.5 truncate font-mono text- font-bold text-zinc-100">{capitalNow.toFixed(2)}</p>
-            <p className="truncate text-[9px] text-zinc-600">{t(lang, "auto.capital.start", { n: auto?.walletCapital ?? cfg.capital })}</p>
+            <p className="whitespace-normal leading-snug text-[10px] uppercase tracking-wide text-zinc-500">{t(lang, "auto.capital.now")}</p>
+            <p className="mt-0.5 whitespace-normal leading-snug font-mono text- font-bold text-zinc-100">{capitalNow.toFixed(2)}</p>
+            <p className="whitespace-normal leading-snug text-[9px] text-zinc-600">{t(lang, "auto.capital.start", { n: auto?.walletCapital ?? cfg.capital })}</p>
           </div>
           <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
-            <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">Net ROE</p>
-            <p className={`mt-0.5 truncate font-mono text- font-bold ${(auto?.stats.netPnlPct ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+            <p className="whitespace-normal leading-snug text-[10px] uppercase tracking-wide text-zinc-500">Net ROE</p>
+            <p className={`mt-0.5 whitespace-normal leading-snug font-mono text- font-bold ${(auto?.stats.netPnlPct ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
               {(auto?.stats.netPnlPct ?? 0) >= 0 ? "+" : ""}
               {(auto?.stats.netPnlPct ?? 0).toFixed(1)}%
             </p>
-            <p className="truncate text-[9px] text-zinc-600">{t(lang, "auto.stats.trades", { n: auto?.stats.closed ?? 0 })}</p>
+            <p className="whitespace-normal leading-snug text-[9px] text-zinc-600">{t(lang, "auto.stats.trades", { n: auto?.stats.closed ?? 0 })}</p>
           </div>
           <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
-            <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">Win</p>
-            <p className="mt-0.5 truncate font-mono text- font-bold text-zinc-100">{(auto?.stats.winRate ?? 0).toFixed(0)}%</p>
-            <p className="truncate text-[9px] text-zinc-600">
+            <p className="whitespace-normal leading-snug text-[10px] uppercase tracking-wide text-zinc-500">Win</p>
+            <p className="mt-0.5 whitespace-normal leading-snug font-mono text- font-bold text-zinc-100">{(auto?.stats.winRate ?? 0).toFixed(0)}%</p>
+            <p className="whitespace-normal leading-snug text-[9px] text-zinc-600">
               {auto?.stats.wins ?? 0}/{auto?.stats.closed ?? 0}
             </p>
           </div>
@@ -83,7 +83,7 @@ export function AutoHistory(props: any) {
             </div>
             <div className="flex-1 overflow-hidden rounded-lg border border-zinc-800">
               {/* cột số co đúng nội dung (kể cả nhãn vi "HƯỚNG"), PAIR (1fr)
-                  nhận toàn bộ phần còn lại — hết cảnh truncate "XMR…" */}
+                  nhận toàn bộ phần còn lại — hết cảnh whitespace-normal leading-snug "XMR…" */}
               <div className="grid grid-cols-[minmax(0,1fr)_39px_41px_42px_30px_28px_38px] gap-x-0.5 border-b border-zinc-800 bg-zinc-950/60 px-1.5 py-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
                 <span>{t(lang, "auto.col.pair")}</span>
                 <span>{t(lang, "auto.col.tf")}</span>
@@ -110,7 +110,7 @@ export function AutoHistory(props: any) {
                       i === 0 ? "bg-teal-950/20" : ""
                     }`}
                   >
-                    <span className="truncate text-zinc-200">
+                    <span className="whitespace-normal leading-snug text-zinc-200">
                       {r.symbol}
                       {confluenceMap[r.symbol] ? <span className="ml-1 text-xs text-violet-400">· {confluenceMap[r.symbol]}</span> : null}
                       {r.regressed && (
@@ -179,7 +179,7 @@ export function AutoHistory(props: any) {
                   <span className="shrink-0 text-zinc-600">
                     {new Date(r.at).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}
                   </span>
-                  <span className="truncate text-zinc-300">
+                  <span className="whitespace-normal leading-snug text-zinc-300">
                     {r.symbol} {r.interval}
                   </span>
                   {r.best && (
@@ -219,7 +219,7 @@ export function AutoHistory(props: any) {
                     className="flex w-full items-center gap-2 rounded px-1.5 py-0.5 font-mono text-[10px] hover:bg-zinc-800/60"
                   >
                     <span className="shrink-0">{pass ? "✅" : "❌"}</span>
-                    <span className="truncate text-zinc-300">
+                    <span className="whitespace-normal leading-snug text-zinc-300">
                       {r.symbol} {r.interval}
                     </span>
                     <span className={r.side === "SHORT" ? "shrink-0 text-rose-400" : "shrink-0 text-emerald-400"}>
@@ -423,7 +423,7 @@ export function AutoHistory(props: any) {
                     onClick={() => onPickPair(c.symbol, c.interval)}
                     className="grid w-full grid-cols-[1fr_30px_44px_44px_54px] items-center gap-x-1 px-2 py-1 text-left font-mono text-[10px] hover:bg-zinc-800/60"
                   >
-                    <span className="truncate text-zinc-200">{c.symbol}</span>
+                    <span className="whitespace-normal leading-snug text-zinc-200">{c.symbol}</span>
                     <span className="text-zinc-500">{c.interval}</span>
                     <span className="text-right text-zinc-400">{c.closed}</span>
                     <span className={`text-right font-bold ${c.winRate >= 50 ? "text-emerald-400" : "text-rose-400"}`}>{c.winRate.toFixed(0)}%</span>
@@ -463,7 +463,7 @@ export function AutoHistory(props: any) {
                     <span className="shrink-0 text-zinc-500">
                       {new Date(r.exitTime ?? r.entryTime).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}
                     </span>
-                    <span className="truncate font-mono text-zinc-300">{r.symbol} {r.interval}</span>
+                    <span className="whitespace-normal leading-snug font-mono text-zinc-300">{r.symbol} {r.interval}</span>
                     <span className={`shrink-0 font-mono ${sideClass(r.side)}`}>{r.side}</span>
                     <span className={`ml-auto shrink-0 font-mono font-bold ${(r.pnlPct ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                       {(r.pnlPct ?? 0) >= 0 ? "+" : ""}{(r.pnlPct ?? 0).toFixed(2)}%

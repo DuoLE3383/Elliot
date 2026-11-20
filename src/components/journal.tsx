@@ -252,7 +252,7 @@ export function Journal({ lang, papers, symbol, interval, maxListClass = "max-h-
   );
 
   const emptyList = (
-    <p className="rounded-lg border border-dashed border-zinc-800 p-6 text-center text-xs text-zinc-500">
+    <p className="rounded-lg border border-transparent border-zinc-800 p-6 text-center text-xs text-zinc-500">
       {t(lang, "journal.empty")}
     </p>
   );

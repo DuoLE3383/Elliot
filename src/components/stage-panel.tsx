@@ -96,7 +96,7 @@ export function Stage({
           )}
           <span className={`flex min-w-0 items-center gap-1.5 text-[13px] font-semibold ${c.text}`}>
             {icon}
-            <span className="truncate">{title}</span>
+            <span className="whitespace-normal leading-snug">{title}</span>
           </span>
           <span className="ml-auto flex shrink-0 items-center gap-1.5">{aside}</span>
           <ChevronDown className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${open ? "rotate-180" : ""}`} />

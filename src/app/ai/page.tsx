@@ -584,9 +584,9 @@ export default function AiPage() {
               <BrainCircuit className="h-5 w-5 text-teal-400" />
               {t(lang, "ai.title")}
             </h1>
-            <p className="truncate text-[11px] text-zinc-500">{t(lang, "ai.sub")}</p>
+            <p className="whitespace-normal leading-snug text-[11px] text-zinc-500">{t(lang, "ai.sub")}</p>
             {at > 0 && (
-              <p className="truncate text-[10px] text-zinc-600">
+              <p className="whitespace-normal leading-snug text-[10px] text-zinc-600">
                 {t(lang, "ai.updated")}: {new Date(at).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB")}
                 {data?.build && data.build !== "unknown" ? (
                   <>
@@ -701,7 +701,7 @@ export default function AiPage() {
                         <span className={`shrink-0 font-mono ${r.acc >= 55 ? "text-emerald-400" : "text-zinc-300"}`}>{r.acc.toFixed(1)}%</span>
                         <span className="shrink-0 font-mono text-zinc-500">AUC {r.auc.toFixed(2)}</span>
                         <span className="hidden shrink-0 font-mono text-zinc-600 sm:inline">L {r.logloss.toFixed(3)}</span>
-                        <span className="ml-auto max-w-full shrink-0 truncate font-mono text-[10px] text-zinc-500" title={hyper(r.params)}>{hyper(r.params)}</span>
+                        <span className="ml-auto max-w-full shrink-0 whitespace-normal leading-snug font-mono text-[10px] text-zinc-500" title={hyper(r.params)}>{hyper(r.params)}</span>
                         <span className="shrink-0 font-mono text-[10px] text-zinc-600">
                           {new Date(r.createdAt).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
                         </span>
@@ -721,9 +721,9 @@ export default function AiPage() {
                       <span className="shrink-0 font-mono text-zinc-500">{c.interval}</span>
                       <span className={`shrink-0 font-mono ${c.acc >= 55 ? "text-emerald-400" : "text-zinc-300"}`}>{c.acc.toFixed(1)}%</span>
                       <span className="shrink-0 font-mono text-zinc-500">AUC {c.auc.toFixed(2)}</span>
-                      {/* max-w-full + truncate — hyper(params) ~300px từng đẩy row
+                      {/* max-w-full + whitespace-normal leading-snug — hyper(params) ~300px từng đẩy row
                           champion tràn ngang mobile (390px); đủ xem trong title */}
-                      <span className="ml-auto max-w-full shrink-0 truncate font-mono text-[10px] text-zinc-500" title={hyper(c.params)}>{hyper(c.params)}</span>
+                      <span className="ml-auto max-w-full shrink-0 whitespace-normal leading-snug font-mono text-[10px] text-zinc-500" title={hyper(c.params)}>{hyper(c.params)}</span>
                     </div>
                   ))}
                   {data.champions.length > 10 && (
@@ -858,7 +858,7 @@ export default function AiPage() {
                     ["pairs", data.engine.pairs],
                   ].map(([k, v]) => (
                     <div key={String(k)} className="flex items-center justify-between gap-2 border-b border-zinc-800/60 py-0.5">
-                      <span className="shrink-0 truncate text-zinc-500">{k}</span>
+                      <span className="shrink-0 whitespace-normal leading-snug text-zinc-500">{k}</span>
                       {/* min-w-0 + break-words — giá trị dài (runTf "5m 15m … 1w")
                           từng tràn mép phải trên mobile 390px */}
                       <span className="min-w-0 break-words text-right font-mono font-bold text-zinc-200">{String(v)}</span>
@@ -942,7 +942,7 @@ export default function AiPage() {
                     <span className={verdictCls(data.engine.llmLast.verdict)}>{data.engine.llmLast.verdict}</span>{" "}
                     ({fmtMs(data.engine.llmLast.ms)})
                   </span>
-                  <span className="mt-0.5 block truncate text-zinc-500">{data.engine.llmLast.reason}</span>
+                  <span className="mt-0.5 block whitespace-normal leading-snug text-zinc-500">{data.engine.llmLast.reason}</span>
                 </p>
               ) : (
                 <p className="text-[11px] text-zinc-600">{t(lang, "ai.llm.none")}</p>
@@ -1152,10 +1152,10 @@ export default function AiPage() {
                           {new Date(h.at).toLocaleString(lang === "vi" ? "vi-VN" : "en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
                         </span>
                         <span className="shrink-0 font-mono text-zinc-500">{h.combo}</span>
-                        {h.name && <span className="truncate text-zinc-300">{h.name}</span>}
+                        {h.name && <span className="whitespace-normal leading-snug text-zinc-300">{h.name}</span>}
                       </span>
                       {h.detail && (
-                        <span className="mt-0.5 block truncate text-zinc-500" title={h.detail}>
+                        <span className="mt-0.5 block whitespace-normal leading-snug text-zinc-500" title={h.detail}>
                           {h.detail}
                         </span>
                       )}

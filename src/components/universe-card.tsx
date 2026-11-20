@@ -77,7 +77,7 @@ export function UniverseCard({ lang, existing, onAddSymbol }: Props) {
       </CardHeader>
       <CardContent className="px-3 pt-0">
         {rows.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-zinc-800 p-4 text-center text-xs text-zinc-500">{t(lang, "uni.empty")}</p>
+          <p className="rounded-lg border border-transparent border-zinc-800 p-4 text-center text-xs text-zinc-500">{t(lang, "uni.empty")}</p>
         ) : (
           <div className="max-h-64 space-y-0.5 overflow-y-auto pr-0.5">
             {rows.slice(0, 15).map((r, i) => {
@@ -91,7 +91,7 @@ export function UniverseCard({ lang, existing, onAddSymbol }: Props) {
                     title={t(lang, "uni.pick")}
                   >
                     <span className="w-5 shrink-0 font-mono text-[10px] text-zinc-600">{i + 1}.</span>
-                    <span className="w-14 shrink-0 truncate text-xs font-bold text-zinc-300">{r.symbol.replace("USDT", "")}</span>
+                    <span className="w-14 shrink-0 whitespace-normal leading-snug text-xs font-bold text-zinc-300">{r.symbol.replace("USDT", "")}</span>
                     <span className="font-mono text-[10px] text-zinc-500">ATR {r.atrPct.toFixed(2)}%</span>
                     <span className={`font-mono text-[10px] ${trendCls(r.trend)}`}>
                       {r.trend >= 0 ? "+" : ""}

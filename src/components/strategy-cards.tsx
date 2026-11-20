@@ -322,8 +322,8 @@ export function StrategyCards({ lang, cfgOn, onCfgPatch, onCfgToggle, books, onT
                     {spec.letter}
                   </span>
                   <div className="min-w-0">
-                    <h3 className={`truncate text-[13px] font-bold leading-tight ${spec.title}`}>{spec.name}</h3>
-                    <p className="truncate text-[10px] leading-tight text-zinc-500" title={spec.sub}>{spec.sub}</p>
+                    <h3 className={`whitespace-normal leading-snug text-[13px] font-bold leading-tight ${spec.title}`}>{spec.name}</h3>
+                    <p className="whitespace-normal leading-snug text-[10px] leading-tight text-zinc-500" title={spec.sub}>{spec.sub}</p>
                   </div>
                 </div>
                 {on ? (
@@ -360,14 +360,14 @@ export function StrategyCards({ lang, cfgOn, onCfgPatch, onCfgToggle, books, onT
 
               {/* đề xuất (nếu có) — một dòng nhỏ */}
               {adv && adv.action !== "hold" && (
-                <p className={`mt-1.5 truncate rounded-md border px-1.5 py-1 text-[9px] leading-snug ${adv.action === "on" ? "border-emerald-800/60 bg-emerald-950/30 text-emerald-300" : "border-rose-800/60 bg-rose-950/30 text-rose-300"}`} title={adv.reason}>
+                <p className={`mt-1.5 whitespace-normal leading-snug rounded-md border px-1.5 py-1 text-[9px] leading-snug ${adv.action === "on" ? "border-emerald-800/60 bg-emerald-950/30 text-emerald-300" : "border-rose-800/60 bg-rose-950/30 text-rose-300"}`} title={adv.reason}>
                   {adv.action === "on" ? (lang === "vi" ? "Đề xuất: BẬT" : "Advice: ON") : lang === "vi" ? "Đề xuất: TẮT" : "Advice: OFF"} — {adv.reason}
                 </p>
               )}
 
               {/* dòng trạng thái engine (C/D breadth) */}
               {spec.id === "c" && eng?.wyckoff?.status && (
-                <p className="mt-1.5 truncate font-mono text-[9px] text-zinc-600" title={eng.wyckoff.status}>
+                <p className="mt-1.5 whitespace-normal leading-snug font-mono text-[9px] text-zinc-600" title={eng.wyckoff.status}>
                   {eng.wyckoff.breadth != null ? `breadth ${num(eng.wyckoff.breadth, 0)}% · ` : ""}{eng.wyckoff.status}
                 </p>
               )}

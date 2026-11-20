@@ -74,8 +74,8 @@ function Donut({ slices, winRate, label, sub, subClass }: {
           <span className="text-[9px] uppercase tracking-wide text-zinc-600">win</span>
         </div>
       </div>
-      <p className="truncate text-[11px] font-semibold text-zinc-200">{label}</p>
-      <p className={`truncate font-mono text-[10px] ${subClass}`}>{sub}</p>
+      <p className="whitespace-normal leading-snug text-[11px] font-semibold text-zinc-200">{label}</p>
+      <p className={`whitespace-normal leading-snug font-mono text-[10px] ${subClass}`}>{sub}</p>
     </div>
   );
 }

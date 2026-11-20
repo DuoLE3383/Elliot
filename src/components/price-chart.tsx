@@ -949,7 +949,7 @@ export function PriceChart({
         </span>
         {stop && trend && (
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-0.5 w-4 border-t border-dashed border-emerald-400" />
+            <span className="inline-block h-0.5 w-4 border-t border-transparent border-emerald-400" />
             {t(lang, "chart.legend.stop")}
           </span>
         )}
@@ -1005,7 +1005,7 @@ export function PriceChart({
       </div>
 
       {pending && (
-        <div className="mt-1 shrink-0 rounded-md border border-dashed border-zinc-700 bg-zinc-900/60 px-3 py-1.5 text-[11px] text-zinc-400">
+        <div className="mt-1 shrink-0 rounded-md border border-transparent border-zinc-700 bg-zinc-900/60 px-3 py-1.5 text-[11px] text-zinc-400">
           {t(lang, "dock.pending")}: {pending.side === "LONG" ? "LONG" : "SHORT"} — {t(lang, "dock.pendingNote")}
         </div>
       )}

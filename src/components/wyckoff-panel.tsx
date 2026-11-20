@@ -34,10 +34,10 @@ function Tile({
     <div className="min-w-0 rounded-lg border border-zinc-800 bg-zinc-950/40 p-2.5">
       <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
         {icon}
-        <span className="truncate">{label}</span>
+        <span className="whitespace-normal leading-snug">{label}</span>
       </p>
-      <p className={`mt-1 truncate text-sm font-bold leading-tight ${valueClass ?? "text-zinc-100"}`}>{value}</p>
-      <p className={`mt-0.5 truncate text-[11px] ${subClass ?? "text-zinc-500"}`}>{sub ?? "—"}</p>
+      <p className={`mt-1 whitespace-normal leading-snug text-sm font-bold leading-tight ${valueClass ?? "text-zinc-100"}`}>{value}</p>
+      <p className={`mt-0.5 whitespace-normal leading-snug text-[11px] ${subClass ?? "text-zinc-500"}`}>{sub ?? "—"}</p>
     </div>
   );
 }
@@ -107,7 +107,7 @@ export function WyckoffPanel({ lang, wy, on, sens }: Props) {
       </CardHeader>
       <CardContent className="space-y-3 pt-0">
         {!on ? (
-          <p className="rounded-lg border border-dashed border-zinc-800 p-4 text-center text-xs text-zinc-500">
+          <p className="rounded-lg border border-transparent border-zinc-800 p-4 text-center text-xs text-zinc-500">
             {t(lang, "wy.off")}
           </p>
         ) : (
@@ -153,7 +153,7 @@ export function WyckoffPanel({ lang, wy, on, sens }: Props) {
                 {t(lang, "wy.events")}
               </p>
               {chips.length === 0 ? (
-                <p className="rounded-lg border border-dashed border-zinc-800 p-3 text-center text-[11px] text-zinc-500">
+                <p className="rounded-lg border border-transparent border-zinc-800 p-3 text-center text-[11px] text-zinc-500">
                   {t(lang, "wy.noEvents")}
                 </p>
               ) : (

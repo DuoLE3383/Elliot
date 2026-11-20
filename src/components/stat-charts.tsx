@@ -65,7 +65,7 @@ function ItemTip({
       className="pointer-events-none absolute top-1 z-40 w-44 -translate-x-1/2 rounded-md border border-zinc-700 bg-zinc-900/95 px-2 py-1.5 text-[10px] leading-snug shadow-xl"
       style={{ left: `${left}%` }}
     >
-      <p className="truncate font-mono font-bold text-zinc-100">{label}</p>
+      <p className="whitespace-normal leading-snug font-mono font-bold text-zinc-100">{label}</p>
       <p className={`font-mono text-[11px] font-bold ${valueClass}`}>{value}</p>
       {sub
         ?.filter(Boolean)

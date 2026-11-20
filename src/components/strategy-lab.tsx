@@ -167,7 +167,7 @@ export function StrategyLab({ lang, symbol, interval, refreshKey, onApply }: Pro
             ))}
           </div>
         ) : ranked.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-zinc-800 p-6 text-center text-xs text-zinc-500">
+          <p className="rounded-lg border border-transparent border-zinc-800 p-6 text-center text-xs text-zinc-500">
             {t(lang, "sl.empty", { sym: symbol, itv: interval })}
           </p>
         ) : (

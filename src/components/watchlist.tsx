@@ -114,7 +114,7 @@ export function Watchlist({
       </CardHeader>
       <CardContent className="px-3 pt-0">
         {rows.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-zinc-800 p-4 text-center text-xs text-zinc-500">
+          <p className="rounded-lg border border-transparent border-zinc-800 p-4 text-center text-xs text-zinc-500">
             {t(lang, "watch.empty")}
           </p>
         ) : (
@@ -139,13 +139,13 @@ export function Watchlist({
                   >
                     <span className="w-14 shrink-0">
                       <span
-                        className={`block truncate text-xs font-bold ${
+                        className={`block whitespace-normal leading-snug text-xs font-bold ${
                           active ? "text-zinc-100" : isCustom ? "text-amber-400/90" : "text-zinc-300"
                         }`}
                       >
                         {symbolLabel(sym)}
                       </span>
-                      <span className="block truncate font-mono text-[10px] leading-tight text-zinc-400">
+                      <span className="block whitespace-normal leading-snug font-mono text-[10px] leading-tight text-zinc-400">
                         {ticker ? fmtPrice(ticker.price) : t(lang, "watch.loading")}
                       </span>
                     </span>

@@ -66,8 +66,8 @@ export function AutoSidebar() {
           <LogoMark />
         </div>
         <div className="min-w-0">
-          <p className="truncate text-[15px] font-bold leading-tight text-white">Elliott</p>
-          <p className="truncate text-[10px] leading-tight text-zinc-500">AI Trading Engine</p>
+          <p className="whitespace-normal leading-snug text-[15px] font-bold leading-tight text-white">Elliott</p>
+          <p className="whitespace-normal leading-snug text-[10px] leading-tight text-zinc-500">AI Trading Engine</p>
           <p className="font-mono text-[10px] leading-tight text-cyan-500/80">{APP_VERSION}</p>
         </div>
       </div>

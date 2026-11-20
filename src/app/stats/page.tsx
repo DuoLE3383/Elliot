@@ -149,9 +149,9 @@ function Field({ m, lang }: { m: StatMetric; lang: Lang }) {
       onMouseLeave={() => setShow(false)}
       onClick={() => setShow((v) => !v)}
     >
-      <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">{m.k}</p>
-      <p className={`font-mono text-[13px] font-semibold ${toneText(m.tone)} ${m.wide ? "" : "truncate"}`}>{m.v}</p>
-      {m.sub && <p className={`text-[10px] text-zinc-500 ${m.wide ? "" : "truncate"}`}>{m.sub}</p>}
+      <p className="whitespace-normal leading-snug text-[10px] uppercase tracking-wide text-zinc-500">{m.k}</p>
+      <p className={`font-mono text-[13px] font-semibold ${toneText(m.tone)} ${m.wide ? "" : "whitespace-normal leading-snug"}`}>{m.v}</p>
+      {m.sub && <p className={`text-[10px] text-zinc-500 ${m.wide ? "" : "whitespace-normal leading-snug"}`}>{m.sub}</p>}
       {hint && show && (
         <div className="pointer-events-none absolute bottom-full left-0 z-50 mb-1 w-64 rounded-md border border-[#3a3a42] bg-[#15151a] px-2.5 py-1.5 text-[10px] leading-snug text-zinc-300 shadow-xl">
           {hint}
@@ -396,7 +396,7 @@ export default function StatsPage() {
   const secBody = (k: string): ReactNode => {
     const s = byKey[k];
     if (!s) {
-      return <p className="rounded-lg border border-dashed border-[#2a2a31] p-4 text-xs text-zinc-600">— {t(lang, "stats.chEmpty")}</p>;
+      return <p className="rounded-lg border border-transparent border-[#2a2a31] p-4 text-xs text-zinc-600">— {t(lang, "stats.chEmpty")}</p>;
     }
     return (
       <div className="space-y-2.5">
@@ -432,7 +432,7 @@ export default function StatsPage() {
     <div className="flex items-center justify-between gap-2 border-b border-[#1d1d23] px-4 py-2.5">
       <p className="flex min-w-0 items-center gap-2 text-[12.5px] font-semibold text-zinc-100">
         <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dot }} />
-        <span className="truncate">{label}</span>
+        <span className="whitespace-normal leading-snug">{label}</span>
       </p>
       {right}
     </div>
@@ -443,7 +443,7 @@ export default function StatsPage() {
     <div className="flex items-center gap-2.5 px-4 py-1.5">
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
-          <p className="truncate text-[11px] text-zinc-300">{label}</p>
+          <p className="whitespace-normal leading-snug text-[11px] text-zinc-300">{label}</p>
           {sub && <p className="shrink-0 font-mono text-[9.5px] text-zinc-500">{sub}</p>}
         </div>
         <div className="mt-1 flex items-center gap-1">
@@ -525,7 +525,7 @@ export default function StatsPage() {
             {ev.map((e, i) => (
               <div key={i} className={`flex items-center gap-2.5 px-4 py-2 ${e.dim ? "opacity-60" : ""}`}>
                 <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: e.dot }} />
-                <p className="min-w-0 flex-1 truncate text-[11px] leading-snug text-zinc-300">{e.text}</p>
+                <p className="min-w-0 flex-1 whitespace-normal leading-snug text-[11px] leading-snug text-zinc-300">{e.text}</p>
                 {e.right && <span className="shrink-0 font-mono text-[10px] text-zinc-500">{e.right}</span>}
               </div>
             ))}
@@ -548,8 +548,8 @@ export default function StatsPage() {
               <div key={i} className="flex items-center gap-2.5 px-4 py-2">
                 <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: r.state === "ok" ? LIME : r.state === "warn" ? "#fbbf24" : "#8b8b94" }} />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[11px] text-zinc-300">{r.label}</p>
-                  <p className="truncate text-[9.5px] text-zinc-500">{r.sub}</p>
+                  <p className="whitespace-normal leading-snug text-[11px] text-zinc-300">{r.label}</p>
+                  <p className="whitespace-normal leading-snug text-[9.5px] text-zinc-500">{r.sub}</p>
                 </div>
                 <div className="w-16 shrink-0">
                   <span className="block h-[5px] overflow-hidden rounded-full bg-[#1c1c22]">
@@ -569,7 +569,7 @@ export default function StatsPage() {
               return (
                 <div key={s.key} className="flex items-center gap-2.5 px-4 py-2">
                   <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${on ? "animate-pulse" : ""}`} style={{ background: on ? LIME : "#3a3a42" }} />
-                  <p className={`min-w-0 flex-1 truncate text-[11px] ${on ? "text-zinc-200" : "text-zinc-500"}`}>{SESS_NAME[s.key]}</p>
+                  <p className={`min-w-0 flex-1 whitespace-normal leading-snug text-[11px] ${on ? "text-zinc-200" : "text-zinc-500"}`}>{SESS_NAME[s.key]}</p>
                   <span className="shrink-0 font-mono text-[9.5px] text-zinc-600">{s.from}–{s.to}h</span>
                   <span className="w-14 shrink-0">
                     <span className="block h-[5px] overflow-hidden rounded-full bg-[#1c1c22]">
@@ -591,7 +591,7 @@ export default function StatsPage() {
           <div className="divide-y divide-[#1a1a20]">
             {sc.map((r, i) => (
               <div key={i} className="flex items-center gap-2.5 px-4 py-2">
-                <p className="w-24 shrink-0 truncate text-[11px] text-zinc-300">{r.label}</p>
+                <p className="w-24 shrink-0 whitespace-normal leading-snug text-[11px] text-zinc-300">{r.label}</p>
                 <span className="h-[6px] min-w-0 flex-1 overflow-hidden rounded-full bg-[#1c1c22]">
                   <span className="block h-full rounded-full" style={{ width: `${(r.n / scMax) * 100}%`, background: r.color }} />
                 </span>
@@ -599,8 +599,8 @@ export default function StatsPage() {
               </div>
             ))}
             <div className="flex items-center gap-2.5 px-4 py-2">
-              <p className="w-24 shrink-0 truncate text-[11px] text-zinc-300">{t(lang, "apm.score.open")}</p>
-              <span className="h-[6px] min-w-0 flex-1 overflow-hidden rounded-full bg-[#1c1c22] border border-dashed border-[#f4525c55]">
+              <p className="w-24 shrink-0 whitespace-normal leading-snug text-[11px] text-zinc-300">{t(lang, "apm.score.open")}</p>
+              <span className="h-[6px] min-w-0 flex-1 overflow-hidden rounded-full bg-[#1c1c22] border border-transparent border-[#f4525c55]">
                 <span className="block h-full rounded-full" style={{ width: fc.open ? "100%" : "0%", background: "#f4525c" }} />
               </span>
               <span className="w-8 shrink-0 text-right font-mono text-[11px] font-semibold text-[#f4525c]">{fc.open ? 1 : 0}</span>
@@ -615,8 +615,8 @@ export default function StatsPage() {
   const NetCard = ({ label, value, sub, color = "#e9e9ec" }: { label: string; value: string; sub?: string; color?: string }) => (
     <div className="rounded-xl border border-[#232329] bg-[#101014]/95 px-3 py-2.5">
       <p className="text-[9.5px] uppercase tracking-wide text-zinc-500">{label}</p>
-      <p className="mt-0.5 truncate font-mono text-[19px] font-bold leading-tight" style={{ color }}>{value}</p>
-      {sub && <p className="mt-0.5 truncate text-[9.5px] text-zinc-500">{sub}</p>}
+      <p className="mt-0.5 whitespace-normal leading-snug font-mono text-[19px] font-bold leading-tight" style={{ color }}>{value}</p>
+      {sub && <p className="mt-0.5 whitespace-normal leading-snug text-[9.5px] text-zinc-500">{sub}</p>}
     </div>
   );
   const netColumn = () => {
@@ -809,7 +809,7 @@ export default function StatsPage() {
               </TabsContent>
               <TabsContent value="lab" className="mt-2.5">
                 {pickSym === PICK_ALL ? (
-                  <p className="rounded-lg border border-dashed border-[#2a2a31] p-6 text-center text-xs text-zinc-500">{t(lang, "stats.labAll")}</p>
+                  <p className="rounded-lg border border-transparent border-[#2a2a31] p-6 text-center text-xs text-zinc-500">{t(lang, "stats.labAll")}</p>
                 ) : (
                   <>
                     {labApplied && (
@@ -905,7 +905,7 @@ export default function StatsPage() {
             {navOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </button>
           <div className="flex min-w-0 items-baseline gap-2">
-            <p className="truncate text-[15px] font-bold tracking-tight text-zinc-50">{t(lang, "apm.brand")}</p>
+            <p className="whitespace-normal leading-snug text-[15px] font-bold tracking-tight text-zinc-50">{t(lang, "apm.brand")}</p>
             <span className="hidden text-[10px] text-zinc-500 sm:inline">APM</span>
           </div>
           {/* điều hướng nhanh md–xl (xl+ đã có sidebar) */}
@@ -976,7 +976,7 @@ export default function StatsPage() {
                   }`}
                 >
                   <Icon className={`h-3.5 w-3.5 shrink-0 ${active ? "text-[#c8f542]" : "text-zinc-500"}`} />
-                  <span className="min-w-0 flex-1 truncate">{t(lang, n.key)}</span>
+                  <span className="min-w-0 flex-1 whitespace-normal leading-snug">{t(lang, n.key)}</span>
                   {dot && <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dot }} />}
                   {active && <span className="h-4 w-0.5 rounded-full" style={{ background: LIME }} />}
                 </button>
@@ -1064,7 +1064,7 @@ export default function StatsPage() {
                   ].map((x) => (
                     <div key={x.l} className="rounded-xl border border-[#232329] bg-[#101014]/95 px-3 py-2">
                       <p className="text-[9.5px] uppercase tracking-wide text-zinc-500">{x.l}</p>
-                      <p className="mt-0.5 truncate font-mono text-[16px] font-bold" style={{ color: x.c ?? "#e9e9ec" }}>{x.v}</p>
+                      <p className="mt-0.5 whitespace-normal leading-snug font-mono text-[16px] font-bold" style={{ color: x.c ?? "#e9e9ec" }}>{x.v}</p>
                     </div>
                   ))}
                 </div>

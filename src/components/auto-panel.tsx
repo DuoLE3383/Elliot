@@ -100,7 +100,7 @@ function ConfluenceTable({ onPickPair }: { onPickPair: (sym: string, itv: string
         {data.slice(0, 8).map((r: any) => (
           <button key={r.symbol} type="button" onClick={() => onPickPair(r.symbol, "15m")}
             className="grid w-full grid-cols-[minmax(0,1fr)_34px_34px_34px_34px_68px] items-center gap-x-1 px-1.5 py-[2px] text-left font-mono text-[10px] hover:bg-zinc-800/60">
-            <span className="truncate text-zinc-200">{r.symbol.replace("USDT", "")}</span>
+            <span className="whitespace-normal leading-snug text-zinc-200">{r.symbol.replace("USDT", "")}</span>
             {TFS.map((tf) => <span key={tf}>{cell(r.tfs?.[tf])}</span>)}
             <span className={`whitespace-nowrap text-right text-[9px] font-bold ${r.verdict === "STRONG" ? "text-emerald-400" : r.verdict === "RISK" ? "text-amber-400" : "text-zinc-500"}`}>{r.verdict} {r.agree}</span>
           </button>

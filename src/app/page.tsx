@@ -1454,7 +1454,7 @@ export default function Home() {
                 <Link href="/auto">
                   <span className="flex min-w-0 items-center gap-2">
                     <Bot className="h-4 w-4 shrink-0 text-teal-400" />
-                    <span className="truncate text-xs font-semibold text-zinc-200">{t(lang, "auto.title")}</span>
+                    <span className="whitespace-normal leading-snug text-xs font-semibold text-zinc-200">{t(lang, "auto.title")}</span>
                     {autoOpen && (
                       <span className="shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-teal-300">
                         {autoOpen.symbol.replace("USDT", "")}
@@ -1473,7 +1473,7 @@ export default function Home() {
               >
                 <span className="flex min-w-0 items-center gap-2">
                   <BrainCircuit className="h-4 w-4 shrink-0 text-teal-400" />
-                  <span className="truncate text-xs font-semibold text-zinc-200">{t(lang, "xgb.title")}</span>
+                  <span className="whitespace-normal leading-snug text-xs font-semibold text-zinc-200">{t(lang, "xgb.title")}</span>
                 </span>
                 <span className="flex shrink-0 items-center gap-1.5">
                   {allTrain?.busy === true ? (

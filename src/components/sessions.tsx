@@ -239,7 +239,7 @@ export function SessionsPanel({
                       return (
                         <div key={f.key} className="flex items-baseline gap-2 text-[10.5px]">
                           <span className="w-[86px] shrink-0 font-medium text-zinc-400">{t(lang, `sess.fc.f.${f.key}`)}</span>
-                          <span className="min-w-0 flex-1 truncate text-zinc-600" title={f.text}>
+                          <span className="min-w-0 flex-1 whitespace-normal leading-snug text-zinc-600" title={f.text}>
                             {f.text}
                           </span>
                           <span className={`shrink-0 font-mono ${m.cls}`}>

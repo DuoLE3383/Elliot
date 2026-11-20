@@ -210,7 +210,7 @@ export function SignalDock({
       <CardContent className="space-y-3 pt-0">
         {/* ── UT off notice ─────────────────────────────────────────── */}
         {!utOn && (
-          <p className="rounded-lg border border-dashed border-zinc-700 bg-zinc-950/60 px-3 py-2 text-[11px] leading-relaxed text-zinc-400">
+          <p className="rounded-lg border border-transparent border-zinc-700 bg-zinc-950/60 px-3 py-2 text-[11px] leading-relaxed text-zinc-400">
             {t(lang, "dock.ut.offNote")}
           </p>
         )}
@@ -333,7 +333,7 @@ export function SignalDock({
           </div>
         ) : /* ── Pending entry (gate blocked) ─────────────────────────── */
         pending ? (
-          <div className="rounded-lg border border-dashed border-zinc-700/70 bg-zinc-950/20 p-3">
+          <div className="rounded-lg border border-transparent border-zinc-700/70 bg-zinc-950/20 p-3">
             <div className="mb-1 flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
                 {t(lang, "dock.pending")}
@@ -405,7 +405,7 @@ export function SignalDock({
             )}
           </div>
         ) : (
-          <p className="rounded-lg border border-dashed border-zinc-800 p-4 text-center text-xs text-zinc-500">
+          <p className="rounded-lg border border-transparent border-zinc-800 p-4 text-center text-xs text-zinc-500">
             {t(lang, "dock.noSignal")}
           </p>
         )}

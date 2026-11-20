@@ -88,7 +88,7 @@ export function EquityCurve({ lang, papers }: { lang: Lang; papers: Paper[] }) {
             </p>
           </>
         ) : (
-          <p className="rounded-lg border border-dashed border-zinc-800 p-6 text-center text-xs text-zinc-500">
+          <p className="rounded-lg border border-transparent border-zinc-800 p-6 text-center text-xs text-zinc-500">
             {t(lang, "equity.empty")}
           </p>
         )}
