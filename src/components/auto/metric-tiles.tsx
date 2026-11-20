@@ -28,6 +28,8 @@ const fmtUsd = (v: number): string =>
 
 const fmtInt = (v: number): string => v.toLocaleString("en-US");
 
+const fmtSignedUsd = (v: number): string => `${v >= 0 ? "+" : "-"}$${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 /** sparkline vùng màu — points là dãy số (cũ → mới); normalize 0..1. */
 function Spark({ points, stroke, fill }: { points: number[]; stroke: string; fill: string }) {
   const d = useMemo(() => {
@@ -113,6 +115,11 @@ export function MetricTiles({ data, lang }: { data: TilesData; lang: "vi" | "en"
   const netRoe = liveOn ? (live?.netRoe ?? 0) : (books?.reduce((s, x) => s + x.netRoe, 0) ?? 0);
 
   const roeClass = netRoe > 0 ? "text-emerald-400" : netRoe < 0 ? "text-rose-400" : "text-white";
+  const totalStart = liveOn ? (live?.balanceBefore ?? 0) : (books?.reduce((sum, x) => sum + (x.startCapital ?? 0), 0) ?? 0);
+  const totalFinal = liveOn ? (live?.balanceAfter ?? 0) : (books?.reduce((sum, x) => sum + (x.finalCapital ?? x.startCapital ?? 0), 0) ?? 0);
+  const totalPnl = totalStart > 0 && totalFinal > 0 ? totalFinal - totalStart : 0;
+  const netPnlPct = totalStart > 0 ? (totalPnl / totalStart) * 100 : 0;
+  const pnlClass = totalPnl > 0 ? "text-emerald-400" : totalPnl < 0 ? "text-rose-400" : "text-white";
 
   // sparkline: đường vốn sổ B (hoặc live khi có) — mỗi sổ một nguồn thật
   const eqB = data.bEquity.map((p) => p.capital);
@@ -123,7 +130,7 @@ export function MetricTiles({ data, lang }: { data: TilesData; lang: "vi" | "en"
   const maxBar = Math.max(1, ...tradeBars);
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
       <Tile
         label="Total Equity"
         value={equity > 0 ? fmtUsd(equity) : "—"}
@@ -150,6 +157,24 @@ export function MetricTiles({ data, lang }: { data: TilesData; lang: "vi" | "en"
         }
         iconClass="border-emerald-700/50 bg-emerald-950/40 text-emerald-400"
         spark={<Spark points={eqC.length >= 2 ? eqC.slice(-40) : eqB.slice(-40)} stroke="#22c55e" fill="#22c55e" />}
+      />
+      <Tile
+        label="Total PNL"
+        value={nClosed + nOpen > 0 ? fmtSignedUsd(totalPnl) : "—"}
+        valueClass={pnlClass}
+        icon="$"
+        iconClass="border-amber-700/50 bg-amber-950/40 text-amber-300"
+        spark={<Spark points={eqB.length >= 2 ? eqB.slice(-40) : []} stroke="#eab308" fill="#eab308" />}
+        sub={liveOn ? "live balance diff" : "sum(final - start) A+B+C"}
+      />
+      <Tile
+        label="Net PNL"
+        value={nClosed + nOpen > 0 ? `${netPnlPct >= 0 ? "+" : ""}${netPnlPct.toFixed(2)}%` : "—"}
+        valueClass={pnlClass}
+        icon="%"
+        iconClass="border-emerald-700/50 bg-emerald-950/40 text-emerald-400"
+        spark={<Spark points={eqB.length >= 2 ? eqB.slice(-40) : []} stroke="#10b981" fill="#10b981" />}
+        sub="after fees, on total start capital"
       />
       <Tile
         label="Win Rate (Closed)"
