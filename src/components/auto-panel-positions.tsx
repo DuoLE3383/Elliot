@@ -5,7 +5,7 @@ import { Square } from "lucide-react";
 
 // Tach tu auto-panel.tsx - POSITIONS OPENING (Card 1369). Props any de tsc khong ket type.
 export function AutoPositions(props: any) {
-  const { opens, open, tickers, cfg, capitalNow, lang, t, closeNow, closeOpen, fmtPrice, slPrice, tpPrice, trailStopPrice, trailMovePct, engineTrail, roeOf, rows } = props;
+  const { opens, open, tickers, cfg, capitalNow, lang, t, closeNow, closeOpen, fmtPrice, slPrice, tpPrice, trailStopPrice, trailMovePct, engineTrail, roeOf, rows, leverage } = props;
   const closeFn = closeNow ?? closeOpen;
   return (
     <Card className="border-zinc-800 bg-zinc-900/60 h-full">
@@ -22,124 +22,151 @@ export function AutoPositions(props: any) {
         </div>
       </CardHeader>
       <CardContent className="space-y-3 px-3 pt-0">
+        {/* ── AGENT ĐANG CHẠY — lấy từ cfg engine đang sync ── */}
+        {(() => {
+          const AGENT_META: Record<string, { icon: string; label: string }> = {
+            VAULT: { icon: "🗄", label: "Safe — giữ vốn" },
+            HEDGE: { icon: "⚖", label: "Balanced" },
+            ALPHA: { icon: "🚀", label: "Aggressive" },
+            GRAIL: { icon: "👑", label: "Elliott" },
+          };
+          const agentId = (cfg as any)?.agent ?? "HEDGE";
+          const a = AGENT_META[agentId] ?? AGENT_META.HEDGE;
+          const lev = (props as any)?.leverage ?? (cfg as any)?.leverage ?? open?.leverage ?? 0;
+          const locked = !cfg?.on || opens.length === 0;
+          return (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-violet-700/60 bg-gradient-to-r from-violet-950/60 via-teal-950/40 to-violet-950/60 px-2.5 py-1.5">
+              <span className="text-sm">{a.icon}</span>
+              <span className="font-mono text-[12px] font-bold text-violet-300">
+                {agentId} Agent — {a.label}
+              </span>
+              <span className="font-mono text-[11px] text-zinc-300">
+                current executing · Risk {cfg?.riskPct ?? "?"}% · Gate {cfg?.minScore ?? "?"}/{cfg?.minAuc ?? "?"}/{cfg?.minAcc ?? "?"} · TF {(cfg?.runTf ?? []).join("/")} · Lev ×{lev}
+              </span>
+              <span className={`ml-auto rounded px-1.5 py-0.5 font-mono text-[10px] font-bold ${locked ? "bg-amber-950/60 text-amber-300" : "bg-emerald-950/60 text-emerald-300"}`}>
+                {locked ? "● LOCKED / SCANNING" : "● IN POSITION"}
+              </span>
+            </div>
+          );
+        })()}
         {/* open position */}
         {open ? (
           <>
             {opens.map((open) => (
-          <div key={open.id} className="rounded-lg border border-zinc-700 bg-zinc-900 p-2.5">
-            
-            <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
-              <span className="text-zinc-500">{t(lang, "auto.col.pair")}</span>
-              <span className="text-right font-mono text-zinc-200">
-                {open.symbol} · {open.interval} · <span className={open.side === "LONG" ? "font-bold text-emerald-400" : "font-bold text-rose-400"}>{open.side}</span>
-              </span>
-              <span className="text-zinc-500">{t(lang, "auto.pos.entry")}</span>
-              <span className="text-right font-mono text-zinc-200">{fmtPrice(open.entryPrice)}</span>
-              <span className="text-zinc-500">{t(lang, "auto.pos.stake")}</span>
-              <span className="text-right font-mono text-zinc-200">
-                {(((open.capitalBefore ?? capitalNow) * (open.stakePct ?? 100)) / 100).toFixed(2)} USDT · {(open.stakePct ?? 100).toFixed(2)}%
-                <span className="text-zinc-500">
-                  {" "}
-                  · {t(lang, "auto.pos.notional")} {(((((open.capitalBefore ?? capitalNow) * (open.stakePct ?? 100)) / 100) * open.leverage)).toFixed(2)} USDT ({open.leverage}x)
-                </span>
-              </span>
-                            <span className="text-zinc-500">PNL (USDT)</span>
-              <span className="text-right font-mono text-zinc-200">
-                {(() => {
-                  const margin = ((open.capitalBefore ?? capitalNow) * (open.stakePct ?? 100)) / 100;
-                  const mark = tickers[open.symbol]?.price ?? open.entryPrice;
-                  const move = open.side === "SHORT" ? (open.entryPrice - mark) / open.entryPrice : (mark - open.entryPrice) / open.entryPrice;
-                  const roi = move * open.leverage * 100;
-                  const pnl = (margin * roi) / 100;
-                  return (
-                    <span className={pnl >= 0 ? "font-bold text-emerald-400" : "font-bold text-rose-400"}>
-                      {pnl >= 0 ? "+$" : "-$"}{Math.abs(pnl).toFixed(2)} · ROI {roi >= 0 ? "+" : ""}{roi.toFixed(2)}%
-                    </span>
-                  );
-                })()}
-              </span>
-              <span className="text-zinc-500">Giá đánh dấu · Giá thanh lý</span>
-              <span className="text-right font-mono text-zinc-200">
-                {(() => {
-                  const mark = tickers[open.symbol]?.price ?? open.entryPrice;
-                  const liq = open.side === "SHORT" ? open.entryPrice * (1 + 1 / open.leverage) : open.entryPrice * (1 - 1 / open.leverage);
-                  return (
-                    <>
-                      {fmtPrice(mark)} · <span className="text-rose-300">{fmtPrice(liq)}</span>
-                    </>
-                  );
-                })()}
-              </span>
-<span className="text-zinc-500">SL</span>
-              <span className="text-right font-mono text-rose-300">
-                {fmtPrice(slPrice(open.side, open.entryPrice, open.slPct))} · −{open.slPct.toFixed(2)}%
-                <span className="text-zinc-500"> (ROI −{(open.slPct * open.leverage).toFixed(2)}%)</span>
-              </span>
-              <span className="text-zinc-500">TP</span>
-              <span className="text-right font-mono text-emerald-300">
-                {fmtPrice(tpPrice(open.side, open.entryPrice, open.tpPct))} · +{open.tpPct.toFixed(2)}%
-                <span className="text-zinc-500"> (ROI +{(open.tpPct * open.leverage).toFixed(2)}%)</span>
-              </span>
-              {cfg.trailOn && (
-                <>
-                  <span className="text-zinc-500" title={t(lang, "auto.trail.tip")}>
-                    🚉 Trail
+              <div key={open.id} className="rounded-lg border border-zinc-700 bg-zinc-900 p-2.5">
+
+                <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                  <span className="text-zinc-500">{t(lang, "auto.col.pair")}</span>
+                  <span className="text-right font-mono text-zinc-200">
+                    {open.symbol} · {open.interval} · <span className={open.side === "LONG" ? "font-bold text-emerald-400" : "font-bold text-rose-400"}>{open.side}</span>
                   </span>
-                  {(() => {
-                    // peak + bộ thông số ĐÃ KHOÁ từ engine snapshot (id phải khớp
-                    // lệnh đang mở); trailAuto → act/dist là số đề xuất riêng cho
-                    // lệnh (ATR(pair×TF)×đòn bẩy), không phải cfg chung; engine
-                    // chưa tick lần nào thì fallback cfg như cũ
-                    const et = engineTrail && engineTrail.id === open.id ? engineTrail : null;
-                    const peak = et && et.peak > 0 ? et.peak : open.entryPrice;
-                    const act = et && et.act > 0 ? et.act : cfg.trailActPct;
-                    const dist = et && et.dist > 0 ? et.dist : cfg.trailDistPct;
-                    const stop = trailStopPrice(open.side, open.entryPrice, peak, act, dist);
-                    const move = trailMovePct(open.side, open.entryPrice, peak);
-                    return (
-                      <span className="text-right font-mono text-violet-300">
-                        {stop != null ? (
-                          <>
-                            {fmtPrice(stop)}
-                            <span className="text-zinc-500">
-                              {" "}
-                              · {t(lang, "auto.pos.trailPeak")} {fmtPrice(peak)} ({move >= 0 ? "+" : ""}
-                              {move.toFixed(2)}%)
-                            </span>
-                          </>
-                        ) : (
-                          <span className="text-zinc-500">{t(lang, "auto.pos.trailWait", { a: Number(act.toFixed(2)), m: Number(move.toFixed(2)) })}</span>
-                        )}
-                        {et?.src === "atr" && et.atrPct > 0 && (
-                          <span
-                            className="block text-[9px] font-sans text-zinc-600"
-                            title={t(lang, "auto.trail.autoTip")}
-                          >
-                            {t(lang, "auto.pos.trailAuto", { a: Number(et.atrPct.toFixed(2)), l: et.lev || open.leverage, act: Number(act.toFixed(2)), dist: Number(dist.toFixed(2)) })}
+                  <span className="text-zinc-500">{t(lang, "auto.pos.entry")}</span>
+                  <span className="text-right font-mono text-zinc-200">{fmtPrice(open.entryPrice)}</span>
+                  <span className="text-zinc-500">{t(lang, "auto.pos.stake")}</span>
+                  <span className="text-right font-mono text-zinc-200">
+                    {(((open.capitalBefore ?? capitalNow) * (open.stakePct ?? 100)) / 100).toFixed(2)} USDT · {(open.stakePct ?? 100).toFixed(2)}%
+                    <span className="text-zinc-500">
+                      {" "}
+                      · {t(lang, "auto.pos.notional")} {(((((open.capitalBefore ?? capitalNow) * (open.stakePct ?? 100)) / 100) * open.leverage)).toFixed(2)} USDT ({open.leverage}x)
+                    </span>
+                  </span>
+                  <span className="text-zinc-500">PNL (USDT)</span>
+                  <span className="text-right font-mono text-zinc-200">
+                    {(() => {
+                      const margin = ((open.capitalBefore ?? capitalNow) * (open.stakePct ?? 100)) / 100;
+                      const mark = tickers[open.symbol]?.price ?? open.entryPrice;
+                      const move = open.side === "SHORT" ? (open.entryPrice - mark) / open.entryPrice : (mark - open.entryPrice) / open.entryPrice;
+                      const roi = move * open.leverage * 100;
+                      const pnl = (margin * roi) / 100;
+                      return (
+                        <span className={pnl >= 0 ? "font-bold text-emerald-400" : "font-bold text-rose-400"}>
+                          {pnl >= 0 ? "+$" : "-$"}{Math.abs(pnl).toFixed(2)} · ROI {roi >= 0 ? "+" : ""}{roi.toFixed(2)}%
+                        </span>
+                      );
+                    })()}
+                  </span>
+                  <span className="text-zinc-500">Giá đánh dấu · Giá thanh lý</span>
+                  <span className="text-right font-mono text-zinc-200">
+                    {(() => {
+                      const mark = tickers[open.symbol]?.price ?? open.entryPrice;
+                      const liq = open.side === "SHORT" ? open.entryPrice * (1 + 1 / open.leverage) : open.entryPrice * (1 - 1 / open.leverage);
+                      return (
+                        <>
+                          {fmtPrice(mark)} · <span className="text-rose-300">{fmtPrice(liq)}</span>
+                        </>
+                      );
+                    })()}
+                  </span>
+                  <span className="text-zinc-500">SL</span>
+                  <span className="text-right font-mono text-rose-300">
+                    {fmtPrice(slPrice(open.side, open.entryPrice, open.slPct))} · −{open.slPct.toFixed(2)}%
+                    <span className="text-zinc-500"> (ROI −{(open.slPct * open.leverage).toFixed(2)}%)</span>
+                  </span>
+                  <span className="text-zinc-500">TP</span>
+                  <span className="text-right font-mono text-emerald-300">
+                    {fmtPrice(tpPrice(open.side, open.entryPrice, open.tpPct))} · +{open.tpPct.toFixed(2)}%
+                    <span className="text-zinc-500"> (ROI +{(open.tpPct * open.leverage).toFixed(2)}%)</span>
+                  </span>
+                  {cfg.trailOn && (
+                    <>
+                      <span className="text-zinc-500" title={t(lang, "auto.trail.tip")}>
+                        🚉 Trail
+                      </span>
+                      {(() => {
+                        // peak + bộ thông số ĐÃ KHOÁ từ engine snapshot (id phải khớp
+                        // lệnh đang mở); trailAuto → act/dist là số đề xuất riêng cho
+                        // lệnh (ATR(pair×TF)×đòn bẩy), không phải cfg chung; engine
+                        // chưa tick lần nào thì fallback cfg như cũ
+                        const et = engineTrail && engineTrail.id === open.id ? engineTrail : null;
+                        const peak = et && et.peak > 0 ? et.peak : open.entryPrice;
+                        const act = et && et.act > 0 ? et.act : cfg.trailActPct;
+                        const dist = et && et.dist > 0 ? et.dist : cfg.trailDistPct;
+                        const stop = trailStopPrice(open.side, open.entryPrice, peak, act, dist);
+                        const move = trailMovePct(open.side, open.entryPrice, peak);
+                        return (
+                          <span className="text-right font-mono text-violet-300">
+                            {stop != null ? (
+                              <>
+                                {fmtPrice(stop)}
+                                <span className="text-zinc-500">
+                                  {" "}
+                                  · {t(lang, "auto.pos.trailPeak")} {fmtPrice(peak)} ({move >= 0 ? "+" : ""}
+                                  {move.toFixed(2)}%)
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-zinc-500">{t(lang, "auto.pos.trailWait", { a: Number(act.toFixed(2)), m: Number(move.toFixed(2)) })}</span>
+                            )}
+                            {et?.src === "atr" && et.atrPct > 0 && (
+                              <span
+                                className="block text-[9px] font-sans text-zinc-600"
+                                title={t(lang, "auto.trail.autoTip")}
+                              >
+                                {t(lang, "auto.pos.trailAuto", { a: Number(et.atrPct.toFixed(2)), l: et.lev || open.leverage, act: Number(act.toFixed(2)), dist: Number(dist.toFixed(2)) })}
+                              </span>
+                            )}
                           </span>
-                        )}
+                        );
+                      })()}
+                    </>
+                  )}
+                  <span className="text-zinc-500">{t(lang, "auto.pos.uroe")}</span>
+                  {(() => {
+                    const live = tickers[open.symbol]?.price ?? open.entryPrice;
+                    const roe = roeOf(open.side, open.entryPrice, live, open.leverage);
+                    return (
+                      <span className={`text-right font-mono font-bold ${roe >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                        {roe >= 0 ? "+" : ""}
+                        {roe.toFixed(2)}%
                       </span>
                     );
                   })()}
-                </>
-              )}
-              <span className="text-zinc-500">{t(lang, "auto.pos.uroe")}</span>
-              {(() => {
-                const live = tickers[open.symbol]?.price ?? open.entryPrice;
-                const roe = roeOf(open.side, open.entryPrice, live, open.leverage);
-                return (
-                  <span className={`text-right font-mono font-bold ${roe >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                    {roe >= 0 ? "+" : ""}
-                    {roe.toFixed(2)}%
-                  </span>
-                );
-              })()}
-            </div>
-            <Button size="sm" variant="outline" className="mt-2 h-7 w-full border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800" onClick={() => void closeNow(open)}>
-              <Square className="mr-1.5 h-3 w-3" />
-              {t(lang, "auto.pos.close")}
-            </Button>
-          </div>
+                </div>
+                <Button size="sm" variant="outline" className="mt-2 h-7 w-full border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800" onClick={() => void closeNow(open)}>
+                  <Square className="mr-1.5 h-3 w-3" />
+                  {t(lang, "auto.pos.close")}
+                </Button>
+              </div>
             ))}
           </>
         ) : (

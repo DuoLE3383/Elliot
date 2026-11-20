@@ -44,7 +44,7 @@ import { Bot, Play, RotateCcw, ScanLine, Send, Square, ListChecks } from "lucide
 
 // ─── AGENTS — VAULT / HEDGE / ALPHA / GRAIL ───
 const AGENTS = [
-  { id: "VAULT", icon: "🗄", desc: "Safe · giu von" },
+  { id: "VAULT", icon: "🗄", desc: "Safe" },
   { id: "HEDGE", icon: "⚖", desc: "Balanced" },
   { id: "ALPHA", icon: "🚀", desc: "Aggressive" },
   { id: "GRAIL", icon: "👑", desc: "Elliott 🏵" },
@@ -71,7 +71,7 @@ function ConfluenceTable({ onPickPair }: { onPickPair: (sym: string, itv: string
         const r = await fetch("/api/confluence", { cache: "no-store" });
         const d = await r.json();
         if (alive && Array.isArray(d.rows)) { setData(d.rows); setAt(d.at); }
-      } catch {}
+      } catch { }
     };
     load();
     const id = setInterval(load, 30000);
@@ -80,7 +80,7 @@ function ConfluenceTable({ onPickPair }: { onPickPair: (sym: string, itv: string
   if (!data.length) return null;
   const TFS = ["5m", "15m", "1h", "4h"];
   const strong = data.filter((r: any) => r.verdict === "STRONG").length;
-  const lean = data.filter((r: any) => r.verdict === "LEAN").length;
+  const risk = data.filter((r: any) => r.verdict === "RISK").length;
   const conflict = data.filter((r: any) => r.verdict === "CONFLICT").length;
   const cell = (tf: any) => {
     if (!tf) return <span className="text-zinc-700">—</span>;
@@ -92,7 +92,7 @@ function ConfluenceTable({ onPickPair }: { onPickPair: (sym: string, itv: string
     <div className="flex h-full flex-col space-y-1.5">
       <div className="flex items-center justify-between rounded-lg border border-violet-800/60 bg-violet-950/20 px-2.5 py-1.5">
         <span className="text-[11px] font-medium uppercase tracking-wide text-violet-400">Confluence · Multi-TF</span>
-        <span className="whitespace-nowrap font-mono text-[10px] text-zinc-400">✅ {strong} STRONG · ⚠️ {lean} LEAN · ❌ {conflict} CONFLICT</span>
+        <span className="whitespace-nowrap font-mono text-[10px] text-zinc-400">✅ {strong} STRONG · ⚠️ {risk} RISK · ❌ {conflict} CONFLICT</span>
       </div>
       <div className="flex-1 overflow-hidden rounded-lg border border-zinc-800">
         <div className="grid grid-cols-[minmax(0,1fr)_34px_34px_34px_34px_68px] gap-x-1 border-b border-zinc-800 bg-zinc-950/60 px-1.5 py-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
@@ -103,11 +103,11 @@ function ConfluenceTable({ onPickPair }: { onPickPair: (sym: string, itv: string
             className="grid w-full grid-cols-[minmax(0,1fr)_34px_34px_34px_34px_68px] items-center gap-x-1 px-1.5 py-[2px] text-left font-mono text-[10px] hover:bg-zinc-800/60">
             <span className="truncate text-zinc-200">{r.symbol.replace("USDT", "")}</span>
             {TFS.map((tf) => <span key={tf}>{cell(r.tfs?.[tf])}</span>)}
-            <span className={`whitespace-nowrap text-right text-[9px] font-bold ${r.verdict === "STRONG" ? "text-emerald-400" : r.verdict === "LEAN" ? "text-amber-400" : "text-zinc-500"}`}>{r.verdict} {r.agree}</span>
+            <span className={`whitespace-nowrap text-right text-[9px] font-bold ${r.verdict === "STRONG" ? "text-emerald-400" : r.verdict === "RISK" ? "text-amber-400" : "text-zinc-500"}`}>{r.verdict} {r.agree}</span>
           </button>
         ))}
       </div>
-      <p className="text-[10px] leading-snug text-zinc-600">Bấm 1 dòng để xem symbol đó. STRONG = tất cả khung đồng thuận · LEAN = lệch khung nhỏ · CONFLICT = đứng ngoài.</p>
+      <p className="text-[10px] leading-snug text-zinc-600">Bấm 1 dòng để xem symbol đó. STRONG = tất cả khung đồng thuận · RISK = lệch khung nhỏ · CONFLICT = đứng ngoài.</p>
     </div>
   );
 }
@@ -288,7 +288,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
           for (const row of d.rows) m[row.symbol] = row.verdict + " " + row.agree;
           setConfluenceMap(m);
         }
-      } catch {}
+      } catch { }
     };
     load();
     const id = setInterval(load, 30000);
@@ -429,11 +429,11 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
         setScanning(
           scanJob
             ? {
-                done: scanJob.progress?.done ?? 0,
-                total: scanJob.progress?.total ?? 0,
-                current: scanJob.progress?.current ?? "",
-                queued: scanJob.state === "queued" ? scanJob.position + 1 : 0,
-              }
+              done: scanJob.progress?.done ?? 0,
+              total: scanJob.progress?.total ?? 0,
+              current: scanJob.progress?.current ?? "",
+              queued: scanJob.state === "queued" ? scanJob.position + 1 : 0,
+            }
             : null,
         );
         setTrainHist(snap.train ?? null);
@@ -646,731 +646,720 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
 
   return (
     <>
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
-    <Card className="border-zinc-800 bg-zinc-900/60 h-full">
-      <CardHeader className="px-3 pb-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="flex items-center gap-1.5 text-base font-semibold text-zinc-100">
-            <Bot className="h-4 w-4 text-teal-400" />
-            SETTING
-            {cfg.on && <span className="ml-1 inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-400" aria-hidden />}
-          </CardTitle>
-          <div className="flex items-center gap-2">
-            {tgConfigured != null && (
-              <span
-                className={`h-2 w-2 rounded-full ${tgConfigured ? "bg-teal-400" : "bg-zinc-600"}`}
-                title={tgConfigured ? t(lang, "auto.tg.ok") : t(lang, "auto.tg.none")}
-                aria-hidden
-              />
-            )}
-            <Switch checked={cfg.on} onCheckedChange={(v) => updateCfg({ on: v })} aria-label={t(lang, "auto.on")} />
-          </div>
-        </div>
-        <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">{t(lang, "auto.sub")}</p>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+        <Card className="border-zinc-800 bg-zinc-900/60 h-full">
+          <CardHeader className="px-3 pb-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <CardTitle className="flex items-center gap-1.5 text-base font-semibold text-zinc-100">
+                <Bot className="h-4 w-4 text-teal-400" />
+                SETTING
+                {cfg.on && <span className="ml-1 inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-400" aria-hidden />}
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                {tgConfigured != null && (
+                  <span
+                    className={`h-2 w-2 rounded-full ${tgConfigured ? "bg-teal-400" : "bg-zinc-600"}`}
+                    title={tgConfigured ? t(lang, "auto.tg.ok") : t(lang, "auto.tg.none")}
+                    aria-hidden
+                  />
+                )}
+                <Switch checked={cfg.on} onCheckedChange={(v) => updateCfg({ on: v })} aria-label={t(lang, "auto.on")} />
+              </div>
+            </div>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">{t(lang, "auto.sub")}</p>
 
-        {/* 0.2.97 — DRY-RUN / LIVE + START/STOP — mọi điều khiển chế độ sổ B
+            {/* 0.2.97 — DRY-RUN / LIVE + START/STOP — mọi điều khiển chế độ sổ B
             nằm gọn một hàng: mode segmented + nút play/stop + badge LIVE. */}
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <div className="flex overflow-hidden rounded-md border border-zinc-800" role="group" aria-label={t(lang, "auto.mode.label")}>
-            <button
-              type="button"
-              onClick={() => !liveOn && updateCfg({ on: false })}
-              disabled={liveOn}
-              title={t(lang, "auto.mode.dry")}
-              className={`h-7 px-2.5 font-mono text-[11px] ${!liveOn ? "border-teal-700 bg-teal-950/40 text-teal-300" : "text-zinc-500 hover:bg-zinc-800 disabled:opacity-40"} ${!liveOn && !cfg.on ? "" : ""}`}
-            >
-              DRY-RUN
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!liveState?.keys) {
-                  pushToast({ kind: "warn", text: t(lang, "auto.live.nokeys") });
-                  return;
-                }
-                if (!liveOn) setLiveConfirmOpen(true);
-              }}
-              title={t(lang, "auto.mode.live")}
-              className={`h-7 border-l border-zinc-800 px-2.5 font-mono text-[11px] ${liveOn ? "border-emerald-700 bg-emerald-950/40 text-emerald-300" : "text-zinc-400 hover:bg-zinc-800"}`}
-            >
-              LIVE
-            </button>
-          </div>
-          <Button
-            size="sm"
-            variant={cfg.on ? "outline" : "default"}
-            onClick={() => updateCfg({ on: !cfg.on })}
-            className={`h-7 gap-1.5 px-2.5 text-[11px] ${cfg.on ? "border-rose-800 bg-transparent text-rose-300 hover:bg-rose-950/40" : "bg-emerald-700 text-white hover:bg-emerald-600"}`}
-          >
-            {cfg.on ? <Square className="h-3 w-3" /> : <Play className="h-3 w-3" />}
-            {cfg.on ? t(lang, "auto.stop") : t(lang, "auto.start")}
-          </Button>
-          {liveOn && (
-            <span className="inline-flex items-center gap-1 rounded-md border border-emerald-700 bg-emerald-950/50 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-300" title={t(lang, "auto.live.onTip")}>
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" aria-hidden />
-              LIVE
-            </span>
-          )}
-          {wyStatus && wyStatus.breadth !== null && (
-            <span
-              className={`rounded-md border px-2 py-0.5 font-mono text-[10px] ${wyStatus.breadth >= 50 ? "border-violet-800 text-violet-300" : "border-zinc-800 text-zinc-500"}`}
-              title={t(lang, "auto.breadth.tip")}
-            >
-              breadth {wyStatus.breadth.toFixed(0)}%
-            </span>
-          )}
-        </div>
-
-        {/* 0.2.97 — dải xác nhận LIVE (hai bước, gõ "LIVE") */}
-        {liveConfirmOpen && (
-          <div className="rounded-lg border border-emerald-800 bg-emerald-950/40 p-2.5">
-            <p className="text-[11px] leading-relaxed text-emerald-200">{t(lang, "auto.live.confirmText")}</p>
-            <div className="mt-1.5 flex items-center gap-2">
-              <Input
-                value={liveConfirmText}
-                onChange={(e) => setLiveConfirmText(e.target.value)}
-                placeholder="LIVE"
-                className="h-7 w-28 border-emerald-800 bg-zinc-950/60 font-mono text-xs uppercase text-zinc-100 placeholder:text-zinc-600"
-                aria-label="LIVE"
-              />
-              <Button
-                size="sm"
-                disabled={liveBusy || liveConfirmText.trim().toUpperCase() !== "LIVE"}
-                onClick={() => void liveGo()}
-                className="h-7 bg-emerald-700 px-2.5 text-[11px] text-white hover:bg-emerald-600"
-              >
-                {t(lang, "auto.live.confirmBtn")}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setLiveConfirmOpen(false);
-                  setLiveConfirmText("");
-                }}
-                className="h-7 border-zinc-700 px-2.5 text-[11px] text-zinc-300 hover:bg-zinc-800"
-              >
-                {t(lang, "auto.live.cancel")}
-              </Button>
-            </div>
-          </div>
-        )}
-      </CardHeader>
-
-      <CardContent className="space-y-3 px-3 pt-0">
-      {/* ─── AGENT SELECTOR — thay panel so cu ─── */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        {AGENTS.map((a) => {
-          const cur = (cfg as any)?.agent || "HEDGE";
-          const locked = a.id === "GRAIL";
-          const active = cur === a.id;
-          return (
-            <button
-              key={a.id}
-              disabled={locked}
-              title={locked ? "GRAIL locked — mo sau khi B du 20 lenh + C het RISK_OFF" : a.desc}
-              onClick={() => {
-                const pr = AGENT_UI_PRESETS[a.id] || {};
-                onCfgChange({ agent: a.id, ...pr } as any);
-                pushToast({ kind: "success", text: `Agent ${a.id} đã set — Risk ${pr.riskPct}% · Gate ${pr.minScore}/${pr.minAuc}/${pr.minAcc} · TF ${pr.runTf?.join("/")}` });
-              }}
-              style={{ flex: 1, padding: "10px 6px", borderRadius: 10, cursor: locked ? "not-allowed" : "pointer", opacity: locked ? 0.5 : 1, border: active ? "2px solid #22c55e" : "1px solid #333", background: active ? "#14532d" : "#111", color: "#fff", textAlign: "center" }}
-            >
-              <div style={{ fontSize: 16 }}>{a.icon} {a.id}{locked ? " 🔒" : ""}</div>
-              <div style={{ fontSize: 11, opacity: 0.7 }}>{a.desc}</div>
-            </button>
-          );
-        })}
-      </div>
-
-        {/* config — risk control first: equity share per trade + TP/SL source */}
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-1.5 text-[11px] text-zinc-500">
-            {t(lang, "auto.cfg.capital")}
-            <Input
-              type="number"
-              min={1}
-              value={cfg.capital}
-              onChange={(e) => updateCfg({ capital: Math.max(1, Number(e.target.value) || 0) })}
-              className="h-7 w-24 border-zinc-800 bg-zinc-950/60 px-2 font-mono text-xs text-zinc-100"
-            />
-          </label>
-          <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.risk")}>
-            <span className="mr-0.5 text-[11px] text-zinc-500">{t(lang, "auto.cfg.risk")}</span>
-            {RISK_CHOICES.map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => updateCfg({ riskPct: p })}
-                className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
-                  cfg.riskPct === p
-                    ? "border-teal-700 bg-teal-950/40 text-teal-300"
-                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
-                }`}
-              >
-                {p}%
-              </button>
-            ))}
-          </div>
-          {/* Leverage — "tôi cài đặt x10 được không": chỉnh được NGAY đây.
-              SL/TP là % GIÁ — đòn bẩy chỉ nhân ROE (xem levTip). Đổi giá trị
-              viết vào settings của trang → useEffect sync đẩy lên engine. */}
-          <label
-            className="flex items-center gap-1.5 text-[11px] text-zinc-500"
-            title={t(lang, "auto.cfg.levTip")}
-          >
-            {t(lang, "auto.cfg.lev")}
-            <span className="flex items-center gap-1">
-              {[5, 10, 20].map((lv) => (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <div className="flex overflow-hidden rounded-md border border-zinc-800" role="group" aria-label={t(lang, "auto.mode.label")}>
                 <button
-                  key={lv}
                   type="button"
-                  onClick={() => onLeverageChange(lv)}
-                  className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
-                    leverage === lv
-                      ? "border-amber-700 bg-amber-950/40 text-amber-300"
-                      : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
-                  }`}
+                  onClick={() => !liveOn && updateCfg({ on: false })}
+                  disabled={liveOn}
+                  title={t(lang, "auto.mode.dry")}
+                  className={`h-7 px-2.5 font-mono text-[11px] ${!liveOn ? "border-teal-700 bg-teal-950/40 text-teal-300" : "text-zinc-500 hover:bg-zinc-800 disabled:opacity-40"} ${!liveOn && !cfg.on ? "" : ""}`}
                 >
-                  ×{lv}
+                  DRY-RUN
                 </button>
-              ))}
-              <Input
-                type="number"
-                min={1}
-                max={MAX_LEVERAGE}
-                value={leverage}
-                onChange={(e) => onLeverageChange(Math.max(1, Math.min(MAX_LEVERAGE, Number(e.target.value) || 1)))}
-                className="h-7 w-14 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
-              />
-            </span>
-          </label>
-          <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.tpmode")}>
-            <span className="mr-0.5 text-[11px] text-zinc-500">TP/SL</span>
-            {TP_MODES.map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => updateCfg({ tpMode: m })}
-                className={`h-7 rounded-md border px-2 text-[11px] ${
-                  cfg.tpMode === m
-                    ? "border-teal-700 bg-teal-950/40 text-teal-300"
-                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
-                }`}
-              >
-                {t(lang, m === "dyn" ? "auto.cfg.tpDyn" : m === "auto" ? "auto.cfg.tpAuto" : "auto.cfg.tpManual")}
-              </button>
-            ))}
-            {cfg.tpMode === "dyn" && (
-              <label className="flex items-center gap-1 text-[11px] text-zinc-500">
-                {t(lang, "auto.cfg.atrCoef")}
-                <Input
-                  type="number"
-                  min={0.5}
-                  max={5}
-                  step={0.1}
-                  value={cfg.atrCoef}
-                  onChange={(e) => updateCfg({ atrCoef: Math.min(5, Math.max(0.5, Number(e.target.value) || 1.5)) })}
-                  className="h-7 w-14 border-sky-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-sky-300"
-                />
-                ×
-              </label>
-            )}
-            {cfg.tpMode === "manual" && (
-              <label className="flex items-center gap-1 text-[11px] text-zinc-500">
-                SL
-                <Input
-                  type="number"
-                  min={0.2}
-                  max={20}
-                  step={0.1}
-                  value={cfg.slPct}
-                  onChange={(e) => updateCfg({ slPct: Math.min(20, Math.max(0.2, Number(e.target.value) || 1)) })}
-                  className="h-7 w-14 border-rose-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-rose-300"
-                />
-                TP
-                <Input
-                  type="number"
-                  min={0.2}
-                  max={30}
-                  step={0.1}
-                  value={cfg.tpPct}
-                  onChange={(e) => updateCfg({ tpPct: Math.min(30, Math.max(0.2, Number(e.target.value) || 1.5)) })}
-                  className="h-7 w-14 border-emerald-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-emerald-300"
-                />
-                %
-              </label>
-            )}
-            {cfg.tpMode === "dyn" && (
-              <span className="w-full text-[10px] leading-tight text-zinc-600">{t(lang, "auto.cfg.tpDynDesc")}</span>
-            )}
-          </div>
-          {/* TRAILING STOP — khoá lời di động: act% giá thì arm, stop bám đỉnh/đáy cách dist% */}
-          <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t(lang, "auto.trail")}>
-            <button
-              type="button"
-              onClick={() => updateCfg({ trailOn: !cfg.trailOn })}
-              aria-pressed={cfg.trailOn}
-              title={t(lang, "auto.trail.tip")}
-              className={`h-7 rounded-md border px-2 text-[11px] ${
-                cfg.trailOn
-                  ? "border-violet-700 bg-violet-950/40 text-violet-300"
-                  : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
-              }`}
-            >
-              🪢 {t(lang, "auto.trail")}
-            </button>
-            {cfg.trailOn && (
-              <button
-                type="button"
-                onClick={() => updateCfg({ trailAuto: !cfg.trailAuto })}
-                aria-pressed={cfg.trailAuto}
-                title={t(lang, "auto.trail.autoTip")}
-                className={`h-7 rounded-md border px-2 text-[11px] ${
-                  cfg.trailAuto
-                    ? "border-violet-700 bg-violet-950/40 text-violet-300"
-                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
-                }`}
-              >
-                🤖 {t(lang, "auto.trail.auto")}
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                try {
-                  localStorage.setItem("elliott-beta-custom", JSON.stringify(cfg));
-                  pushToast({ kind: "xgb", text: "Beta Test da save custom" });
-                } catch {
-                  pushToast({ kind: "error", text: "Khong save duoc Beta custom" });
-                }
-              }}
-              title="Luu cau hinh dang chinh tay thanh Beta custom"
-              className="h-7 rounded-md border border-violet-700/60 bg-violet-950/40 px-2 text-xs text-violet-300 hover:bg-violet-950/60"
-            >
-              Beta Test
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                try {
-                  const raw = localStorage.getItem("elliott-beta-custom");
-                  if (!raw) { pushToast({ kind: "warn", text: "Chua co Beta custom nao" }); return; }
-                  updateCfg(JSON.parse(raw));
-                  pushToast({ kind: "xgb", text: "Da load Beta custom" });
-                } catch {
-                  pushToast({ kind: "error", text: "Beta custom loi, save lai di" });
-                }
-              }}
-              title="Load lai Beta custom da save"
-              className="h-7 rounded-md border border-zinc-800 bg-zinc-950/40 px-2 text-xs text-zinc-400 hover:bg-zinc-800"
-            >
-              Load Beta
-            </button>
-            {cfg.trailOn && cfg.trailAuto && (
-              <span className="w-full text-[10px] leading-tight text-zinc-600" title={t(lang, "auto.trail.autoTip")}>
-                {t(lang, "auto.trail.autoDesc")}
-              </span>
-            )}
-            {cfg.trailOn && !cfg.trailAuto && (
-              <label className="flex items-center gap-1 text-[11px] text-zinc-500" title={t(lang, "auto.trail.tip")}>
-                {t(lang, "auto.trail.act")}
-                <Input
-                  type="number"
-                  min={0.2}
-                  max={10}
-                  step={0.1}
-                  value={cfg.trailActPct}
-                  onChange={(e) => updateCfg({ trailActPct: Math.min(10, Math.max(0.2, Number(e.target.value) || 1)) })}
-                  className="h-7 w-14 border-violet-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-violet-300"
-                />
-                {t(lang, "auto.trail.dist")}
-                <Input
-                  type="number"
-                  min={0.1}
-                  max={10}
-                  step={0.1}
-                  value={cfg.trailDistPct}
-                  onChange={(e) => updateCfg({ trailDistPct: Math.min(10, Math.max(0.1, Number(e.target.value) || 0.8)) })}
-                  className="h-7 w-14 border-violet-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-violet-300"
-                />
-                <span className="text-zinc-600">{t(lang, "auto.trail.unit")}</span>
-              </label>
-            )}
-          </div>
-          {/* 0.3.3 — TP1→runner + SL confirm: hai cơ chế thoát lệnh mới trả lời
-              "chốt sớm/SL non/tăng RR mất dòng lệnh" */}
-          <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t(lang, "auto.runner")}>
-            <button
-              type="button"
-              onClick={() => updateCfg({ runnerOn: !cfg.runnerOn })}
-              aria-pressed={cfg.runnerOn}
-              title={t(lang, "auto.runner.tip", { sh: cfg.runnerSharePct, t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}
-              className={`h-7 rounded-md border px-2 text-[11px] ${
-                cfg.runnerOn
-                  ? "border-teal-700 bg-teal-950/40 text-teal-300"
-                  : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
-              }`}
-            >
-              🪁 {t(lang, "auto.runner")}
-            </button>
-            {cfg.runnerOn && (
-              <>
-                <span
-                  className="mr-0.5 text-[11px] text-zinc-500"
-                  title={t(lang, "auto.runner.tip", { sh: cfg.runnerSharePct, t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}
-                >
-                  {t(lang, "auto.runner.share")}
-                </span>
-                {RUNNER_SHARE_CHOICES.map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => updateCfg({ runnerSharePct: m })}
-                    className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
-                      cfg.runnerSharePct === m
-                        ? "border-teal-700 bg-teal-950/40 text-teal-300"
-                        : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
-                    }`}
-                  >
-                    {m}%
-                  </button>
-                ))}
-                <span className="ml-1 text-[11px] text-zinc-500" title={t(lang, "auto.runner.tip", { sh: cfg.runnerSharePct, t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}>
-                  {t(lang, "auto.runner.tp")}
-                </span>
-                <Input
-                  type="number"
-                  min={1}
-                  max={5}
-                  step={0.5}
-                  value={cfg.runnerTpMult}
-                  onChange={(e) => updateCfg({ runnerTpMult: Math.min(5, Math.max(1, Number(e.target.value) || 2)) })}
-                  aria-label={t(lang, "auto.runner.tp")}
-                  title={t(lang, "auto.runner.tip", { sh: cfg.runnerSharePct, t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}
-                  className="h-7 w-12 border-teal-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-teal-300"
-                />
-                <span className="text-[11px] text-zinc-500" title={t(lang, "auto.runner.tip", { sh: cfg.runnerSharePct, t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}>
-                  {t(lang, "auto.runner.lock")}
-                </span>
-                <Input
-                  type="number"
-                  min={0.1}
-                  max={1}
-                  step={0.1}
-                  value={cfg.runnerTrailLock}
-                  onChange={(e) => updateCfg({ runnerTrailLock: Math.min(1, Math.max(0.1, Number(e.target.value) || 0.5)) })}
-                  aria-label={t(lang, "auto.runner.lock")}
-                  title={t(lang, "auto.runner.tip", { sh: cfg.runnerSharePct, t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}
-                  className="h-7 w-12 border-teal-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-teal-300"
-                />
-              </>
-            )}
-            <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.slconfirm")}>
-              <span className="mr-0.5 text-[11px] text-zinc-500" title={t(lang, "auto.slconfirm.tip", { n: cfg.slConfirmTicks })}>
-                {t(lang, "auto.slconfirm")}
-              </span>
-              {SL_CONFIRM_CHOICES.map((m) => (
                 <button
-                  key={m}
                   type="button"
-                  onClick={() => updateCfg({ slConfirmTicks: m })}
-                  title={t(lang, "auto.slconfirm.tip", { n: m })}
-                  className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
-                    cfg.slConfirmTicks === m
-                      ? "border-amber-700 bg-amber-950/40 text-amber-300"
-                      : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
-                  }`}
-                >
-                  {m === 0 ? t(lang, "auto.cfg.cooldownOff") : `×${m}`}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.floor")}>
-            <span className="mr-0.5 text-[11px] text-zinc-500" title={t(lang, "auto.cfg.floorTip", { s: cfg.minScore, a: cfg.minAuc, c: cfg.minAcc })}>
-              {t(lang, "auto.cfg.floor")}
-            </span>
-            <Input
-              type="number"
-              min={0.5}
-              max={0.95}
-              step={0.01}
-              value={cfg.minAuc}
-              onChange={(e) => updateCfg({ minAuc: Math.min(0.95, Math.max(0.5, Number(e.target.value) || 0.8)) })}
-              aria-label={t(lang, "auto.cfg.floorAuc")}
-              title={t(lang, "auto.cfg.floorAuc")}
-              className="h-7 w-14 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
-            />
-            <Input
-              type="number"
-              min={50}
-              max={90}
-              step={1}
-              value={cfg.minAcc}
-              onChange={(e) => updateCfg({ minAcc: Math.min(90, Math.max(50, Number(e.target.value) || 70)) })}
-              aria-label={t(lang, "auto.cfg.floorAcc")}
-              title={t(lang, "auto.cfg.floorAcc")}
-              className="h-7 w-14 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
-            />
-            <Input
-              type="number"
-              min={0}
-              max={95}
-              step={1}
-              value={cfg.minScore}
-              onChange={(e) => updateCfg({ minScore: Math.min(95, Math.max(0, Number(e.target.value) || 60)) })}
-              aria-label={t(lang, "auto.cfg.floorScore")}
-              title={t(lang, "auto.cfg.floorScore")}
-              className="h-7 w-14 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
-            />
-          </div>
-          <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.tf")}>
-            <span className="mr-0.5 text-[11px] text-zinc-500" title={t(lang, "auto.cfg.tfTip")}>
-              {t(lang, "auto.cfg.tf")}
-            </span>
-            {INTERVALS.map((tf) => {
-              const on = cfg.runTf.includes(tf);
-              return (
-                <button
-                  key={tf}
-                  type="button"
-                  title={t(lang, "auto.cfg.tfTip")}
                   onClick={() => {
-                    const next = on ? cfg.runTf.filter((x) => x !== tf) : [...cfg.runTf, tf];
-                    if (next.length === 0) return; // phải còn ít nhất 1 khung
-                    updateCfg({ runTf: INTERVALS.filter((i) => next.includes(i)) }); // thứ tự gốc
+                    if (!liveState?.keys) {
+                      pushToast({ kind: "warn", text: t(lang, "auto.live.nokeys") });
+                      return;
+                    }
+                    if (!liveOn) setLiveConfirmOpen(true);
                   }}
-                  className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
-                    on
-                      ? "border-teal-700 bg-teal-950/40 text-teal-300"
-                      : "border-zinc-800 bg-zinc-950/40 text-zinc-600 line-through hover:bg-zinc-800"
-                  }`}
+                  title={t(lang, "auto.mode.live")}
+                  className={`h-7 border-l border-zinc-800 px-2.5 font-mono text-[11px] ${liveOn ? "border-emerald-700 bg-emerald-950/40 text-emerald-300" : "text-zinc-400 hover:bg-zinc-800"}`}
                 >
-                  {tf}
+                  LIVE
                 </button>
-              );
-            })}
-          </div>
-          <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.cooldown")}>
-            <span className="mr-0.5 text-[11px] text-zinc-500">{t(lang, "auto.cfg.cooldown")}</span>
-            {COOLDOWN_CHOICES.map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => updateCfg({ cooldownMin: m })}
-                className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
-                  cfg.cooldownMin === m
-                    ? "border-teal-700 bg-teal-950/40 text-teal-300"
-                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
-                }`}
+              </div>
+              <Button
+                size="sm"
+                variant={cfg.on ? "outline" : "default"}
+                onClick={() => updateCfg({ on: !cfg.on })}
+                className={`h-7 gap-1.5 px-2.5 text-[11px] ${cfg.on ? "border-rose-800 bg-transparent text-rose-300 hover:bg-rose-950/40" : "bg-emerald-700 text-white hover:bg-emerald-600"}`}
               >
-                {m === 0 ? t(lang, "auto.cfg.cooldownOff") : m}
-              </button>
-            ))}
-            <span className="text-[11px] text-zinc-600">{t(lang, "auto.cfg.cooldownUnit")}</span>
-          </div>
-          <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.dca")}>
-            <span className="mr-0.5 text-[11px] text-zinc-500" title={t(lang, "auto.cfg.dcaTip")}>
-              {t(lang, "auto.cfg.dca")}
-            </span>
-            {DCA_CHOICES.map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => updateCfg({ dcaMax: m })}
-                title={t(lang, "auto.cfg.dcaTip")}
-                className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
-                  cfg.dcaMax === m
-                    ? "border-amber-700 bg-amber-950/40 text-amber-300"
-                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
-                }`}
-              >
-                {m === 0 ? t(lang, "auto.cfg.dcaOff") : `×${m}`}
-              </button>
-            ))}
-            <span className="text-[11px] text-zinc-600">{t(lang, "auto.cfg.dcaUnit")}</span>
-          </div>
-          <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.stats")}>
-            <span className="mr-0.5 text-[11px] text-zinc-500">{t(lang, "auto.cfg.stats")}</span>
-            {([
-              ["statHourly", "auto.cfg.statHourly"],
-              ["statDaily", "auto.cfg.statDaily"],
-            ] as const).map(([key, ikey]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => updateCfg({ [key]: !cfg[key] })}
-                aria-pressed={cfg[key]}
-                className={`h-7 rounded-md border px-2 font-mono text-[11px] ${
-                  cfg[key]
-                    ? "border-teal-700 bg-teal-950/40 text-teal-300"
-                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
-                }`}
-              >
-                {t(lang, ikey)}
-              </button>
-            ))}
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2 text-[11px] text-zinc-400 hover:bg-zinc-800"
-              disabled={tgState === "sending"}
-              title={t(lang, "auto.cfg.statNowTip")}
-              onClick={() => void sendStatsNow()}
-            >
-              <Send className="mr-1 h-3 w-3" />
-              {t(lang, "auto.cfg.statNow")}
-            </Button>
-          </div>
-        </div>
-
-        {/* whale filter — the LLM risk officer runs silently in the backend */}
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => updateCfg({ whaleFilter: !cfg.whaleFilter })}
-            aria-pressed={cfg.whaleFilter}
-            title={t(lang, "auto.whale.tip")}
-            className={`h-7 rounded-md border px-2 text-[11px] ${
-              cfg.whaleFilter
-                ? "border-sky-700 bg-sky-950/40 text-sky-300"
-                : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
-            }`}
-          >
-            🐋 {t(lang, "auto.whale.title")}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const v = !cfg.broadcast;
-              updateCfg({ broadcast: v });
-              if (v) void doScan(); // enabling → scan now, first digest lands in seconds
-            }}
-            aria-pressed={cfg.broadcast}
-            title={t(lang, "auto.bcast.tip", { s: cfg.minScore, a: cfg.minAuc, c: cfg.minAcc })}
-            className={`h-7 rounded-md border px-2 text-[11px] ${
-              cfg.broadcast
-                ? "border-violet-700 bg-violet-950/40 text-violet-300"
-                : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
-            }`}
-          >
-            📡 {t(lang, "auto.bcast.title")}
-          </button>
-          <button
-            type="button"
-            onClick={() => updateCfg({ autoFlip: !cfg.autoFlip })}
-            aria-pressed={cfg.autoFlip}
-            title={t(lang, "auto.flip.tip", { s: Math.round(ef.minScore), a: ef.minAuc.toFixed(2), c: Math.round(ef.minAcc) })}
-            className={`h-7 rounded-md border px-2 text-[11px] ${
-              cfg.autoFlip
-                ? "border-amber-700 bg-amber-950/40 text-amber-300"
-                : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
-            }`}
-          >
-            🔄 {t(lang, "auto.flip.title")}
-          </button>
-          {llmLast && (
-            <span
-              className={`text-[11px] ${
-                llmLast.verdict === "skip"
-                  ? "text-rose-300"
-                  : llmLast.verdict === "go"
-                    ? "text-emerald-300/80"
-                    : "text-amber-300/80"
-              }`}
-            >
-              {llmLast.verdict === "skip"
-                ? `🛑 ${t(lang, "auto.llm.skip")}`
-                : llmLast.verdict === "go"
-                  ? `✅ ${t(lang, "auto.llm.go")}`
-                  : `⚠️ ${t(lang, "auto.llm.down")}`}
-              {" · "}
-              {llmLast.symbol} {llmLast.interval}
-              {llmLast.reason ? ` · ${llmLast.reason}` : ""}
-              {llmLast.ms > 0 ? ` · ${(llmLast.ms / 1000).toFixed(1)}s` : ""}
-            </span>
-          )}
-        </div>
-
-        {/* scan actions */}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            className="h-8 bg-teal-600 text-zinc-950 hover:bg-teal-500 disabled:opacity-50"
-            disabled={scanning != null || pairs.length === 0}
-            onClick={() => void doScan()}
-          >
-            <ScanLine className="mr-1.5 h-3.5 w-3.5" />
-            {t(lang, "auto.scan")} ({scanning?.total ?? pairs.length * (cfg.runTf?.length ?? INTERVALS.length)})
-          </Button>
-          <Button size="sm" variant="outline" className="h-8 border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800" disabled={tgState === "sending"} onClick={() => void checkTg()}>
-            <Send className="mr-1.5 h-3 w-3" />
-            {t(lang, "auto.tg.check")}
-          </Button>
-          {scanAt != null && !scanning && (
-            <span className="text-[11px] text-zinc-600">
-              {t(lang, "auto.scan.ago", { time: new Date(scanAt).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit" }) })}
-            </span>
-          )}
-          {engineInfo && (
-            <span className="text-[11px] text-zinc-600" title={t(lang, "engine.backendTip")}>
-              ⚙️ {t(lang, "engine.backend", { w: engineInfo.bundled ? engineInfo.pool : 1 })}
-            </span>
-          )}
-        </div>
-
-        {/* telegram hint — shown after a failed test send; config lives in .env */}
-        {tgState === "fail" && (
-          <div className="space-y-1.5 rounded-lg border border-teal-800/50 bg-teal-950/20 p-2.5">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-teal-300">
-                {t(lang, "auto.tg.help.title")}
-              </p>
-              {tgChatId && (
-                <span className="flex items-center gap-1">
-                  <span className="font-mono text-[10px] text-zinc-500">{t(lang, "auto.tg.current", { id: tgChatId })}</span>
-                  {tgChatSrc === "env" && (
-                    <span className="rounded bg-sky-950 px-1.5 py-0.5 font-mono text-[9px] text-sky-400" title={t(lang, "auto.tg.env.hint")}>
-                      .env
-                    </span>
-                  )}
+                {cfg.on ? <Square className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                {cfg.on ? t(lang, "auto.stop") : t(lang, "auto.start")}
+              </Button>
+              {liveOn && (
+                <span className="inline-flex items-center gap-1 rounded-md border border-emerald-700 bg-emerald-950/50 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-300" title={t(lang, "auto.live.onTip")}>
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" aria-hidden />
+                  LIVE
+                </span>
+              )}
+              {wyStatus && wyStatus.breadth !== null && (
+                <span
+                  className={`rounded-md border px-2 py-0.5 font-mono text-[10px] ${wyStatus.breadth >= 50 ? "border-violet-800 text-violet-300" : "border-zinc-800 text-zinc-500"}`}
+                  title={t(lang, "auto.breadth.tip")}
+                >
+                  breadth {wyStatus.breadth.toFixed(0)}%
                 </span>
               )}
             </div>
-            <p className="text-[11px] leading-relaxed text-zinc-400">{t(lang, "auto.tg.env.hint")}</p>
-            {tgDetail && <p className="font-mono text-[10px] text-zinc-500">{tgDetail}</p>}
-          </div>
-        )}
-        {scanning && (
-          <div className="space-y-1">
-            <p className="font-mono text-[11px] text-teal-300">
-              {scanning.queued > 0
-                ? t(lang, "engine.queuedAt", { n: scanning.queued })
-                : t(lang, "auto.scan.busy", { done: scanning.done, total: scanning.total, current: scanning.current })}
-            </p>
-            <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
-              <div className="h-full rounded-full bg-teal-500 transition-all" style={{ width: `${scanning.queued > 0 ? 0 : scanning.total ? (scanning.done / scanning.total) * 100 : 0}%` }} />
-            </div>
-          </div>
-        )}
-        {cfg.on && countdown != null && (
-          <p className="text-[11px] text-zinc-500">
-            {countdown < 120
-              ? t(lang, "auto.cycle.next", { s: countdown })
-              : t(lang, "auto.cycle.nextH", { t: fmtLeft(countdown) })}
-            {status && <span className="font-mono text-zinc-400">· {status}</span>}
-          </p>
-        )}
-        {!cfg.on && status && <p className="font-mono text-[11px] text-zinc-500">{status}</p>}
 
-    </CardContent>
-    </Card>
-    <AutoPositions opens={opens} open={open} tickers={tickers} cfg={cfg} capitalNow={capitalNow} lang={lang} t={t} closeNow={closeNow} closeOpen={typeof closeOpen !== 'undefined' ? closeOpen : undefined} fmtPrice={fmtPrice} slPrice={slPrice} tpPrice={tpPrice} trailStopPrice={trailStopPrice} trailMovePct={trailMovePct} engineTrail={engineTrail} roeOf={typeof roeOf !== 'undefined' ? roeOf : undefined} rows={typeof rows !== 'undefined' ? rows : undefined} />
-    </div>
-    <AutoHistory auto={auto} capitalNow={capitalNow} cfg={cfg} lang={lang} t={t} auditRes={auditRes} auditBusy={auditBusy} doAudit={doAudit} doResetCapital={doResetCapital} resetOpen={resetOpen} setResetOpen={setResetOpen} resetAmount={resetAmount} setResetAmount={setResetAmount} resetBusy={resetBusy} closedHist={closedHist} sideClass={sideClass} onPickPair={onPickPair} NOISE_BAND={NOISE_BAND} ConfluenceTable={typeof ConfluenceTable !== 'undefined' ? ConfluenceTable : undefined} best={typeof best !== 'undefined' ? best : undefined} flipped={typeof flipped !== 'undefined' ? flipped : undefined} rows={typeof rows !== 'undefined' ? rows : undefined} confluenceMap={typeof confluenceMap !== 'undefined' ? confluenceMap : undefined} TOP_N={typeof TOP_N !== 'undefined' ? TOP_N : undefined} ef={typeof ef !== 'undefined' ? ef : undefined} blockedWhy={typeof blockedWhy !== 'undefined' ? blockedWhy : undefined} probShown={typeof probShown !== 'undefined' ? probShown : undefined} scanning={typeof scanning !== 'undefined' ? scanning : undefined} trainHist={typeof trainHist !== 'undefined' ? trainHist : undefined} bcastSnap={typeof bcastSnap !== 'undefined' ? bcastSnap : undefined} ListChecks={typeof ListChecks !== 'undefined' ? ListChecks : undefined} />
+            {/* 0.2.97 — dải xác nhận LIVE (hai bước, gõ "LIVE") */}
+            {liveConfirmOpen && (
+              <div className="rounded-lg border border-emerald-800 bg-emerald-950/40 p-2.5">
+                <p className="text-[11px] leading-relaxed text-emerald-200">{t(lang, "auto.live.confirmText")}</p>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <Input
+                    value={liveConfirmText}
+                    onChange={(e) => setLiveConfirmText(e.target.value)}
+                    placeholder="LIVE"
+                    className="h-7 w-28 border-emerald-800 bg-zinc-950/60 font-mono text-xs uppercase text-zinc-100 placeholder:text-zinc-600"
+                    aria-label="LIVE"
+                  />
+                  <Button
+                    size="sm"
+                    disabled={liveBusy || liveConfirmText.trim().toUpperCase() !== "LIVE"}
+                    onClick={() => void liveGo()}
+                    className="h-7 bg-emerald-700 px-2.5 text-[11px] text-white hover:bg-emerald-600"
+                  >
+                    {t(lang, "auto.live.confirmBtn")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setLiveConfirmOpen(false);
+                      setLiveConfirmText("");
+                    }}
+                    className="h-7 border-zinc-700 px-2.5 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                  >
+                    {t(lang, "auto.live.cancel")}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardHeader>
+
+          <CardContent className="space-y-3 px-3 pt-0">
+            {/* ─── AGENT SELECTOR — thay panel số cũ ─── */}
+            <div style={{ marginBottom: 12 }}>
+              <h1 style={{ fontSize: 13, fontWeight: 700, letterSpacing: 1, color: "#e4e4e7", margin: "0 0 8px 2px" }}>
+                AI AGENTS CHOICE
+              </h1>
+              <div style={{ display: "flex", gap: 8 }}>
+                {AGENTS.map((a) => {
+                  const cur = (cfg as any)?.agent || "HEDGE";
+                  const locked = a.id === "GRAIL";
+                  const active = cur === a.id;
+                  return (
+                    <button
+                      key={a.id}
+                      disabled={locked}
+                      title={locked ? "GRAIL locked — mở sau khi B đủ 20 lệnh + C hết RISK_OFF" : a.desc}
+                      onClick={() => {
+                        const pr = AGENT_UI_PRESETS[a.id] || {};
+                        onCfgChange({ agent: a.id, ...pr } as any);
+                        pushToast({ kind: "success", text: `Agent ${a.id} đã set — Risk ${pr.riskPct}% · Gate ${pr.minScore}/${pr.minAuc}/${pr.minAcc} · TF ${pr.runTf?.join("/")}` });
+                      }}
+                      style={{ flex: 1, padding: "10px 6px", borderRadius: 10, cursor: locked ? "not-allowed" : "pointer", opacity: locked ? 0.5 : 1, border: active ? "2px solid #22c55e" : "1px solid #333", background: active ? "#14532d" : "#111", color: "#fff", textAlign: "center" }}
+                    >
+                      <div style={{ fontSize: 16 }}>{a.icon} {a.id}{locked ? " 🔒" : ""}</div>
+                      <div style={{ fontSize: 11, opacity: 0.7 }}>{a.desc}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* config — risk control first: equity share per trade + TP/SL source */}
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-1.5 text-[11px] text-zinc-500">
+                {t(lang, "auto.cfg.capital")}
+                <Input
+                  type="number"
+                  min={1}
+                  value={cfg.capital}
+                  onChange={(e) => updateCfg({ capital: Math.max(1, Number(e.target.value) || 0) })}
+                  className="h-7 w-24 border-zinc-800 bg-zinc-950/60 px-2 font-mono text-xs text-zinc-100"
+                />
+              </label>
+              <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.risk")}>
+                <span className="mr-0.5 text-[11px] text-zinc-500">{t(lang, "auto.cfg.risk")}</span>
+                {RISK_CHOICES.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => updateCfg({ riskPct: p })}
+                    className={`h-7 rounded-md border px-2 font-mono text-[11px] ${cfg.riskPct === p
+                        ? "border-teal-700 bg-teal-950/40 text-teal-300"
+                        : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                      }`}
+                  >
+                    {p}%
+                  </button>
+                ))}
+              </div>
+              {/* Leverage — "tôi cài đặt x10 được không": chỉnh được NGAY đây.
+              SL/TP là % GIÁ — đòn bẩy chỉ nhân ROE (xem levTip). Đổi giá trị
+              viết vào settings của trang → useEffect sync đẩy lên engine. */}
+              <label
+                className="flex items-center gap-1.5 text-[11px] text-zinc-500"
+                title={t(lang, "auto.cfg.levTip")}
+              >
+                {t(lang, "auto.cfg.lev")}
+                <span className="flex items-center gap-1">
+                  {[5, 10, 20].map((lv) => (
+                    <button
+                      key={lv}
+                      type="button"
+                      onClick={() => onLeverageChange(lv)}
+                      className={`h-7 rounded-md border px-2 font-mono text-[11px] ${leverage === lv
+                          ? "border-amber-700 bg-amber-950/40 text-amber-300"
+                          : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                        }`}
+                    >
+                      ×{lv}
+                    </button>
+                  ))}
+                  <Input
+                    type="number"
+                    min={1}
+                    max={MAX_LEVERAGE}
+                    value={leverage}
+                    onChange={(e) => onLeverageChange(Math.max(1, Math.min(MAX_LEVERAGE, Number(e.target.value) || 1)))}
+                    className="h-7 w-14 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
+                  />
+                </span>
+              </label>
+              <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.tpmode")}>
+                <span className="mr-0.5 text-[11px] text-zinc-500">TP/SL</span>
+                {TP_MODES.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => updateCfg({ tpMode: m })}
+                    className={`h-7 rounded-md border px-2 text-[11px] ${cfg.tpMode === m
+                        ? "border-teal-700 bg-teal-950/40 text-teal-300"
+                        : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                      }`}
+                  >
+                    {t(lang, m === "dyn" ? "auto.cfg.tpDyn" : m === "auto" ? "auto.cfg.tpAuto" : "auto.cfg.tpManual")}
+                  </button>
+                ))}
+                {cfg.tpMode === "dyn" && (
+                  <label className="flex items-center gap-1 text-[11px] text-zinc-500">
+                    {t(lang, "auto.cfg.atrCoef")}
+                    <Input
+                      type="number"
+                      min={0.5}
+                      max={5}
+                      step={0.1}
+                      value={cfg.atrCoef}
+                      onChange={(e) => updateCfg({ atrCoef: Math.min(5, Math.max(0.5, Number(e.target.value) || 1.5)) })}
+                      className="h-7 w-14 border-sky-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-sky-300"
+                    />
+                    ×
+                  </label>
+                )}
+                {cfg.tpMode === "manual" && (
+                  <label className="flex items-center gap-1 text-[11px] text-zinc-500">
+                    SL
+                    <Input
+                      type="number"
+                      min={0.2}
+                      max={20}
+                      step={0.1}
+                      value={cfg.slPct}
+                      onChange={(e) => updateCfg({ slPct: Math.min(20, Math.max(0.2, Number(e.target.value) || 1)) })}
+                      className="h-7 w-14 border-rose-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-rose-300"
+                    />
+                    TP
+                    <Input
+                      type="number"
+                      min={0.2}
+                      max={30}
+                      step={0.1}
+                      value={cfg.tpPct}
+                      onChange={(e) => updateCfg({ tpPct: Math.min(30, Math.max(0.2, Number(e.target.value) || 1.5)) })}
+                      className="h-7 w-14 border-emerald-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-emerald-300"
+                    />
+                    %
+                  </label>
+                )}
+                {cfg.tpMode === "dyn" && (
+                  <span className="w-full text-[10px] leading-tight text-zinc-600">{t(lang, "auto.cfg.tpDynDesc")}</span>
+                )}
+              </div>
+              {/* TRAILING STOP — khoá lời di động: act% giá thì arm, stop bám đỉnh/đáy cách dist% */}
+              <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t(lang, "auto.trail")}>
+                <button
+                  type="button"
+                  onClick={() => updateCfg({ trailOn: !cfg.trailOn })}
+                  aria-pressed={cfg.trailOn}
+                  title={t(lang, "auto.trail.tip")}
+                  className={`h-7 rounded-md border px-2 text-[11px] ${cfg.trailOn
+                      ? "border-violet-700 bg-violet-950/40 text-violet-300"
+                      : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                    }`}
+                >
+                  🪢 {t(lang, "auto.trail")}
+                </button>
+                {cfg.trailOn && (
+                  <button
+                    type="button"
+                    onClick={() => updateCfg({ trailAuto: !cfg.trailAuto })}
+                    aria-pressed={cfg.trailAuto}
+                    title={t(lang, "auto.trail.autoTip")}
+                    className={`h-7 rounded-md border px-2 text-[11px] ${cfg.trailAuto
+                        ? "border-violet-700 bg-violet-950/40 text-violet-300"
+                        : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                      }`}
+                  >
+                    🤖 {t(lang, "auto.trail.auto")}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    try {
+                      localStorage.setItem("elliott-beta-custom", JSON.stringify(cfg));
+                      pushToast({ kind: "xgb", text: "Beta Test da save custom" });
+                    } catch {
+                      pushToast({ kind: "error", text: "Khong save duoc Beta custom" });
+                    }
+                  }}
+                  title="Luu cau hinh dang chinh tay thanh Beta custom"
+                  className="h-7 rounded-md border border-violet-700/60 bg-violet-950/40 px-2 text-xs text-violet-300 hover:bg-violet-950/60"
+                >
+                  Beta Test
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    try {
+                      const raw = localStorage.getItem("elliott-beta-custom");
+                      if (!raw) { pushToast({ kind: "warn", text: "Chua co Beta custom nao" }); return; }
+                      updateCfg(JSON.parse(raw));
+                      pushToast({ kind: "xgb", text: "Da load Beta custom" });
+                    } catch {
+                      pushToast({ kind: "error", text: "Beta custom loi, save lai di" });
+                    }
+                  }}
+                  title="Load lai Beta custom da save"
+                  className="h-7 rounded-md border border-zinc-800 bg-zinc-950/40 px-2 text-xs text-zinc-400 hover:bg-zinc-800"
+                >
+                  Load Beta
+                </button>
+                {cfg.trailOn && cfg.trailAuto && (
+                  <span className="w-full text-[10px] leading-tight text-zinc-600" title={t(lang, "auto.trail.autoTip")}>
+                    {t(lang, "auto.trail.autoDesc")}
+                  </span>
+                )}
+                {cfg.trailOn && !cfg.trailAuto && (
+                  <label className="flex items-center gap-1 text-[11px] text-zinc-500" title={t(lang, "auto.trail.tip")}>
+                    {t(lang, "auto.trail.act")}
+                    <Input
+                      type="number"
+                      min={0.2}
+                      max={10}
+                      step={0.1}
+                      value={cfg.trailActPct}
+                      onChange={(e) => updateCfg({ trailActPct: Math.min(10, Math.max(0.2, Number(e.target.value) || 1)) })}
+                      className="h-7 w-14 border-violet-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-violet-300"
+                    />
+                    {t(lang, "auto.trail.dist")}
+                    <Input
+                      type="number"
+                      min={0.1}
+                      max={10}
+                      step={0.1}
+                      value={cfg.trailDistPct}
+                      onChange={(e) => updateCfg({ trailDistPct: Math.min(10, Math.max(0.1, Number(e.target.value) || 0.8)) })}
+                      className="h-7 w-14 border-violet-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-violet-300"
+                    />
+                    <span className="text-zinc-600">{t(lang, "auto.trail.unit")}</span>
+                  </label>
+                )}
+              </div>
+              {/* 0.3.3 — TP1→runner + SL confirm: hai cơ chế thoát lệnh mới trả lời
+              "chốt sớm/SL non/tăng RR mất dòng lệnh" */}
+              <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t(lang, "auto.runner")}>
+                <button
+                  type="button"
+                  onClick={() => updateCfg({ runnerOn: !cfg.runnerOn })}
+                  aria-pressed={cfg.runnerOn}
+                  title={t(lang, "auto.runner.tip", { sh: cfg.runnerSharePct, t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}
+                  className={`h-7 rounded-md border px-2 text-[11px] ${cfg.runnerOn
+                      ? "border-teal-700 bg-teal-950/40 text-teal-300"
+                      : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                    }`}
+                >
+                  🪁 {t(lang, "auto.runner")}
+                </button>
+                {cfg.runnerOn && (
+                  <>
+                    <span
+                      className="mr-0.5 text-[11px] text-zinc-500"
+                      title={t(lang, "auto.runner.tip", { sh: cfg.runnerSharePct, t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}
+                    >
+                      {t(lang, "auto.runner.share")}
+                    </span>
+                    {RUNNER_SHARE_CHOICES.map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => updateCfg({ runnerSharePct: m })}
+                        className={`h-7 rounded-md border px-2 font-mono text-[11px] ${cfg.runnerSharePct === m
+                            ? "border-teal-700 bg-teal-950/40 text-teal-300"
+                            : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                          }`}
+                      >
+                        {m}%
+                      </button>
+                    ))}
+                    <span className="ml-1 text-[11px] text-zinc-500" title={t(lang, "auto.runner.tip", { sh: cfg.runnerSharePct, t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}>
+                      {t(lang, "auto.runner.tp")}
+                    </span>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={5}
+                      step={0.5}
+                      value={cfg.runnerTpMult}
+                      onChange={(e) => updateCfg({ runnerTpMult: Math.min(5, Math.max(1, Number(e.target.value) || 2)) })}
+                      aria-label={t(lang, "auto.runner.tp")}
+                      title={t(lang, "auto.runner.tip", { sh: cfg.runnerSharePct, t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}
+                      className="h-7 w-12 border-teal-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-teal-300"
+                    />
+                    <span className="text-[11px] text-zinc-500" title={t(lang, "auto.runner.tip", { sh: cfg.runnerSharePct, t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}>
+                      {t(lang, "auto.runner.lock")}
+                    </span>
+                    <Input
+                      type="number"
+                      min={0.1}
+                      max={1}
+                      step={0.1}
+                      value={cfg.runnerTrailLock}
+                      onChange={(e) => updateCfg({ runnerTrailLock: Math.min(1, Math.max(0.1, Number(e.target.value) || 0.5)) })}
+                      aria-label={t(lang, "auto.runner.lock")}
+                      title={t(lang, "auto.runner.tip", { sh: cfg.runnerSharePct, t: cfg.runnerTpMult, l: cfg.runnerTrailLock })}
+                      className="h-7 w-12 border-teal-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-teal-300"
+                    />
+                  </>
+                )}
+                <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.slconfirm")}>
+                  <span className="mr-0.5 text-[11px] text-zinc-500" title={t(lang, "auto.slconfirm.tip", { n: cfg.slConfirmTicks })}>
+                    {t(lang, "auto.slconfirm")}
+                  </span>
+                  {SL_CONFIRM_CHOICES.map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => updateCfg({ slConfirmTicks: m })}
+                      title={t(lang, "auto.slconfirm.tip", { n: m })}
+                      className={`h-7 rounded-md border px-2 font-mono text-[11px] ${cfg.slConfirmTicks === m
+                          ? "border-amber-700 bg-amber-950/40 text-amber-300"
+                          : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                        }`}
+                    >
+                      {m === 0 ? t(lang, "auto.cfg.cooldownOff") : `×${m}`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.floor")}>
+                <span className="mr-0.5 text-[11px] text-zinc-500" title={t(lang, "auto.cfg.floorTip", { s: cfg.minScore, a: cfg.minAuc, c: cfg.minAcc })}>
+                  {t(lang, "auto.cfg.floor")}
+                </span>
+                <Input
+                  type="number"
+                  min={0.5}
+                  max={0.95}
+                  step={0.01}
+                  value={cfg.minAuc}
+                  onChange={(e) => updateCfg({ minAuc: Math.min(0.95, Math.max(0.5, Number(e.target.value) || 0.8)) })}
+                  aria-label={t(lang, "auto.cfg.floorAuc")}
+                  title={t(lang, "auto.cfg.floorAuc")}
+                  className="h-7 w-14 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
+                />
+                <Input
+                  type="number"
+                  min={50}
+                  max={90}
+                  step={1}
+                  value={cfg.minAcc}
+                  onChange={(e) => updateCfg({ minAcc: Math.min(90, Math.max(50, Number(e.target.value) || 70)) })}
+                  aria-label={t(lang, "auto.cfg.floorAcc")}
+                  title={t(lang, "auto.cfg.floorAcc")}
+                  className="h-7 w-14 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
+                />
+                <Input
+                  type="number"
+                  min={0}
+                  max={95}
+                  step={1}
+                  value={cfg.minScore}
+                  onChange={(e) => updateCfg({ minScore: Math.min(95, Math.max(0, Number(e.target.value) || 60)) })}
+                  aria-label={t(lang, "auto.cfg.floorScore")}
+                  title={t(lang, "auto.cfg.floorScore")}
+                  className="h-7 w-14 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
+                />
+              </div>
+              <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.tf")}>
+                <span className="mr-0.5 text-[11px] text-zinc-500" title={t(lang, "auto.cfg.tfTip")}>
+                  {t(lang, "auto.cfg.tf")}
+                </span>
+                {INTERVALS.map((tf) => {
+                  const on = cfg.runTf.includes(tf);
+                  return (
+                    <button
+                      key={tf}
+                      type="button"
+                      title={t(lang, "auto.cfg.tfTip")}
+                      onClick={() => {
+                        const next = on ? cfg.runTf.filter((x) => x !== tf) : [...cfg.runTf, tf];
+                        if (next.length === 0) return; // phải còn ít nhất 1 khung
+                        updateCfg({ runTf: INTERVALS.filter((i) => next.includes(i)) }); // thứ tự gốc
+                      }}
+                      className={`h-7 rounded-md border px-2 font-mono text-[11px] ${on
+                          ? "border-teal-700 bg-teal-950/40 text-teal-300"
+                          : "border-zinc-800 bg-zinc-950/40 text-zinc-600 line-through hover:bg-zinc-800"
+                        }`}
+                    >
+                      {tf}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.cooldown")}>
+                <span className="mr-0.5 text-[11px] text-zinc-500">{t(lang, "auto.cfg.cooldown")}</span>
+                {COOLDOWN_CHOICES.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => updateCfg({ cooldownMin: m })}
+                    className={`h-7 rounded-md border px-2 font-mono text-[11px] ${cfg.cooldownMin === m
+                        ? "border-teal-700 bg-teal-950/40 text-teal-300"
+                        : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                      }`}
+                  >
+                    {m === 0 ? t(lang, "auto.cfg.cooldownOff") : m}
+                  </button>
+                ))}
+                <span className="text-[11px] text-zinc-600">{t(lang, "auto.cfg.cooldownUnit")}</span>
+              </div>
+              <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.dca")}>
+                <span className="mr-0.5 text-[11px] text-zinc-500" title={t(lang, "auto.cfg.dcaTip")}>
+                  {t(lang, "auto.cfg.dca")}
+                </span>
+                {DCA_CHOICES.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => updateCfg({ dcaMax: m })}
+                    title={t(lang, "auto.cfg.dcaTip")}
+                    className={`h-7 rounded-md border px-2 font-mono text-[11px] ${cfg.dcaMax === m
+                        ? "border-amber-700 bg-amber-950/40 text-amber-300"
+                        : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                      }`}
+                  >
+                    {m === 0 ? t(lang, "auto.cfg.dcaOff") : `×${m}`}
+                  </button>
+                ))}
+                <span className="text-[11px] text-zinc-600">{t(lang, "auto.cfg.dcaUnit")}</span>
+              </div>
+              <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.stats")}>
+                <span className="mr-0.5 text-[11px] text-zinc-500">{t(lang, "auto.cfg.stats")}</span>
+                {([
+                  ["statHourly", "auto.cfg.statHourly"],
+                  ["statDaily", "auto.cfg.statDaily"],
+                ] as const).map(([key, ikey]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => updateCfg({ [key]: !cfg[key] })}
+                    aria-pressed={cfg[key]}
+                    className={`h-7 rounded-md border px-2 font-mono text-[11px] ${cfg[key]
+                        ? "border-teal-700 bg-teal-950/40 text-teal-300"
+                        : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                      }`}
+                  >
+                    {t(lang, ikey)}
+                  </button>
+                ))}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-[11px] text-zinc-400 hover:bg-zinc-800"
+                  disabled={tgState === "sending"}
+                  title={t(lang, "auto.cfg.statNowTip")}
+                  onClick={() => void sendStatsNow()}
+                >
+                  <Send className="mr-1 h-3 w-3" />
+                  {t(lang, "auto.cfg.statNow")}
+                </Button>
+              </div>
+            </div>
+
+            {/* whale filter — the LLM risk officer runs silently in the backend */}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => updateCfg({ whaleFilter: !cfg.whaleFilter })}
+                aria-pressed={cfg.whaleFilter}
+                title={t(lang, "auto.whale.tip")}
+                className={`h-7 rounded-md border px-2 text-[11px] ${cfg.whaleFilter
+                    ? "border-sky-700 bg-sky-950/40 text-sky-300"
+                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                  }`}
+              >
+                🐋 {t(lang, "auto.whale.title")}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const v = !cfg.broadcast;
+                  updateCfg({ broadcast: v });
+                  if (v) void doScan(); // enabling → scan now, first digest lands in seconds
+                }}
+                aria-pressed={cfg.broadcast}
+                title={t(lang, "auto.bcast.tip", { s: cfg.minScore, a: cfg.minAuc, c: cfg.minAcc })}
+                className={`h-7 rounded-md border px-2 text-[11px] ${cfg.broadcast
+                    ? "border-violet-700 bg-violet-950/40 text-violet-300"
+                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                  }`}
+              >
+                📡 {t(lang, "auto.bcast.title")}
+              </button>
+              <button
+                type="button"
+                onClick={() => updateCfg({ autoFlip: !cfg.autoFlip })}
+                aria-pressed={cfg.autoFlip}
+                title={t(lang, "auto.flip.tip", { s: Math.round(ef.minScore), a: ef.minAuc.toFixed(2), c: Math.round(ef.minAcc) })}
+                className={`h-7 rounded-md border px-2 text-[11px] ${cfg.autoFlip
+                    ? "border-amber-700 bg-amber-950/40 text-amber-300"
+                    : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
+                  }`}
+              >
+                🔄 {t(lang, "auto.flip.title")}
+              </button>
+              {llmLast && (
+                <span
+                  className={`text-[11px] ${llmLast.verdict === "skip"
+                      ? "text-rose-300"
+                      : llmLast.verdict === "go"
+                        ? "text-emerald-300/80"
+                        : "text-amber-300/80"
+                    }`}
+                >
+                  {llmLast.verdict === "skip"
+                    ? `🛑 ${t(lang, "auto.llm.skip")}`
+                    : llmLast.verdict === "go"
+                      ? `✅ ${t(lang, "auto.llm.go")}`
+                      : `⚠️ ${t(lang, "auto.llm.down")}`}
+                  {" · "}
+                  {llmLast.symbol} {llmLast.interval}
+                  {llmLast.reason ? ` · ${llmLast.reason}` : ""}
+                  {llmLast.ms > 0 ? ` · ${(llmLast.ms / 1000).toFixed(1)}s` : ""}
+                </span>
+              )}
+            </div>
+
+            {/* scan actions */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                className="h-8 bg-teal-600 text-zinc-950 hover:bg-teal-500 disabled:opacity-50"
+                disabled={scanning != null || pairs.length === 0}
+                onClick={() => void doScan()}
+              >
+                <ScanLine className="mr-1.5 h-3.5 w-3.5" />
+                {t(lang, "auto.scan")} ({scanning?.total ?? pairs.length * (cfg.runTf?.length ?? INTERVALS.length)})
+              </Button>
+              <Button size="sm" variant="outline" className="h-8 border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800" disabled={tgState === "sending"} onClick={() => void checkTg()}>
+                <Send className="mr-1.5 h-3 w-3" />
+                {t(lang, "auto.tg.check")}
+              </Button>
+              {scanAt != null && !scanning && (
+                <span className="text-[11px] text-zinc-600">
+                  {t(lang, "auto.scan.ago", { time: new Date(scanAt).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit" }) })}
+                </span>
+              )}
+              {engineInfo && (
+                <span className="text-[11px] text-zinc-600" title={t(lang, "engine.backendTip")}>
+                  ⚙️ {t(lang, "engine.backend", { w: engineInfo.bundled ? engineInfo.pool : 1 })}
+                </span>
+              )}
+            </div>
+
+            {/* telegram hint — shown after a failed test send; config lives in .env */}
+            {tgState === "fail" && (
+              <div className="space-y-1.5 rounded-lg border border-teal-800/50 bg-teal-950/20 p-2.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-teal-300">
+                    {t(lang, "auto.tg.help.title")}
+                  </p>
+                  {tgChatId && (
+                    <span className="flex items-center gap-1">
+                      <span className="font-mono text-[10px] text-zinc-500">{t(lang, "auto.tg.current", { id: tgChatId })}</span>
+                      {tgChatSrc === "env" && (
+                        <span className="rounded bg-sky-950 px-1.5 py-0.5 font-mono text-[9px] text-sky-400" title={t(lang, "auto.tg.env.hint")}>
+                          .env
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] leading-relaxed text-zinc-400">{t(lang, "auto.tg.env.hint")}</p>
+                {tgDetail && <p className="font-mono text-[10px] text-zinc-500">{tgDetail}</p>}
+              </div>
+            )}
+            {scanning && (
+              <div className="space-y-1">
+                <p className="font-mono text-[11px] text-teal-300">
+                  {scanning.queued > 0
+                    ? t(lang, "engine.queuedAt", { n: scanning.queued })
+                    : t(lang, "auto.scan.busy", { done: scanning.done, total: scanning.total, current: scanning.current })}
+                </p>
+                <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
+                  <div className="h-full rounded-full bg-teal-500 transition-all" style={{ width: `${scanning.queued > 0 ? 0 : scanning.total ? (scanning.done / scanning.total) * 100 : 0}%` }} />
+                </div>
+              </div>
+            )}
+            {cfg.on && countdown != null && (
+              <p className="text-[11px] text-zinc-500">
+                {countdown < 120
+                  ? t(lang, "auto.cycle.next", { s: countdown })
+                  : t(lang, "auto.cycle.nextH", { t: fmtLeft(countdown) })}
+                {status && <span className="font-mono text-zinc-400">· {status}</span>}
+              </p>
+            )}
+            {!cfg.on && status && <p className="font-mono text-[11px] text-zinc-500">{status}</p>}
+
+          </CardContent>
+        </Card>
+        <AutoPositions opens={opens} open={open} tickers={tickers} cfg={cfg} leverage={leverage} capitalNow={capitalNow} lang={lang} t={t} closeNow={closeNow} closeOpen={typeof closeOpen !== 'undefined' ? closeOpen : undefined} fmtPrice={fmtPrice} slPrice={slPrice} tpPrice={tpPrice} trailStopPrice={trailStopPrice} trailMovePct={trailMovePct} engineTrail={engineTrail} roeOf={typeof roeOf !== 'undefined' ? roeOf : undefined} rows={typeof rows !== 'undefined' ? rows : undefined} />
+      </div>
+      <AutoHistory auto={auto} capitalNow={capitalNow} cfg={cfg} lang={lang} t={t} auditRes={auditRes} auditBusy={auditBusy} doAudit={doAudit} doResetCapital={doResetCapital} resetOpen={resetOpen} setResetOpen={setResetOpen} resetAmount={resetAmount} setResetAmount={setResetAmount} resetBusy={resetBusy} closedHist={closedHist} sideClass={sideClass} onPickPair={onPickPair} NOISE_BAND={NOISE_BAND} ConfluenceTable={typeof ConfluenceTable !== 'undefined' ? ConfluenceTable : undefined} best={typeof best !== 'undefined' ? best : undefined} flipped={typeof flipped !== 'undefined' ? flipped : undefined} rows={typeof rows !== 'undefined' ? rows : undefined} confluenceMap={typeof confluenceMap !== 'undefined' ? confluenceMap : undefined} TOP_N={typeof TOP_N !== 'undefined' ? TOP_N : undefined} ef={typeof ef !== 'undefined' ? ef : undefined} blockedWhy={typeof blockedWhy !== 'undefined' ? blockedWhy : undefined} probShown={typeof probShown !== 'undefined' ? probShown : undefined} scanning={typeof scanning !== 'undefined' ? scanning : undefined} trainHist={typeof trainHist !== 'undefined' ? trainHist : undefined} bcastSnap={typeof bcastSnap !== 'undefined' ? bcastSnap : undefined} ListChecks={typeof ListChecks !== 'undefined' ? ListChecks : undefined} />
     </>
   );
 }
