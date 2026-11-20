@@ -104,18 +104,18 @@ export function Tune2Card({ lang, onBcfgApplied, pushToast }: Props) {
   const pendingOf = (book: BookId): number => itemsOf(book).filter((i) => i.status === "pending").length;
 
   // tổng trades đã đóng của các sổ có dữ liệu tune2 (a/b/c)
-  const totalTrades = data ? (["a", "b", "c"] as BookId[]).reduce((s, b) => s + (data.books[b]?.n ?? 0), 0) : 0;
+  const totalTrades = data ? (["a", "b", "c", "d"] as BookId[]).reduce((s, b) => s + (data.books[b]?.n ?? 0), 0) : 0;
   const enoughData = totalTrades >= TUNE2_MIN_N;
 
   // dải RR / floor hiện hành (bỏ sổ chưa có số)
-  const curVals = data ? (["a", "b", "c"] as BookId[]).map((b) => data.current[b]) : [];
+  const curVals = data ? (["a", "b", "c", "d"] as BookId[]).map((b) => data.current[b]) : [];
   const rrs = curVals.map((c) => c.rr).filter((v) => Number.isFinite(v) && v > 0);
   const floors = curVals.map((c) => c.floor).filter((v) => Number.isFinite(v) && v > 0);
   const rrRange = rrs.length ? `${num(Math.min(...rrs))} – ${num(Math.max(...rrs))}` : "—";
   const floorRange = floors.length ? `${num(Math.min(...floors))} – ${num(Math.max(...floors))}` : "—";
 
   // sổ ưu tiên = sổ có đề xuất pending (engine đang gợi ý chỉnh) — thật, không bịa
-  const priorityBooks = data ? (["a", "b", "c"] as BookId[]).filter((b) => pendingOf(b) > 0) : [];
+  const priorityBooks = data ? (["a", "b", "c", "d"] as BookId[]).filter((b) => pendingOf(b) > 0) : [];
 
   const updatedAt = data
     ? new Date(data.computedAt).toLocaleString(lang === "vi" ? "vi-VN" : "en-GB", {

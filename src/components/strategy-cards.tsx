@@ -312,7 +312,7 @@ export function StrategyCards({ lang, cfgOn, onCfgPatch, onCfgToggle, books, onT
           return (
             <article
               key={spec.id}
-              className={`group relative flex flex-col overflow-hidden rounded-xl border bg-gradient-to-b from-[#101a30]/90 via-[#0c1424]/90 to-[#0a0f1e] p-3.5 transition-colors ${spec.border}`}
+              className={`group relative flex flex-col overflow-visible rounded-xl border bg-gradient-to-b from-[#101a30]/90 via-[#0c1424]/90 to-[#0a0f1e] p-3.5 transition-colors ${spec.border}`}
               style={{ boxShadow: on ? `0 0 18px ${spec.accent}22` : undefined }}
             >
               {/* header card: badge chữ + tên + pill trạng thái */}
