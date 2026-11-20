@@ -2,13 +2,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Square } from "lucide-react";
+import { trailRoiStopPrice } from "@/lib/autotrade";
 
 // Tach tu auto-panel.tsx - POSITIONS OPENING (Card 1369). Props any de tsc khong ket type.
 // 0.3.12b — khối tóm tắt hiệu suất kiểu mockup: donut uROE (tỷ trọng margin
 // LONG/SHORT) + 4 hàng stats (Open · LONG/SHORT · WR đóng · uPnL) — toàn bộ số
 // thật từ opens + closedHist + tickers, không có lệnh thì vẽ vành đen + "—".
 export function AutoPositions(props: any) {
-  const { opens, open, tickers, cfg, capitalNow, lang, t, closeNow, closeOpen, fmtPrice, slPrice, tpPrice, trailStopPrice, trailRoiStopPrice, trailMovePct, engineTrail, roeOf, rows, closedHist, leverage } = props;
+  const { opens, open, tickers, cfg, capitalNow, lang, t, closeNow, closeOpen, fmtPrice, slPrice, tpPrice, trailStopPrice, trailMovePct, engineTrail, roeOf, rows, closedHist, leverage } = props;
   const closeFn = closeNow ?? closeOpen;
   return (
     <Card className="border-[#1e2d4d]/70 bg-[#0a0f1e]/80 h-full">
