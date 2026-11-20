@@ -428,21 +428,21 @@ export function AutoHistory(props: any) {
           ) : (
             <div className="rail-scroll mt-1.5 max-h-44 space-y-1 overflow-y-auto pr-0.5">
               {closedHist.map((r: any) => {
-                const entry = r.entryPrice ?? r.entry ?? null;
-                const exit = r.exitPrice ?? r.closePrice ?? r.exit ?? null;
-                const lev = r.leverage ?? r.lev ?? null;
-                const margin = r.margin ?? r.stake ?? (r.qty && entry ? r.qty * entry / Math.max(1, lev ?? 1) : null);
-                const pnlUsd = r.pnlUsd ?? r.pnl ?? r.pnlDollar ?? null;
-                const t0 = r.createdAt ? new Date(r.createdAt).getTime() : 0;
+                const entry = r.entryPrice ?? null;
+                const exit = r.exitPrice ?? null;
+                const lev = r.leverage ?? null;
+                const margin = r.stakePct != null && r.capitalBefore != null ? (r.stakePct / 100) * r.capitalBefore : null;
+                const pnlUsd = r.pnlPct != null && margin != null ? (r.pnlPct / 100) * margin : (r.capitalAfter != null && r.capitalBefore != null ? r.capitalAfter - r.capitalBefore : null);
+                const t0 = r.entryTime ? new Date(r.entryTime).getTime() : 0;
                 const t1 = r.exitTime ? new Date(r.exitTime).getTime() : 0;
                 const holdMs = t0 && t1 ? Math.max(0, t1 - t0) : 0;
                 const hold = holdMs >= 3600000 ? `${(holdMs / 3600000).toFixed(1)}h` : holdMs >= 60000 ? `${Math.round(holdMs / 60000)}m` : holdMs > 0 ? `${Math.round(holdMs / 1000)}s` : "—";
-                const reason = r.closeReason ?? r.exitReason ?? r.reason ?? (r.exitKind === "tp" ? "TP" : r.exitKind === "sl" ? "SL" : r.exitKind === "trail" ? "TRAIL" : r.exitKind === "flip" ? "FLIP" : "—");
+                const reason = r.exitKind === "tp" ? "TP" : r.exitKind === "sl" ? "SL" : r.exitKind === "trail" ? "TRAIL" : r.exitKind === "flip" ? "FLIP" : (r.exitKind ?? "—");
                 return (
                 <div key={r.id} className="rounded-md border border-zinc-800/80 bg-zinc-950/40 px-2 py-1 text-">
                   <div className="flex items-center gap-2">
                     <span className="shrink-0 text-zinc-500">
-                      {new Date(r.exitTime ?? r.createdAt).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}
+                      {new Date(r.exitTime ?? r.entryTime).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}
                     </span>
                     <span className="truncate font-mono text-zinc-300">{r.symbol} {r.interval}</span>
                     <span className={`shrink-0 font-mono ${sideClass(r.side)}`}>{r.side}</span>

@@ -615,7 +615,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
     }
     return why.length ? why.join(" · ") : null;
   };
-  const closedHist = (auto?.trades ?? []).filter((x) => x.status === "closed").slice(0, 4);
+  const closedHist = (auto?.trades ?? []).filter((x) => x.status === "closed").slice(0, 12);
   const sideClass = (side: string) => (side === "LONG" ? "text-emerald-400" : "text-rose-400");
 
   // ── LIVE start/stop (0.2.97) — action postEngine liveStart/liveStop; start
