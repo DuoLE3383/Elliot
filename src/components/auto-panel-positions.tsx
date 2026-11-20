@@ -184,7 +184,7 @@ export function AutoPositions(props: any) {
                         // lệnh (ATR(pair×TF)×đòn bẩy), không phải cfg chung; engine
                         // chưa tick lần nào thì fallback cfg như cũ
                         const et = engineTrail && engineTrail.id === open.id ? engineTrail : null;
-                        const peak = et && et.peak > 0 ? et.peak : open.entryPrice;
+                        const markPx = tickers[open.symbol]?.price ?? open.entryPrice; const livePeak = open.side === "SHORT" ? Math.min(open.entryPrice, markPx) : Math.max(open.entryPrice, markPx); const basePeak = et && et.peak > 0 ? et.peak : livePeak; const peak = open.side === "SHORT" ? Math.min(basePeak, markPx) : Math.max(basePeak, markPx);
                         const act = et && et.act > 0 ? et.act : cfg.trailActPct;
                         const dist = et && et.dist > 0 ? et.dist : cfg.trailDistPct;
                         const peakRoi = trailMovePct(open.side, open.entryPrice, peak) * open.leverage; const roiStop = trailRoiStopPrice(open.side, open.entryPrice, peakRoi, open.leverage); const stop = roiStop ?? trailStopPrice(open.side, open.entryPrice, peak, act, dist);
