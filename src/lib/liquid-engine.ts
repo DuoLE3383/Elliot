@@ -109,8 +109,9 @@ export async function startLiquidEngine(symbols: string[]) {
       } catch { continue; }
     }
     _liquidStatus = { state: "SCANNING", reason: lastReason, lastScan: new Date().toISOString() };
+    console.log(`[liquid] scan xong · breadth ${breadth ?? "?"}% · last: ${lastReason}`);
   };
-  await scanOnce().catch(() => { _liquidStatus = { state: "STANDBY", reason: "scan lỗi — thử lại sau 60s", lastScan: new Date().toISOString() }; });
+  await scanOnce().catch((e) => { console.log(`[liquid] scan loi: ${String((e as any)?.message ?? e)}`); _liquidStatus = { state: "STANDBY", reason: "scan lỗi — thử lại sau 60s", lastScan: new Date().toISOString() }; });
   _liquidTimer = setInterval(() => { scanOnce().catch(() => {}); }, 60_000);
   _liquidTimer.unref?.();
 }
