@@ -8,18 +8,25 @@ export function AutoPositions(props: any) {
   const { opens, open, tickers, cfg, capitalNow, lang, t, closeNow, closeOpen, fmtPrice, slPrice, tpPrice, trailStopPrice, trailMovePct, engineTrail, roeOf, rows, leverage } = props;
   const closeFn = closeNow ?? closeOpen;
   return (
-    <Card className="border-zinc-800 bg-zinc-900/60 h-full">
-      <CardHeader className="px-3 pb-2">
+    <Card className="border-[#1e2d4d]/70 bg-[#0a0f1e]/80 h-full">
+      <CardHeader className="px-4 pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-1.5 text-base font-semibold text-zinc-100">
-            POSITIONS OPENING
+            {/* bar-chart icon — kiểu mockup */}
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden>
+              <rect x="4" y="12" width="3.4" height="8" rx="0.8" fill="#22d3ee" fillOpacity="0.85" />
+              <rect x="10.3" y="7" width="3.4" height="13" rx="0.8" fill="#22d3ee" fillOpacity="0.85" />
+              <rect x="16.6" y="3" width="3.4" height="17" rx="0.8" fill="#22d3ee" fillOpacity="0.85" />
+            </svg>
+            {t(lang, "auto2.positionsTitle")}
           </CardTitle>
           {opens.length > 0 && (
-            <Badge variant="outline" className="border-zinc-700 font-mono text-zinc-200">
+            <Badge variant="outline" className="border-emerald-700/60 bg-emerald-950/30 font-mono text-emerald-300">
               {opens.length} OPEN
             </Badge>
           )}
         </div>
+        <p className="text-[11px] leading-relaxed text-zinc-500">{t(lang, "auto2.positionsSub")}</p>
       </CardHeader>
       <CardContent className="space-y-3 px-3 pt-0">
         {/* ── AGENT ĐANG CHẠY — lấy từ cfg engine đang sync ── */}
@@ -35,15 +42,15 @@ export function AutoPositions(props: any) {
           const lev = (props as any)?.leverage ?? (cfg as any)?.leverage ?? open?.leverage ?? 0;
           const locked = !cfg?.on || opens.length === 0;
           return (
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-violet-700/60 bg-gradient-to-r from-violet-950/60 via-teal-950/40 to-violet-950/60 px-2.5 py-1.5">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-violet-700/60 bg-gradient-to-r from-violet-950/60 via-teal-950/40 to-violet-950/60 px-2.5 py-1.5">
               <span className="text-sm">{a.icon}</span>
-              <span className="font-mono text-[12px] font-bold text-violet-300">
+              <span className="shrink-0 font-mono text-[12px] font-bold text-violet-300">
                 {agentId} Agent — {a.label}
               </span>
-              <span className="font-mono text-[11px] text-zinc-300">
+              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-zinc-300" title={`current executing · Risk ${cfg?.riskPct ?? "?"}% · Gate ${cfg?.minScore ?? "?"}/${cfg?.minAuc ?? "?"}/${cfg?.minAcc ?? "?"} · TF ${(cfg?.runTf ?? []).join("/")} · Lev ×${lev}`}>
                 current executing · Risk {cfg?.riskPct ?? "?"}% · Gate {cfg?.minScore ?? "?"}/{cfg?.minAuc ?? "?"}/{cfg?.minAcc ?? "?"} · TF {(cfg?.runTf ?? []).join("/")} · Lev ×{lev}
               </span>
-              <span className={`ml-auto rounded px-1.5 py-0.5 font-mono text-[10px] font-bold ${locked ? "bg-amber-950/60 text-amber-300" : "bg-emerald-950/60 text-emerald-300"}`}>
+              <span className={`ml-auto shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-bold ${locked ? "bg-amber-950/60 text-amber-300" : "bg-emerald-950/60 text-emerald-300"}`}>
                 {locked ? "● STANDBY / SCANNING" : "● IN POSITION"}
               </span>
             </div>

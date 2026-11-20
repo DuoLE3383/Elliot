@@ -1,19 +1,19 @@
 "use client";
 
-// ─── Tune2Card (0.3.0) — ô "NÂNG CẤP CẤP 2" cạnh ô setting phần dry-run (/auto)
-// Đề xuất RR + Quality floor cho CẢ BA sổ A/B/C, sinh từ số thật của từng sổ
-// (GET /api/tune2 — file db/tune2-proposal.json, sống qua restart) và hiển thị
-// kèm LÝ DO rõ ràng (WR, payoff, expectancy, net, phí round-trip). Áp một sổ =
-// POST apply: núm runtime qua setOverride (hiệu lực tick kế tiếp), floor sổ B
-// qua syncEngine (cfg) — trang cha còn patch cfg localStorage cho khớp.
+// ─── Tune2Card (v0.3.12 redesign) — Level-2 Upgrade trên /auto ────────────────
+// Theo mockup: header tím + nút Recompute; thân 3 khối ngang:
+//   1) card trạng thái dữ liệu (Đủ dữ liệu: N trades · Cập nhật)
+//   2) bảng Strategy | Current RR | Quality Floor | Recommendation (A/B/C/D)
+//   3) card Key Insight (RR hợp lý · Quality Floor · Ưu tiên)
+// LOGIC GIỮ NGUYÊN 0.3.0: GET /api/tune2 (db/tune2-proposal.json), POST
+// refresh/apply/dismiss; apply sổ B → cfgPatch lên trang. D không có trong
+// engine tune2 → hiện hàng "—" và pill "Chờ dữ liệu" (trung thực, không bịa).
+// Recommendation: sổ có đề xuất pending → "Nâng nhẹ"; hết/không có → "Giữ".
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { SlidersHorizontal, Sparkles } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { RefreshCw, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { t, type Lang } from "@/lib/i18n";
-// THUẦN types — tune2.ts (server-only: fs/prisma) KHÔNG được import từ client
 import { TUNE2_MIN_N, type BookId, type Tune2Cur, type Tune2Item, type Tune2Stats } from "@/lib/tune2-types";
 
 interface Tune2Response {
@@ -35,29 +35,14 @@ interface Props {
   pushToast: (toast: { kind: "entry" | "flip" | "error" | "warn" | "wy" | "xgb"; text: string }) => void;
 }
 
-const BOOK_THEME: Record<BookId, { border: string; title: string; chip: string; name: string }> = {
-  a: { border: "border-amber-900/50", title: "text-amber-300", chip: "border-amber-800 bg-amber-950/40 text-amber-300", name: "A" },
-  b: { border: "border-sky-900/50", title: "text-sky-300", chip: "border-sky-800 bg-sky-950/40 text-sky-300", name: "B" },
-  c: { border: "border-violet-900/50", title: "text-violet-300", chip: "border-violet-800 bg-violet-950/40 text-violet-300", name: "C" },
-};
-
 const num = (v: number | undefined, d = 2): string => (v == null || !Number.isFinite(v) ? "—" : String(Math.round(v * 10 ** d) / 10 ** d));
 
-/** Lý do hiển thị: ghép f2seg/f3seg client-side (label theo ngôn ngữ). */
-function reasonOf(lang: Lang, item: Tune2Item): string {
-  const vars: Record<string, string | number> = { ...item.args };
-  const seg = (i: number, key: string) => {
-    const e = item.extras[i];
-    if (!e) return "";
-    // segment 1 → prefix "f2", segment 2 → prefix "f3" (khớp template i18n)
-    const p = i === 0 ? "f2" : "f3";
-    const dec = (v: number): number => (Number.isInteger(v) ? 0 : 2);
-    return t(lang, key, { [`${p}param`]: t(lang, `tune2.param.${e.param}`), [`${p}from`]: num(e.from, dec(e.from)), [`${p}to`]: num(e.to, dec(e.to)) });
-  };
-  vars.f2seg = seg(0, "tune2.f2seg");
-  vars.f3seg = seg(1, "tune2.f3seg");
-  return t(lang, item.reasonKey, vars);
-}
+const BOOK_META: Record<string, { letter: string; nameKey: string; badge: string }> = {
+  a: { letter: "A", nameKey: "strat.a.name", badge: "border-amber-600/60 bg-amber-950/50 text-amber-300" },
+  b: { letter: "B", nameKey: "strat.b.name", badge: "border-cyan-600/60 bg-cyan-950/50 text-cyan-300" },
+  c: { letter: "C", nameKey: "strat.c.name", badge: "border-violet-600/60 bg-violet-950/50 text-violet-300" },
+  d: { letter: "D", nameKey: "strat.d.name", badge: "border-teal-600/60 bg-teal-950/50 text-teal-300" },
+};
 
 export function Tune2Card({ lang, onBcfgApplied, pushToast }: Props) {
   const [data, setData] = useState<Tune2Response | null>(null);
@@ -65,12 +50,10 @@ export function Tune2Card({ lang, onBcfgApplied, pushToast }: Props) {
   const aliveRef = useRef(true);
   const toastRef = useRef(pushToast);
   const bcfgRef = useRef(onBcfgApplied);
-  const langRef = useRef(lang);
   useEffect(() => {
     toastRef.current = pushToast;
     bcfgRef.current = onBcfgApplied;
-    langRef.current = lang;
-  }, [pushToast, onBcfgApplied, lang]);
+  }, [pushToast, onBcfgApplied]);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -104,141 +87,197 @@ export function Tune2Card({ lang, onBcfgApplied, pushToast }: Props) {
       if (res.ok && j.ok) {
         setData(j);
         if (busyId !== "refresh") {
-          toastRef.current({ kind: "xgb", text: j.note ?? t(langRef.current, "tune2.title") });
+          toastRef.current({ kind: "xgb", text: j.note ?? t(lang, "tune2.title") });
           if (j.cfgPatch && Object.keys(j.cfgPatch).length > 0) bcfgRef.current?.(j.cfgPatch);
         }
       } else {
-        toastRef.current({ kind: "error", text: j.error ?? t(langRef.current, "tune2.fail") });
+        toastRef.current({ kind: "error", text: j.error ?? t(lang, "tune2.fail") });
       }
     } catch {
-      toastRef.current({ kind: "error", text: t(langRef.current, "tune2.fail") });
+      toastRef.current({ kind: "error", text: t(lang, "tune2.fail") });
     } finally {
       setBusy(null);
     }
-  }, []);
+  }, [lang]);
 
   const itemsOf = (book: BookId): Tune2Item[] => data?.items.filter((i) => i.book === book) ?? [];
   const pendingOf = (book: BookId): number => itemsOf(book).filter((i) => i.status === "pending").length;
 
-  const fmtVal = (item: Tune2Item): string => num(item.to, Number.isInteger(item.to) ? 0 : 2);
+  // tổng trades đã đóng của các sổ có dữ liệu tune2 (a/b/c)
+  const totalTrades = data ? (["a", "b", "c"] as BookId[]).reduce((s, b) => s + (data.books[b]?.n ?? 0), 0) : 0;
+  const enoughData = totalTrades >= TUNE2_MIN_N;
+
+  // dải RR / floor hiện hành (bỏ sổ chưa có số)
+  const curVals = data ? (["a", "b", "c"] as BookId[]).map((b) => data.current[b]) : [];
+  const rrs = curVals.map((c) => c.rr).filter((v) => Number.isFinite(v) && v > 0);
+  const floors = curVals.map((c) => c.floor).filter((v) => Number.isFinite(v) && v > 0);
+  const rrRange = rrs.length ? `${num(Math.min(...rrs))} – ${num(Math.max(...rrs))}` : "—";
+  const floorRange = floors.length ? `${num(Math.min(...floors))} – ${num(Math.max(...floors))}` : "—";
+
+  // sổ ưu tiên = sổ có đề xuất pending (engine đang gợi ý chỉnh) — thật, không bịa
+  const priorityBooks = data ? (["a", "b", "c"] as BookId[]).filter((b) => pendingOf(b) > 0) : [];
+
+  const updatedAt = data
+    ? new Date(data.computedAt).toLocaleString(lang === "vi" ? "vi-VN" : "en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      })
+    : null;
 
   return (
-    <Card className="border-violet-800/60 bg-zinc-900/60">
-      <CardHeader className="px-3 pb-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="min-w-0">
-            <CardTitle className="flex items-center gap-1.5 text-base font-semibold text-zinc-100">
-              <SlidersHorizontal className="h-4 w-4 text-violet-400" />
-              {t(lang, "tune2.title")}
-            </CardTitle>
-            <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">{t(lang, "tune2.sub")}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            {data && (
-              <span className="font-mono text-[10px] text-zinc-600">
-                {t(lang, "tune2.computedAt", {
-                  t: new Date(data.computedAt).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit" }),
-                })}
-              </span>
-            )}
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy != null}
-              className="h-7 rounded-full border-zinc-700 bg-transparent px-3 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
-              onClick={() => void post({ action: "refresh" }, "refresh")}
-            >
-              <Sparkles className="mr-1 h-3 w-3 text-violet-400" />
-              {busy === "refresh" ? t(lang, "tune2.refreshing") : t(lang, "tune2.refresh")}
-            </Button>
+    <section className="rounded-2xl border border-violet-900/50 bg-gradient-to-b from-[#120f22]/80 to-[#0a0f1e]/90 p-4">
+      {/* header */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-violet-700/50 bg-violet-950/40">
+            <SlidersHorizontal className="h-4 w-4 text-violet-400" />
+          </span>
+          <div>
+            <h2 className="text-[15px] font-bold leading-tight text-white">{t(lang, "tune2.title")}</h2>
+            <p className="text-[11px] leading-tight text-zinc-500">{t(lang, "tune2.sub")}</p>
           </div>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-2 px-3 pt-0">
-        {!data && <p className="rounded-lg border border-dashed border-zinc-800 p-4 text-center text-xs text-zinc-500">…</p>}
-        {data &&
-          ([ "a", "b", "c" ] as BookId[]).map((book) => {
-            const theme = BOOK_THEME[book];
-            const stats = data.books[book];
-            const items = itemsOf(book);
-            const pending = pendingOf(book);
+        <div className="flex items-center gap-2.5">
+          <span className="hidden text-right sm:block">
+            <span className="block text-[9px] uppercase tracking-wide text-zinc-500">Last Update</span>
+            <span className="block font-mono text-[11px] font-bold text-zinc-300">{updatedAt ?? "—"}</span>
+          </span>
+          <Button
+            size="sm"
+            disabled={busy != null}
+            onClick={() => void post({ action: "refresh" }, "refresh")}
+            className="h-8 gap-1.5 rounded-lg border border-violet-400/40 bg-gradient-to-b from-violet-500 to-violet-700 px-3.5 text-[11px] font-bold text-white shadow-[0_0_12px_rgba(168,85,247,0.3)] hover:from-violet-400 hover:to-violet-600 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${busy === "refresh" ? "animate-spin" : ""}`} />
+            {busy === "refresh" ? t(lang, "tune2.refreshing") : "Recompute"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[220px_minmax(0,1fr)_240px]">
+        {/* 1) card trạng thái dữ liệu */}
+        <div className="flex flex-col justify-center rounded-xl border border-violet-800/50 bg-gradient-to-b from-violet-950/50 to-[#0d1526] p-3.5">
+          <span className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-xl border border-violet-600/40 bg-[#0b1424] shadow-[0_0_14px_rgba(139,92,246,0.25)]">
+            {/* brain icon */}
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden>
+              <path d="M9.5 3.5 A3 3 0 0 0 6.6 7.2 A3.2 3.2 0 0 0 5 10.2 A3 3 0 0 0 6.4 13 A3 3 0 0 0 8.5 17 A2.8 2.8 0 0 0 12 19.2 V4.8 A2.4 2.4 0 0 0 9.5 3.5 Z" fill="none" stroke="#a78bfa" strokeWidth="1.5" />
+              <path d="M14.5 3.5 A3 3 0 0 1 17.4 7.2 A3.2 3.2 0 0 1 19 10.2 A3 3 0 0 1 17.6 13 A3 3 0 0 1 15.5 17 A2.8 2.8 0 0 1 12 19.2 V4.8 A2.4 2.4 0 0 1 14.5 3.5 Z" fill="none" stroke="#818cf8" strokeWidth="1.5" />
+            </svg>
+          </span>
+          <p className="text-center text-[11px] leading-snug text-zinc-400">
+            {enoughData ? t(lang, "tune2.enough") : t(lang, "tune2.noData", { min: TUNE2_MIN_N, n: totalTrades })}
+            {enoughData && <span className="font-bold text-cyan-300"> {totalTrades.toLocaleString("en-US")} trades</span>}
+          </p>
+          {enoughData && <span className="mt-0.5 text-center text-[10px] text-emerald-400">✓</span>}
+          {updatedAt && <p className="mt-1 text-center font-mono text-[9px] text-zinc-600">Cập nhật: {updatedAt}</p>}
+        </div>
+
+        {/* 2) bảng Strategy | Current RR | Quality Floor | Recommendation */}
+        <div className="overflow-hidden rounded-xl border border-[#1e2d4d]/80 bg-[#0b1222]/80">
+          <div className="grid grid-cols-[minmax(0,1.4fr)_0.8fr_1fr_1.3fr] gap-x-2 border-b border-[#1e2d4d]/70 bg-[#0d1526] px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+            <span>→ {lang === "vi" ? "Chiến lược" : "Strategy"}</span>
+            <span className="text-right">Current RR</span>
+            <span className="text-right">Quality Floor</span>
+            <span className="text-center">{lang === "vi" ? "Khuyến nghị" : "Recommendation"}</span>
+          </div>
+          {(["a", "b", "c", "d"] as const).map((book) => {
+            const meta = BOOK_META[book];
+            const isReal = book !== "d";
+            const cur = isReal ? data?.current[book] : undefined;
+            const stats = isReal ? data?.books[book] : null;
+            const pending = isReal ? pendingOf(book) : 0;
+            const rec: "keep" | "up" | "wait" = !isReal || !stats || (stats.n ?? 0) < TUNE2_MIN_N ? "wait" : pending > 0 ? "up" : "keep";
             return (
-              <div key={book} className={`rounded-lg border ${theme.border} bg-zinc-950/40 px-3 py-2`}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className={`text-xs font-bold ${theme.title}`}>{theme.name} · {t(lang, `strat.${book}.name`)}</span>
-                  {stats && stats.n >= TUNE2_MIN_N ? (
-                    <span className="font-mono text-[10px] text-zinc-500">
-                      {t(lang, "tune2.stats", { n: stats.n, wr: num(stats.wr, 0), pay: num(stats.payoff), exp: num(stats.expectancy), net: num(stats.netRoe) })}
+              <div key={book} className="grid grid-cols-[minmax(0,1.4fr)_0.8fr_1fr_1.3fr] items-center gap-x-2 border-b border-[#16233f]/60 px-3 py-2.5 last:border-b-0">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border font-mono text-[11px] font-black ${meta.badge}`}>{meta.letter}</span>
+                  <span className="truncate text-[12px] font-semibold text-zinc-100">{t(lang, meta.nameKey)}</span>
+                </span>
+                <span className="text-right font-mono text-[13px] font-bold text-white">{isReal ? num(cur?.rr) : "—"}</span>
+                <span className="text-right font-mono text-[13px] font-bold text-white">{isReal ? num(cur?.floor) : "—"}</span>
+                <span className="flex items-center justify-center gap-1.5">
+                  {rec === "keep" && (
+                    <span className="rounded-full border border-emerald-500/50 bg-emerald-500/15 px-2.5 py-0.5 text-[10px] font-bold text-emerald-300">
+                      {lang === "vi" ? "Giữ" : "Keep"}
                     </span>
-                  ) : (
-                    <span className="font-mono text-[10px] text-zinc-600">{t(lang, "tune2.noData", { min: TUNE2_MIN_N, n: stats?.n ?? 0 })}</span>
                   )}
-                </div>
-                {stats && stats.n >= TUNE2_MIN_N && items.length === 0 && (
-                  <p className="mt-1 text-[11px] text-zinc-500">{t(lang, "tune2.none")}</p>
-                )}
-                {items.length > 0 && (
-                  <ul className="mt-1.5 space-y-1.5">
-                    {items.map((item) => (
-                      <li key={`${item.kind}:${item.param}`} className="rounded-md border border-zinc-800 bg-zinc-900/60 px-2.5 py-1.5">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className={`rounded border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase ${theme.chip}`}>
-                            {item.kind === "rr" ? t(lang, "tune2.kind.rr") : t(lang, "tune2.kind.floor")}
-                          </span>
-                          <span className="text-[11px] font-semibold text-zinc-200">{t(lang, `tune2.param.${item.param}`)}</span>
-                          <span className="font-mono text-[11px] text-zinc-400">
-                            {num(item.from, Number.isInteger(item.from) ? 0 : 2)} → <span className="font-bold text-teal-300">{fmtVal(item)}</span>
-                          </span>
-                          {item.extras.map((e) => (
-                            <span key={e.param} className="font-mono text-[10px] text-zinc-500">
-                              · {t(lang, `tune2.param.${e.param}`)} {num(e.from, Number.isInteger(e.from) ? 0 : 2)} → {num(e.to, Number.isInteger(e.to) ? 0 : 2)}
-                            </span>
-                          ))}
-                          {item.status !== "pending" && (
-                            <Badge variant="outline" className={`font-mono text-[9px] ${item.status === "applied" ? "border-emerald-700 text-emerald-400" : "border-zinc-700 text-zinc-500"}`}>
-                              {item.status === "applied" ? t(lang, "tune2.applied") : t(lang, "tune2.dismissed")}
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="mt-1 text-[11px] leading-snug text-zinc-400">{reasonOf(lang, item)}</p>
-                        <p className="mt-0.5 font-mono text-[10px] text-zinc-600">
-                          {t(lang, "tune2.cur", {
-                            v: num(
-                              item.kind === "rr" ? data.current[book].rr : data.current[book].floor,
-                              Number.isInteger(data.current[book][item.kind === "rr" ? "rr" : "floor"]) ? 0 : 2,
-                            ),
-                          })}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {pending > 0 && (
-                  <div className="mt-2 flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      disabled={busy != null}
-                      className="h-7 bg-emerald-700 px-2.5 text-[11px] text-white hover:bg-emerald-600 disabled:opacity-40"
-                      onClick={() => void post({ action: "apply", book }, book)}
-                    >
-                      {busy === book ? "…" : t(lang, "tune2.apply")}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busy != null}
-                      className="h-7 border-zinc-700 px-2.5 text-[11px] text-zinc-400 hover:bg-zinc-800 disabled:opacity-40"
-                      onClick={() => void post({ action: "dismiss", book }, book)}
-                    >
-                      {t(lang, "tune2.dismiss")}
-                    </Button>
-                    <span className="font-mono text-[10px] text-zinc-600">{pending}× {t(lang, "tune2.pending")}</span>
-                  </div>
-                )}
+                  {rec === "up" && (
+                    <span className="rounded-full border border-cyan-500/50 bg-cyan-500/15 px-2.5 py-0.5 text-[10px] font-bold text-cyan-300">
+                      {lang === "vi" ? "Nâng nhẹ" : "Slightly Up"}
+                    </span>
+                  )}
+                  {rec === "wait" && (
+                    <span className="rounded-full border border-zinc-700 bg-zinc-900/60 px-2.5 py-0.5 text-[10px] font-bold text-zinc-500">
+                      {lang === "vi" ? "Chờ dữ liệu" : "Waiting data"}
+                    </span>
+                  )}
+                  {/* nút apply/dismiss gọn khi có đề xuất pending */}
+                  {pending > 0 && isReal && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={busy != null}
+                        onClick={() => void post({ action: "apply", book }, book)}
+                        className="rounded-md border border-emerald-700/60 bg-emerald-950/40 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300 hover:bg-emerald-950/70 disabled:opacity-40"
+                        title={t(lang, "tune2.apply")}
+                      >
+                        {busy === book ? "…" : "✓"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy != null}
+                        onClick={() => void post({ action: "dismiss", book }, book)}
+                        className="rounded-md border border-zinc-700 px-1.5 py-0.5 text-[9px] font-bold text-zinc-400 hover:bg-zinc-800 disabled:opacity-40"
+                        title={t(lang, "tune2.dismiss")}
+                      >
+                        ✕
+                      </button>
+                    </>
+                  )}
+                </span>
               </div>
             );
           })}
-      </CardContent>
-    </Card>
+        </div>
+
+        {/* 3) Key Insight */}
+        <div className="flex flex-col justify-center rounded-xl border border-amber-800/40 bg-gradient-to-b from-[#171207]/70 to-[#0d1526] p-3.5">
+          <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold text-zinc-200">
+            {/* lightbulb */}
+            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden>
+              <path d="M9 18h6 M10 21h4 M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1.1 2.1h4.8c.1-.9.5-1.6 1.1-2.1A6 6 0 0 0 12 3Z" fill="none" stroke="#fbbf24" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Key Insight
+          </p>
+          <ul className="space-y-1 text-[11px] leading-snug text-zinc-400">
+            <li className="flex items-start gap-1.5">
+              <span className="text-emerald-400">✓</span>
+              RR {lang === "vi" ? "hợp lý" : "range"}: <span className="font-mono font-bold text-zinc-200">{rrRange}</span>
+            </li>
+            <li className="flex items-start gap-1.5">
+              <span className="text-emerald-400">✓</span>
+              Quality Floor: <span className="font-mono font-bold text-zinc-200">{floorRange}</span>
+            </li>
+            <li className="flex items-start gap-1.5">
+              <span className="text-emerald-400">✓</span>
+              {lang === "vi" ? "Ưu tiên" : "Priority"}:{" "}
+              {priorityBooks.length > 0 ? (
+                <span className="font-bold text-cyan-300">{priorityBooks.map((b) => BOOK_META[b].letter).join(", ")}</span>
+              ) : (
+                <span className="text-zinc-500">—</span>
+              )}
+            </li>
+          </ul>
+          {data && priorityBooks.length > 0 && (
+            <p className="mt-2 border-t border-zinc-800/60 pt-1.5 text-[10px] leading-snug text-zinc-600">
+              {priorityBooks.map((b) => `${BOOK_META[b].letter}: ${pendingOf(b)}× ${t(lang, "tune2.pending")}`).join(" · ")}
+            </p>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }

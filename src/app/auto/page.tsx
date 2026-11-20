@@ -1,32 +1,33 @@
 "use client";
 
-// ─── /auto — Auto Trade — trang riêng, tách khỏi dashboard ───────────────────
-// 0.2.95 — AutoPanel trước đây nằm cuối cột phải dashboard (bị chật, phải cuộn
-// dài). Trang riêng cho không gian đầy đủ; dashboard còn lối tắt mở trang này.
-// 0.2.97 — trang CHỦ cfg + books (một nguồn dùng chung AutoPanel ↔
-// StrategyCards: START/STOP ở card B và switch ở panel đổi cùng một state);
-// thêm StrategyCards (A/B/C + đề xuất) + AutoAnalytics chi tiết. Universe đã
-// dời về Watchlist (dashboard) — trang này chỉ còn trade.
-// Data tự lo, KHÔNG cần /api/view nặng của dashboard:
-//   · settings/pairs  = localStorage (utp.settings / utp.pairs — CÙNG NGUỒN với
-//     dashboard, đổi ở đây → dashboard đọc lại lần sau)
-//   · tickers         = /api/ticker?symbols=... (30s, giống TickerStrip)
-//   · lang            = boot EN mỗi lượt (0.2.58), toggle lưu utp.lang
-// onPickPair: ghi utp.symbol/utp.interval rồi đưa về dashboard — chart mở đúng
-// cặp ngay (dashboard đọc 2 key này khi hydrate).
+// ─── /auto — Elliott AI Trading Engine console (v0.3.12 redesign) ────────────
+// Redesign theo mockup: sidebar trái + topbar (Binance pill · LIVE/DRY-RUN ·
+// session · START/STOP ALL) + 4 metric tiles + Strategy Control Center +
+// Level-2 Upgrade + AI Agents & Auto Settings (tab) + Positions + Recent
+// Trades. LOGIC TRANG GIỮ NGUYÊN từ 0.2.95–0.3.11:
+//   · settings/pairs  = localStorage (utp.settings / utp.pairs — cùng nguồn
+//     với dashboard, đổi ở đây → dashboard đọc lại lần sau)
+//   · cfg sổ B + books A/C = một nguồn dùng chung AutoPanel ↔ StrategyCards;
+//     START ALL / STOP ALL dời lên Topbar (một POST sync kèm cfg.on + books)
+//   · tickers = /api/ticker?symbols=... (30s) · lang = boot EN, toggle utp.lang
+//   · tiles = /api/arena (45s) + /api/autotrade (30s) — LIVE bật thì lấy sổ
+//     live, không thì gộp sổ dry-run A+B+C
+// onPickPair: ghi utp.symbol/utp.interval rồi đưa về dashboard mở đúng cặp.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, ArrowLeftRight, Bot, BrainCircuit, Landmark } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, Bot, BrainCircuit, Landmark } from "lucide-react";
+import { AutoSidebar } from "@/components/auto/sidebar";
+import { AutoTopbar } from "@/components/auto/topbar";
+import { MetricTiles, type TilesData } from "@/components/auto/metric-tiles";
 import { AutoAnalytics } from "@/components/auto-analytics";
 import { AutoPanel } from "@/components/auto-panel";
 import { BinanceApiCard } from "@/components/binance-api-card";
 import { StrategyCards } from "@/components/strategy-cards";
 import { Tune2Card } from "@/components/tune2-card";
-import { Button } from "@/components/ui/button";
 import { t, type Lang } from "@/lib/i18n";
 import { fetchAutoState, loadAutoConfig, saveAutoConfig, AUTO_DEFAULTS, type AutoConfig, type AutoState } from "@/lib/autotrade";
+import type { BookStats, EquityPoint, LiveStats } from "@/lib/arena";
 import {
   DEFAULT_SETTINGS,
   EngineSettings,
@@ -45,6 +46,24 @@ interface Toast {
   kind: "entry" | "flip" | "error" | "warn" | "wy" | "xgb" | "success";
   side?: "LONG" | "SHORT";
   text: string;
+}
+
+/** bản thu gọn của GET /api/arena — đủ cho tiles */
+interface ArenaTiles {
+  a: BookStats;
+  b: BookStats;
+  c: BookStats;
+  live: LiveStats;
+  aEquity?: EquityPoint[];
+  bEquity?: EquityPoint[];
+  cEquity?: EquityPoint[];
+}
+
+interface EngineLite {
+  cfg?: { on?: boolean };
+  books?: { a: boolean; c: boolean };
+  live?: { on: boolean; keys: boolean };
+  wyckoff?: { breadth: number | null; status: string };
 }
 
 export default function AutoPage() {
@@ -86,8 +105,7 @@ export default function AutoPage() {
       if (p) {
         const arr = JSON.parse(p);
         if (Array.isArray(arr)) {
-          // migrate legacy spot names → perp listing (PEPEUSDT→1000PEPEUSDT),
-          // bỏ pair hết perp — tránh poll 400 vĩnh viễn như dashboard
+          // migrate legacy spot names → perp listing, bỏ pair hết perp
           const migrated = migratePairsTo(
             arr.filter((x: unknown): x is string => typeof x === "string"),
           ).slice(0, MAX_CUSTOM_PAIRS);
@@ -112,10 +130,9 @@ export default function AutoPage() {
     if (hydratedRef.current) localStorage.setItem("utp.pairs", JSON.stringify(customPairs));
   }, [customPairs]);
 
-  // ── cfg sổ B — NGUỒN DUY NHẤT ở trang (0.2.97): AutoPanel + StrategyCards
+  // ── cfg sổ B — NGUỒN DUY NHẤT ở trang: AutoPanel + StrategyCards + Topbar
   // cùng đổi một state; persist utp.auto như cũ (cùng key với dashboard).
-  // 0.2.99 — `on` được HYDRATE từ engine lúc mount (engine là nguồn thật của
-  // start/stop): localStorage cũ/pm2 restart không còn hồi sinh sổ B ngầm.
+  // `on` được HYDRATE từ engine lúc mount (engine là nguồn thật của start/stop).
   const [cfg, setCfg] = useState<AutoConfig>(AUTO_DEFAULTS);
   useEffect(() => {
     try {
@@ -136,20 +153,18 @@ export default function AutoPage() {
   }, []);
 
   // ── books A/C — boot: đọc TRẠNG THÁI THẬT từ engine (GET /api/engine) trước
-  //  khi AutoPanel sync lần đầu (0.2.98). Trước đây mặc định {a:true,c:true} →
-  //  sync mount đè cờ engine, toggle sổ A/C không dính qua reload (phải đi qua
-  //  START sổ giữa). Lỗi fetch → mở khoá sync luôn, dùng default như cũ.
-  //  0.2.99 — hydrate CẢ cfg.on (sổ B) cùng lúc + guard: nếu user đã bấm gì đó
-  //  trước khi engine trả lời thì giữ lựa chọn của user (không bị revert).
+  // khi AutoPanel sync lần đầu (0.2.98). interactedRef giữ lựa chọn user.
   const [books, setBooks] = useState<{ a: boolean; c: boolean }>({ a: true, c: true });
   const [booksReady, setBooksReady] = useState(false);
+  const [engLite, setEngLite] = useState<EngineLite | null>(null);
   useEffect(() => {
     let alive = true;
     const hydrate = async (): Promise<void> => {
       try {
         const res = await fetch("/api/engine", { cache: "no-store" });
         if (res.ok && alive) {
-          const j = (await res.json()) as { cfg?: { on?: boolean }; books?: { a: boolean; c: boolean } };
+          const j = (await res.json()) as EngineLite;
+          if (alive) setEngLite(j);
           if (!interactedRef.current) {
             if (j.books) setBooks({ a: j.books.a === true, c: j.books.c === true });
             const on = j.cfg?.on;
@@ -169,14 +184,59 @@ export default function AutoPage() {
       if (alive) setBooksReady(true); // mở khoá sync kể cả khi fetch lỗi
     };
     void hydrate();
+    // poll nhẹ 10s — giữ pill LIVE/DRY-RUN + breadth trên Topbar tươi
+    const id = window.setInterval(() => void hydrate(), 10_000);
     return () => {
       alive = false;
+      window.clearInterval(id);
     };
   }, []);
   const patchBooks = useCallback((patch: { a?: boolean; c?: boolean }) => {
     interactedRef.current = true;
     setBooks((prev) => ({ ...prev, ...patch }));
   }, []);
+
+  // ── toasts — cùng kiểu dáng với dashboard ──────────────────────────
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const toastSeq = useRef(0);
+  const pushToast = useCallback((toast: Omit<Toast, "id">) => {
+    const id = ++toastSeq.current;
+    setToasts((list) => [...list.slice(-3), { ...toast, id }]);
+    window.setTimeout(() => {
+      setToasts((list) => list.filter((x) => x.id !== id));
+    }, 7000);
+  }, []);
+  // refs cho setAll / hiệu ứng — tránh stale closure
+  const pushToastRef = useRef(pushToast);
+  useEffect(() => {
+    pushToastRef.current = pushToast;
+  }, [pushToast]);
+  const langRef = useRef(lang);
+  useEffect(() => {
+    langRef.current = lang;
+  }, [lang]);
+
+  // ── START ALL / STOP ALL (0.2.98 logic, dời lên Topbar): cả 3 sổ A/B/C một
+  // lượt — một POST sync duy nhất kèm cfg.on (sổ B) + books (sổ A/C); LIVE
+  // mirror không đụng tới (liveStart/liveStop là hành động riêng).
+  const setAll = useCallback(
+    async (on: boolean) => {
+      interactedRef.current = true;
+      patchBooks({ a: on, c: on });
+      patchCfg({ on });
+      try {
+        const res = await fetch("/api/engine", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "sync", books: { a: on, c: on }, cfg: { on } }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      } catch {
+        pushToastRef.current({ kind: "error", text: t(langRef.current, "strat.syncFail") });
+      }
+    },
+    [patchBooks, patchCfg],
+  );
 
   const allPairs = useMemo(() => {
     const extra = customPairs.filter((c) => !(SYMBOLS as readonly string[]).includes(c));
@@ -209,16 +269,59 @@ export default function AutoPage() {
     };
   }, [pairListKey]);
 
-  // ── toasts — cùng kiểu dáng với dashboard ──────────────────────────────────
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const toastSeq = useRef(0);
-  const pushToast = useCallback((toast: Omit<Toast, "id">) => {
-    const id = ++toastSeq.current;
-    setToasts((list) => [...list.slice(-3), { ...toast, id }]);
-    window.setTimeout(() => {
-      setToasts((list) => list.filter((x) => x.id !== id));
-    }, 7000);
+  // ── dữ liệu tiles: arena (45s) + autotrade (30s) ───────────────────────────
+  const [arena, setArena] = useState<ArenaTiles | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/arena", { cache: "no-store" });
+        if (res.ok && alive) setArena((await res.json()) as ArenaTiles);
+      } catch {
+        /* giữ cũ */
+      }
+    };
+    void load();
+    const id = window.setInterval(() => void load(), 45_000);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
   }, []);
+
+  const [auto, setAuto] = useState<AutoState | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const st = await fetchAutoState();
+        if (alive) setAuto(st);
+      } catch {
+        /* giữ cũ */
+      }
+    };
+    void load();
+    const id = window.setInterval(() => void load(), 30_000);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, []);
+
+  const tilesData: TilesData = {
+    a: arena?.a ?? null,
+    b: arena?.b ?? null,
+    c: arena?.c ?? null,
+    live: arena?.live ?? null,
+    capital: auto?.capital ?? cfg.capital,
+    aEquity: arena?.aEquity ?? [],
+    bEquity: arena?.bEquity ?? [],
+    cEquity: arena?.cEquity ?? [],
+  };
+
+  // ── thẻ cấu hình Binance API — mở/đóng từ pill ở Topbar ────────────────────
+  const [apiCardOpen, setApiCardOpen] = useState(false);
+  const toggleApiCard = useCallback(() => setApiCardOpen((v) => !v), []);
 
   // ── AutoPanel callbacks ────────────────────────────────────────────────────
   // onPickPair: chọn cặp ở panel → mở dashboard đúng cặp/khung ngay
@@ -236,76 +339,84 @@ export default function AutoPage() {
     [router],
   );
 
-  return (
-    <div className="min-h-screen bg-transparent text-zinc-200">
-      {/* sticky header — back / title / lang luôn trong tầm tay */}
-      <header className="sticky top-0 z-30 border-b border-zinc-800/60 bg-[#020617]/85 backdrop-blur">
-        <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 sm:px-5">
-          <Button size="sm" variant="outline" className="h-8 gap-1.5 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800" asChild>
-            <Link href="/">
-              <ArrowLeft className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{t(lang, "auto.back")}</span>
-            </Link>
-          </Button>
-          <div className="min-w-0 flex-1">
-            <h1 className="flex items-center gap-2 text-base font-bold text-zinc-100 sm:text-lg">
-              <Bot className="h-4 w-4 shrink-0 text-teal-400" />
-              <span className="truncate">{t(lang, "auto.title")}</span>
-            </h1>
-            <p className="truncate text-[11px] text-zinc-500">{t(lang, "auto.sub")}</p>
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800"
-            onClick={toggleLang}
-          >
-            {lang === "vi" ? "EN" : "VI"}
-          </Button>
-        </div>
-      </header>
+  const liveOn = engLite?.live?.on === true;
+  const breadth = engLite?.wyckoff?.breadth ?? null;
+  const opensCount = auto?.opens?.length ?? (auto?.open ? 1 : 0);
 
-      <main className="mx-auto w-full max-w-6xl space-y-3 px-3 py-3 sm:px-5">
-        {/* Setting Binance API (0.2.96) — key server-side, test kết nối chỉ đọc */}
-        <div className="mb-3">
-          <BinanceApiCard lang={lang} />
-        </div>
-        {/* 0.2.97 — bộ chọn chiến lược A/B/C + đề xuất + trạng thái LIVE */}
-        <StrategyCards
+  return (
+    <div
+      className="flex min-h-screen bg-[#060a14] text-zinc-200"
+      style={{
+        backgroundImage:
+          "linear-gradient(rgba(30,45,77,0.16) 1px, transparent 1px), linear-gradient(90deg, rgba(30,45,77,0.16) 1px, transparent 1px)",
+        backgroundSize: "34px 34px",
+      }}
+    >
+      <AutoSidebar />
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <AutoTopbar
           lang={lang}
-          cfgOn={cfg.on}
-          onCfgToggle={(on) => patchCfg({ on })}
-          books={books}
-          onToggleBooks={patchBooks}
-          onPushToast={pushToast}
+          liveOn={liveOn}
+          dryOn={cfg.on}
+          breadth={breadth}
+          notifCount={opensCount}
+          onToggleLang={toggleLang}
+          onStartAll={() => void setAll(true)}
+          onStopAll={() => void setAll(false)}
+          onToggleApiCard={toggleApiCard}
+          apiCardOpen={apiCardOpen}
         />
-        {/* 0.3.0 — ô "NÂNG CẤP CẤP 2" cạnh ô setting: đề xuất RR + Quality floor
-            cho cả 3 sổ A/B/C từ số thật, nêu rõ lý do; áp = núm runtime + cfg B */}
-        <Tune2Card
-          lang={lang}
-          onBcfgApplied={(patch) => patchCfg(patch)}
-          pushToast={pushToast}
-        />
-        {/* khối điều khiển + sổ B */}
-        <AutoPanel
-          lang={lang}
-          pairs={allPairs}
-          leverage={settings.leverage}
-          onLeverageChange={(lev) =>
-            setSettings((s) => ({ ...s, leverage: Math.max(1, Math.min(MAX_LEVERAGE, Math.round(lev) || 1)) }))
-          }
-          tickers={tickers}
-          settings={settings}
-          cfg={cfg}
-          onCfgChange={patchCfg}
-          books={books}
-          syncReady={booksReady}
-          onPickPair={handlePickPair}
-          pushToast={pushToast}
-        />
-        {/* 0.2.97 — analytics chi tiết sổ B */}
-        <AutoAnalyticsSection lang={lang} />
-      </main>
+
+        <main className="mx-auto w-full max-w-[1240px] flex-1 space-y-4 px-3 py-4 sm:px-5">
+          {/* Setting Binance API — mở từ pill "Binance API" trên Topbar */}
+          {apiCardOpen && (
+            <BinanceApiCard lang={lang} />
+          )}
+
+          {/* 4 chỉ số chính — Total Equity · Net ROE · Win Rate · Total Trades */}
+          <MetricTiles data={tilesData} lang={lang} />
+
+          {/* Strategy Control Center — 4 card A/B/C/D + Auto-Flip */}
+          <StrategyCards
+            lang={lang}
+            cfgOn={cfg.on}
+            onCfgPatch={(patch) => patchCfg(patch as Partial<AutoConfig>)}
+            onCfgToggle={(on) => patchCfg({ on })}
+            books={books}
+            onToggleBooks={patchBooks}
+            onPushToast={pushToast}
+          />
+
+          {/* Level-2 Upgrade — RR & Quality Floor */}
+          <Tune2Card
+            lang={lang}
+            onBcfgApplied={(patch) => patchCfg(patch as Partial<AutoConfig>)}
+            pushToast={pushToast}
+          />
+
+          {/* AI Agents & Auto Settings (tab) + Positions & Performance */}
+          <AutoPanel
+            lang={lang}
+            pairs={allPairs}
+            leverage={settings.leverage}
+            onLeverageChange={(lev) =>
+              setSettings((s) => ({ ...s, leverage: Math.max(1, Math.min(MAX_LEVERAGE, Math.round(lev) || 1)) }))
+            }
+            tickers={tickers}
+            settings={settings}
+            cfg={cfg}
+            onCfgChange={patchCfg}
+            books={books}
+            syncReady={booksReady}
+            onPickPair={handlePickPair}
+            pushToast={pushToast}
+          />
+
+          {/* analytics chi tiết sổ B */}
+          <AutoAnalyticsSection lang={lang} />
+        </main>
+      </div>
 
       {/* ── Toasts — giống dashboard ─────────────────────────────────────── */}
       <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2">

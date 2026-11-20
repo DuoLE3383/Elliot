@@ -1,15 +1,34 @@
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RotateCcw } from "lucide-react";
 
 // Tach tu auto-panel.tsx - CAPITAL + AUDIT + WIN RATE + RESET + BYCOMBO + HISTORY (Card 1510).
 // Props any de tsc khong ket type. Chi tiet lenh se them vao day, khong phinh file cu.
+// 0.3.12 — header "Recent Trades" theo mockup redesign.
 export function AutoHistory(props: any) {
   const { auto, capitalNow, cfg, lang, t, auditRes, auditBusy, doAudit, doResetCapital, resetOpen, setResetOpen, resetAmount, setResetAmount, resetBusy, closedHist, sideClass, onPickPair, NOISE_BAND, ConfluenceTable, best, flipped, rows, confluenceMap, TOP_N, ef, blockedWhy, probShown, scanning, trainHist, bcastSnap, ListChecks } = props;
   return (
-    <Card className="border-zinc-800 bg-zinc-900/60 mt-4">
-      <CardContent className="space-y-3 px-3 pt-3">
+    <Card className="border-[#1e2d4d]/70 bg-[#0a0f1e]/80 mt-4">
+      <CardHeader className="px-4 pb-2">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="flex items-center gap-1.5 text-base font-semibold text-zinc-100">
+            {/* list icon — kiểu mockup */}
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden>
+              <path d="M8 6 H21 M8 12 H21 M8 18 H21" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" />
+              <circle cx="4" cy="6" r="1.4" fill="#38bdf8" />
+              <circle cx="4" cy="12" r="1.4" fill="#38bdf8" />
+              <circle cx="4" cy="18" r="1.4" fill="#38bdf8" />
+            </svg>
+            {t(lang, "auto2.recentTrades")}
+          </CardTitle>
+          {closedHist.length > 0 && (
+            <span className="font-mono text-[10px] text-zinc-500">{closedHist.length}×</span>
+          )}
+        </div>
+        <p className="text-[11px] leading-relaxed text-zinc-500">{t(lang, "auto2.recentSub")}</p>
+      </CardHeader>
+      <CardContent className="space-y-3 px-3 pt-0">
         {/* capital + stats */}
         <div className="grid grid-cols-3 gap-2">
           <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
