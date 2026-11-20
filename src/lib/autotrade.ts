@@ -1254,9 +1254,15 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
     .sort((a, b) => new Date(b.exitTime ?? b.entryTime).getTime() - new Date(a.exitTime ?? a.entryTime).getTime());
   const opened = st.trades.filter((x) => new Date(x.entryTime).getTime() >= sinceMs);
   const wins = recent.filter((x) => (x.pnlPct ?? 0) > 0).length;
-  const net = recent.reduce((a, x) => a + (x.pnlPct ?? 0), 0);
+  const net = recent.reduce((a, x) => a + (x.pnlPct ?? 0), 0); // tong ROE-margin, KHONG phai Equity ROE
   const wr = recent.length ? `${Math.round((wins / recent.length) * 100)}%` : "—";
-  const roe = recent.length ? `${net >= 0 ? "+" : ""}${net.toFixed(2)}%` : "—";
+  const oldest = recent[recent.length - 1] as any;
+  const newest = recent[0] as any;
+  const eqStart = Number(oldest?.capitalBefore ?? NaN);
+  const eqEnd = Number(newest?.capitalAfter ?? st.capital ?? NaN);
+  const eqDelta = Number.isFinite(eqStart) && eqStart > 0 && Number.isFinite(eqEnd) ? ((eqEnd - eqStart) / eqStart) * 100 : null;
+  const roe = recent.length ? `Margin ${net >= 0 ? "+" : ""}${net.toFixed(2)}%` : "—";
+  const eqTxt2 = eqDelta != null ? ` · Equity Δ ${eqDelta >= 0 ? "+" : ""}${eqDelta.toFixed(2)}%` : "";
   const capLabel = periodLabel.charAt(0).toUpperCase() + periodLabel.slice(1);
   const eq = st.capital != null ? st.capital.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
   // TG UPGRADE — Agent header: lấy agent từ state nếu có, fallback HEDGE
@@ -1269,7 +1275,7 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
     title,
     `${agentIcon} Agent: <b>${agentId}</b> · Risk ${ag[0]}% · Gate Score ${ag[1]} / AUC ${ag[2]} / ACC ${ag[3]}% · Runner 50/2/0.5`,
     DIGEST_HR,
-    `📊 <b>${capLabel}</b>: ${opened.length} opened · ${recent.length} closed · WR <b>${wr}</b> · ROE <b>${roe}</b>`,
+    `📊 <b>${capLabel}</b>: ${opened.length} opened · ${recent.length} closed · WR <b>${wr}</b> · ROE <b>${roe}</b>${eqTxt2}`,
     `💰 Equity <b>${eq}</b> USDT · ${st.stats.closed} closed all-time${st.open ? " · 1 open" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(0)}%` : "—"}`,
   ];
   const best = (st.byCombo ?? []).filter((c) => c.closed >= 3).sort((a, b) => b.winRate - a.winRate)[0];
@@ -1285,7 +1291,7 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
     const cycleTxt = anySt.lastCycleStatus || anySt.cycleStatus || anySt.lastCycle || "";
     const scanTxt = anySt.lastScanStatus || anySt.scanStatus || "";
     const breadth = anySt.breadthPct ?? anySt.breadth ?? null;
-    lines.push(`🔍 Scan ${periodLabel}: ${scanTxt || "scan chạy, 0 combo qua gate"}`);
+    lines.push(`🔍 Scan gần nhất: ${scanTxt || "scan chạy, 0 combo qua gate"} (scan hiện tại, không phải tổng ${periodLabel})`);
     if (cycleTxt) lines.push(`❌ Vì sao 0 lệnh: ${cycleTxt}`);
     else lines.push(`❌ Vì sao 0 lệnh: 0 combo qua gate ${ag[1]} / AUC ${ag[2]} / ACC ${ag[3]}% + noise guard (SL >= 0.8x ATR)`);
     if (breadth != null) lines.push(`📉 Breadth: ${Number(breadth).toFixed(1)}%${Number(breadth) < 5 ? " — thị trường yếu, C RISK_OFF" : ""}`);
@@ -1323,7 +1329,9 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
   // 💡 Lesson rollup (0.2.71) — khi per-trade AUTOPSY bị mute (TG_MUTE), bài
   // học VẪN lọt vào digest: lấy autopsy MỚI NHẤT trong cửa sổ, gọn 1 dòng.
   // JSON hỏng / rỗng → bỏ im lặng; không có lệnh nào → không in gì thêm.
-  for (const x of recent) {
+  if ((st.stats?.closed ?? 0) < 10) {
+    lines.push("", `💡 Lesson: Chưa đủ mẫu (n=${st.stats?.closed ?? 0}/10) để rút lesson — cần ≥10 lệnh đóng.`);
+  } else for (const x of recent) {
     if (!x.autopsy) continue;
     try {
       const a = JSON.parse(x.autopsy) as { lesson?: string };
