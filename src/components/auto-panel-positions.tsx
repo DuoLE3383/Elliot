@@ -44,7 +44,7 @@ export function AutoPositions(props: any) {
                 current executing · Risk {cfg?.riskPct ?? "?"}% · Gate {cfg?.minScore ?? "?"}/{cfg?.minAuc ?? "?"}/{cfg?.minAcc ?? "?"} · TF {(cfg?.runTf ?? []).join("/")} · Lev ×{lev}
               </span>
               <span className={`ml-auto rounded px-1.5 py-0.5 font-mono text-[10px] font-bold ${locked ? "bg-amber-950/60 text-amber-300" : "bg-emerald-950/60 text-emerald-300"}`}>
-                {locked ? "● LOCKED / SCANNING" : "● IN POSITION"}
+                {locked ? "● STANDBY / SCANNING" : "● IN POSITION"}
               </span>
             </div>
           );
