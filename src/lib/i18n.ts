@@ -841,7 +841,7 @@ const vi: Dict = {
   "auto.trail.autoDesc": "ATR(pair·khung) × lev √(10/lev): kích hoạt ≈ 1.2·ATR · cách đỉnh ≈ 0.9·ATR — riêng cho từng lệnh",
   "auto.pos.trailAuto": "🤖 ATR {a}% × lev {l} → kích hoạt {act}% · cách đỉnh {dist}%",
   "auto.runner": "TP1 → Runner",
-  "auto.runner.tip": "Chạm TP lần đầu chỉ chốt {sh}% stake (sau phí), phần còn lại chạy tiếp: SL về HOÀ VÔ (rủi ro = 0), TP mở rộng ×{t} (RR thật ≈ 1:2.8+), trail khoá {l}× quãng đi — chỉ tăng dần. Trả lời \"chốt sớm\": một nửa vẫn chạy tiếp; muốn RR cao không cần đẩy TP xa tới mức không còn lệnh nào chạm. Lệnh đã DCA thì chốt toàn bộ như cũ.",
+  "auto.runner.tip": "Chạm TP lần đầu chỉ chốt {sh}% stake (sau phí), phần còn lại chạy tiếp: SL về Breakeven (rủi ro = 0), TP mở rộng ×{t} (RR thật ≈ 1:2.8+), trail khoá {l}× quãng đi — chỉ tăng dần. Trả lời \"chốt sớm\": một nửa vẫn chạy tiếp; muốn RR cao không cần đẩy TP xa tới mức không còn lệnh nào chạm. Lệnh đã DCA thì chốt toàn bộ như cũ.",
   "auto.runner.share": "chốt",
   "auto.runner.tp": "TP×",
   "auto.runner.lock": "khoá",

@@ -954,7 +954,7 @@ export interface AutoTradeRow {
   p1Share: number | null;
   /** TP mở rộng của runner (price move %) — null = chưa vào runner phase */
   tp2Pct: number | null;
-  /** mức khoá lời hiện tại của trail runner (price move %, ≥0; 0 = hoà vô) */
+  /** mức khoá lời hiện tại của trail runner (price move %, ≥0; 0 = breakeven) */
   trailPct: number | null;
   createdAt: string;
 }
@@ -1469,7 +1469,7 @@ export interface AutoConfig {
   /** khoảng cách % từ đỉnh/đáy tốt nhất tới stop trailing */
   trailDistPct: number;
   /** 0.3.3 — TP1 PARTIAL → RUNNER: chạm TP lần đầu chỉ chốt runnerSharePct% stake
-   *  (sau phí), phần còn lại chạy tiếp với SL về hoà vô (BE), TP mở rộng
+   *  (sau phí), phần còn lại chạy tiếp với SL về breakeven (BE), TP mở rộng
    *  ×runnerTpMult và trail ratchet khoá lời runnerTrailLock × quãng đi. false =
    *  đóng toàn bộ tại TP như cũ. Trả lời "chốt sớm" — một nửa vẫn chạy tiếp,
    *  muốn RR cao hơn không cần đẩy TP xa tới mức không còn lệnh nào chạm. */

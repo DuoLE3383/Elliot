@@ -161,7 +161,7 @@ export const msgLlmVeto = (r: ScanRow, v: LlmVerdict): string =>
 
 /** 0.3.3 — TP1 PARTIAL → RUNNER: chạm TP lần đầu, chốt một phần (SAU PHÍ — cùng
  *  settlement 0.2.77 với closeTradeDirect), phần còn lại chuyển runner (SL về
- *  hoà vô, TP mở rộng, trail ratchet khoá lời). Tham số khai báo structural
+ *  breakeven, TP mở rộng, trail ratchet khoá lời). Tham số khai báo structural
  *  (AutoTradeRow subset) để tránh vòng import. */
 export const msgTp1 = (
   r: { symbol: string; interval: string; side: string; entryPrice: number; tpPct: number; leverage: number; stakePct?: number | null },
@@ -178,7 +178,9 @@ export const msgTp1 = (
     `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
     HR,
     `✅ Banked <b>${(share * 100).toFixed(0)}%</b> stake ${src === "trail" ? "(TRAIL)" : "(TP1)"} (+${bank.toFixed(1)}% ROE phần banked, sau phí)` ,
-    `🛡️ Phần còn lại: SL về <b>HOÀ VÔ</b> (breakeven) — rủi ro = 0`,
+    src === "trail"
+      ? `🛡 Runner: SL dời lên <b>giá trail</b> — khóa lời đã bank`
+      : `🛡 Runner: SL về <b>Breakeven (SL = Entry)</b> — rủi ro = 0`,
     `🏁 TP mở rộng: <b>+${tp2Pct.toFixed(2)}%</b> giá (từ ${r.tpPct.toFixed(2)}%) — để lời chạy`,
     `📈 Price ${fmtPrice(price)} · ROE ${roe >= 0 ? "+" : ""}${roe.toFixed(1)}% · trail khoá 50% quãng đi`,
   ].join("\n");

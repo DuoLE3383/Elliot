@@ -1472,7 +1472,7 @@ async function cycleTick(): Promise<void> {
         }
         if (ex?.tp1 || ex?.dca || ex?.pending) {
           v.lastCycleStatus = ex.tp1
-            ? `${open.symbol} ${open.interval} TP1 partial — runner chạy tiếp (SL hoà vô)`
+            ? `${open.symbol} ${open.interval} TP1 partial — runner chạy tiếp (SL breakeven)`
             : ex.dca
               ? `${open.symbol} ${open.interval} DCA — giữ vị thế, SL/TP re-anchor`
               : `${open.symbol} ${open.interval} SL chờ confirm (wick nông)`;
@@ -2222,7 +2222,7 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
           data: { p1Pct: p1Net, p1Share: plan.share, tp2Pct: plan.tp2Pct, trailPct: 0 },
         });
         console.log(
-          `[engine] TP1 partial ${open.symbol} ${open.interval} — bank ${(plan.share * 100).toFixed(0)}% stake (+${p1Net.toFixed(1)}% ROE sau phí) · runner TP2 ${plan.tp2Pct.toFixed(2)}% · SL về HOÀ VÔ`,
+          `[engine] TP1 partial ${open.symbol} ${open.interval} — bank ${(plan.share * 100).toFixed(0)}% stake (+${p1Net.toFixed(1)}% ROE sau phí) · runner TP2 ${plan.tp2Pct.toFixed(2)}% · SL về Breakeven`,
         );
         Object.assign(warnedOf(open.id), { tp: false, sl: false });
         if ((p as any).trailById) delete (p as any).trailById[open.id];
