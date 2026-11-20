@@ -53,6 +53,7 @@ let _liquidTimer: any = null;
 let _liquidStatus = { state: "STANDBY", reason: "chưa quét", lastScan: "" };
 export function liquidEngineStatus() { return { ..._liquidStatus }; }
 export async function startLiquidEngine(symbols: string[]) {
+  console.log(`[liquid] engine D khởi động — ${symbols.length} symbol (từ Universe rank) 1d, lev 3, stake 10%, SHORT phân phối`);
   if (_liquidTimer) return;
   const scanOnce = async () => {
     const list = liquidSymbolsFromUniverse(symbols);
