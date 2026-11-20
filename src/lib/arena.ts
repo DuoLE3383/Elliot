@@ -97,9 +97,10 @@ export function statsFromRoes(
     avgWin,
     avgLoss,
     payoff: avgLoss !== 0 ? Math.round(Math.abs(avgWin / avgLoss) * 100) / 100 : 0,
-    // chuỗi vốn: caller xếp asc theo thời gian thoát → đầu chuỗi = capitalBefore ĐẦU TIÊN
+    // von that khi lenh chong nhau: final = start + tong PNL USDT tung lenh.
+    // Lay capitalAfter cua lenh dong cuoi la SAI — no chi la capitalBefore luc lenh do vao + PNL rieng no, khong gom lenh khac.
     startCapital: starts.length ? starts[0] : null,
-    finalCapital: caps.length ? caps[caps.length - 1] : null,
+    finalCapital: starts.length ? Math.round((starts[0] + rows.reduce((sum, r) => sum + ((r.capitalAfter != null && r.capitalBefore != null) ? (r.capitalAfter - r.capitalBefore) : 0), 0)) * 100) / 100 : (caps.length ? caps[caps.length - 1] : null),
     bySide,
   };
 }
