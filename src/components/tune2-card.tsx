@@ -107,9 +107,10 @@ export function Tune2Card({ lang, onBcfgApplied, pushToast }: Props) {
   const enoughData = totalTrades >= TUNE2_MIN_N;
 
   // dải RR / floor hiện hành (bỏ sổ chưa có số)
+  // ?. — phòng proposal file cũ chưa có key "d" (stale) → lọc bỏ thay vì crash
   const curVals = data ? (["a", "b", "c", "d"] as BookId[]).map((b) => data.current[b]) : [];
-  const rrs = curVals.map((c) => c.rr).filter((v) => Number.isFinite(v) && v > 0);
-  const floors = curVals.map((c) => c.floor).filter((v) => Number.isFinite(v) && v > 0);
+  const rrs = curVals.map((c) => c?.rr).filter((v) => Number.isFinite(v) && v > 0);
+  const floors = curVals.map((c) => c?.floor).filter((v) => Number.isFinite(v) && v > 0);
   const rrRange = rrs.length ? `${num(Math.min(...rrs))} – ${num(Math.max(...rrs))}` : "—";
   const floorRange = floors.length ? `${num(Math.min(...floors))} – ${num(Math.max(...floors))}` : "—";
 

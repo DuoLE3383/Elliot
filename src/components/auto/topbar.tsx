@@ -121,9 +121,9 @@ export function AutoTopbar({ lang, liveOn, dryOn, breadth, notifCount = 0, onTog
 
         <span className="hidden h-7 w-px bg-[#1e2d4d] sm:block" aria-hidden />
 
-        {/* Mode: LIVE / DRY-RUN */}
-        <div className="flex items-center gap-1.5">
-          <span className="hidden text-[10px] uppercase tracking-wide text-zinc-500 sm:block">Mode</span>
+        {/* Mode: LIVE / DRY-RUN — nhóm card có viền như mockup */}
+        <div className="flex items-center gap-1.5 rounded-xl border border-[#24365c] bg-[#0b1424] px-2 py-1.5">
+          <span className="hidden text-[10px] font-semibold uppercase tracking-wide text-zinc-500 sm:block">Mode</span>
           <span
             className={`rounded-lg border px-2.5 py-1 font-mono text-[11px] font-bold ${
               liveOn ? "border-emerald-600 bg-emerald-950/60 text-emerald-300 shadow-[0_0_10px_rgba(34,197,94,0.25)]" : "border-zinc-800 bg-zinc-950/60 text-zinc-600"

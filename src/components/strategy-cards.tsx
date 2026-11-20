@@ -288,15 +288,26 @@ export function StrategyCards({ lang, cfgOn, onCfgPatch, onCfgToggle, books, onT
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {/* legend */}
+          {/* legend — 3 trạng thái như mockup */}
           <div className="hidden items-center gap-3 text-[10px] text-zinc-500 sm:flex">
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Running</span>
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> Standby</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-rose-500" /> Stopped</span>
           </div>
-          {/* Auto-Flip toggle — cfg.autoFlip thật */}
-          <div className="flex items-center gap-2 rounded-full border border-[#24365c] bg-[#0b1424] px-2.5 py-1">
+          {/* Auto-Flip toggle — cfg.autoFlip thật; ✦ + help "?" kiểu mockup */}
+          <div className="flex items-center gap-1.5 rounded-full border border-[#24365c] bg-[#0b1424] pl-2 pr-1 py-1">
+            <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden>
+              <path d="M12 2 L13.7 8.3 L20 6.5 L15.6 11.2 L20 16 L13.7 14.9 L12 21 L10.3 14.9 L4 16 L8.4 11.2 L4 6.5 L10.3 8.3 Z" fill="#22d3ee" fillOpacity="0.85" />
+            </svg>
             <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Auto-Flip</span>
             <AutoFlipSwitch lang={lang} onCfgPatch={onCfgPatch} />
+            <span
+              className="flex h-4 w-4 items-center justify-center rounded-full border border-[#2c4270] text-[9px] font-bold text-zinc-500"
+              title={t(lang, "auto.flip.tip", { s: 0, a: "0", c: "0" })}
+              aria-hidden
+            >
+              ?
+            </span>
           </div>
         </div>
       </div>

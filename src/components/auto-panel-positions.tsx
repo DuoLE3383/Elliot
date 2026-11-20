@@ -4,8 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Square } from "lucide-react";
 
 // Tach tu auto-panel.tsx - POSITIONS OPENING (Card 1369). Props any de tsc khong ket type.
+// 0.3.12b — khối tóm tắt hiệu suất kiểu mockup: donut uROE (tỷ trọng margin
+// LONG/SHORT) + 4 hàng stats (Open · LONG/SHORT · WR đóng · uPnL) — toàn bộ số
+// thật từ opens + closedHist + tickers, không có lệnh thì vẽ vành đen + "—".
 export function AutoPositions(props: any) {
-  const { opens, open, tickers, cfg, capitalNow, lang, t, closeNow, closeOpen, fmtPrice, slPrice, tpPrice, trailStopPrice, trailMovePct, engineTrail, roeOf, rows, leverage } = props;
+  const { opens, open, tickers, cfg, capitalNow, lang, t, closeNow, closeOpen, fmtPrice, slPrice, tpPrice, trailStopPrice, trailMovePct, engineTrail, roeOf, rows, closedHist, leverage } = props;
   const closeFn = closeNow ?? closeOpen;
   return (
     <Card className="border-[#1e2d4d]/70 bg-[#0a0f1e]/80 h-full">
@@ -53,6 +56,75 @@ export function AutoPositions(props: any) {
               <span className={`ml-auto shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-bold ${locked ? "bg-amber-950/60 text-amber-300" : "bg-emerald-950/60 text-emerald-300"}`}>
                 {locked ? "● STANDBY / SCANNING" : "● IN POSITION"}
               </span>
+            </div>
+          );
+        })()}
+        {/* ── TÓM TẮT HIỆU SUẤT — donut + 4 hàng stats (kiểu mockup, số thật) ── */}
+        {(() => {
+          const nOpen = opens.length;
+          const longs = opens.filter((o: any) => o.side === "LONG");
+          const shorts = opens.filter((o: any) => o.side !== "LONG");
+          const marginOf = (o: any) => ((o.capitalBefore ?? capitalNow) * (o.stakePct ?? 100)) / 100;
+          let upnl = 0, marginSum = 0, roeWeighted = 0;
+          for (const o of opens) {
+            const margin = marginOf(o);
+            const mark = tickers[o.symbol]?.price ?? o.entryPrice;
+            const move = o.side === "SHORT" ? (o.entryPrice - mark) / o.entryPrice : (mark - o.entryPrice) / o.entryPrice;
+            const roi = move * o.leverage * 100;
+            upnl += (margin * roi) / 100;
+            marginSum += margin;
+            roeWeighted += roi * margin;
+          }
+          const uRoe = marginSum > 0 ? roeWeighted / marginSum : null;
+          const longMargin = longs.reduce((s: number, o: any) => s + marginOf(o), 0);
+          const longFrac = marginSum > 0 ? longMargin / marginSum : 0;
+          // donut: vành tròn — xanh emerald = margin LONG, đỏ rose = margin SHORT
+          const R = 30, C = 2 * Math.PI * R;
+          const longLen = longFrac * C;
+          const closed = (closedHist ?? []).filter((x: any) => x.status === "closed");
+          const wins = closed.filter((x: any) => (x.pnlPct ?? 0) > 0).length;
+          const wr = closed.length > 0 ? (wins / closed.length) * 100 : null;
+          return (
+            <div className="flex items-center gap-4 rounded-xl border border-[#1e2d4d]/70 bg-[#0b1222]/60 px-3 py-2.5">
+              {/* donut + nhãn giữa */}
+              <div className="relative h-[86px] w-[86px] shrink-0" role="img" aria-label={t(lang, "auto2.perfUroe")}>
+                <svg viewBox="0 0 86 86" className="h-full w-full -rotate-90">
+                  <circle cx="43" cy="43" r={R} fill="none" stroke="#1c2947" strokeWidth="10" />
+                  {nOpen > 0 && longLen > 0 && (
+                    <circle cx="43" cy="43" r={R} fill="none" stroke="#10b981" strokeWidth="10" strokeLinecap="butt" strokeDasharray={`${longLen} ${C - longLen}`} />
+                  )}
+                  {nOpen > 0 && C - longLen > 0.5 && (
+                    <circle cx="43" cy="43" r={R} fill="none" stroke="#f43f5e" strokeWidth="10" strokeLinecap="butt" strokeDasharray={`${C - longLen} ${longLen}`} strokeDashoffset={-longLen} />
+                  )}
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className={`font-mono text-[13px] font-bold ${uRoe == null ? "text-zinc-600" : uRoe >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                    {uRoe == null ? "—" : `${uRoe >= 0 ? "+" : ""}${uRoe.toFixed(2)}%`}
+                  </span>
+                  <span className="text-center text-[8px] font-semibold uppercase leading-tight tracking-wide text-zinc-500">{t(lang, "auto2.perfUroe")}</span>
+                </div>
+              </div>
+              {/* 4 hàng stats */}
+              <dl className="grid min-w-0 flex-1 grid-cols-1 gap-y-1 font-mono text-[11px] sm:grid-cols-2 sm:gap-x-4">
+                <div className="flex items-baseline justify-between gap-2">
+                  <dt className="font-sans text-zinc-500">{t(lang, "auto2.perfOpen")}</dt>
+                  <dd className="font-bold text-zinc-100">{nOpen}</dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-2">
+                  <dt className="font-sans text-zinc-500">LONG / SHORT</dt>
+                  <dd className="font-bold"><span className="text-emerald-400">{longs.length}</span> / <span className="text-rose-400">{shorts.length}</span></dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-2">
+                  <dt className="font-sans text-zinc-500">{t(lang, "auto2.perfWr")}</dt>
+                  <dd className="font-bold text-zinc-100">{wr == null ? "—" : `${wr.toFixed(2)}%`}</dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-2">
+                  <dt className="font-sans text-zinc-500">{t(lang, "auto2.perfUpnl")}</dt>
+                  <dd className={`font-bold ${nOpen === 0 ? "text-zinc-600" : upnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                    {nOpen === 0 ? "—" : `${upnl >= 0 ? "+$" : "−$"}${Math.abs(upnl).toFixed(2)}`}
+                  </dd>
+                </div>
+              </dl>
             </div>
           );
         })()}
