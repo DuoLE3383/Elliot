@@ -167,8 +167,8 @@ const clampStep = (from: number, delta: number, lo: number, hi: number, round: (
 const RULES: Record<BookId, BookRule> = {
   a: {
     // stop ATR: hẹp lại −0.3 (biên 1.2) / rộng ra +0.3 (biên 2.8)
-    rrUp: (f) => clampStep(f, -0.3, 1.2, 2.8, r1),
-    rrDown: (f) => clampStep(f, +0.3, 1.2, 2.8, r1),
+    rrUp: (f) => clampStep(f, -0.2, 1.4, 3.0, r1),
+    rrDown: (f) => clampStep(f, +0.2, 1.4, 3.0, r1),
     floorUp: (cur) => {
       const to = clampStep(cur.floor, +0.2, 1.0, 2.5, r1);
       return to == null ? null : { to, extras: [] };
@@ -185,8 +185,8 @@ const RULES: Record<BookId, BookRule> = {
   },
   b: {
     // ratio thưởng: +0.2 (biên 1.0–2.2) / −0.2
-    rrUp: (f) => clampStep(f, +0.2, 1.0, 2.2, r1),
-    rrDown: (f) => clampStep(f, -0.2, 1.0, 2.2, r1),
+    rrUp: (f) => clampStep(f, +0.2, 1.4, 3.0, r1),
+    rrDown: (f) => clampStep(f, -0.2, 1.4, 3.0, r1),
     floorUp: (cur) => {
       const to = clampStep(cur.floor, +5, 0, 85, (v) => Math.round(v));
       const f2 = cur.floor2 != null ? clampStep(cur.floor2, +0.02, 0.5, 0.9, r2) : null;
