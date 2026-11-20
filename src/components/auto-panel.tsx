@@ -311,6 +311,8 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   // 0.3.12 — tab của panel "AI Agents & Auto Settings": mọi núm cũ được nhóm
   // theo chủ đề cho gọn như mockup; logic từng núm giữ nguyên 100%.
   const [tab, setTab] = useState<"agent" | "capital" | "tpsl" | "trail" | "runner" | "filters" | "more">("agent");
+  const [savingCfg, setSavingCfg] = useState(false);
+  const [saveCfgMsg, setSaveCfgMsg] = useState("");
 
   useEffect(() => {
     langRef.current = lang;
@@ -895,6 +897,31 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                     />
                   </span>
                 </label>
+                {/* SAVE — xac nhan 1 lan: capital + risk + leverage xuong page/backend, engine dung tu cycle ke tiep. Lenh dang open GIU NGUYEN stake cu. */}
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    disabled={savingCfg}
+                    onClick={async () => {
+                      setSavingCfg(true);
+                      setSaveCfgMsg("");
+                      try {
+                        onCfgChange({ capital: cfg.capital, riskPct: cfg.riskPct } as any);
+                        onLeverageChange(leverage);
+                        setSaveCfgMsg("✅ Đã lưu — engine dùng từ cycle kế tiếp · lệnh đang open giữ stake cũ");
+                        pushToast({ kind: "success", text: `Đã lưu setting — Capital ${cfg.capital} · Risk ${cfg.riskPct}% · Lev ×${leverage}` });
+                      } catch {
+                        setSaveCfgMsg("❌ Lưu lỗi — thử lại");
+                      } finally {
+                        setSavingCfg(false);
+                      }
+                    }}
+                    className="h-8 rounded-md bg-emerald-500 px-4 font-mono text- font-bold text-black hover:bg-emerald-400 disabled:opacity-50"
+                  >
+                    {savingCfg ? "Đang lưu…" : "💾 Save"}
+                  </button>
+                  {saveCfgMsg && <span className="text- text-zinc-400">{saveCfgMsg}</span>}
+                </div>
               </div>
             )}
 
