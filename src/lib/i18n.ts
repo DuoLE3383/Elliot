@@ -1861,6 +1861,8 @@ const en: Dict = {
   "strat.b.sub": "Main book · Elliott XGB — Scan → Confluence → Gate → Wyckoff LONG gate → LLM gate → Agent execution",
   "strat.c.name": "Wyckoff original",
   "strat.c.sub": "Independent book · Wyckoff long-only: daily · 5-layer funnel — also LONG gate for book B",
+  "strat.d.name": "Liquid",
+  "strat.d.sub": "Independent book · Wyckoff Distribution SHORT: daily · Upthrust/Breakdown — only SHORT when RISK_OFF",
   "strat.c.boot": "STANDBY — chờ nến ngày",
   "strat.net": "Net ROE",
   "strat.trades": "Closed/Open",

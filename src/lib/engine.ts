@@ -79,6 +79,7 @@ import { getLiveTail } from "./live-stream";
 import { wyckoffLongGate } from "./wyckoff-gate";
 import { startVulcanEngine } from "./vulcan-engine";
 import { startWyckoffEngine, wyckoffEngineStatus } from "./wyckoff-engine";
+import { startLiquidEngine } from "./liquid-engine";
 import { getBooksFlags, setBooksFlags } from "./books-flags";
 import { liveClose, liveOpen } from "./binance-live";
 import { binanceStatus, effectiveKeys, testBinanceKeys } from "./binance-keys";
@@ -2534,6 +2535,7 @@ export function startEngineScheduler(): void {
   // Sổ C — phễu Wyckoff gốc (0.2.97): tick riêng 20 phút trên nến ngày, độc
   // lập chu kỳ sổ B. Sổ A (Vulcan) đã tự start ở instrumentation lúc boot.
   startWyckoffEngine();
+  startLiquidEngine([...UNIVERSE]); // D Liquid — SHORT phân phối, cùng Universe với C
 
   // train/broadcast-verdict snapshots for GET /api/engine — warm now, refresh every minute
   void trainSnapshot();
