@@ -78,15 +78,25 @@ export const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPn
   // pnlPct từ settlement đã SAU PHÍ (0.2.77) — dòng phụ cho thấy phí đã trừ
   // bao nhiêu để đọc msg không thắc mắc "ROE thấp hơn bảng SL/TP".
   const feeRt = feeRoe(r.leverage, 2);
+  const share = r.p1Share ?? 0;
+  const banked = r.p1Pct ?? null;
+  const runner = share > 0 && share < 1 && banked != null ? ((r.pnlPct ?? 0) - share * banked) / (1 - share) : null;
+  const slP = slPrice(r.side, r.entryPrice, r.slPct);
+  const exP = r.exitPrice ?? 0;
+  const slip = exP > 0 ? (r.side === "SHORT" ? ((exP - slP) / r.entryPrice) * 100 : ((slP - exP) / r.entryPrice) * 100) : 0;
+  const deltaUsdt = (r.capitalAfter ?? 0) - (r.capitalBefore ?? 0);
   return [
     `🤖 <b>AUTO CLOSE · ${kindTag(r.exitKind)}</b>`,
     `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
     HR,
     `🎯 Entry ${fmtPrice(r.entryPrice)} → 🚪 Exit <b>${fmtPrice(r.exitPrice ?? 0)}</b>`,
-    `📐 SL ${r.slPct.toFixed(2)}% · TP ${r.tpPct.toFixed(2)}% · Lev ${levTxt(r.leverage)} · Score ${(r.score ?? 0).toFixed(1)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(1)}%
-💵 PnL (ROE): <b>${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}%</b>${feeRt > 0 ? ` · fees −${feeRt.toFixed(2)}%` : ""}`,
-    `💰 Equity: ${(r.capitalBefore ?? 0).toFixed(2)} → <b>${(r.capitalAfter ?? 0).toFixed(2)}</b> USDT`,
-    `📈 Track record: ${closed} trades · Win rate ${winRate.toFixed(0)}% · Net ROE ${netPnlPct >= 0 ? "+" : ""}${netPnlPct.toFixed(1)}%`,
+    `📐 SL ${r.slPct.toFixed(2)}% · TP ${r.tpPct.toFixed(2)}% · Lev ${levTxt(r.leverage)} · Score ${(r.score ?? 0).toFixed(1)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(1)}%`,
+    banked != null && runner != null
+      ? `💵 PnL: Banked ${banked >= 0 ? "+" : ""}${banked.toFixed(1)}% × ${(share * 100).toFixed(0)}% + Runner ${runner >= 0 ? "+" : ""}${runner.toFixed(1)}% × ${((1 - share) * 100).toFixed(0)}% = <b>${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}% ROE tổng</b>`
+      : `💵 PnL (ROE): <b>${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}%</b>${feeRt > 0 ? ` · fees −${feeRt.toFixed(2)}%` : ""}`,
+    `💰 Equity: ${(r.capitalBefore ?? 0).toFixed(2)} → <b>${(r.capitalAfter ?? 0).toFixed(2)}</b> USDT (${deltaUsdt >= 0 ? "+" : ""}${deltaUsdt.toFixed(2)})`,
+    ...(slip > 0 ? [`⚠️ Slippage +${slip.toFixed(2)}% giá (exit ${fmtPrice(exP)} vượt SL ${fmtPrice(slP)})`] : []),
+    `📈 Track record: ${closed} trades · Win rate ${winRate.toFixed(0)}% · Net vốn ${netPnlPct >= 0 ? "+" : ""}${netPnlPct.toFixed(1)}%`,
   ].join("\n");
 }
 
@@ -158,14 +168,16 @@ export const msgTp1 = (
   price: number,
   share: number,
   tp2Pct: number,
+  bankRoe?: number,
+  src?: "tp" | "trail",
 ): string => {
   const roe = roeOf(r.side, r.entryPrice, price, r.leverage);
-  const bankRoe = Math.round((r.tpPct * r.leverage - feeRoe(r.leverage)) * 100) / 100;
+  const bank = bankRoe ?? Math.round((r.tpPct * r.leverage - feeRoe(r.leverage)) * 100) / 100;
   return [
     `🪙 <b>TP1 PARTIAL — RUNNER ARMED</b>`,
     `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
     HR,
-    `✅ Banked <b>${(share * 100).toFixed(0)}%</b> stake tại TP1 (+${bankRoe.toFixed(1)}% ROE phần banked, sau phí)`,
+    `✅ Banked <b>${(share * 100).toFixed(0)}%</b> stake ${src === "trail" ? "(TRAIL)" : "(TP1)"} (+${bank.toFixed(1)}% ROE phần banked, sau phí)` ,
     `🛡️ Phần còn lại: SL về <b>HOÀ VÔ</b> (breakeven) — rủi ro = 0`,
     `🏁 TP mở rộng: <b>+${tp2Pct.toFixed(2)}%</b> giá (từ ${r.tpPct.toFixed(2)}%) — để lời chạy`,
     `📈 Price ${fmtPrice(price)} · ROE ${roe >= 0 ? "+" : ""}${roe.toFixed(1)}% · trail khoá 50% quãng đi`,

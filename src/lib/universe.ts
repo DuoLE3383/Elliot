@@ -232,6 +232,6 @@ export function universeBroadcastText(
   else if (showDelta) lines.push(`🔀 No rank changes vs last post`);
   const more = top.length > show.length ? ` · full top-${top.length} in the app` : "";
   lines.push(`⏱ Re-rank mỗi giờ · not a trade signal${more}`);
-  lines.push(`💡 TOP này là xếp hạng trend, KHÔNG phải tín hiệu lệnh — lệnh chỉ mở khi qua gate Score 55 / AUC 0.72 / ACC 68% + noise guard (SL ≥ 0.8x ATR). 0 lệnh = đứng ngoài đúng gate.`);
+  lines.push(`💡 Xếp hạng trend, KHÔNG phải tín hiệu lệnh — lệnh chỉ mở khi qua gate.`);
   return lines.join("\n");
 }

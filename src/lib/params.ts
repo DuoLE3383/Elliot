@@ -73,7 +73,7 @@ export const UNIVERSE_LOOKBACK_CANDLES = 10 * 24;
 /** Top N "trending pairs" công bố (UI card + Telegram + fallback watchlist). */
 export const UNIVERSE_TOP = 30;
 /** Số dòng hiển thị trong tin universe broadcast. */
-export const UNIVERSE_BCAST_TOP = 10;
+export const UNIVERSE_BCAST_TOP = 5;
 /** Số nến tối thiểu một cặp phải có trong scan mới đủ tư cách chấm rank. */
 export const UNIVERSE_MIN_CANDLES = 55;
 

@@ -2191,13 +2191,13 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
       try {
         await db.autoTrade.update({
           where: { id: open.id },
-          data: { p1Pct: stopRoi, p1Share: 0.5, tp2Pct: Math.max(open.tpPct * open.leverage, stopRoi + 2), trailPct: 0, slPct: open.side === "SHORT" ? -slMove : slMove },
+          data: { p1Pct: Math.round((stopRoi - feeRoe(open.leverage)) * 100) / 100, p1Share: 0.5, tp2Pct: Math.max(open.tpPct * open.leverage, stopRoi + 2), trailPct: 0, slPct: open.side === "SHORT" ? -slMove : slMove },
         });
         console.log(`[engine] TRAIL ROI partial ${open.symbol} ${open.interval} — bank 50% @ ROI ${stopRoi.toFixed(2)}% · runner SL doi len ${slMove.toFixed(2)}% gia`);
         if ((p as any).trailById) delete (p as any).trailById[open.id];
         slPendingSet(open.id, null);
         persistEngine();
-        if (tgReady()) void tgSendMessage(msgTp1(open, price, 0.5, Math.max(open.tpPct * open.leverage, stopRoi + 2)), "HTML");
+        if (tgReady()) void tgSendMessage(msgTp1(open, price, 0.5, Math.max(open.tpPct, (stopRoi + 2) / Math.max(1, open.leverage)), Math.round((stopRoi - feeRoe(open.leverage)) * 100) / 100, "trail"), "HTML");
         return { tp1: true };
       } catch (e) {
         console.error(`[engine] TRAIL ROI partial failed: ${e instanceof Error ? e.message : e} — dong toan bo nhu cu`);
@@ -2228,7 +2228,7 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
         if ((p as any).trailById) delete (p as any).trailById[open.id];
         slPendingSet(open.id, null);
         persistEngine();
-        if (tgReady()) void tgSendMessage(msgTp1(open, price, plan.share, plan.tp2Pct), "HTML");
+        if (tgReady()) void tgSendMessage(msgTp1(open, price, plan.share, plan.tp2Pct, p1Net, "tp"), "HTML");
         return { tp1: true };
       } catch (e) {
         console.error(`[engine] TP1 partial failed: ${e instanceof Error ? e.message : e} — đóng toàn bộ như cũ`);

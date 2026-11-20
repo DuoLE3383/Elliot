@@ -1295,7 +1295,7 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
     title,
     `${agentIcon} Agent: <b>${agentId}</b> · Risk ${ag[0]}% · Gate Score ${ag[1]} / AUC ${ag[2]} / ACC ${ag[3]}% · Runner 50/2/0.5`,
     DIGEST_HR,
-    `📊 <b>${capLabel}</b>: ${opened.length} opened · ${recent.length} closed · WR <b>${wr}</b> · ROE <b>${roe}</b>${eqTxt2}`,
+    `📊 <b>${capLabel}</b>: ${opened.length} opened · ${recent.length} closed · WR <b>${wr}</b>${eqTxt2} · Margin ${roe}`,
     `💰 Equity <b>${eq}</b> USDT · ${st.stats.closed} closed all-time${st.open ? " · 1 open" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(0)}%` : "—"}`,
   ];
   const best = (st.byCombo ?? []).filter((c) => c.closed >= 3).sort((a, b) => b.winRate - a.winRate)[0];
@@ -1351,7 +1351,7 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
   // JSON hỏng / rỗng → bỏ im lặng; không có lệnh nào → không in gì thêm.
   if ((st.stats?.closed ?? 0) < 10) {
     lines.push("", `💡 Lesson: Chưa đủ mẫu (n=${st.stats?.closed ?? 0}/10) để rút lesson — cần ≥10 lệnh đóng.`);
-  } else for (const x of recent) {
+  } else if (recent.slice(0, 3).every((x) => (x.pnlPct ?? 0) <= 0)) for (const x of recent) {
     if (!x.autopsy) continue;
     try {
       const a = JSON.parse(x.autopsy) as { lesson?: string };
