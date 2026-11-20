@@ -28,6 +28,7 @@ import { feeRoe } from "@/lib/autotrade";
 import { combineClosePnl } from "@/lib/trade-mgmt";
 import { autopsyClosedTrade } from "@/lib/autopsy";
 import { auditBook, repairBook } from "@/lib/audit-book";
+import { tgSendMessage } from "@/lib/telegram-store";
 
 export const dynamic = "force-dynamic";
 
@@ -139,6 +140,10 @@ export async function PATCH(req: NextRequest) {
       throw e;
     }
     console.log(`[autotrade] reset_capital — sổ đã xoá sạch, vốn đặt về ${cap} USDT (${note})`);
+    const oldCap = wallet.capital ?? 1000;
+    try {
+      await tgSendMessage(`🔄 <b>RESET VỐN</b>\n💰 ${oldCap.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} → <b>${cap.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b> USDT · Arena B restarts from 0\n📝 ${note}`, "HTML");
+    } catch { /* telegram loi — reset von van giu nguyen, khong block response */ }
     return NextResponse.json({ ok: true, capital: cap, resetAt: resetAt.toISOString() });
   }
 
