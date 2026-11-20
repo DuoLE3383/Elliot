@@ -33,12 +33,12 @@ export function AutoHistory(props: any) {
         <div className="grid grid-cols-3 gap-2">
           <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
             <p className="whitespace-normal leading-snug text-[10px] uppercase tracking-wide text-zinc-500">{t(lang, "auto.capital.now")}</p>
-            <p className="mt-0.5 whitespace-normal leading-snug font-mono text- font-bold text-zinc-100">{capitalNow.toFixed(2)}</p>
+            <p className="mt-0.5 whitespace-normal leading-snug font-mono text-[16px] font-bold text-zinc-100">{capitalNow.toFixed(2)}</p>
             <p className="whitespace-normal leading-snug text-[9px] text-zinc-600">{t(lang, "auto.capital.start", { n: auto?.walletCapital ?? cfg.capital })}</p>
           </div>
           <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
             <p className="whitespace-normal leading-snug text-[10px] uppercase tracking-wide text-zinc-500">Net ROE</p>
-            <p className={`mt-0.5 whitespace-normal leading-snug font-mono text- font-bold ${(auto?.stats.netPnlPct ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+            <p className={`mt-0.5 whitespace-normal leading-snug font-mono text-[16px] font-bold ${(auto?.stats.netPnlPct ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
               {(auto?.stats.netPnlPct ?? 0) >= 0 ? "+" : ""}
               {(auto?.stats.netPnlPct ?? 0).toFixed(1)}%
             </p>
@@ -46,7 +46,7 @@ export function AutoHistory(props: any) {
           </div>
           <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
             <p className="whitespace-normal leading-snug text-[10px] uppercase tracking-wide text-zinc-500">Win</p>
-            <p className="mt-0.5 whitespace-normal leading-snug font-mono text- font-bold text-zinc-100">{(auto?.stats.winRate ?? 0).toFixed(0)}%</p>
+            <p className="mt-0.5 whitespace-normal leading-snug font-mono text-[16px] font-bold text-zinc-100">{(auto?.stats.winRate ?? 0).toFixed(0)}%</p>
             <p className="whitespace-normal leading-snug text-[9px] text-zinc-600">
               {auto?.stats.wins ?? 0}/{auto?.stats.closed ?? 0}
             </p>
@@ -458,7 +458,7 @@ export function AutoHistory(props: any) {
                 const hold = holdMs >= 3600000 ? `${(holdMs / 3600000).toFixed(1)}h` : holdMs >= 60000 ? `${Math.round(holdMs / 60000)}m` : holdMs > 0 ? `${Math.round(holdMs / 1000)}s` : "—";
                 const reason = r.exitKind === "tp" ? "TP" : r.exitKind === "sl" ? "SL" : r.exitKind === "trail" ? "TRAIL" : r.exitKind === "flip" ? "FLIP" : (r.exitKind ?? "—");
                 return (
-                <div key={r.id} className="rounded-md border border-zinc-800/80 bg-zinc-950/40 px-2 py-1 text-">
+                <div key={r.id} className="rounded-md border border-zinc-800/80 bg-zinc-950/40 px-2 py-1 text-[10px]">
                   <div className="flex items-center gap-2">
                     <span className="shrink-0 text-zinc-500">
                       {new Date(r.exitTime ?? r.entryTime).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}
@@ -470,7 +470,7 @@ export function AutoHistory(props: any) {
                     </span>
                     <span className="shrink-0 font-mono text-zinc-600">{r.exitKind === "tp" ? "TP" : r.exitKind === "sl" ? "SL" : r.exitKind === "trail" ? "TRAIL" : r.exitKind === "flip" ? "FLIP" : "..."}</span>
                   </div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0 font-mono text- text-zinc-500">
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0 font-mono text-[10px] text-zinc-500">
                     <span>{entry != null && exit != null ? `${Number(entry).toFixed(4)} -> ${Number(exit).toFixed(4)}` : "Entry -> Exit -"}</span>
                     {lev != null && <span>Lev {lev}x</span>}
                     {margin != null && <span>Margin ${Number(margin).toFixed(2)}</span>}
