@@ -11,8 +11,9 @@ import { comboStats, type AutoAnalytics, type AutoState, type BookKey, type Book
 // (sau reset gần nhất) để đường vốn có điểm xuất phát khi sổ còn trống.
 
 export function analyticsFromClosed(
-  closedAsc: Array<{ symbol: string; interval: string; side: string; pnlPct: number | null; exitKind: string | null; entryTime: Date; exitTime: Date | null; capitalAfter: number | null }>,
+  closedAsc: Array<{ symbol: string; interval: string; side: string; pnlPct: number | null; exitKind: string | null; entryTime: Date; exitTime: Date | null; capitalAfter: number | null; capitalBefore: number | null }>,
   walletCapital: number | null,
+  startCapitalOverride?: number | null,
 ): AutoAnalytics {
   const n = closedAsc.length;
   const pnls = closedAsc.map((t) => t.pnlPct ?? 0);
@@ -99,7 +100,7 @@ export function analyticsFromClosed(
     closed: n,
     wins: wins.length,
     winRate: n ? Math.round((wins.length / n) * 1000) / 10 : 0,
-    netPnlPct: Math.round(pnls.reduce((a, x) => a + x, 0) * 100) / 100,
+    netPnlPct: (() => { const usdt = closedAsc.reduce((sum, t) => sum + ((t.capitalAfter != null && t.capitalBefore != null) ? (t.capitalAfter - t.capitalBefore) : 0), 0); const start = startCapitalOverride ?? walletCapital ?? closedAsc[0]?.capitalBefore ?? null; return start != null && start > 0 ? Math.round((usdt / start) * 100 * 100) / 100 : Math.round(pnls.reduce((a, x) => a + x, 0) * 100) / 100; })(),
   };
 }
 
@@ -221,9 +222,9 @@ export async function readWallet(): Promise<WalletState> {
 }
 
 
-type ClosedRow = { symbol: string; interval: string; side: string; pnlPct: number | null; exitKind: string | null; entryTime: Date; exitTime: Date | null; capitalAfter: number | null };
+type ClosedRow = { symbol: string; interval: string; side: string; pnlPct: number | null; exitKind: string | null; entryTime: Date; exitTime: Date | null; capitalAfter: number | null; capitalBefore: number | null };
 function toRecent(book: BookKey, r: any): BookRecent { return { id: String(r.id), symbol: r.symbol, interval: r.interval ?? (book === 'A' ? '15m' : '1d'), side: r.side, pnlPct: r.pnlPct ?? r.roePct ?? null, exitKind: r.exitKind ?? null, exitTime: r.exitTime ? r.exitTime.toISOString() : null, entryTime: r.entryTime.toISOString(), entryPrice: r.entryPrice }; }
-function equityAll(events: Array<{ book: BookKey; exitTime: Date | null; entryTime: Date; capitalAfter: number | null }>, seeds: Array<{ book: BookKey; t: Date; capital: number }>): Array<{ t: string; capital: number }> { const last = new Map<BookKey, number>(); const out: Array<{ t: string; capital: number }> = []; const timeline: Array<{ t: Date; book: BookKey; capital: number; seed: boolean }> = [...seeds.map((x) => ({ t: x.t, book: x.book, capital: x.capital, seed: true })), ...events.filter((e) => e.capitalAfter != null).map((e) => ({ t: (e.exitTime ?? e.entryTime), book: e.book, capital: e.capitalAfter as number, seed: false }))]; timeline.sort((a, b) => a.t.getTime() - b.t.getTime() || (a.seed ? -1 : 1)); for (const e of timeline) { last.set(e.book, e.capital); let total = 0; for (const v of last.values()) total += v; out.push({ t: e.t.toISOString(), capital: Math.round(total * 100) / 100 }); } return out; }
+function equityAll(events: Array<{ book: BookKey; exitTime: Date | null; entryTime: Date; capitalAfter: number | null }>, seeds: Array<{ book: BookKey; t: Date; capital: number }>): Array<{ t: string; capital: number }> { const last = new Map<BookKey, number>(); const out: Array<{ t: string; capital: number }> = []; const t0 = seeds.length ? new Date(Math.min(...seeds.map((x) => x.t.getTime()))) : new Date(); const timeline: Array<{ t: Date; book: BookKey; capital: number; seed: boolean }> = [...seeds.map((x) => ({ t: t0, book: x.book, capital: x.capital, seed: true })), ...events.filter((e) => e.capitalAfter != null).map((e) => ({ t: (e.exitTime ?? e.entryTime), book: e.book, capital: e.capitalAfter as number, seed: false }))]; timeline.sort((a, b) => a.t.getTime() - b.t.getTime() || (a.seed ? -1 : 1)); for (const e of timeline) { last.set(e.book, e.capital); let total = 0; for (const v of last.values()) total += v; out.push({ t: e.t.toISOString(), capital: Math.round(total * 100) / 100 }); } return out; }
 
 export async function readAutoState(): Promise<AutoState> {
   const rows = await db.autoTrade.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
@@ -252,9 +253,9 @@ export async function readAutoState(): Promise<AutoState> {
   const aClosed = await db.vulcanBook.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" }, select: { id: true, symbol: true, side: true, roePct: true, capitalBefore: true, exitKind: true, entryTime: true, exitTime: true, capitalAfter: true, entryPrice: true } });
   const cClosed = await db.wyckoffBook.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" }, select: { id: true, symbol: true, side: true, pnlPct: true, capitalBefore: true, exitKind: true, entryTime: true, exitTime: true, capitalAfter: true, entryPrice: true } });
   const dClosed = await db.liquidBook.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" }, select: { id: true, symbol: true, side: true, pnlPct: true, capitalBefore: true, exitKind: true, entryTime: true, exitTime: true, capitalAfter: true, entryPrice: true } });
-  const mapRow = (r: any, interval: string, pnl: number | null): ClosedRow => ({ symbol: r.symbol, interval, side: r.side, pnlPct: pnl, exitKind: r.exitKind ?? null, entryTime: r.entryTime, exitTime: r.exitTime, capitalAfter: r.capitalAfter });
+  const mapRow = (r: any, interval: string, pnl: number | null): ClosedRow => ({ symbol: r.symbol, interval, side: r.side, pnlPct: pnl, exitKind: r.exitKind ?? null, entryTime: r.entryTime, exitTime: r.exitTime, capitalAfter: r.capitalAfter, capitalBefore: r.capitalBefore ?? null });
   const aRows = aClosed.map((r) => mapRow(r, "15m", r.roePct));
-  const bRows: Array<ClosedRow> = closedAsc.map((r) => ({ symbol: r.symbol, interval: r.interval, side: r.side, pnlPct: r.pnlPct, exitKind: r.exitKind, entryTime: r.entryTime, exitTime: r.exitTime, capitalAfter: r.capitalAfter }));
+  const bRows: Array<ClosedRow> = closedAsc.map((r) => ({ symbol: r.symbol, interval: r.interval, side: r.side, pnlPct: r.pnlPct, exitKind: r.exitKind, entryTime: r.entryTime, exitTime: r.exitTime, capitalAfter: r.capitalAfter, capitalBefore: r.capitalBefore ?? null }));
   const cRows = cClosed.map((r) => mapRow(r, "1d", r.pnlPct));
   const dRows = dClosed.map((r) => mapRow(r, "1d", r.pnlPct));
   const anaA = analyticsFromClosed(aRows, null);
@@ -262,7 +263,7 @@ export async function readAutoState(): Promise<AutoState> {
   const anaC = analyticsFromClosed(cRows, null);
   const anaD = analyticsFromClosed(dRows, null);
   const allRows = [...aRows, ...bRows, ...cRows, ...dRows].sort((x, y) => (x.exitTime ?? x.entryTime).getTime() - (y.exitTime ?? y.entryTime).getTime());
-  const anaAll = analyticsFromClosed(allRows, null);
+  const anaAll = analyticsFromClosed(allRows, null, [aClosed[0], closedAsc[0], cClosed[0], dClosed[0]].reduce((sum, r: any) => sum + ((r?.capitalBefore ?? 1000) as number), 0));
   const allEvents = [...aClosed.map((r) => ({ book: "A" as BookKey, exitTime: r.exitTime, entryTime: r.entryTime, capitalAfter: r.capitalAfter })), ...closedAsc.map((r) => ({ book: "B" as BookKey, exitTime: r.exitTime, entryTime: r.entryTime, capitalAfter: r.capitalAfter })), ...cClosed.map((r) => ({ book: "C" as BookKey, exitTime: r.exitTime, entryTime: r.entryTime, capitalAfter: r.capitalAfter })), ...dClosed.map((r) => ({ book: "D" as BookKey, exitTime: r.exitTime, entryTime: r.entryTime, capitalAfter: r.capitalAfter }))];
   const seeds: Array<{ book: BookKey; t: Date; capital: number }> = [];
   if (aClosed.length) seeds.push({ book: "A", t: (aClosed[0] as any).entryTime, capital: ((aClosed[0] as any).capitalBefore ?? 1000) });
@@ -302,7 +303,7 @@ export async function readAutoState(): Promise<AutoState> {
       closed: closed.length,
       wins,
       winRate: closed.length ? (wins / closed.length) * 100 : 0,
-      netPnlPct: Math.round(closed.reduce((a, t) => a + (t.pnlPct ?? 0), 0) * 100) / 100,
+      netPnlPct: (() => { const usdt = closed.reduce((sum, t) => sum + ((t.capitalAfter != null && t.capitalBefore != null) ? (t.capitalAfter - t.capitalBefore) : 0), 0); const start = wallet.capital ?? closed[closed.length - 1]?.capitalBefore ?? null; return start != null && start > 0 ? Math.round((usdt / start) * 100 * 100) / 100 : 0; })(),
     },
   };
 }
