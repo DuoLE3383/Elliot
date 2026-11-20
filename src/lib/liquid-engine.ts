@@ -62,6 +62,25 @@ export async function startLiquidEngine(symbols: string[]) {
       _liquidStatus = { state: "STANDBY", reason: "Universe rỗng — chờ pair scan", lastScan: new Date().toISOString() };
       return;
     }
+    // Dong lenh D da mo neu cham TP/SL — neu khong, lenh se treo open mai
+    try {
+      const opens = await db.liquidBook.findMany({ where: { status: "open" } });
+      for (const o of opens) {
+        const kd: any[] = await fetchKlinesDirect(o.symbol, "1d", 2);
+        const last: any = kd[kd.length - 1];
+        const mark = Number(last?.close ?? last?.c ?? last?.closePrice ?? 0);
+        if (!mark || !o.entryPrice) continue;
+        const movePct = ((mark - o.entryPrice) / o.entryPrice) * 100; // SHORT: move am = loi
+        let exitKind: string | null = null;
+        if (mark <= o.tpPrice) exitKind = "tp";
+        else if (mark >= o.stopPrice) exitKind = "sl";
+        if (exitKind) {
+          const pnlPct = -movePct * 3; // lev 3, SHORT: gia giam -> pnl duong
+          await db.liquidBook.update({ where: { id: o.id }, data: { status: "closed", exitPrice: mark, exitTime: new Date(), exitKind, exitReason: exitKind === "tp" ? "TP RR 1.4" : "SL", movePct, pnlPct } });
+          console.log(`[liquid] CLOSE ${exitKind.toUpperCase()} ${o.symbol} @ ${mark} · pnl ${pnlPct.toFixed(2)}%`);
+        }
+      }
+    } catch {}
     let breadth: number | null = null;
     try { const b: any = await (breadthPct as any)(list); breadth = b?.pct ?? null; } catch { breadth = null; }
     let lastReason = "đang quét";
@@ -69,7 +88,7 @@ export async function startLiquidEngine(symbols: string[]) {
       try {
         const d = await fetchKlinesDirect(sym, "1d", 120);
         if (!d || d.length < 90) continue;
-        const dec = decideLiquidShort(d, breadth, 0);
+        const dec = decideLiquidShort(d, breadth, 60);
         lastReason = `${sym}: ${dec.reason}`;
         if (dec.action === "SHORT") {
           const last: any = d[d.length - 1];
