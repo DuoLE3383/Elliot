@@ -55,9 +55,9 @@ import { TUNE2_MIN_N } from "./tune2-types";
 /** Giá trị HIỆN TẠI của đúng các núm tune-2, đọc runtime pval (server). */
 export function tune2Current(): Record<BookId, Tune2Cur> {
   return {
-    a: { rr: pval("VUL_ATR_STOP_MULT", VUL_ATR_STOP_MULT), floor: pval("VUL_VOL_FACTOR", VUL_VOL_FACTOR) },
-    b: { rr: pval("RR_TP_RATIO", RR_TP_RATIO), floor: pval("minScore", 60), floor2: pval("minAuc", 0.8), floor3: pval("minAcc", 70) },
-    c: { rr: pval("WYC_EXIT_SL_PCT", WYC_EXIT_SL_PCT), floor: pval("WYC_RPS50_MIN", WYC_RPS50_MIN), floor2: pval("WYC_RPS120_MIN", WYC_RPS120_MIN) },
+    a: { rr: 1.4, floor: pval("VUL_VOL_FACTOR", VUL_VOL_FACTOR) },
+    b: { rr: 1.4, floor: pval("minScore", 60), floor2: pval("minAuc", 0.8), floor3: pval("minAcc", 70) },
+    c: { rr: 1.4, floor: pval("WYC_RPS50_MIN", WYC_RPS50_MIN), floor2: pval("WYC_RPS120_MIN", WYC_RPS120_MIN) },
     d: { rr: 1.4, floor: 60 },
   };
 }
