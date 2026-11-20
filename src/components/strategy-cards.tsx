@@ -226,7 +226,7 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
       </div>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         {/* A — Vulcan/Donchian */}
-        <Card className="flex h-full flex-col border-amber-900/50 bg-zinc-900/60">
+        <Card className="flex h-full flex-col border-amber-500/40 bg-gradient-to-b from-amber-950/60 via-zinc-900/80 to-zinc-950">
           <CardHeader className="px-3 pb-1.5 pt-2.5">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold text-amber-300">A · {t(lang, "strat.a.name")}</CardTitle>
@@ -256,7 +256,7 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
         </Card>
 
         {/* B — Elliott (điều khiển START/STOP dùng chung cfg) */}
-        <Card className="flex h-full flex-col border-sky-900/50 bg-zinc-900/60">
+        <Card className="flex h-full flex-col border-sky-500/40 bg-gradient-to-b from-sky-950/60 via-zinc-900/80 to-zinc-950">
           <CardHeader className="px-3 pb-1.5 pt-2.5">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold text-sky-300">B · {t(lang, "strat.b.name")}</CardTitle>
@@ -285,7 +285,7 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
         </Card>
 
         {/* C — Wyckoff gốc */}
-        <Card className="flex h-full flex-col border-violet-900/50 bg-zinc-900/60">
+        <Card className="flex h-full flex-col border-violet-500/40 bg-gradient-to-b from-violet-950/60 via-zinc-900/80 to-zinc-950">
           <CardHeader className="px-3 pb-1.5 pt-2.5">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold text-violet-300">C · {t(lang, "strat.c.name")}</CardTitle>
@@ -319,7 +319,7 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
         </Card>
 
         {/* D — Liquid SHORT phân phối */}
-        <Card className="flex h-full flex-col border-rose-900/50 bg-zinc-900/60">
+        <Card className="flex h-full flex-col border-cyan-500/40 bg-gradient-to-b from-cyan-950/60 via-zinc-900/80 to-zinc-950">
           <CardHeader className="px-3 pb-1.5 pt-2.5">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold text-rose-300">D · {t(lang, "strat.d.name")}</CardTitle>
