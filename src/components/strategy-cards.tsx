@@ -153,7 +153,7 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
     [onToggleBooks, onCfgToggle, lang],
   );
 
-  const statsOf = (id: "a" | "b" | "c"): BookStats | null => (arena ? arena[id] : null);
+  const statsOf = (id: "a" | "b" | "c" | "d"): BookStats | null => (arena ? arena[id] : null);
   const advice = arena ? strategyAdvice([{ id: "a", s: arena.a }, { id: "b", s: arena.b }, { id: "c", s: arena.c }]) : [];
 
   const badge = (on: boolean, live?: boolean) =>
@@ -174,6 +174,20 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
   return (
     <div className="space-y-2">
       {/* 0.2.98 — START ALL / STOP ALL: cả 3 sổ một lượt, không phải bấm 3 card */}
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <div className="flex flex-1 gap-2">
+          <button onClick={() => void toggleAll(true)} className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text- font-semibold text-white">▶ START ALL</button>
+          <button onClick={() => void toggleAll(false)} className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-rose-900/60 px-3 py-2 text- font-semibold text-rose-200">■ STOP ALL</button>
+        </div>
+        <div className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text- text-zinc-300">SESSION · Asia</div>
+        <div className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text- text-zinc-300">Cài đặt</div>
+      </div>
+      <div className="mb-2 flex flex-wrap items-center gap-2 font-mono text-">
+        <div className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-1.5">UNIVERSE <b className="text-white">48</b></div>
+        <div className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-1.5">BREADTH <b className="text-white">—</b></div>
+        <div className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-1.5">4 SỔ <span className="flex gap-1"><span className="rounded bg-sky-600 px-1.5 py-0.5 text-white">A</span><span className="rounded bg-zinc-800 px-1.5 py-0.5">B</span><span className="rounded bg-zinc-800 px-1.5 py-0.5">C</span><span className="rounded bg-zinc-800 px-1.5 py-0.5">D</span></span></div>
+        <div className="ml-auto flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-1.5 text-emerald-400">● Live</div>
+      </div>
       <div className="flex items-center gap-2" title={t(lang, "strat.all.tip")}>
         <Button
           size="sm"
