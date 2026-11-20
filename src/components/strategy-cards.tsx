@@ -232,7 +232,7 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
               <CardTitle className="text-sm font-semibold text-amber-300">A · {t(lang, "strat.a.name")}</CardTitle>
               {badge(books.a)}
             </div>
-            <p className="text-[10px] leading-snug text-zinc-500">{t(lang, "strat.a.sub")}</p>
+            <p className="text-[10px] leading-snug text-zinc-500 min-h- overflow-hidden [display:-webkit-box] [-webkit-line-clamp:3] [-webkit-box-orient:vertical]">{t(lang, "strat.a.sub")}</p>
           </CardHeader>
           <CardContent className="flex flex-1 flex-col px-3 pb-2.5 pt-0">
             <dl className="grid grid-cols-2 gap-x-2 gap-y-0.5 font-mono text-[11px]">
@@ -262,7 +262,7 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
               <CardTitle className="text-sm font-semibold text-sky-300">B · {t(lang, "strat.b.name")}</CardTitle>
               {badge(cfgOn, liveOn)}
             </div>
-            <p className="text-[10px] leading-snug text-zinc-500">{t(lang, "strat.b.sub")}</p>
+            <p className="text-[10px] leading-snug text-zinc-500 min-h- overflow-hidden [display:-webkit-box] [-webkit-line-clamp:3] [-webkit-box-orient:vertical]">{t(lang, "strat.b.sub")}</p>
           </CardHeader>
           <CardContent className="flex flex-1 flex-col px-3 pb-2.5 pt-0">
             <dl className="grid grid-cols-2 gap-x-2 gap-y-0.5 font-mono text-[11px]">
@@ -291,7 +291,7 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
               <CardTitle className="text-sm font-semibold text-violet-300">C · {t(lang, "strat.c.name")}</CardTitle>
               {badge(books.c)}
             </div>
-            <p className="text-[10px] leading-snug text-zinc-500">{t(lang, "strat.c.sub")}</p>
+            <p className="text-[10px] leading-snug text-zinc-500 min-h- overflow-hidden [display:-webkit-box] [-webkit-line-clamp:3] [-webkit-box-orient:vertical]">{t(lang, "strat.c.sub")}</p>
           </CardHeader>
           <CardContent className="flex flex-1 flex-col px-3 pb-2.5 pt-0">
             <dl className="grid grid-cols-2 gap-x-2 gap-y-0.5 font-mono text-[11px]">
