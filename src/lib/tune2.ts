@@ -58,6 +58,7 @@ export function tune2Current(): Record<BookId, Tune2Cur> {
     a: { rr: pval("VUL_ATR_STOP_MULT", VUL_ATR_STOP_MULT), floor: pval("VUL_VOL_FACTOR", VUL_VOL_FACTOR) },
     b: { rr: pval("RR_TP_RATIO", RR_TP_RATIO), floor: pval("minScore", 60), floor2: pval("minAuc", 0.8), floor3: pval("minAcc", 70) },
     c: { rr: pval("WYC_EXIT_SL_PCT", WYC_EXIT_SL_PCT), floor: pval("WYC_RPS50_MIN", WYC_RPS50_MIN), floor2: pval("WYC_RPS120_MIN", WYC_RPS120_MIN) },
+    d: { rr: 1.4, floor: 60 },
   };
 }
 
@@ -114,7 +115,7 @@ function toTune2Stats(s: ReturnType<typeof statsFromRoes>): Tune2Stats {
 /** Đo cả ba sổ từ DB. Lỗi DB (kể cả vụ hỏng thật) → stats null cho sổ đó,
  *  KHÔNG ném — trang đề xuất phải luôn render được dù DB đang bệnh. */
 export async function measureTune2Books(): Promise<{ books: Record<BookId, Tune2Stats | null>; bLev: number }> {
-  const out: Record<BookId, Tune2Stats | null> = { a: null, b: null, c: null };
+  const out: Record<BookId, Tune2Stats | null> = { a: null, b: null, c: null, d: null };
   const eng = bookBEngineCfg();
   const bLev = eng?.leverage ?? 10;
   const one = async (fn: () => Promise<Tune2Stats>): Promise<Tune2Stats | null> => {
@@ -247,12 +248,32 @@ const RULES: Record<BookId, BookRule> = {
     floorUpKey: "tune2.floor.up.c",
     floorRestoreKey: "tune2.floor.restore.c",
   },
+    d: {
+      rrUp: (f) => clampStep(f, +0.2, 1.4, 3.0, r1),
+      rrDown: (f) => clampStep(f, -0.2, 1.4, 3.0, r1),
+      floorUp: (cur) => {
+        const to = clampStep(cur.floor, +5, 0, 85, (v) => Math.round(v));
+        if (to == null || to === cur.floor) return null;
+        return { to, extras: [] };
+      },
+      floorRestore: (cur) => {
+        if (cur.floor <= 60) return null;
+        const to = clampStep(cur.floor, -5, 60, 85, (v) => Math.round(v));
+        if (to == null || to === cur.floor) return null;
+        return { to, extras: [] };
+      },
+      rrUpKey: "tune2.rr.up.d",
+      rrDownKey: "tune2.rr.down.d",
+      floorUpKey: "tune2.floor.up.d",
+      floorRestoreKey: "tune2.floor.restore.d",
+    },
 };
 
 const PARAM_OF: Record<BookId, { rr: string; floor: string }> = {
   a: { rr: "VUL_ATR_STOP_MULT", floor: "VUL_VOL_FACTOR" },
   b: { rr: "RR_TP_RATIO", floor: "minScore" },
   c: { rr: "WYC_EXIT_SL_PCT", floor: "WYC_RPS50_MIN" },
+    d: { rr: "LIQ_RR", floor: "LIQ_FLOOR" },
 };
 
 function argsOf(s: Tune2Stats, fee: number, from: number, to: number, extras: Tune2Extra[]): Record<string, string | number> {
@@ -376,7 +397,7 @@ export async function computeTune2File(): Promise<Tune2File> {
   const { books, bLev } = await measureTune2Books();
   const cur = tune2CurrentWithEngine();
   const fee = (lev: number): number => r2(feeRoe(lev)); // % ROE round-trip
-  const fees: Record<BookId, number> = { a: fee(5), b: fee(bLev), c: fee(1) }; // A lev5 · C lev1
+  const fees: Record<BookId, number> = { a: fee(5), b: fee(bLev), c: fee(1), d: fee(3) }; // A lev5 · C lev1
   const items = ([ "a", "b", "c" ] as BookId[]).flatMap((book) => tune2ItemsForBook(book, books[book], cur[book], fees[book]));
   const file: Tune2File = { computedAt: new Date().toISOString(), books, items };
   saveTune2File(file);

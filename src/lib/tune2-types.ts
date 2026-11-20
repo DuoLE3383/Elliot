@@ -3,7 +3,7 @@
 // được an toàn, không dính lỗi "Can't resolve 'fs'" kiểu 0.2.55. Logic luật số
 // + đo DB + persist nằm ở tune2.ts (server-only).
 
-export type BookId = "a" | "b" | "c";
+export type BookId = "a" | "b" | "c" | "d";
 
 /** Số lệnh đóng tối thiểu của MỘT sổ trước khi luật được phép phát ngôn. */
 export const TUNE2_MIN_N = 5;
