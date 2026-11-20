@@ -27,7 +27,11 @@ import {
   type VulcanParams,
 } from "./vulcan";
 
-export const VULCAN_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT", "XLMUSDT"];
+// Pair lấy từ pair scan / Universe — KHÔNG hardcode, KHÔNG fallback.
+// startVulcanEngine(symbols: string[]) nhận symbols từ scheduler, scan fail -> STANDBY.
+export function vulcanSymbolsFromUniverse(universe: string[], topN = 5): string[] {
+  return universe.slice(0, topN);
+}
 export const VULCAN_STAKE_PCT = 10; // mỗi lệnh dùng 10% equity sổ A
 export const VULCAN_LEV = VULCAN_DEFAULTS.leverage; // 5 — đúng chiến lược gốc
 
@@ -229,7 +233,9 @@ async function vulcanSymbolTick(symbol: string, lastCandleT: Map<string, number>
 let started = false;
 
 /** Khởi động nhịp sổ A — gọi MỘT lần lúc boot (engine.ts). VULCAN_A=0 để tắt. */
-export function startVulcanEngine(): void {
+export function startVulcanEngine(symbols: string[] = []): void {
+  if (!symbols.length) { console.warn('[vulcan] Universe empty — STANDBY, không fallback pair hardcode'); return; }
+  const VULCAN_SYMBOLS = symbols;
   if (started || process.env.VULCAN_A === "0") return;
   started = true;
   const lastCandleT = new Map<string, number>();
@@ -256,5 +262,5 @@ export function startVulcanEngine(): void {
     arm();
   }, 40_000);
   boot.unref?.();
-  console.warn(`[vulcan] engine A khởi động — ${VULCAN_SYMBOLS.length} symbol 15m, lev ${VULCAN_LEV}, stake ${VULCAN_STAKE_PCT}%, sổ bảng VulcanBook`);
+  console.warn(`[vulcan] engine A khởi động — ${symbols.length} symbol (từ Universe rank) 15m, lev ${VULCAN_LEV}, stake ${VULCAN_STAKE_PCT}%, sổ bảng VulcanBook`);
 }
