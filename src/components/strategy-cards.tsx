@@ -215,18 +215,18 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
         </div>
       )}
 
-      <div className="mb-2 flex flex-wrap items-center gap-1 font-mono text- text-zinc-400">
-        <span className="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1">UNIVERSE · Full Universe · rank 8h</span>
+      <div className="mb-2 grid grid-cols-4 items-center gap-1 font-mono text- text-zinc-400">
+        <span className="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1">UNIVERSE · 48</span>
         <span className="text-zinc-600">→</span>
-        <span className="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1">SESSION · Asia / EU / US</span>
+        <span className="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1">SESSION · Asia</span>
         <span className="text-zinc-600">→</span>
         <span className="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1">BREADTH · {eng?.wyckoff?.breadth != null ? `${num(eng.wyckoff.breadth, 0)}%` : "—"}</span>
         <span className="text-zinc-600">→</span>
-        <span className="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1">4 SỔ SONG SONG · A Vulcan · B Elliott · C Wyckoff LONG · D Liquid SHORT</span>
+        <span className="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1">4 SỔ · A · B · C · D</span>
       </div>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         {/* A — Vulcan/Donchian */}
-        <Card className="border-amber-900/50 bg-zinc-900/60">
+        <Card className="flex h-full flex-col border-amber-900/50 bg-zinc-900/60">
           <CardHeader className="px-3 pb-1.5 pt-2.5">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold text-amber-300">A · {t(lang, "strat.a.name")}</CardTitle>
@@ -234,7 +234,7 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
             </div>
             <p className="text-[10px] leading-snug text-zinc-500">{t(lang, "strat.a.sub")}</p>
           </CardHeader>
-          <CardContent className="px-3 pb-2.5 pt-0">
+          <CardContent className="flex flex-1 flex-col px-3 pb-2.5 pt-0">
             <dl className="grid grid-cols-2 gap-x-2 gap-y-0.5 font-mono text-[11px]">
               <dt className="text-zinc-500">{t(lang, "strat.net")}</dt>
               <dd className={`text-right ${(statsOf("a") && statsOf("a")!.nClosed > 0 ? (statsOf("a")!.netRoe >= 0 ? "text-emerald-400" : "text-rose-400") : "text-zinc-500")}`}>{statsOf("a") && statsOf("a")!.nClosed > 0 ? `${statsOf("a")!.netRoe >= 0 ? "+" : ""}${num(statsOf("a")!.netRoe)}%` : "—"}</dd>
@@ -256,7 +256,7 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
         </Card>
 
         {/* B — Elliott (điều khiển START/STOP dùng chung cfg) */}
-        <Card className="border-sky-900/50 bg-zinc-900/60">
+        <Card className="flex h-full flex-col border-sky-900/50 bg-zinc-900/60">
           <CardHeader className="px-3 pb-1.5 pt-2.5">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold text-sky-300">B · {t(lang, "strat.b.name")}</CardTitle>
@@ -264,7 +264,7 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
             </div>
             <p className="text-[10px] leading-snug text-zinc-500">{t(lang, "strat.b.sub")}</p>
           </CardHeader>
-          <CardContent className="px-3 pb-2.5 pt-0">
+          <CardContent className="flex flex-1 flex-col px-3 pb-2.5 pt-0">
             <dl className="grid grid-cols-2 gap-x-2 gap-y-0.5 font-mono text-[11px]">
               <dt className="text-zinc-500">{t(lang, "strat.net")}</dt>
               <dd className={`text-right ${(statsOf("b") && statsOf("b")!.nClosed > 0 ? (statsOf("b")!.netRoe >= 0 ? "text-emerald-400" : "text-rose-400") : "text-zinc-500")}`}>{statsOf("b") && statsOf("b")!.nClosed > 0 ? `${statsOf("b")!.netRoe >= 0 ? "+" : ""}${num(statsOf("b")!.netRoe)}%` : "—"}</dd>
@@ -285,7 +285,7 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
         </Card>
 
         {/* C — Wyckoff gốc */}
-        <Card className="border-violet-900/50 bg-zinc-900/60">
+        <Card className="flex h-full flex-col border-violet-900/50 bg-zinc-900/60">
           <CardHeader className="px-3 pb-1.5 pt-2.5">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold text-violet-300">C · {t(lang, "strat.c.name")}</CardTitle>
@@ -293,7 +293,7 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
             </div>
             <p className="text-[10px] leading-snug text-zinc-500">{t(lang, "strat.c.sub")}</p>
           </CardHeader>
-          <CardContent className="px-3 pb-2.5 pt-0">
+          <CardContent className="flex flex-1 flex-col px-3 pb-2.5 pt-0">
             <dl className="grid grid-cols-2 gap-x-2 gap-y-0.5 font-mono text-[11px]">
               <dt className="text-zinc-500">{t(lang, "strat.net")}</dt>
               <dd className={`text-right ${(statsOf("c") && statsOf("c")!.nClosed > 0 ? (statsOf("c")!.netRoe >= 0 ? "text-emerald-400" : "text-rose-400") : "text-zinc-500")}`}>{statsOf("c") && statsOf("c")!.nClosed > 0 ? `${statsOf("c")!.netRoe >= 0 ? "+" : ""}${num(statsOf("c")!.netRoe)}%` : "—"}</dd>
@@ -319,15 +319,15 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
         </Card>
 
         {/* D — Liquid SHORT phân phối */}
-        <Card className="border-rose-900/50 bg-zinc-900/60">
+        <Card className="flex h-full flex-col border-rose-900/50 bg-zinc-900/60">
           <CardHeader className="px-3 pb-1.5 pt-2.5">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold text-rose-300">D · {t(lang, "strat.d.name")}</CardTitle>
               {badge((books as any).d ?? true)}
             </div>
-            <p className="text- leading-snug text-zinc-500">{t(lang, "strat.d.sub")}</p>
+            <p className="min-h- text- leading-snug text-zinc-500 [display:-webkit-box] [-webkit-line-clamp:3] [-webkit-box-orient:vertical] overflow-hidden">{t(lang, "strat.d.sub")}</p>
           </CardHeader>
-          <CardContent className="px-3 pb-2.5 pt-0">
+          <CardContent className="flex flex-1 flex-col px-3 pb-2.5 pt-0">
             <dl className="grid grid-cols-2 gap-x-2 gap-y-0.5 font-mono text-">
               <dt className="text-zinc-500">{t(lang, "strat.net")}</dt>
               <dd className="text-right text-zinc-500">—</dd>
