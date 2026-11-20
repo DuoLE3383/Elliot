@@ -1,4 +1,4 @@
-process.env.DATABASE_URL = "file:/home/z/my-project/db/custom.db";
+process.env.DATABASE_URL = process.env.DATABASE_URL ?? "file:/opt/elliott/data/custom.db"; // DB live duy nhat — khong hardcode /home/z
 const { PrismaClient } = await import("@prisma/client");
 const p = new PrismaClient();
 try {
