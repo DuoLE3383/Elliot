@@ -228,9 +228,9 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
           <CardContent className="px-3 pb-2.5 pt-0">
             <dl className="grid grid-cols-2 gap-x-2 gap-y-0.5 font-mono text-[11px]">
               <dt className="text-zinc-500">{t(lang, "strat.net")}</dt>
-              <dd className={`text-right ${((statsOf("a")?.netRoe ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400")}`}>{statsOf("a") ? `${statsOf("a")!.netRoe >= 0 ? "+" : ""}${num(statsOf("a")!.netRoe)}%` : "—"}</dd>
+              <dd className={`text-right ${(statsOf("a") && statsOf("a")!.nClosed > 0 ? (statsOf("a")!.netRoe >= 0 ? "text-emerald-400" : "text-rose-400") : "text-zinc-500")}`}>{statsOf("a") && statsOf("a")!.nClosed > 0 ? `${statsOf("a")!.netRoe >= 0 ? "+" : ""}${num(statsOf("a")!.netRoe)}%` : "—"}</dd>
               <dt className="text-zinc-500">WR</dt>
-              <dd className="text-right text-zinc-300">{statsOf("a") ? `${num(statsOf("a")!.wr)}%` : "—"}</dd>
+              <dd className="text-right text-zinc-300">{statsOf("a") && statsOf("a")!.nClosed > 0 ? `${num(statsOf("a")!.wr)}%` : "—"}</dd>
               <dt className="text-zinc-500">{t(lang, "strat.trades")}</dt>
               <dd className="text-right text-zinc-300">{statsOf("a") ? `${statsOf("a")!.nClosed}/${statsOf("a")!.nOpen}` : "—"}</dd>
             </dl>
@@ -258,9 +258,9 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
           <CardContent className="px-3 pb-2.5 pt-0">
             <dl className="grid grid-cols-2 gap-x-2 gap-y-0.5 font-mono text-[11px]">
               <dt className="text-zinc-500">{t(lang, "strat.net")}</dt>
-              <dd className={`text-right ${((statsOf("b")?.netRoe ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400")}`}>{statsOf("b") ? `${statsOf("b")!.netRoe >= 0 ? "+" : ""}${num(statsOf("b")!.netRoe)}%` : "—"}</dd>
+              <dd className={`text-right ${(statsOf("b") && statsOf("b")!.nClosed > 0 ? (statsOf("b")!.netRoe >= 0 ? "text-emerald-400" : "text-rose-400") : "text-zinc-500")}`}>{statsOf("b") && statsOf("b")!.nClosed > 0 ? `${statsOf("b")!.netRoe >= 0 ? "+" : ""}${num(statsOf("b")!.netRoe)}%` : "—"}</dd>
               <dt className="text-zinc-500">WR</dt>
-              <dd className="text-right text-zinc-300">{statsOf("b") ? `${num(statsOf("b")!.wr)}%` : "—"}</dd>
+              <dd className="text-right text-zinc-300">{statsOf("b") && statsOf("b")!.nClosed > 0 ? `${num(statsOf("b")!.wr)}%` : "—"}</dd>
               <dt className="text-zinc-500">{t(lang, "strat.trades")}</dt>
               <dd className="text-right text-zinc-300">{statsOf("b") ? `${statsOf("b")!.nClosed}/${statsOf("b")!.nOpen}` : "—"}</dd>
             </dl>
@@ -287,9 +287,9 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
           <CardContent className="px-3 pb-2.5 pt-0">
             <dl className="grid grid-cols-2 gap-x-2 gap-y-0.5 font-mono text-[11px]">
               <dt className="text-zinc-500">{t(lang, "strat.net")}</dt>
-              <dd className={`text-right ${((statsOf("c")?.netRoe ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400")}`}>{statsOf("c") ? `${statsOf("c")!.netRoe >= 0 ? "+" : ""}${num(statsOf("c")!.netRoe)}%` : "—"}</dd>
+              <dd className={`text-right ${(statsOf("c") && statsOf("c")!.nClosed > 0 ? (statsOf("c")!.netRoe >= 0 ? "text-emerald-400" : "text-rose-400") : "text-zinc-500")}`}>{statsOf("c") && statsOf("c")!.nClosed > 0 ? `${statsOf("c")!.netRoe >= 0 ? "+" : ""}${num(statsOf("c")!.netRoe)}%` : "—"}</dd>
               <dt className="text-zinc-500">WR</dt>
-              <dd className="text-right text-zinc-300">{statsOf("c") ? `${num(statsOf("c")!.wr)}%` : "—"}</dd>
+              <dd className="text-right text-zinc-300">{statsOf("c") && statsOf("c")!.nClosed > 0 ? `${num(statsOf("c")!.wr)}%` : "—"}</dd>
               <dt className="text-zinc-500">{t(lang, "strat.trades")}</dt>
               <dd className="text-right text-zinc-300">{statsOf("c") ? `${statsOf("c")!.nClosed}/${statsOf("c")!.nOpen}` : "—"}</dd>
             </dl>

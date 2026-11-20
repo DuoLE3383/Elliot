@@ -25,9 +25,9 @@ function StatCard({ title, sub, s, accent }: { title: string; sub: string; s: Ar
           {s.nClosed} / {s.nOpen}
         </span>
         <span className="text-white/50">Win rate</span>
-        <span>{num(s.wr, 1)}%</span>
+        <span>{s.nClosed > 0 ? `${num(s.wr, 1)}%` : "—"}</span>
         <span className="text-white/50">Net ROE</span>
-        <span className={s.netRoe >= 0 ? "text-emerald-400" : "text-rose-400"}>{num(s.netRoe)}</span>
+        <span className={s.nClosed > 0 ? (s.netRoe >= 0 ? "text-emerald-400" : "text-rose-400") : "text-white/40"}>{s.nClosed > 0 ? num(s.netRoe) : "—"}</span>
         <span className="text-white/50">TB thắng / TB thua</span>
         <span>
           {num(s.avgWin)} / {num(s.avgLoss)}
