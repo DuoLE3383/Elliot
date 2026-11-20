@@ -8,7 +8,7 @@ import { Square } from "lucide-react";
 // LONG/SHORT) + 4 hàng stats (Open · LONG/SHORT · WR đóng · uPnL) — toàn bộ số
 // thật từ opens + closedHist + tickers, không có lệnh thì vẽ vành đen + "—".
 export function AutoPositions(props: any) {
-  const { opens, open, tickers, cfg, capitalNow, lang, t, closeNow, closeOpen, fmtPrice, slPrice, tpPrice, trailStopPrice, trailMovePct, engineTrail, roeOf, rows, closedHist, leverage } = props;
+  const { opens, open, tickers, cfg, capitalNow, lang, t, closeNow, closeOpen, fmtPrice, slPrice, tpPrice, trailStopPrice, trailRoiStopPrice, trailMovePct, engineTrail, roeOf, rows, closedHist, leverage } = props;
   const closeFn = closeNow ?? closeOpen;
   return (
     <Card className="border-[#1e2d4d]/70 bg-[#0a0f1e]/80 h-full">
@@ -186,8 +186,8 @@ export function AutoPositions(props: any) {
                         const peak = et && et.peak > 0 ? et.peak : open.entryPrice;
                         const act = et && et.act > 0 ? et.act : cfg.trailActPct;
                         const dist = et && et.dist > 0 ? et.dist : cfg.trailDistPct;
-                        const stop = trailStopPrice(open.side, open.entryPrice, peak, act, dist);
-                        const move = trailMovePct(open.side, open.entryPrice, peak);
+                        const peakRoi = trailMovePct(open.side, open.entryPrice, peak) * open.leverage; const roiStop = trailRoiStopPrice(open.side, open.entryPrice, peakRoi, open.leverage); const stop = roiStop ?? trailStopPrice(open.side, open.entryPrice, peak, act, dist);
+                        const move = peakRoi;
                         return (
                           <span className="text-right font-mono text-violet-300">
                             {stop != null ? (
@@ -200,7 +200,7 @@ export function AutoPositions(props: any) {
                                 </span>
                               </>
                             ) : (
-                              <span className="text-zinc-500">{t(lang, "auto.pos.trailWait", { a: Number(act.toFixed(2)), m: Number(move.toFixed(2)) })}</span>
+                              <span className="text-zinc-500">{t(lang, "auto.pos.trailWait", { a: 3, m: Number(move.toFixed(2)) })}</span>
                             )}
                             {et?.src === "atr" && et.atrPct > 0 && (
                               <span
