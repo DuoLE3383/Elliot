@@ -223,7 +223,7 @@ export async function readWallet(): Promise<WalletState> {
 
 type ClosedRow = { symbol: string; interval: string; side: string; pnlPct: number | null; exitKind: string | null; entryTime: Date; exitTime: Date | null; capitalAfter: number | null };
 function toRecent(book: BookKey, r: any): BookRecent { return { id: String(r.id), symbol: r.symbol, interval: r.interval ?? (book === 'A' ? '15m' : '1d'), side: r.side, pnlPct: r.pnlPct ?? r.roePct ?? null, exitKind: r.exitKind ?? null, exitTime: r.exitTime ? r.exitTime.toISOString() : null, entryTime: r.entryTime.toISOString(), entryPrice: r.entryPrice }; }
-function equityAll(events: Array<{ book: BookKey; exitTime: Date | null; entryTime: Date; capitalAfter: number | null }>): Array<{ t: string; capital: number }> { const last = new Map<BookKey, number>(); const out: Array<{ t: string; capital: number }> = []; const sorted = events.slice().sort((a, b) => (a.exitTime ?? a.entryTime).getTime() - (b.exitTime ?? b.entryTime).getTime()); for (const e of sorted) { if (e.capitalAfter != null) last.set(e.book, e.capitalAfter); if (!last.size) continue; let total = 0; for (const v of last.values()) total += v; out.push({ t: (e.exitTime ?? e.entryTime).toISOString(), capital: Math.round(total * 100) / 100 }); } return out; }
+function equityAll(events: Array<{ book: BookKey; exitTime: Date | null; entryTime: Date; capitalAfter: number | null }>, seeds: Array<{ book: BookKey; t: Date; capital: number }>): Array<{ t: string; capital: number }> { const last = new Map<BookKey, number>(); const out: Array<{ t: string; capital: number }> = []; const timeline: Array<{ t: Date; book: BookKey; capital: number; seed: boolean }> = [...seeds.map((x) => ({ t: x.t, book: x.book, capital: x.capital, seed: true })), ...events.filter((e) => e.capitalAfter != null).map((e) => ({ t: (e.exitTime ?? e.entryTime), book: e.book, capital: e.capitalAfter as number, seed: false }))]; timeline.sort((a, b) => a.t.getTime() - b.t.getTime() || (a.seed ? -1 : 1)); for (const e of timeline) { last.set(e.book, e.capital); let total = 0; for (const v of last.values()) total += v; out.push({ t: e.t.toISOString(), capital: Math.round(total * 100) / 100 }); } return out; }
 
 export async function readAutoState(): Promise<AutoState> {
   const rows = await db.autoTrade.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
@@ -245,12 +245,13 @@ export async function readAutoState(): Promise<AutoState> {
       entryTime: true,
       exitTime: true,
       capitalAfter: true,
+      capitalBefore: true,
     },
   });
   const wallet = await readWallet();
-  const aClosed = await db.vulcanBook.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" }, select: { id: true, symbol: true, side: true, roePct: true, exitKind: true, entryTime: true, exitTime: true, capitalAfter: true, entryPrice: true } });
-  const cClosed = await db.wyckoffBook.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" }, select: { id: true, symbol: true, side: true, pnlPct: true, exitKind: true, entryTime: true, exitTime: true, capitalAfter: true, entryPrice: true } });
-  const dClosed = await db.liquidBook.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" }, select: { id: true, symbol: true, side: true, pnlPct: true, exitKind: true, entryTime: true, exitTime: true, capitalAfter: true, entryPrice: true } });
+  const aClosed = await db.vulcanBook.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" }, select: { id: true, symbol: true, side: true, roePct: true, capitalBefore: true, exitKind: true, entryTime: true, exitTime: true, capitalAfter: true, entryPrice: true } });
+  const cClosed = await db.wyckoffBook.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" }, select: { id: true, symbol: true, side: true, pnlPct: true, capitalBefore: true, exitKind: true, entryTime: true, exitTime: true, capitalAfter: true, entryPrice: true } });
+  const dClosed = await db.liquidBook.findMany({ where: { status: "closed" }, orderBy: { exitTime: "asc" }, select: { id: true, symbol: true, side: true, pnlPct: true, capitalBefore: true, exitKind: true, entryTime: true, exitTime: true, capitalAfter: true, entryPrice: true } });
   const mapRow = (r: any, interval: string, pnl: number | null): ClosedRow => ({ symbol: r.symbol, interval, side: r.side, pnlPct: pnl, exitKind: r.exitKind ?? null, entryTime: r.entryTime, exitTime: r.exitTime, capitalAfter: r.capitalAfter });
   const aRows = aClosed.map((r) => mapRow(r, "15m", r.roePct));
   const bRows: Array<ClosedRow> = closedAsc.map((r) => ({ symbol: r.symbol, interval: r.interval, side: r.side, pnlPct: r.pnlPct, exitKind: r.exitKind, entryTime: r.entryTime, exitTime: r.exitTime, capitalAfter: r.capitalAfter }));
@@ -263,7 +264,12 @@ export async function readAutoState(): Promise<AutoState> {
   const allRows = [...aRows, ...bRows, ...cRows, ...dRows].sort((x, y) => (x.exitTime ?? x.entryTime).getTime() - (y.exitTime ?? y.entryTime).getTime());
   const anaAll = analyticsFromClosed(allRows, null);
   const allEvents = [...aClosed.map((r) => ({ book: "A" as BookKey, exitTime: r.exitTime, entryTime: r.entryTime, capitalAfter: r.capitalAfter })), ...closedAsc.map((r) => ({ book: "B" as BookKey, exitTime: r.exitTime, entryTime: r.entryTime, capitalAfter: r.capitalAfter })), ...cClosed.map((r) => ({ book: "C" as BookKey, exitTime: r.exitTime, entryTime: r.entryTime, capitalAfter: r.capitalAfter })), ...dClosed.map((r) => ({ book: "D" as BookKey, exitTime: r.exitTime, entryTime: r.entryTime, capitalAfter: r.capitalAfter }))];
-  anaAll.equity = equityAll(allEvents);
+  const seeds: Array<{ book: BookKey; t: Date; capital: number }> = [];
+  if (aClosed.length) seeds.push({ book: "A", t: (aClosed[0] as any).entryTime, capital: ((aClosed[0] as any).capitalBefore ?? 1000) });
+  if (closedAsc.length) seeds.push({ book: "B", t: (closedAsc[0] as any).entryTime, capital: ((closedAsc[0] as any).capitalBefore ?? 1000) });
+  if (cClosed.length) seeds.push({ book: "C", t: (cClosed[0] as any).entryTime, capital: ((cClosed[0] as any).capitalBefore ?? 1000) });
+  if (dClosed.length) seeds.push({ book: "D", t: (dClosed[0] as any).entryTime, capital: ((dClosed[0] as any).capitalBefore ?? 1000) });
+  anaAll.equity = equityAll(allEvents, seeds);
   const byBook = { ALL: anaAll, A: anaA, B: anaB, C: anaC, D: anaD };
   const recentByBook = {
     ALL: [...aClosed.map((r) => toRecent("A", r)), ...rows.filter((r) => r.status === "closed").map((r) => toRecent("B", { ...r, pnlPct: r.pnlPct, interval: r.interval })), ...cClosed.map((r) => toRecent("C", r)), ...dClosed.map((r) => toRecent("D", r))].sort((x, y) => (y.exitTime ?? y.entryTime).localeCompare(x.exitTime ?? x.entryTime)).slice(0, 12),
