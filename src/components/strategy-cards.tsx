@@ -215,7 +215,16 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
         </div>
       )}
 
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="mb-2 flex flex-wrap items-center gap-1 font-mono text- text-zinc-400">
+        <span className="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1">UNIVERSE · Full Universe · rank 8h</span>
+        <span className="text-zinc-600">→</span>
+        <span className="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1">SESSION · Asia / EU / US</span>
+        <span className="text-zinc-600">→</span>
+        <span className="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1">BREADTH · {eng?.wyckoff?.breadth != null ? `${num(eng.wyckoff.breadth, 0)}%` : "—"}</span>
+        <span className="text-zinc-600">→</span>
+        <span className="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1">4 SỔ SONG SONG · A Vulcan · B Elliott · C Wyckoff LONG · D Liquid SHORT</span>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         {/* A — Vulcan/Donchian */}
         <Card className="border-amber-900/50 bg-zinc-900/60">
           <CardHeader className="px-3 pb-1.5 pt-2.5">
@@ -305,6 +314,34 @@ export function StrategyCards({ lang, cfgOn, onCfgToggle, books, onToggleBooks, 
               className={`mt-1.5 h-7 w-full text-[11px] ${books.c ? "border-rose-800 bg-transparent text-rose-300 hover:bg-rose-950/40" : "bg-emerald-700 text-white hover:bg-emerald-600"}`}
             >
               {books.c ? t(lang, "auto.stop") : t(lang, "auto.start")}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* D — Liquid SHORT phân phối */}
+        <Card className="border-rose-900/50 bg-zinc-900/60">
+          <CardHeader className="px-3 pb-1.5 pt-2.5">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-semibold text-rose-300">D · {t(lang, "strat.d.name")}</CardTitle>
+              {badge((books as any).d ?? true)}
+            </div>
+            <p className="text- leading-snug text-zinc-500">{t(lang, "strat.d.sub")}</p>
+          </CardHeader>
+          <CardContent className="px-3 pb-2.5 pt-0">
+            <dl className="grid grid-cols-2 gap-x-2 gap-y-0.5 font-mono text-">
+              <dt className="text-zinc-500">{t(lang, "strat.net")}</dt>
+              <dd className="text-right text-zinc-500">—</dd>
+              <dt className="text-zinc-500">WR</dt>
+              <dd className="text-right text-zinc-300">—</dd>
+              <dt className="text-zinc-500">{t(lang, "strat.trades")}</dt>
+              <dd className="text-right text-zinc-300">{statsOf("d" as any) ? `${(statsOf("d" as any) as any).nClosed}/${(statsOf("d" as any) as any).nOpen}` : "0/0"}</dd>
+            </dl>
+            <p className="mt-1 truncate font-mono text- text-zinc-500" title={(eng as any)?.liquid?.status ?? ""}>
+              {(eng as any)?.liquid?.breadth != null ? `breadth ${num((eng as any).liquid.breadth, 0)}% · ` : ""}
+              {(eng as any)?.liquid?.status ?? (eng?.wyckoff?.breadth != null && eng.wyckoff.breadth >= 0 ? "SHORT chỉ khi RISK_OFF — đang quét Full Universe" : t(lang, "strat.c.boot"))}
+            </p>
+            <Button size="sm" variant={(books as any).d ?? true ? "outline" : "default"} onClick={() => void (toggleBook as any)({ d: !((books as any).d ?? true) })} className={`mt-1.5 h-7 w-full text- ${((books as any).d ?? true) ? "border-rose-800 bg-transparent text-rose-300 hover:bg-rose-950/40" : "bg-emerald-700 text-white hover:bg-emerald-600"}`}>
+              {((books as any).d ?? true) ? t(lang, "auto.stop") : t(lang, "auto.start")}
             </Button>
           </CardContent>
         </Card>
