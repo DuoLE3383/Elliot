@@ -475,7 +475,7 @@ export function AutoHistory(props: any) {
                     {lev != null && <span>Lev {lev}x</span>}
                     {margin != null && <span>Margin ${Number(margin).toFixed(2)}</span>}
                     {pnlUsd != null && <span className={Number(pnlUsd) >= 0 ? "text-emerald-400" : "text-rose-400"}>PNL ${Number(pnlUsd) >= 0 ? "+" : ""}{Number(pnlUsd).toFixed(2)}</span>}
-                    <span>Giu {hold}</span>
+                    <span>HOLD {hold}</span>
                     <span className="text-zinc-400">{reason}</span>
                   </div>
                 </div>
