@@ -258,6 +258,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   const [trainHist, setTrainHist] = useState<EngineSnap["train"]>(null);
   const [bcastSnap, setBcastSnap] = useState<EngineSnap["bcast"]>(null);
   const [auto, setAuto] = useState<AutoState | null>(null);
+  const [booksOpen, setBooksOpen] = useState<any[]>([]);
   const [tgConfigured, setTgConfigured] = useState<boolean | null>(null);
   const [tgState, setTgState] = useState<"idle" | "sending" | "ok" | "fail">("idle");
   const [tgDetail, setTgDetail] = useState<string | null>(null);
@@ -323,8 +324,14 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
 
   const refreshAuto = useCallback(async (): Promise<AutoState | null> => {
     try {
-      const st = await fetchAutoState();
-      if (mountedRef.current) setAuto(st);
+      const [st, bk] = await Promise.all([
+        fetchAutoState(),
+        fetch("/api/books-open", { cache: "no-store" }).then((r) => r.json()).catch(() => null),
+      ]);
+      if (mountedRef.current) {
+        setAuto(st);
+        if (bk) setBooksOpen([...(bk.a ?? []), ...(bk.c ?? []), ...(bk.d ?? [])]);
+      }
       return st;
     } catch {
       return null;
@@ -573,7 +580,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   };
 
   const capitalNow = auto?.capital ?? cfg.capital;
-  const opens = auto?.opens ?? (auto?.open ? [auto.open] : []);
+  const opens = [...(auto?.opens ?? (auto?.open ? [auto.open] : [])), ...booksOpen];
   const open = opens[0] ?? null;
   const best = rows.length > 0 ? rows[0] : null;
   // 0.3.2 — sàn HIỆU LỰC engine đang lọc (DQF tự học hoặc passthrough cfg panel):
