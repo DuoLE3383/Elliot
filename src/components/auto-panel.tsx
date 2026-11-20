@@ -584,7 +584,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   const capitalNow = auto?.capital ?? cfg.capital;
   const opens = [...(auto?.opens ?? (auto?.open ? [auto.open] : [])), ...booksOpen];
   const open = opens[0] ?? null;
-  const best = rows.length > 0 ? rows[0] : null;
+  const best = rows.find((r) => r.bias !== "NEUTRAL") ?? rows[0] ?? null;
   // 0.3.2 — sàn HIỆU LỰC engine đang lọc (DQF tự học hoặc passthrough cfg panel):
   // bảng scan + tooltip funnel tô theo ef; các ô nhập ở panel vẫn là cfg (kênh
   // chỉnh tay — DQF đè khi bật và đủ mẫu, xem /stats trạm "Sàn chất lượng động").

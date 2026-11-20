@@ -4,7 +4,7 @@
 // Theo mockup: Total Equity · Net ROE (Realized) · Win Rate (Closed) ·
 // Total Trades — mỗi ô icon màu + số lớn + sparkline SVG.
 // Số THẬT: LIVE bật → sổ live (/api/arena live.*); không → gộp cả 4 sổ
-// dry-run A+B+C (ROE = tổng netRoe các sổ, WR = theo tổng lệnh đóng).
+// dry-run A+B+C (ROE = (final-start)/start tren tong von, WR = theo tong lenh dong).
 // Sparkline: đường vốn sổ tương ứng (bEquity / aEquity / cEquity), đủ 2 điểm
 // mới vẽ — thiếu thì vẽ đường nền phẳng cho đúng khung mockup.
 
@@ -112,7 +112,9 @@ export function MetricTiles({ data, lang }: { data: TilesData; lang: "vi" | "en"
     ? Math.round(((live?.wr ?? 0) / 100) * (live?.nClosed ?? 0))
     : (books?.reduce((s, x) => s + x.wins, 0) ?? 0);
   const wr = nClosed > 0 ? (wins / nClosed) * 100 : 0;
-  const netRoe = liveOn ? (live?.netRoe ?? 0) : (books?.reduce((s, x) => s + x.netRoe, 0) ?? 0);
+  const roeStart = liveOn ? (live?.balanceBefore ?? 0) : (books?.reduce((sum, x) => sum + (x.startCapital ?? 0), 0) ?? 0);
+  const roeFinal = liveOn ? (live?.balanceAfter ?? 0) : (books?.reduce((sum, x) => sum + (x.finalCapital ?? x.startCapital ?? 0), 0) ?? 0);
+  const netRoe = roeStart > 0 && roeFinal > 0 ? ((roeFinal - roeStart) / roeStart) * 100 : 0;
 
   const roeClass = netRoe > 0 ? "text-emerald-400" : netRoe < 0 ? "text-rose-400" : "text-white";
   const totalStart = liveOn ? (live?.balanceBefore ?? 0) : (books?.reduce((sum, x) => sum + (x.startCapital ?? 0), 0) ?? 0);
