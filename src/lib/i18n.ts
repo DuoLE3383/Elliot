@@ -709,6 +709,8 @@ const vi: Dict = {
   "strat.b.sub": "Sổ B chính · Elliott XGB — Scan → Confluence → Gate → Wyckoff LONG gate → LLM gate → Agent execution",
   "strat.c.name": "Wyckoff gốc",
   "strat.c.sub": "Filter long-only · nến ngày · phễu 5 lớp — Chờ đóng nến ngày · chưa có Spring/SOS",
+  "strat.d.name": "Liquid",
+  "strat.d.sub": "Sổ độc lập · Wyckoff phân phối SHORT: daily · Upthrust/Breakdown — chỉ SHORT khi RISK_OFF",
   "strat.c.boot": "STANDBY — chờ nến ngày",
   "strat.net": "Net ROE",
   "strat.trades": "Đóng/Mở",
