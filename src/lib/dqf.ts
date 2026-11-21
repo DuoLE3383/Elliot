@@ -13,10 +13,10 @@
 //         cộng dồn của NHÓM lệnh entry ≥ F.
 //       – Mục tiêu từng metric = ngưỡng F NHỎ NHẤT mà nhóm ≥ F có expectancy ≥ 0
 //         (và đủ mẫu ≥ DQF_MIN_BAND_N). Không ngưỡng nào dương → trần (85/0.90/
-//         85). Mọi nhóm đều dương → mặc định (60/0.80/70). Chưa đủ mẫu → giữ.
+//         85). Mọi nhóm đều dương → mặc định (50/0.60/55) — v0.3.45. Chưa đủ mẫu → giữ.
 //   • TIẾN HOÁ = đi từng BẬC (score ±2 · AUC ±0.01 · ACC ±1) về phía mục tiêu,
 //     tối đa 1 lần đổi mỗi DQF_COOLDOWN_MIN phút — mượt, truy vết được, không
-//     giật cfg panel. Biên tuyệt đối [60..85]/[0.80..0.90]/[70..85] — KHÔNG BAO
+//     giật cfg panel. Biên tuyệt đối [50..85]/[0.60..0.90]/[55..85] — KHÔNG BAO
 //     GIỜ xuống dưới mặc định (giữ nhất quán luật restore của tune-2 0.3.0).
 //   • ÁP = engine đọc sàn hiệu lực lúc funnel vào lệnh + flip (override layer,
 //     KHÔNG ghi cfg → hết nỗi lo vòng sync 0.2.99 và không cài thẳng tay
@@ -37,7 +37,7 @@ import { dataFile } from "./data-dir";
 // ── Hằng số luật ──────────────────────────────────────────────────────────────
 
 /** sàn mặc định (setpoint broadcast 31/10) — biên DƯỚI tuyệt đối của DQF */
-export const DQF_DEFAULT = { minScore: 60, minAuc: 0.8, minAcc: 70 } as const;
+export const DQF_DEFAULT = { minScore: 50, minAuc: 0.6, minAcc: 55 } as const; // v0.3.45: hạ biên dưới 60/0.80/70 -> 50/0.60/55 — 60/0.80/70 cho 0/336 tradeable, bot chết
 /** biên TRÊN tuyệt đối — trùng trần self-improve/tune-2 */
 export const DQF_CAP = { minScore: 85, minAuc: 0.9, minAcc: 85 } as const;
 /** một bước tiến hoá mỗi lần đổi */
