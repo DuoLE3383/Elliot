@@ -2599,6 +2599,13 @@ export function startEngineScheduler(): void {
         await resolveTick();
       }
 
+      // 4h bucket - auto-train all (fix: truoc gio train chi bam tay, 20h khong train la chet)
+      const bTrain = Math.floor(Date.now() / (4 * 60 * 60_000));
+      if ((globalThis as any).__autoTrainBucket !== bTrain) {
+        (globalThis as any).__autoTrainBucket = bTrain;
+        void submitTrainAll().promise.then((r) => console.log(`[engine] auto-train done ${JSON.stringify(r).slice(0, 200)}`)).catch((e) => console.error(`[engine] auto-train fail: ${e instanceof Error ? e.message : e}`));
+      }
+
       // 6h self-improve agent (P1–P4) — measure methods, tighten/restore gates
       const bImp = Math.floor(Date.now() / (6 * 60 * 60_000));
       if (bImp !== lastImprove.bucket) {

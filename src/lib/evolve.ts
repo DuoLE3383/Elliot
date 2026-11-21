@@ -49,7 +49,7 @@ const evolveOn = (): boolean => process.env.EVOLVE_ON !== "0";
 const llmLaneOn = (): boolean => process.env.EVOLVE_LLM !== "0";
 const ROUND_MIN = () => envNum("EVOLVE_ROUND_MIN", 360);
 const COOLDOWN_H = () => envNum("EVOLVE_COOLDOWN_H", 24);
-const MIN_TRADES = () => envNum("EVOLVE_MIN_TRADES", 12);
+const MIN_TRADES = () => envNum("EVOLVE_MIN_TRADES", 10);
 const WATCH_N = () => envNum("EVOLVE_WATCH_N", 15);
 const MARGIN = () => envNum("EVOLVE_MARGIN", 0.1);
 const DD_FACTOR = () => envNum("EVOLVE_DD_FACTOR", 1.5);
@@ -378,8 +378,14 @@ export async function evolveRound(bridge: EvolveBridge): Promise<EvolveOutcome> 
 
     // 5 · chấm + quyết định
     const eligible = rows.filter((r) => !r.baseline && r.metrics && r.metrics.trades >= MIN_TRADES());
+    // Guardrail v2: live chua du mau -> keep, khong promote
+    const live = await bridge.closedSince(new Date(Date.now() - 30 * 24 * 3600_000)).catch(() => ({ n: 0, expectancy: 0 }));
+    if (live.n < 10) {
+      return { decision: "keep", combo: comboTag(combo), note: `guardrail: doi du mau - live ${live.n}/10 lenh dong 30 ngay, chua promote (exp live ${r3(live.expectancy)}%/lenh)` };
+    }
+
     const best = eligible.sort((a, b) => b.metrics!.expectancy - a.metrics!.expectancy)[0] ?? null;
-    const passMargin = !!best && !!baseMetrics && best.metrics!.expectancy >= baseMetrics.expectancy + MARGIN();
+    const passMargin = !!best && !!baseMetrics && best.metrics!.expectancy >= baseMetrics.expectancy + MARGIN() && best.metrics!.maxDd <= baseMetrics.maxDd * DD_FACTOR();
     const passDd = !best || !baseMetrics || best.metrics!.maxDd >= baseMetrics.maxDd * DD_FACTOR();
     const passDiff = !!best && configKey(best.config) !== beforeKey;
     const passApplied = !!best && !best.applied;
