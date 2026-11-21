@@ -320,7 +320,13 @@ export async function wyckoffLongGate(symbol: string, universe: string[], interv
       return { ...base, ok: false, reason: `range hợp lệ nhưng chưa có trigger Spring/SOS ở 5 nến ${interval} cuối`, trigger, range: tr, breadth, regime, upthrust, suggestedStopPct, failOpen: false };
     }
     if (regime === "RISK_OFF") {
-      return { ...base, ok: false, reason: `trigger ${trigger} nhưng regime RISK_OFF (breadth ${breadth}% < ${breadthMin}% trên MA20) — verify: SOS RISK_OFF −1.77%/28.6%`, trigger, range: tr, breadth, regime, upthrust, suggestedStopPct, failOpen: false };
+      // v0.3.44: MỞ Spring ở RISK_OFF — Spring là bắt đáy mean-reversion, khác SOS breakout.
+      // SOS ở RISK_OFF đã verify thua (-1.77%/28.6%) nên vẫn chặn. Spring cho qua, stake 1/2.
+      // Breadth 0% hiện tại (BTC 60329 < MA20 70172) vẫn cho Spring qua — đây là ý user: mở Spring.
+      if (trigger === "spring") {
+        return { ...base, ok: true, reason: `Wyckoff SPRING pass ở RISK_OFF — breadth ${breadth}% < ${breadthMin}% nhưng Spring là bắt đáy, cho qua với stake 1/2 (v0.3.44)`, trigger, range: tr, breadth, regime, upthrust, suggestedStopPct, failOpen: false };
+      }
+      return { ...base, ok: false, reason: `trigger ${trigger} nhưng regime RISK_OFF (breadth ${breadth}% < ${breadthMin}% trên MA20) — SOS ở RISK_OFF bị chặn, chỉ Spring được mở (v0.3.44)`, trigger, range: tr, breadth, regime, upthrust, suggestedStopPct, failOpen: false };
     }
     return {
       ...base,

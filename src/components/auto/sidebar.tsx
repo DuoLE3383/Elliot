@@ -13,7 +13,7 @@ import { usePathname } from "next/navigation";
 import { Activity, Bot, LineChart, Swords, BrainCircuit } from "lucide-react";
 
 /** version hiển thị — giữ đồng bộ package.json (prepush tự bump). */
-export const APP_VERSION = "v0.3.43";
+export const APP_VERSION = "v0.3.44";
 
 const NAV = [
   { href: "/auto", key: "Auto Trading", icon: Bot, accent: "text-sky-400" },
