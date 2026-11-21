@@ -33,33 +33,6 @@ export function AutoPositions(props: any) {
         <p className="text-[11px] leading-relaxed text-zinc-500">{t(lang, "auto2.positionsSub")}</p>
       </CardHeader>
       <CardContent className="space-y-3 px-3 pt-0">
-        {/* ── AGENT ĐANG CHẠY — lấy từ cfg engine đang sync ── */}
-        {(() => {
-          const AGENT_META: Record<string, { icon: string; label: string }> = {
-            VAULT: { icon: "🗄", label: "Safe — giữ vốn" },
-            HEDGE: { icon: "⚖", label: "Balanced" },
-            ALPHA: { icon: "🚀", label: "Aggressive" },
-            GRAIL: { icon: "👑", label: "Elliott" },
-          };
-          const agentId = (cfg as any)?.agent ?? "HEDGE";
-          const a = AGENT_META[agentId] ?? AGENT_META.HEDGE;
-          const lev = (props as any)?.leverage ?? (cfg as any)?.leverage ?? open?.leverage ?? 0;
-          const locked = !cfg?.on || opens.length === 0;
-          return (
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-violet-700/60 bg-gradient-to-r from-violet-950/60 via-teal-950/40 to-violet-950/60 px-2.5 py-1.5">
-              <span className="text-sm">{a.icon}</span>
-              <span className="shrink-0 font-mono text-[12px] font-bold text-violet-300">
-                {agentId} Agent — {a.label}
-              </span>
-              <span className="min-w-0 flex-1 whitespace-normal leading-snug font-mono text-[11px] text-zinc-300" title={`current executing · Risk ${cfg?.riskPct ?? "?"}% · Gate ${cfg?.minScore ?? "?"}/${cfg?.minAuc ?? "?"}/${cfg?.minAcc ?? "?"} · TF ${(cfg?.runTf ?? []).join("/")} · Lev ×${lev}`}>
-                current executing · Risk {cfg?.riskPct ?? "?"}% · Gate {cfg?.minScore ?? "?"}/{cfg?.minAuc ?? "?"}/{cfg?.minAcc ?? "?"} · TF {(cfg?.runTf ?? []).join("/")} · Lev ×{lev}
-              </span>
-              <span className={`ml-auto shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-bold ${locked ? "bg-amber-950/60 text-amber-300" : "bg-emerald-950/60 text-emerald-300"}`}>
-                {locked ? "● STANDBY / SCANNING" : "● IN POSITION"}
-              </span>
-            </div>
-          );
-        })()}
         {/* ── TÓM TẮT HIỆU SUẤT — donut + 4 hàng stats (kiểu mockup, số thật) ── */}
         {(() => {
           const nOpen = opens.length;
@@ -119,7 +92,7 @@ export function AutoPositions(props: any) {
         {open ? (
           <>
             {opens.map((open) => (
-              <div key={open.id} className="rounded-lg border border-zinc-700 bg-zinc-900 p-2.5">
+              <div key={open.id} className="rounded-lg border border-zinc-700 bg-zinc-900 p-2">
 
                 {(() => {
                   const etRaw = open.entryTime ?? open.openedAt ?? open.createdAt ?? null;
@@ -132,7 +105,7 @@ export function AutoPositions(props: any) {
                   const timeTxt = et ? et.toLocaleTimeString("vi-VN", { hour12: false }) : "—";
                   const ago = mins == null ? "" : mins < 1 ? "vua vao" : mins < 60 ? mins + " phut truoc" : Math.floor(mins / 60) + "h" + (mins % 60) + "m truoc";
                   return (
-                    <div className="mb-1 space-y-1.5">
+                    <div className="mb-0.5 space-y-0.5">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-xs font-bold text-sky-300">SO {book}</span>
                         <span className="font-mono text-sm font-bold text-zinc-100">{open.symbol}</span>
@@ -143,7 +116,7 @@ export function AutoPositions(props: any) {
                       <div className="flex items-end justify-between gap-2">
                         <div>
                           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Entry</div>
-                          <div className="font-mono text-3xl font-bold leading-none text-zinc-50">{fmtPrice(open.entryPrice)}</div>
+                          <div className="font-mono text-xl font-bold leading-none text-zinc-50">{fmtPrice(open.entryPrice)}</div>
                         </div>
                         <div className="text-right">
                           <div className="text-xs text-zinc-500">Mark - cach Entry</div>
@@ -155,12 +128,6 @@ export function AutoPositions(props: any) {
                   );
                 })()}
                 <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
-                  <span className="text-zinc-500">{t(lang, "auto.col.pair")}</span>
-                  <span className="text-right font-mono text-zinc-200">
-                    {open.symbol} · {open.interval} · <span className={open.side === "LONG" ? "font-bold text-emerald-400" : "font-bold text-rose-400"}>{open.side}</span>
-                  </span>
-                  <span className="text-zinc-500">{t(lang, "auto.pos.entry")}</span>
-                  <span className="text-right font-mono text-zinc-200">{fmtPrice(open.entryPrice)}</span>
                   <span className="text-zinc-500">{t(lang, "auto.pos.stake")}</span>
                   <span className="text-right font-mono text-zinc-200">
                     {(((open.capitalBefore ?? capitalNow) * (open.stakePct ?? 100)) / 100).toFixed(2)} USDT · {(open.stakePct ?? 100).toFixed(2)}%
@@ -249,17 +216,6 @@ export function AutoPositions(props: any) {
                       })()}
                     </>
                   )}
-                  <span className="text-zinc-500">{t(lang, "auto.pos.uroe")}</span>
-                  {(() => {
-                    const live = tickers[open.symbol]?.price ?? open.entryPrice;
-                    const roe = roeOf(open.side, open.entryPrice, live, open.leverage);
-                    return (
-                      <span className={`text-right font-mono font-bold ${roe >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                        {roe >= 0 ? "+" : ""}
-                        {roe.toFixed(2)}%
-                      </span>
-                    );
-                  })()}
                 </div>
                 {(() => {
                   const sl = slPrice(open.side, open.entryPrice, open.slPct);
@@ -272,7 +228,7 @@ export function AutoPositions(props: any) {
                   const dSl = Math.abs((sl - mark) / mark) * 100;
                   const dTp = hasTp ? Math.abs((tp - mark) / mark) * 100 : null;
                   return (
-                    <div className="mt-2 space-y-1">
+                    <div className="mt-1 space-y-0.5">
                       <div className="flex justify-between font-mono text-xs text-zinc-500"><span>SL {fmtPrice(sl)}</span><span>Entry {fmtPrice(open.entryPrice)}</span><span>{hasTp ? "TP " + fmtPrice(tp) : "TP Trail"}</span></div>
                       <div className="relative h-2 rounded-full bg-zinc-800">
                         <div className="absolute top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-zinc-100" style={{ left: pct(open.entryPrice) + "%" }} />

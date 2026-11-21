@@ -806,6 +806,12 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
           </CardHeader>
 
           <CardContent className="space-y-3 px-4 pt-2">
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-violet-700/60 bg-violet-950/20 px-2 py-1">
+              <span className="text-xs">⚖</span>
+              <span className="font-mono text-xs font-bold text-violet-300">{(cfg as any)?.agent ?? "HEDGE"} Agent</span>
+              <span className="font-mono text-xs text-zinc-300">Risk {cfg?.riskPct ?? "?"}% - Gate {cfg?.minScore ?? "?"}/{cfg?.minAuc ?? "?"}/{cfg?.minAcc ?? "?"} - TF {(cfg?.runTf ?? []).join("/")} - Lev x{leverage}</span>
+              <span className="ml-auto rounded px-1.5 py-0.5 font-mono text-xs font-bold bg-emerald-950/60 text-emerald-300">{opens.length > 0 ? "IN POSITION" : "STANDBY / SCANNING"}</span>
+            </div>
             {/* ─── TAB AGENT — bộ chọn VAULT/HEDGE/ALPHA/GRAIL ─── */}
             {tab === "agent" && (
               <div>
