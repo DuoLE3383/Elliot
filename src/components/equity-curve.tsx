@@ -23,9 +23,9 @@ export function EquityCurve({ lang, papers }: { lang: Lang; papers: Paper[] }) {
     const span = hi - lo || 1;
     const y = (v: number) => 6 + ((hi - v) / span) * (H - 12);
     const line = pts
-      .map((p, i) => `${i === 0 ? "M" : "L"}${((i / (pts.length - 1)) * 1000).toFixed(1)},${y(p.cum).toFixed(1)}`)
+      .map((p, i) => `${i === 0 ? "M" : "L"}${((i / (pts.length - 1)) * 1000).toFixed(2)},${y(p.cum).toFixed(2)}`)
       .join(" ");
-    const area = `M0,${y(0).toFixed(1)} ${line.replace(/^M/, "L")} L1000,${y(0).toFixed(1)} Z`;
+    const area = `M0,${y(0).toFixed(2)} ${line.replace(/^M/, "L")} L1000,${y(0).toFixed(2)} Z`;
     return { line, area, y, y0: y(0), up: eq.last >= 0 };
   }, [eq]);
 

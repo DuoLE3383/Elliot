@@ -90,7 +90,7 @@ function CardSpark({ equity, color }: { equity: EquityPoint[] | undefined; color
     .map((p, i) => {
       const x = (i / (pts.length - 1)) * W;
       const y = H - 3 - ((p - min) / (max - min || 1)) * (H - 8);
-      return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+      return `${i === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
     })
     .join(" ");
   return (

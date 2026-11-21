@@ -100,7 +100,7 @@ export function DeepAnalysis({
         : "text-amber-400";
   const structSub =
     a.rangeHigh != null && a.rangeLow != null && a.rangePos != null
-      ? `${a.rangePos.toFixed(0)}% · ${fmtPrice(a.rangeLow)} – ${fmtPrice(a.rangeHigh)}`
+      ? `${a.rangePos.toFixed(2)}% · ${fmtPrice(a.rangeLow)} – ${fmtPrice(a.rangeHigh)}`
       : "—";
 
   const gateSub =
@@ -126,14 +126,14 @@ export function DeepAnalysis({
           <Tile
             label={t(lang, "analysis.rsi")}
             icon={<Gauge className="h-3.5 w-3.5" />}
-            value={rsiVal != null ? rsiVal.toFixed(1) : "—"}
+            value={rsiVal != null ? rsiVal.toFixed(2) : "—"}
             valueClass={rsiClass}
             sub={rsiSub}
           />
           <Tile
             label={t(lang, "analysis.vol")}
             icon={<BarChart3 className="h-3.5 w-3.5" />}
-            value={a.volRatio != null ? `${a.volRatio.toFixed(1)}x` : "—"}
+            value={a.volRatio != null ? `${a.volRatio.toFixed(2)}x` : "—"}
             valueClass={volClass}
             sub={volSub}
           />

@@ -76,7 +76,7 @@ export function XgbPanel({
 }: Props) {
   const enough = candles >= 200;
   const s = result?.suggestion;
-  const pct = (v: number) => `${(v * 100).toFixed(0)}%`;
+  const pct = (v: number) => `${(v * 100).toFixed(2)}%`;
   const allBusy = allTrain?.busy === true;
   const allPct = allTrain && allTrain.total > 0 ? allTrain.done / allTrain.total : 0;
 
@@ -142,7 +142,7 @@ export function XgbPanel({
           <>
             {/* metrics */}
             <div className="grid grid-cols-4 gap-2">
-              <Tile label={t(lang, "xgb.acc")} value={`${result.acc.toFixed(1)}%`} valueClass={result.acc >= 55 ? "text-emerald-400" : "text-zinc-100"} />
+              <Tile label={t(lang, "xgb.acc")} value={`${result.acc.toFixed(2)}%`} valueClass={result.acc >= 55 ? "text-emerald-400" : "text-zinc-100"} />
               <Tile label="AUC" value={result.auc.toFixed(2)} valueClass={result.auc >= 0.55 ? "text-emerald-400" : "text-zinc-100"} />
               <Tile label={t(lang, "xgb.trees")} value={String(result.trees)} />
               <Tile label={t(lang, "xgb.samples")} value={`${result.samples}/${result.valSamples}`} />
@@ -174,7 +174,7 @@ export function XgbPanel({
                     return (
                       <div key={b.lo} className="flex items-center gap-2">
                         <span className="w-14 shrink-0 font-mono text-[10px] text-zinc-400">
-                          {(b.lo * 100).toFixed(0)}–{b.hi >= 1 ? "100" : (b.hi * 100).toFixed(0)}%
+                          {(b.lo * 100).toFixed(2)}–{b.hi >= 1 ? "100" : (b.hi * 100).toFixed(2)}%
                         </span>
                         <div className="relative h-2 flex-1 rounded-full bg-zinc-800">
                           <div
@@ -187,7 +187,7 @@ export function XgbPanel({
                           />
                         </div>
                         <span className="w-24 shrink-0 text-right font-mono text-[10px] text-zinc-500">
-                          n {b.n} · win {(b.win * 100).toFixed(0)}%
+                          n {b.n} · win {(b.win * 100).toFixed(2)}%
                         </span>
                       </div>
                     );
@@ -230,11 +230,11 @@ export function XgbPanel({
                     {t(lang, `xgb.bias.${s.bias.toLowerCase()}`)} · {pct(s.confidence)}
                   </span>
                   <span className="text-zinc-500">{t(lang, "xgb.prob")}</span>
-                  <span className="text-right font-mono text-zinc-200">{(s.prob * 100).toFixed(1)}%</span>
+                  <span className="text-right font-mono text-zinc-200">{(s.prob * 100).toFixed(2)}%</span>
                   <span className="text-zinc-500">{t(lang, "xgb.sug.sl")}</span>
-                  <span className="text-right font-mono text-rose-300">{s.slPct.toFixed(1)}%</span>
+                  <span className="text-right font-mono text-rose-300">{s.slPct.toFixed(2)}%</span>
                   <span className="text-zinc-500">{t(lang, "xgb.sug.tp")}</span>
-                  <span className="text-right font-mono text-emerald-300">{s.tpPct.toFixed(1)}%</span>
+                  <span className="text-right font-mono text-emerald-300">{s.tpPct.toFixed(2)}%</span>
                   <span className="text-zinc-500">{t(lang, "xgb.sug.ut")}</span>
                   <span className="text-right font-mono text-zinc-200">
                     key {s.atrKey} · {s.atrPeriod}
@@ -268,7 +268,7 @@ export function XgbPanel({
                 {applyingBest
                   ? t(lang, "xgb.applyBest.busy")
                   : t(lang, "xgb.applyBest", {
-                      acc: champion.acc.toFixed(1),
+                      acc: champion.acc.toFixed(2),
                       auc: champion.auc.toFixed(2),
                     })}
               </Button>
@@ -363,7 +363,7 @@ export function XgbPanel({
                         month: "2-digit",
                       })}
                     </span>
-                    <span className="ml-auto shrink-0 font-mono text-zinc-300">{r.acc.toFixed(1)}%</span>
+                    <span className="ml-auto shrink-0 font-mono text-zinc-300">{r.acc.toFixed(2)}%</span>
                     <span className="shrink-0 font-mono text-zinc-500">AUC {r.auc.toFixed(2)}</span>
                     <span
                       className="shrink-0 font-mono text-zinc-500"

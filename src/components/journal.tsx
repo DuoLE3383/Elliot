@@ -90,8 +90,8 @@ export function Journal({ lang, papers, symbol, interval, maxListClass = "max-h-
         p.exitTime ? new Date(p.exitTime).toISOString() : "",
         p.exitKind ?? "",
         p.liquidated ? "YES" : "",
-        p.pricePnlPct?.toFixed(4) ?? "",
-        p.pnlPct?.toFixed(4) ?? "",
+        p.pricePnlPct?.toFixed(2) ?? "",
+        p.pnlPct?.toFixed(2) ?? "",
         p.flippedFrom ?? "",
       ].join(","),
     );

@@ -74,7 +74,7 @@ function ConfluenceTable({ onPickPair }: { onPickPair: (sym: string, itv: string
     if (!tf) return <span className="text-zinc-700">—</span>;
     const c = tf.side === "LONG" ? "text-emerald-400" : tf.side === "SHORT" ? "text-rose-400" : "text-zinc-500";
     const arrow = tf.side === "LONG" ? "▲" : tf.side === "SHORT" ? "▼" : "→";
-    return <span className={c}>{arrow}{Math.abs(tf.score).toFixed(0)}</span>;
+    return <span className={c}>{arrow}{Math.abs(tf.score).toFixed(2)}</span>;
   };
   return (
     <div className="flex h-full flex-col space-y-1.5">
@@ -615,17 +615,17 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
     const sc = t(lang, "auto.col.score");
     if (r.bias === "NEUTRAL") why.push("NEUTRAL");
     if (r.auc < ef.minAuc) why.push(`AUC ${r.auc.toFixed(2)}<${ef.minAuc.toFixed(2)}`);
-    if (r.acc < ef.minAcc) why.push(`ACC ${r.acc.toFixed(0)}%<${ef.minAcc.toFixed(0)}%`);
-    if (ef.minScore > 0 && r.score < ef.minScore) why.push(`${sc} ${r.score.toFixed(1)}<${ef.minScore}`);
+    if (r.acc < ef.minAcc) why.push(`ACC ${r.acc.toFixed(2)}%<${ef.minAcc.toFixed(2)}%`);
+    if (ef.minScore > 0 && r.score < ef.minScore) why.push(`${sc} ${r.score.toFixed(2)}<${ef.minScore}`);
     if (r.regressed) why.push(`regress<${(r.champAuc ?? 0).toFixed(2)}`);
-    if (r.whale?.tag === "whale") why.push(`whale ${(r.whale.volZ ?? 0).toFixed(1)}σ`);
+    if (r.whale?.tag === "whale") why.push(`whale ${(r.whale.volZ ?? 0).toFixed(2)}σ`);
     if (Math.abs(r.prob - 0.5) < NOISE_BAND) why.push(`band ${Math.abs(r.prob - 0.5).toFixed(2)}<${NOISE_BAND}`);
     if (r.bias === "SHORT" && SHORT_PROB_MIN > 0.5 && 1 - r.prob < SHORT_PROB_MIN)
       why.push(`SHORT ${(1 - r.prob).toFixed(2)}<${SHORT_PROB_MIN}`);
     if (leverage > 0 && EV_GATE_MIN > -100) {
       const pWin = r.bias === "SHORT" ? 1 - r.prob : r.prob;
       const ev = pWin * r.tpPct * leverage - (1 - pWin) * r.slPct * leverage - feeRoe(leverage);
-      if (ev < EV_GATE_MIN) why.push(`EV ${ev.toFixed(1)}%<${EV_GATE_MIN}%`);
+      if (ev < EV_GATE_MIN) why.push(`EV ${ev.toFixed(2)}%<${EV_GATE_MIN}%`);
     }
     return why.length ? why.join(" · ") : null;
   };
@@ -744,7 +744,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                   className={`rounded-md border px-2 py-0.5 font-mono text-[10px] ${wyStatus.breadth >= 50 ? "border-violet-800 text-violet-300" : "border-zinc-800 text-zinc-500"}`}
                   title={t(lang, "auto.breadth.tip")}
                 >
-                  breadth {wyStatus.breadth.toFixed(0)}%
+                  breadth {wyStatus.breadth.toFixed(2)}%
                 </span>
               )}
             </div>
@@ -1329,7 +1329,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                     {" · "}
                     {llmLast.symbol} {llmLast.interval}
                     {llmLast.reason ? ` · ${llmLast.reason}` : ""}
-                    {llmLast.ms > 0 ? ` · ${(llmLast.ms / 1000).toFixed(1)}s` : ""}
+                    {llmLast.ms > 0 ? ` · ${(llmLast.ms / 1000).toFixed(2)}s` : ""}
                   </span>
                 )}
               </div>

@@ -665,7 +665,7 @@ export default function AiPage() {
               data
                 ? [
                     chip(t(lang, "ai.node.data.t"), String(data.runs.length), "bg-sky-950/70 text-sky-300"),
-                    winRate !== null ? chip("WR", `${winRate.toFixed(0)}%`, "bg-emerald-950/70 text-emerald-300") : null,
+                    winRate !== null ? chip("WR", `${winRate.toFixed(2)}%`, "bg-emerald-950/70 text-emerald-300") : null,
                   ]
                 : null
             }
@@ -681,7 +681,7 @@ export default function AiPage() {
                       n: String(data.autoStats.lessonSamples),
                       wins: String(data.autoStats.wins),
                     })}
-                    {winRate !== null ? ` · WR ${winRate.toFixed(0)}%` : ""}
+                    {winRate !== null ? ` · WR ${winRate.toFixed(2)}%` : ""}
                   </p>
                 )}
                 {!data || data.runs.length === 0 ? (
@@ -698,9 +698,9 @@ export default function AiPage() {
                         <span className="shrink-0 font-mono font-bold text-zinc-200">#{r.symbol}</span>
                         <span className="shrink-0 font-mono text-zinc-500">{r.interval}</span>
                         <span className="shrink-0 font-mono text-zinc-400">{r.samples}/{r.valSamples}</span>
-                        <span className={`shrink-0 font-mono ${r.acc >= 55 ? "text-emerald-400" : "text-zinc-300"}`}>{r.acc.toFixed(1)}%</span>
+                        <span className={`shrink-0 font-mono ${r.acc >= 55 ? "text-emerald-400" : "text-zinc-300"}`}>{r.acc.toFixed(2)}%</span>
                         <span className="shrink-0 font-mono text-zinc-500">AUC {r.auc.toFixed(2)}</span>
-                        <span className="hidden shrink-0 font-mono text-zinc-600 sm:inline">L {r.logloss.toFixed(3)}</span>
+                        <span className="hidden shrink-0 font-mono text-zinc-600 sm:inline">L {r.logloss.toFixed(2)}</span>
                         <span className="ml-auto max-w-full shrink-0 whitespace-normal leading-snug font-mono text-[10px] text-zinc-500" title={hyper(r.params)}>{hyper(r.params)}</span>
                         <span className="shrink-0 font-mono text-[10px] text-zinc-600">
                           {new Date(r.createdAt).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
@@ -719,7 +719,7 @@ export default function AiPage() {
                       <Crown className="h-3 w-3 shrink-0 text-amber-400" />
                       <span className="shrink-0 font-mono font-bold text-zinc-200">#{c.symbol}</span>
                       <span className="shrink-0 font-mono text-zinc-500">{c.interval}</span>
-                      <span className={`shrink-0 font-mono ${c.acc >= 55 ? "text-emerald-400" : "text-zinc-300"}`}>{c.acc.toFixed(1)}%</span>
+                      <span className={`shrink-0 font-mono ${c.acc >= 55 ? "text-emerald-400" : "text-zinc-300"}`}>{c.acc.toFixed(2)}%</span>
                       <span className="shrink-0 font-mono text-zinc-500">AUC {c.auc.toFixed(2)}</span>
                       {/* max-w-full + whitespace-normal leading-snug — hyper(params) ~300px từng đẩy row
                           champion tràn ngang mobile (390px); đủ xem trong title */}
@@ -785,7 +785,7 @@ export default function AiPage() {
                               <td className="py-0.5 font-mono text-zinc-300">{b.label}</td>
                               <td className="py-0.5 text-right font-mono text-zinc-500">{b.n}</td>
                               <td className={`py-0.5 text-right font-mono font-bold ${b.wr >= 50 ? "text-emerald-400" : b.wr >= 0 ? "text-rose-400" : "text-zinc-600"}`}>
-                                {b.wr >= 0 ? `${b.wr.toFixed(1)}%` : "—"}
+                                {b.wr >= 0 ? `${b.wr.toFixed(2)}%` : "—"}
                               </td>
                             </tr>
                           ))}
@@ -1120,7 +1120,7 @@ export default function AiPage() {
                   </span>
                   <span className="mt-0.5 block font-mono text-[10px] text-zinc-400">
                     {evo.active.combo} · {evoCfg(evo.active.cfgAfter)}
-                    {evo.active.metrics?.best ? ` · exp ${evo.active.metrics.best.expectancy.toFixed(3)}%/lệnh` : ""}
+                    {evo.active.metrics?.best ? ` · exp ${evo.active.metrics.best.expectancy.toFixed(2)}%/lệnh` : ""}
                   </span>
                   {evo.watch && (
                     <span className="mt-0.5 block text-zinc-500">⏳ {t(lang, "ai.evo.watch", { n: evo.watch.n, need: evo.watch.need })}</span>

@@ -98,7 +98,7 @@ export function StrategyLab({ lang, symbol, interval, refreshKey, onApply }: Pro
         <span className="font-mono">{m.trades}</span>
         <span className="text-zinc-600">·</span>
         <span className={`font-mono ${m.winRate >= 50 ? "text-emerald-400" : "text-zinc-300"}`}>
-          {m.winRate.toFixed(0)}%
+          {m.winRate.toFixed(2)}%
         </span>
         <span className="text-zinc-600">·</span>
         <span className={`font-mono font-semibold ${expClass(m.expectancy)}`}>
@@ -111,9 +111,9 @@ export function StrategyLab({ lang, symbol, interval, refreshKey, onApply }: Pro
 
   const configCell = (v: VariantRow) => (
     <span className="font-mono text-[11px] text-zinc-400">
-      <span className="text-rose-300">{v.config.slPct.toFixed(1)}</span>
+      <span className="text-rose-300">{v.config.slPct.toFixed(2)}</span>
       <span className="text-zinc-600">/</span>
-      <span className="text-emerald-300">{v.config.tpPct.toFixed(1)}</span>
+      <span className="text-emerald-300">{v.config.tpPct.toFixed(2)}</span>
       <span className="text-zinc-600"> · UT </span>
       {v.config.atrKey}·{v.config.atrPeriod}
       {v.config.smaFilter && <span className="text-teal-400"> · SMA{v.config.smaPeriod}</span>}
@@ -272,11 +272,11 @@ export function StrategyLab({ lang, symbol, interval, refreshKey, onApply }: Pro
                   <p className="mt-1 text-[11px]">{metricCell(v)}</p>
                   {v.metrics && v.metrics.trades > 0 && (
                     <p className="mt-0.5 text-[10px] text-zinc-600">
-                      {t(lang, "sl.maxDd", { v: v.metrics.maxDd.toFixed(1) })}
+                      {t(lang, "sl.maxDd", { v: v.metrics.maxDd.toFixed(2) })}
                       {" · "}
-                      {t(lang, "sl.avgWin", { v: v.metrics.avgWin.toFixed(1) })}
+                      {t(lang, "sl.avgWin", { v: v.metrics.avgWin.toFixed(2) })}
                       {" / "}
-                      {t(lang, "sl.avgLoss", { v: v.metrics.avgLoss.toFixed(1) })}
+                      {t(lang, "sl.avgLoss", { v: v.metrics.avgLoss.toFixed(2) })}
                       {" · "}
                       {fmtTime(new Date(v.createdAt).getTime(), lang)}
                     </p>

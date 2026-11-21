@@ -50,7 +50,7 @@ const row = (side: string, prob: number): AutoTradeRow =>
 console.log("1. msgOpen — SHORT prob thô 0.201 → hiển thị 79.9% theo phía SHORT");
 {
   const m = msgOpen(row("SHORT", 0.201), 76755.1);
-  check(m.includes("Prob 79.9% theo phía SHORT 🔴"), "flip theo phía", m.split("\n").at(-1) ?? "");
+  check(m.includes("Prob 79.90% toward SHORT 🔴"), "flip theo phía", m.split("\n").at(-1) ?? "");
   check(!m.includes("20.1%"), "không còn prob thô gây hiểu nhầm");
   check(m.includes("AUTO OPEN") && m.includes("SHORT 🔴"), "khung tin nguyên vẹn");
   // SL phía SHORT phải TRÊN entry, TP phải DƯỚI entry
@@ -62,14 +62,14 @@ console.log("1. msgOpen — SHORT prob thô 0.201 → hiển thị 79.9% theo ph
 console.log("2. msgOpen — LONG prob 0.857 → giữ nguyên 85.7% theo phía LONG");
 {
   const m = msgOpen(row("LONG", 0.857), 76755.1);
-  check(m.includes("Prob 85.7% theo phía LONG 🟢"), "LONG không bị đảo");
+  check(m.includes("Prob 85.70% toward LONG 🟢"), "LONG không bị đảo");
 }
 
 console.log("3. msgDca — SHORT model confirm prob 0.35 → hiển thị 65.0% theo phía");
 {
   const m = msgDca(row("SHORT", 0.35), 11.9, 11.793, { prob: 0.35, auc: 0.78, acc: 75 }, 1, 2, "near");
-  check(m.includes("Prob 65.0% theo phía SHORT 🔴"), "confirm DCA theo phía", m.split("\n").at(-1) ?? "");
-  check(m.includes("Model vẫn xác nhận ·"), "cú pháp dòng model mới");
+  check(m.includes("Prob 65.00% toward SHORT 🔴"), "confirm DCA theo phía", m.split("\n").at(-1) ?? "");
+  check(m.includes("Model still confirms ·"), "cú pháp dòng model mới");
 }
 
 console.log("4. msgLlmVeto — bias SHORT prob 0.2 → hiển thị 80.0% theo phía");
@@ -85,7 +85,7 @@ console.log("4. msgLlmVeto — bias SHORT prob 0.2 → hiển thị 80.0% theo p
   } as unknown as ScanRow;
   const v = { reasons: ["rủi ro hơi cao"] } as unknown as LlmVerdict;
   const m = msgLlmVeto(r, v);
-  check(m.includes("Prob 80.0% theo phía SHORT 🔴"), "veto theo phía", m.split("\n")[3] ?? "");
+  check(m.includes("Prob 80.00% toward SHORT 🔴"), "veto theo phía", m.split("\n")[3] ?? "");
 }
 
 console.log("5. NEUTRAL — không có phía để đảo, giữ prob thô");
@@ -101,7 +101,7 @@ console.log("5. NEUTRAL — không có phía để đảo, giữ prob thô");
   } as unknown as ScanRow;
   const v = { reasons: [] } as unknown as LlmVerdict;
   const m = msgLlmVeto(r, v);
-  check(m.includes("Prob 50.0% ·") && !m.includes("theo phía"), "NEUTRAL prob thô", m.split("\n")[3] ?? "");
+  check(m.includes("Prob 50.00% ·") && !m.includes("theo phía"), "NEUTRAL prob thô", m.split("\n")[3] ?? "");
 }
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAIL`);

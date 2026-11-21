@@ -236,7 +236,7 @@ export function ApmFlowMap({
           row: 1, col: "B", id: "st-open",
           title: t(lang, "apm.node.openpos"),
           value: `${f.open.symbol.replace("USDT", "")} ${f.open.side}`,
-          sub: `${f.open.ageH.toFixed(1)}h${f.open.roe != null ? ` · ROE ${f.open.roe >= 0 ? "+" : ""}${f.open.roe.toFixed(2)}%` : ""}`,
+          sub: `${f.open.ageH.toFixed(2)}h${f.open.roe != null ? ` · ROE ${f.open.roe >= 0 ? "+" : ""}${f.open.roe.toFixed(2)}%` : ""}`,
           dot: RED, valColor: f.open.roe != null ? (f.open.roe >= 0 ? LIME : RED) : TXT,
           stroke: "rgba(244,82,92,0.55)", strokeDash: "5 4", glow: true,
         }

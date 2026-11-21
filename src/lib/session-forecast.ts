@@ -147,12 +147,12 @@ export function sessionVerdict(inp: VerdictInputs): SessionVerdict {
   const st = nx ? sessStats.find((s) => s.key === nx.key) : undefined;
   if (st?.bullPct != null) {
     const r = rel(st.candles, 150);
-    push("session", 2, clamp1((st.bullPct - 50) / 20) * r, `Bull ${st.bullPct.toFixed(0)}% of ${nx!.key} candles (n=${st.candles}${r < 0.5 ? ", thin sample" : ""})`);
+    push("session", 2, clamp1((st.bullPct - 50) / 20) * r, `Bull ${st.bullPct.toFixed(2)}% of ${nx!.key} candles (n=${st.candles}${r < 0.5 ? ", thin sample" : ""})`);
   } else {
     push("session", 2, null, "no session stat");
   }
   if (st?.driftPct != null) {
-    push("drift", 1, clamp1(st.driftPct / 0.05) * rel(st.candles, 150), `mean drift ${st.driftPct >= 0 ? "+" : ""}${st.driftPct.toFixed(3)}% per candle`);
+    push("drift", 1, clamp1(st.driftPct / 0.05) * rel(st.candles, 150), `mean drift ${st.driftPct >= 0 ? "+" : ""}${st.driftPct.toFixed(2)}% per candle`);
   } else {
     push("drift", 1, null, "no drift stat");
   }
@@ -198,14 +198,14 @@ export function sessionVerdict(inp: VerdictInputs): SessionVerdict {
         "weekday",
         1.5,
         clamp1((b.upPct - 50) / 10) * rel(b.n, 200),
-        `${DOW_EN[fc.dowIndex]} closes up ${b.upPct.toFixed(0)}% (n=${b.n} daily candles ≈ ${(cs.days / 365).toFixed(1)}y)`,
+        `${DOW_EN[fc.dowIndex]} closes up ${b.upPct.toFixed(2)}% (n=${b.n} daily candles ≈ ${(cs.days / 365).toFixed(2)}y)`,
       );
     } else {
       push("weekday", 1.5, null, "no weekday stats");
     }
     const sp = fc.special;
     if (sp && sp.bucket.upPct != null && sp.bucket.n >= 30) {
-      push("calendar", 0.5, clamp1((sp.bucket.upPct - 50) / 10) * rel(sp.bucket.n, 100), `${sp.label} window: ${sp.bucket.upPct.toFixed(0)}% up (n=${sp.bucket.n})`);
+      push("calendar", 0.5, clamp1((sp.bucket.upPct - 50) / 10) * rel(sp.bucket.n, 100), `${sp.label} window: ${sp.bucket.upPct.toFixed(2)}% up (n=${sp.bucket.n})`);
     } else {
       push("calendar", 0.5, null, "ordinary calendar day");
     }
@@ -221,7 +221,7 @@ export function sessionVerdict(inp: VerdictInputs): SessionVerdict {
     for (let i = from; i <= lastClosed; i++) vol += klines[i].v;
     if (vol > 0) {
       const pct = (whale.net / vol) * 100;
-      push("whale", 1.5, clamp1(pct / 3), `taker Δ ${fmtCompact(whale.net)} over ${whale.n} candles (${pct >= 0 ? "+" : ""}${pct.toFixed(1)}% of volume)`);
+      push("whale", 1.5, clamp1(pct / 3), `taker Δ ${fmtCompact(whale.net)} over ${whale.n} candles (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}% of volume)`);
     } else {
       push("whale", 1.5, null, "no volume data");
     }
@@ -245,11 +245,11 @@ export function sessionVerdict(inp: VerdictInputs): SessionVerdict {
     const parts: string[] = [];
     if (d.fundingRatePct != null) {
       l += -clamp1((d.fundingRatePct - 0.01) / 0.03);
-      parts.push(`funding ${d.fundingRatePct >= 0 ? "+" : ""}${d.fundingRatePct.toFixed(4)}%`);
+      parts.push(`funding ${d.fundingRatePct >= 0 ? "+" : ""}${d.fundingRatePct.toFixed(2)}%`);
     }
     if (d.longAccountPct != null) {
       l += d.longAccountPct >= 68 ? -0.5 : d.longAccountPct <= 45 ? 0.5 : 0;
-      parts.push(`${d.longAccountPct.toFixed(0)}%L / ${(100 - d.longAccountPct).toFixed(0)}%S`);
+      parts.push(`${d.longAccountPct.toFixed(2)}%L / ${(100 - d.longAccountPct).toFixed(2)}%S`);
     }
     push("derivs", 1, clamp1(l / 2), `crowding: ${parts.join(" · ")} — crowded longs pay funding, often precede flushes`);
   } else {
@@ -270,8 +270,8 @@ export function sessionVerdict(inp: VerdictInputs): SessionVerdict {
     const parts = [
       sqz.lsRatio != null ? `LS ${sqz.lsRatio.toFixed(2)}` : null,
       sqz.takerBuySell != null ? `taker ${sqz.takerBuySell.toFixed(2)}` : null,
-      sqz.oiChgPct.h4 != null ? `OI 4h ${sqz.oiChgPct.h4 >= 0 ? "+" : ""}${sqz.oiChgPct.h4.toFixed(1)}%` : null,
-      sqz.fundingRatePct != null ? `funding ${sqz.fundingRatePct >= 0 ? "+" : ""}${sqz.fundingRatePct.toFixed(3)}%/8h` : null,
+      sqz.oiChgPct.h4 != null ? `OI 4h ${sqz.oiChgPct.h4 >= 0 ? "+" : ""}${sqz.oiChgPct.h4.toFixed(2)}%` : null,
+      sqz.fundingRatePct != null ? `funding ${sqz.fundingRatePct >= 0 ? "+" : ""}${sqz.fundingRatePct.toFixed(2)}%/8h` : null,
     ].filter((x): x is string => x != null);
     push(
       "liquidation",
@@ -335,6 +335,6 @@ export function topFactorLine(v: SessionVerdict): string {
   arr.sort((a, b) => Math.abs(b.lean! * b.weight) - Math.abs(a.lean! * a.weight));
   return arr
     .slice(0, 4)
-    .map((f) => `${f.key} ${f.lean! > 0 ? "▲" : "▼"}${Math.abs(f.lean!).toFixed(1)}`)
+    .map((f) => `${f.key} ${f.lean! > 0 ? "▲" : "▼"}${Math.abs(f.lean!).toFixed(2)}`)
     .join(" · ");
 }

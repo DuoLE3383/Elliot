@@ -19,7 +19,7 @@ function Spark({ spark }: { spark: Sparkline | null }) {
   const w = 52;
   const h = 20;
   const path = spark.pts
-    .map((p, i) => `${i === 0 ? "M" : "L"}${((i / (n - 1)) * w).toFixed(1)},${(h - 2 - p * (h - 4)).toFixed(1)}`)
+    .map((p, i) => `${i === 0 ? "M" : "L"}${((i / (n - 1)) * w).toFixed(2)},${(h - 2 - p * (h - 4)).toFixed(2)}`)
     .join(" ");
   return (
     <svg width={w} height={h} className="shrink-0" aria-hidden>

@@ -340,10 +340,10 @@ export function dqfDecide(
   ]
     .filter(Boolean)
     .join(" · ");
-  const why = `session ${session.n} lệnh · WR ${session.wr.toFixed(0)}% · exp ${fmt2(session.exp)}%/lệnh — mục tiêu: ${targetNote}${inCooldown ? " · chờ cooldown đổi bậc" : ""}`;
+  const why = `session ${session.n} lệnh · WR ${session.wr.toFixed(2)}% · exp ${fmt2(session.exp)}%/lệnh — mục tiêu: ${targetNote}${inCooldown ? " · chờ cooldown đổi bậc" : ""}`;
   let hist: DqfHistEntry | null = null;
   if (changed && !inCooldown) {
-    hist = { at: now, from: current, to: floors, why: `tiến hoá 1 bậc về mục tiêu bands — exp ${fmt2(session.exp)}% (n=${session.n}, WR ${session.wr.toFixed(0)}%)` };
+    hist = { at: now, from: current, to: floors, why: `tiến hoá 1 bậc về mục tiêu bands — exp ${fmt2(session.exp)}% (n=${session.n}, WR ${session.wr.toFixed(2)}%)` };
   }
   return { decision: { ...base, src, floors: eff, target, why }, hist };
 }

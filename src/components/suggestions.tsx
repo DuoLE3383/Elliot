@@ -191,7 +191,7 @@ export function SuggestionHistory({ lang, symbol, interval, refreshKey, forceAll
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <StatTile
             icon={<Sparkles className="h-3 w-3 text-teal-400" />}
-            label={t(lang, "sg.winrate", { pct: stats.winRate == null ? "—" : `${stats.winRate.toFixed(0)}%` })}
+            label={t(lang, "sg.winrate", { pct: stats.winRate == null ? "—" : `${stats.winRate.toFixed(2)}%` })}
             value={t(lang, "sg.scored", { n: stats.scored })}
             valueClass={stats.winRate != null && stats.winRate >= 50 ? "text-emerald-400" : undefined}
           />
@@ -276,11 +276,11 @@ export function SuggestionHistory({ lang, symbol, interval, refreshKey, forceAll
                           {t(lang, "sg.horizonAt", { n: s.horizonBars })}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-right font-mono">{(s.prob * 100).toFixed(1)}%</td>
+                      <td className="px-3 py-2 text-right font-mono">{(s.prob * 100).toFixed(2)}%</td>
                       <td className="whitespace-nowrap px-3 py-2 text-right font-mono">
-                        <span className="text-rose-300">{s.slPct.toFixed(1)}</span>
+                        <span className="text-rose-300">{s.slPct.toFixed(2)}</span>
                         <span className="text-zinc-600"> / </span>
-                        <span className="text-emerald-300">{s.tpPct.toFixed(1)}</span>
+                        <span className="text-emerald-300">{s.tpPct.toFixed(2)}</span>
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-zinc-400">
                         {s.atrKey}·{s.atrPeriod}
@@ -322,7 +322,7 @@ export function SuggestionHistory({ lang, symbol, interval, refreshKey, forceAll
                     {outcomeBadge(s, lang)}
                   </div>
                   <p className="mt-1 font-mono text-[11px] text-zinc-400">
-                    P {(s.prob * 100).toFixed(1)}% · SL {s.slPct.toFixed(1)}% / TP {s.tpPct.toFixed(1)}% · UT {s.atrKey}·{s.atrPeriod}
+                    P {(s.prob * 100).toFixed(2)}% · SL {s.slPct.toFixed(2)}% / TP {s.tpPct.toFixed(2)}% · UT {s.atrKey}·{s.atrPeriod}
                     {s.smaFilter ? ` · SMA${s.smaPeriod}` : ""}
                   </p>
                   <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-zinc-600">

@@ -115,7 +115,7 @@ function LineChart({ chart }: { chart: Extract<StatChart, { kind: "line" }> }) {
   const span = vmax - vmin || 1;
   const x = (tt: number): number => padX + ((tt - t0) / (t1 - t0 || 1)) * (W - padX * 2);
   const y = (v: number): number => padT + (1 - (v - vmin) / span) * (H - padT - padB);
-  const path = pts.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ");
+  const path = pts.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(2)},${y(p.v).toFixed(2)}`).join(" ");
   const up = pts[pts.length - 1].v >= pts[0].v;
   const color = up ? "#34d399" : "#fb7185";
   const last = pts[pts.length - 1];
@@ -185,7 +185,7 @@ function BarsChart({ chart }: { chart: Extract<StatChart, { kind: "bars" }> }) {
   const slot = (W - padX * 2) / items.length;
   const bw = Math.max(2, slot - 3);
   const fmtV = (v: number): string =>
-    chart.unit === "%" ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}%` : chart.unit === "$" ? `$${v.toFixed(2)}` : v.toFixed(2);
+    chart.unit === "%" ? `${v >= 0 ? "+" : ""}${v.toFixed(2)}%` : chart.unit === "$" ? `$${v.toFixed(2)}` : v.toFixed(2);
   return (
     <div className="relative">
       <svg viewBox={`0 0 ${W} ${H}`} className="h-32 w-full" preserveAspectRatio="xMidYMid meet" role="img">
@@ -288,7 +288,7 @@ function StackChart({ chart }: { chart: Extract<StatChart, { kind: "stack" }> })
       {hovItem != null && hovCenter != null && (
         <ItemTip
           label={hovItem.label}
-          value={`${hovItem.n} / ${total} (${((hovItem.n / total) * 100).toFixed(0)}%)`}
+          value={`${hovItem.n} / ${total} (${((hovItem.n / total) * 100).toFixed(2)}%)`}
           leftPct={hovCenter}
           valueClass="text-zinc-100"
         />

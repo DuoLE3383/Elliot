@@ -150,7 +150,7 @@ export function AutoTopbar({ lang, liveOn, dryOn, breadth, notifCount = 0, onTog
         </span>
         {breadth != null && (
           <span className="hidden rounded-lg border border-violet-900/60 bg-violet-950/30 px-2 py-1 font-mono text-[10px] text-violet-300 xl:block" title="Wyckoff breadth">
-            breadth {breadth.toFixed(0)}%
+            breadth {breadth.toFixed(2)}%
           </span>
         )}
 

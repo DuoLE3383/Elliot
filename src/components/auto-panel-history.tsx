@@ -40,13 +40,13 @@ export function AutoHistory(props: any) {
             <p className="whitespace-normal leading-snug text-[10px] uppercase tracking-wide text-zinc-500">Net ROE</p>
             <p className={`mt-0.5 whitespace-normal leading-snug font-mono text-[16px] font-bold ${(auto?.stats.netPnlPct ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
               {(auto?.stats.netPnlPct ?? 0) >= 0 ? "+" : ""}
-              {(auto?.stats.netPnlPct ?? 0).toFixed(1)}%
+              {(auto?.stats.netPnlPct ?? 0).toFixed(2)}%
             </p>
             <p className="whitespace-normal leading-snug text-[9px] text-zinc-600">{t(lang, "auto.stats.trades", { n: auto?.stats.closed ?? 0 })}</p>
           </div>
           <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
             <p className="whitespace-normal leading-snug text-[10px] uppercase tracking-wide text-zinc-500">Win</p>
-            <p className="mt-0.5 whitespace-normal leading-snug font-mono text-[16px] font-bold text-zinc-100">{(auto?.stats.winRate ?? 0).toFixed(0)}%</p>
+            <p className="mt-0.5 whitespace-normal leading-snug font-mono text-[16px] font-bold text-zinc-100">{(auto?.stats.winRate ?? 0).toFixed(2)}%</p>
             <p className="whitespace-normal leading-snug text-[9px] text-zinc-600">
               {auto?.stats.wins ?? 0}/{auto?.stats.closed ?? 0}
             </p>
@@ -77,7 +77,7 @@ export function AutoHistory(props: any) {
                   className="font-mono text-xs font-bold text-zinc-100 hover:text-teal-300"
                   onClick={() => onPickPair(best.symbol, best.interval)}
                 >
-                  {best.symbol} {best.interval} <span className={sideClass(best.bias)}>{best.bias}</span> · {best.score.toFixed(1)}
+                  {best.symbol} {best.interval} <span className={sideClass(best.bias)}>{best.bias}</span> · {best.score.toFixed(2)}
                 </button>
               </span>
             </div>
@@ -122,20 +122,20 @@ export function AutoHistory(props: any) {
                         </span>
                       )}
                       {r.whale?.tag === "whale" && (
-                        <span title={`🐋 volZ ${(r.whale.volZ ?? 0).toFixed(1)}σ`} className="ml-1 text-amber-400">🐋</span>
+                        <span title={`🐋 volZ ${(r.whale.volZ ?? 0).toFixed(2)}σ`} className="ml-1 text-amber-400">🐋</span>
                       )}
                       {r.whale?.tag === "watch" && (
-                        <span title={`volZ ${(r.whale.volZ ?? 0).toFixed(1)}σ`} className="ml-1 text-zinc-600">🐋</span>
+                        <span title={`volZ ${(r.whale.volZ ?? 0).toFixed(2)}σ`} className="ml-1 text-zinc-600">🐋</span>
                       )}
                     </span>
                     <span className="text-zinc-500">{r.interval}</span>
                     <span className={sideClass(r.bias)}>{r.bias === "NEUTRAL" ? "—" : r.bias}</span>
                     <span className="text-right text-zinc-300" title={r.bias === "SHORT" ? t(lang, "auto.col.prob.tip") : undefined}>
-                      {(probShown(r) * 100).toFixed(1)}%
+                      {(probShown(r) * 100).toFixed(2)}%
                     </span>
                     <span className={`text-right ${r.auc >= ef.minAuc ? "text-emerald-400" : "text-zinc-500"}`}>{r.auc.toFixed(2)}</span>
-                    <span className={`text-right ${r.acc >= ef.minAcc ? "text-emerald-400" : "text-zinc-500"}`}>{r.acc.toFixed(0)}%</span>
-                    <span className={`text-right font-bold ${tradeable && !r.regressed ? "text-teal-300" : "text-zinc-600"}`}>{r.score.toFixed(1)}</span>
+                    <span className={`text-right ${r.acc >= ef.minAcc ? "text-emerald-400" : "text-zinc-500"}`}>{r.acc.toFixed(2)}%</span>
+                    <span className={`text-right font-bold ${tradeable && !r.regressed ? "text-teal-300" : "text-zinc-600"}`}>{r.score.toFixed(2)}</span>
                   </button>
                 );
               })}
@@ -188,7 +188,7 @@ export function AutoHistory(props: any) {
                     </span>
                   )}
                   <span className="ml-auto shrink-0 text-zinc-400">AUC {r.auc.toFixed(2)}</span>
-                  <span className={`shrink-0 ${r.acc >= ef.minAcc ? "text-emerald-400" : "text-zinc-500"}`}>{r.acc.toFixed(0)}%</span>
+                  <span className={`shrink-0 ${r.acc >= ef.minAcc ? "text-emerald-400" : "text-zinc-500"}`}>{r.acc.toFixed(2)}%</span>
                 </button>
               ))}
             </div>
@@ -215,7 +215,7 @@ export function AutoHistory(props: any) {
                     key={`${r.symbol}-${r.interval}-${i}`}
                     type="button"
                     onClick={() => onPickPair(r.symbol, r.interval)}
-                    title={`${r.symbol} ${r.interval} · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(0)}% · ${new Date(r.at).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}`}
+                    title={`${r.symbol} ${r.interval} · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(2)}% · ${new Date(r.at).toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}`}
                     className="flex w-full items-center gap-2 rounded px-1.5 py-0.5 font-mono text-[10px] hover:bg-zinc-800/60"
                   >
                     <span className="shrink-0">{pass ? "✅" : "❌"}</span>
@@ -225,7 +225,7 @@ export function AutoHistory(props: any) {
                     <span className={r.side === "SHORT" ? "shrink-0 text-rose-400" : "shrink-0 text-emerald-400"}>
                       {r.side === "SHORT" ? "SELL" : r.side === "LONG" ? "BUY" : "—"}
                     </span>
-                    <span className="ml-auto shrink-0 text-zinc-400">{r.score.toFixed(1)}</span>
+                    <span className="ml-auto shrink-0 text-zinc-400">{r.score.toFixed(2)}</span>
                     <span className={`shrink-0 ${pass ? "text-emerald-400" : "text-zinc-500"}`}>
                       {pass ? "TG" : r.reason}
                     </span>
@@ -270,9 +270,9 @@ export function AutoHistory(props: any) {
               return (
                 <div key={side} className="rounded-md border border-zinc-800/80 bg-zinc-900/40 px-2 py-1.5">
                   <p className={`font-mono text-[10px] font-bold ${side === "LONG" ? "text-emerald-400" : "text-rose-400"}`}>{side}</p>
-                  <p className="mt-0.5 font-mono text-sm font-bold text-zinc-100">{wr.toFixed(0)}%</p>
+                  <p className="mt-0.5 font-mono text-sm font-bold text-zinc-100">{wr.toFixed(2)}%</p>
                   <p className="font-mono text-[9px] text-zinc-600">
-                    {wins}/{closed.length} · <span className={net >= 0 ? "text-emerald-400/80" : "text-rose-400/80"}>{net >= 0 ? "+" : ""}{net.toFixed(1)}%</span>
+                    {wins}/{closed.length} · <span className={net >= 0 ? "text-emerald-400/80" : "text-rose-400/80"}>{net >= 0 ? "+" : ""}{net.toFixed(2)}%</span>
                   </p>
                 </div>
               );
@@ -300,13 +300,13 @@ export function AutoHistory(props: any) {
                   return (
                     <div key={s.side} className="rounded border border-zinc-800 bg-zinc-900/50 px-1.5 py-1">
                       <span className={s.side === "LONG" ? "text-emerald-400" : "text-rose-400"}>{s.side}</span>
-                      <span className="text-zinc-400"> {b ? `${b.winRate.toFixed(0)}%` : "?"}→{s.winRate.toFixed(0)}%</span>
+                      <span className="text-zinc-400"> {b ? `${b.winRate.toFixed(2)}%` : "?"}→{s.winRate.toFixed(2)}%</span>
                       <span className="text-zinc-600">
                         {" "}· {s.wins}/{s.closed}
                       </span>
                       <span className={`ml-1 ${s.netPnl >= 0 ? "text-emerald-400/80" : "text-rose-400/80"}`}>
                         {s.netPnl >= 0 ? "+" : ""}
-                        {s.netPnl.toFixed(1)}%
+                        {s.netPnl.toFixed(2)}%
                       </span>
                       {b && b.mismatched > 0 && <span className="block text-[9px] text-amber-400/80">{b.mismatched} ⚠</span>}
                     </div>
@@ -427,10 +427,10 @@ export function AutoHistory(props: any) {
                     <span className="whitespace-normal leading-snug text-zinc-200">{c.symbol}</span>
                     <span className="text-zinc-500">{c.interval}</span>
                     <span className="text-right text-zinc-400">{c.closed}</span>
-                    <span className={`text-right font-bold ${c.winRate >= 50 ? "text-emerald-400" : "text-rose-400"}`}>{c.winRate.toFixed(0)}%</span>
+                    <span className={`text-right font-bold ${c.winRate >= 50 ? "text-emerald-400" : "text-rose-400"}`}>{c.winRate.toFixed(2)}%</span>
                     <span className={`text-right ${(c.netPnlPct ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                       {c.netPnlPct >= 0 ? "+" : ""}
-                      {c.netPnlPct.toFixed(1)}%
+                      {c.netPnlPct.toFixed(2)}%
                     </span>
                     <span className={`text-right ${((() => { const _t = (closedHist ?? []).filter((x: any) => x.symbol === c.symbol && x.interval === c.interval).reduce((s: number, x: any) => s + (x.capitalAfter != null && x.capitalBefore != null ? x.capitalAfter - x.capitalBefore : ((x.pnlPct ?? 0) / 100) * (((x.capitalBefore ?? capitalNow) * (x.stakePct ?? 100)) / 100)), 0); return _t; })()) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{((() => { const _t = (closedHist ?? []).filter((x: any) => x.symbol === c.symbol && x.interval === c.interval).reduce((s: number, x: any) => s + (x.capitalAfter != null && x.capitalBefore != null ? x.capitalAfter - x.capitalBefore : ((x.pnlPct ?? 0) / 100) * (((x.capitalBefore ?? capitalNow) * (x.stakePct ?? 100)) / 100)), 0); return _t; })()) >= 0 ? "+$" : "-$"}{Math.abs((() => { const _t = (closedHist ?? []).filter((x: any) => x.symbol === c.symbol && x.interval === c.interval).reduce((s: number, x: any) => s + (x.capitalAfter != null && x.capitalBefore != null ? x.capitalAfter - x.capitalBefore : ((x.pnlPct ?? 0) / 100) * (((x.capitalBefore ?? capitalNow) * (x.stakePct ?? 100)) / 100)), 0); return _t; })()).toFixed(2)}</span>
                   </button>
@@ -457,7 +457,7 @@ export function AutoHistory(props: any) {
                 const t0 = r.entryTime ? new Date(r.entryTime).getTime() : 0;
                 const t1 = r.exitTime ? new Date(r.exitTime).getTime() : 0;
                 const holdMs = t0 && t1 ? Math.max(0, t1 - t0) : 0;
-                const hold = holdMs >= 3600000 ? `${(holdMs / 3600000).toFixed(1)}h` : holdMs >= 60000 ? `${Math.round(holdMs / 60000)}m` : holdMs > 0 ? `${Math.round(holdMs / 1000)}s` : "—";
+                const hold = holdMs >= 3600000 ? `${(holdMs / 3600000).toFixed(2)}h` : holdMs >= 60000 ? `${Math.round(holdMs / 60000)}m` : holdMs > 0 ? `${Math.round(holdMs / 1000)}s` : "—";
                 const reason = r.exitKind === "tp" ? "TP" : r.exitKind === "sl" ? "SL" : r.exitKind === "trail" ? "TRAIL" : r.exitKind === "flip" ? "FLIP" : (r.exitKind ?? "—");
                 return (
                 <div key={r.id} className="flex items-center gap-2 overflow-x-auto whitespace-nowrap rounded-md border border-zinc-800/80 bg-zinc-950/40 px-2 py-1 text-[10px]">
@@ -473,7 +473,7 @@ export function AutoHistory(props: any) {
                     <span className="shrink-0 font-mono text-zinc-600">{r.exitKind === "tp" ? "TP" : r.exitKind === "sl" ? "SL" : r.exitKind === "trail" ? "TRAIL" : r.exitKind === "flip" ? "FLIP" : "..."}</span>
                   </div>
                   <div className="flex shrink-0 items-center gap-x-2 font-mono text-[10px] text-zinc-500">
-                    <span>{entry != null && exit != null ? `${Number(entry).toFixed(4)} -> ${Number(exit).toFixed(4)}` : "Entry -> Exit -"}</span>
+                    <span>{entry != null && exit != null ? `${Number(entry).toFixed(2)} -> ${Number(exit).toFixed(2)}` : "Entry -> Exit -"}</span>
                     {lev != null && <span>Lev {lev}x</span>}
                     {margin != null && <span>Margin ${Number(margin).toFixed(2)}</span>}
                     {pnlUsd != null && <span className={Number(pnlUsd) >= 0 ? "text-emerald-400" : "text-rose-400"}>PNL ${Number(pnlUsd) >= 0 ? "+" : ""}{Number(pnlUsd).toFixed(2)}</span>}

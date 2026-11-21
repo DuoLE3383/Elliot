@@ -69,8 +69,8 @@ const at = readFileSync("src/lib/autotrade.ts", "utf8");
 check("engine: trừ phí trong pnlPct (movePct × lev − feeRoe)", eng.includes("movePct * row.leverage - feeRoe(row.leverage)"));
 check("route: PATCH close CÙNG công thức (một settlement, hai cửa)", rt.includes("movePct * row.leverage - feeRoe(row.leverage)"));
 check("cả hai import feeRoe từ autotrade", eng.includes("feeRoe,") && (rt.match(/import \{ feeRoe \} from "@\/lib\/autotrade";/) ?? []).length === 1);
-check("thanh lý vẫn −100 (margin sạch — phí chẳng còn gì để trừ)", (eng.match(/pnlPct = -100;/g) ?? []).length >= 1 && rt.includes("pnlPct = -100;"));
-check("phí không kéo ROE dưới đáy −100 (clamp)", eng.includes("else if (pnlPct < -100) pnlPct = -100;") && rt.includes("else if (pnlPct < -100) pnlPct = -100;"));
+check("thanh lý vẫn −100 (margin sạch — phí chẳng còn gì để trừ)", (eng.match(/remPnl = -100;/g) ?? []).length >= 1 && rt.includes("remPnl = -100;"));
+check("phí không kéo ROE dưới đáy −100 (clamp)", eng.includes("else if (remPnl < -100) remPnl = -100;") && rt.includes("else if (remPnl < -100) remPnl = -100;"));
 // 0.2.78: feeRoe chuyển nhà từ autotrade.ts sang ./params (llm.ts cần chính công
 // thức đó cho prompt fee_check mà không được import autotrade → vòng); autotrade
 // re-export nên engine/tg-msgs/route giữ nguyên import — vẫn một thuật toán.

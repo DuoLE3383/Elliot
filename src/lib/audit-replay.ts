@@ -10,7 +10,7 @@ import {
   trailNextPeak, trailMovePct, trailRoiStopPrice, trailStopPrice, trailAutoLevels,
   slTpHit, liquidationHit,
 } from "./autotrade";
-import { trailHit, trailRatchet, movePct1x, tp1Plan, combineClosePnl, SL_DEEP_FRAC } from "./trade-mgmt";
+import { trailHit, trailRatchet, movePct1x, runnerTp2, tp1Plan, combineClosePnl, SL_DEEP_FRAC, TRAIL_ROI_GIVEBACK } from "./trade-mgmt";
 import { expectedPnlPctOf } from "./audit-book";
 
 export interface ReplayKline { t: number; c: number; o?: number; h?: number; l?: number; }
@@ -83,7 +83,7 @@ export function replayExit(
     }
     if (runner) {
       const move1x = movePct1x(trade.side, entry, price);
-      if (tp2Pct > 0 && move1x >= tp2Pct) return finish(price, sorted[i].t, "tp", p1Pct, p1Share, trade, notes, { peakPrice, peakRoi, trailArmed, missedClosePrice, missedPnlPct });
+      // 0.3.40 — bỏ chốt cứng TP2: runner chạy theo trail tới hết position
       if (trailHit(trade.side, price, entry, trailPct)) return finish(price, sorted[i].t, "trail", p1Pct, p1Share, trade, notes, { peakPrice, peakRoi, trailArmed, missedClosePrice, missedPnlPct });
       const lock = trailRatchet(trailPct, Math.max(0, move1x), cfg.runnerTrailLock);
       if (lock > trailPct) trailPct = lock;
@@ -96,16 +96,16 @@ export function replayExit(
       const roiStop = trailRoiStopPrice(trade.side, entry, peakRoi, trade.leverage);
       const stop = roiStop ?? trailStopPrice(trade.side, entry, peak, act, dist);
       const curRoi = trailMovePct(trade.side, entry, price) * trade.leverage;
-      const hit = stop != null && (roiStop != null ? curRoi <= peakRoi - 1 : trade.side === "SHORT" ? price >= stop : price <= stop);
+      const hit = stop != null && (roiStop != null ? curRoi <= peakRoi - TRAIL_ROI_GIVEBACK : trade.side === "SHORT" ? price >= stop : price <= stop);
       if (hit && stop != null) {
         if (p1Pct == null) {
-          // TRAIL ROI partial — bank 50%, runner SL dời lên giá trail (evalExit)
+          // TRAIL ROI partial — bank share%, runner SL (trailPct) dời lên giá trail (evalExit)
           const stopMove = movePct1x(trade.side, entry, stop);
           const stopRoi = Math.round(stopMove * trade.leverage * 100) / 100;
           p1Pct = Math.round((stopRoi - feeRoe(trade.leverage)) * 100) / 100;
           p1Share = 0.5;
-          tp2Pct = Math.max(trade.tpPct * trade.leverage, stopRoi + 2);
-          trailPct = 0; runner = true;
+          tp2Pct = runnerTp2(trade.tpPct, cfg.runnerTpMult);
+          trailPct = stopMove; runner = true;
           notes.push(`trail ROI partial @ nến ${new Date(sorted[i].t).toISOString()} — bank 50% ROI ${stopRoi}%`);
           continue;
         }
@@ -117,8 +117,8 @@ export function replayExit(
       const plan = tp1Plan({ runnerOn: cfg.runnerOn, runnerSharePct: cfg.runnerSharePct, runnerTpMult: cfg.runnerTpMult }, trade.tpPct, trade.leverage, 0);
       if (plan) {
         const p1Net = Math.round((plan.p1Pct - feeRoe(trade.leverage)) * 100) / 100;
-        p1Pct = p1Net; p1Share = plan.share; tp2Pct = plan.tp2Pct; trailPct = 0; runner = true;
-        notes.push(`TP1 partial @ nến ${new Date(sorted[i].t).toISOString()} — bank ${(plan.share * 100).toFixed(0)}%`);
+        p1Pct = p1Net; p1Share = plan.share; tp2Pct = plan.tp2Pct; trailPct = trade.tpPct; runner = true;
+        notes.push(`TP1 partial @ nến ${new Date(sorted[i].t).toISOString()} — bank ${(plan.share * 100).toFixed(2)}%`);
         continue;
       }
       return finish(price, sorted[i].t, "tp", p1Pct, p1Share, trade, notes, { peakPrice, peakRoi, trailArmed, missedClosePrice, missedPnlPct });

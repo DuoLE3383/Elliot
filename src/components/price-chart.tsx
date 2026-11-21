@@ -243,15 +243,15 @@ export function PriceChart({
   const eqLine = (() => {
     if (!eqOn || eqH <= 4) return null;
     if (eqSeen.length === 0) {
-      const d = `M${PAD_L},${eqY(0).toFixed(1)} L${(PAD_L + plotW).toFixed(1)},${eqY(0).toFixed(1)}`;
+      const d = `M${PAD_L},${eqY(0).toFixed(2)} L${(PAD_L + plotW).toFixed(2)},${eqY(0).toFixed(2)}`;
       return { d, area: `${d} Z`, endV: 0, endY: eqY(0) };
     }
     const pts = eqSeen;
-    let d = pts[0].bar > viewStart ? `M${PAD_L},${eqY(0).toFixed(1)} L${eqX(pts[0].bar).toFixed(1)},${eqY(pts[0].cum).toFixed(1)}` : `M${eqX(pts[0].bar).toFixed(1)},${eqY(pts[0].cum).toFixed(1)}`;
-    for (let k = 1; k < pts.length; k++) d += ` L${eqX(pts[k].bar).toFixed(1)},${eqY(pts[k].cum).toFixed(1)}`;
+    let d = pts[0].bar > viewStart ? `M${PAD_L},${eqY(0).toFixed(2)} L${eqX(pts[0].bar).toFixed(2)},${eqY(pts[0].cum).toFixed(2)}` : `M${eqX(pts[0].bar).toFixed(2)},${eqY(pts[0].cum).toFixed(2)}`;
+    for (let k = 1; k < pts.length; k++) d += ` L${eqX(pts[k].bar).toFixed(2)},${eqY(pts[k].cum).toFixed(2)}`;
     const endY = eqY(pts[pts.length - 1].cum);
-    d += ` L${(PAD_L + plotW).toFixed(1)},${endY.toFixed(1)}`; // flat extension to "now"
-    const area = `${d} L${(PAD_L + plotW).toFixed(1)},${eqY(0).toFixed(1)} L${PAD_L},${eqY(0).toFixed(1)} Z`;
+    d += ` L${(PAD_L + plotW).toFixed(2)},${endY.toFixed(2)}`; // flat extension to "now"
+    const area = `${d} L${(PAD_L + plotW).toFixed(2)},${eqY(0).toFixed(2)} L${PAD_L},${eqY(0).toFixed(2)} Z`;
     return { d, area, endV: pts[pts.length - 1].cum, endY };
   })();
 

@@ -15,6 +15,7 @@ import type { EngineSettings, Kline } from "./types";
 import { INTERVALS } from "./types";
 import { biasFrom, runXgb, type WhaleReadout, type WhaleTag, type XgbBias, type XgbResult } from "./xgb";
 import { LLM_MODEL_DEFAULT, LLM_URL_DEFAULT, type LlmSetup } from "./llm";
+import { TRAIL_ROI_ARM, TRAIL_ROI_GIVEBACK } from "./trade-mgmt";
 import {
   CONF_W,
   FLIP_PROB_MIN,
@@ -168,8 +169,8 @@ export function llmTestSetup(
   return {
     setup,
     source: gated
-      ? `REAL setup — the engine's best current candidate: ${id} · score ${pick.score.toFixed(1)} · gate passed`
-      : `REAL setup — top of scan: ${id} · score ${pick.score.toFixed(1)} · gate NOT passed (no candidate above the gate yet)`,
+      ? `REAL setup — the engine's best current candidate: ${id} · score ${pick.score.toFixed(2)} · gate passed`
+      : `REAL setup — top of scan: ${id} · score ${pick.score.toFixed(2)} · gate NOT passed (no candidate above the gate yet)`,
   };
 }
 
@@ -525,7 +526,7 @@ export function flipDecision(
   if (!isTradeable(row, cfg.minAuc, cfg.minAcc, cfg.minScore))
     return {
       ok: false,
-      why: `opposite signal below the quality gate (AUC ${row.auc.toFixed(2)} / ACC ${row.acc.toFixed(1)}% / score ${row.score.toFixed(1)})`,
+      why: `opposite signal below the quality gate (AUC ${row.auc.toFixed(2)} / ACC ${row.acc.toFixed(2)}% / score ${row.score.toFixed(2)})`,
     };
   if (row.regressed) return { ok: false, why: "this combo's model is regressed vs its champion" };
   if (Math.abs(row.prob - 0.5) < pval("NOISE_BAND", NOISE_BAND)) return { ok: false, why: "signal inside the coin-flip noise band" };
@@ -541,11 +542,11 @@ export function flipDecision(
   if (fpMin > 0.5) {
     const toward = row.bias === "LONG" ? row.prob : 1 - row.prob;
     if (toward < fpMin)
-      return { ok: false, why: `flip cần prob ≥ ${(fpMin * 100).toFixed(0)}% theo phía mới (đang ${(toward * 100).toFixed(1)}%) — dưới mức ổn cho vào lệnh thường` };
+      return { ok: false, why: `flip cần prob ≥ ${(fpMin * 100).toFixed(2)}% theo phía mới (đang ${(toward * 100).toFixed(2)}%) — dưới mức ổn cho vào lệnh thường` };
   }
   const sx = pval("FLIP_SCORE_EXTRA", FLIP_SCORE_EXTRA);
   if (sx > 0 && row.score < cfg.minScore + sx) {
-    return { ok: false, why: `flip cần score ≥ ${cfg.minScore + sx} (sàn vào lệnh +${sx}; đang ${row.score.toFixed(1)})` };
+    return { ok: false, why: `flip cần score ≥ ${cfg.minScore + sx} (sàn vào lệnh +${sx}; đang ${row.score.toFixed(2)})` };
   }
   return { ok: true, why: "" };
 }
@@ -727,12 +728,12 @@ export function trailMovePct(side: string, entry: number, peak: number): number 
  *  Khi vừa armed, stop ≈ hoà vốn hoặc tốt hơn nếu dist ≤ act — đúng tinh thần
  *  "khoá lời"; trước đó SL tĩnh gốc vẫn là lưới an toàn duy nhất. */
 
-/** Trail ROI (B) — peakROI > 3% => stopROI = peakROI - 1%.
+/** Trail ROI (B) — peakROI > TRAIL_ROI_ARM (3%) => stopROI = peakROI - TRAIL_ROI_GIVEBACK (2%).
  *  Tra ve gia stop tuong ung: LONG entry*(1+(stopROI)/lev/100),
  *  SHORT entry*(1-(stopROI)/lev/100). ROI o day la % (vd 8.91 = +8.91%). */
 export function trailRoiStopPrice(side: string, entry: number, peakRoi: number, leverage: number): number | null {
-  if (!entry || !leverage || peakRoi <= 3) return null;
-  const stopRoi = peakRoi - 1;
+  if (!entry || !leverage || peakRoi <= TRAIL_ROI_ARM) return null;
+  const stopRoi = peakRoi - TRAIL_ROI_GIVEBACK;
   const m = stopRoi / leverage / 100;
   return side === "SHORT" ? entry * (1 - m) : entry * (1 + m);
 }
@@ -859,7 +860,7 @@ export function comboMemoryReason(
   if (loseStreak > 0 && mem.streak >= loseStreak)
     return `streak ${mem.streak} lỗ liên tiếp (gate ${loseStreak})`;
   if (netFloor < 0 && mem.n >= 3 && mem.net <= netFloor)
-    return `net ${mem.net.toFixed(1)}% ${mem.n} lệnh gần nhất ≤ ${netFloor}%`;
+    return `net ${mem.net.toFixed(2)}% ${mem.n} lệnh gần nhất ≤ ${netFloor}%`;
   return null;
 }
 
@@ -1298,10 +1299,10 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
     `${agentIcon} Agent: <b>${agentId}</b> · Risk ${ag[0]}% · Gate Score ${ag[1]} / AUC ${ag[2]} / ACC ${ag[3]}% · Runner ${runnerTxt}`,
     DIGEST_HR,
     `📊 <b>${capLabel}</b>: ${opened.length} opened · ${recent.length} closed · WR <b>${wr}</b>${eqTxt2} · Margin ${roe}`,
-    `💰 Equity <b>${eq}</b> USDT · ${st.stats.closed} closed all-time${st.open ? " · 1 open" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(0)}%` : "—"}`,
+    `💰 Equity <b>${eq}</b> USDT · ${st.stats.closed} closed all-time${st.open ? " · 1 open" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(2)}%` : "—"}`,
   ];
   const best = (st.byCombo ?? []).filter((c) => c.closed >= 3).sort((a, b) => b.winRate - a.winRate)[0];
-  if (best && recent.length > 0) lines.push(`🏆 Best: <b>#${baseSym(best.symbol)}</b> ${best.interval} · WR ${best.winRate.toFixed(0)}% (${best.closed} trades)`);
+  if (best && recent.length > 0) lines.push(`🏆 Best: <b>#${baseSym(best.symbol)}</b> ${best.interval} · WR ${best.winRate.toFixed(2)}% (${best.closed} trades)`);
   if (st.open)
     lines.push(`🔓 Holding: <b>#${baseSym(st.open.symbol)}</b> ${st.open.interval} ${sideTag(st.open.side)} @ ${fmtPrice(st.open.entryPrice)}`);
 
@@ -1333,7 +1334,7 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
       curDate = d;
     }
     const pnl = x.pnlPct ?? 0;
-    const pnlTxt = `${pnl >= 0 ? "+" : ""}${pnl.toFixed(1)}%`.padStart(6);
+    const pnlTxt = `${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}%`.padStart(6);
     const side = x.side === "LONG" ? "L" : x.side === "SHORT" ? "S" : "—";
     const code = DIGEST_KIND_CODE[x.exitKind ?? ""] ?? "—";
     rows.push(

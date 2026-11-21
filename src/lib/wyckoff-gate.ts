@@ -290,7 +290,7 @@ export async function wyckoffLongGate(symbol: string, universe: string[], interv
     return {
       ...base,
       ok: true,
-      reason: `Wyckoff ${trigger.toUpperCase()} pass — range ${tr.widthPct.toFixed(1)}% width · drift ${tr.driftPct.toFixed(1)}% · quality ${tr.quality.toFixed(2)}${breadth !== null ? ` · breadth ${breadth}%` : ""}`,
+      reason: `Wyckoff ${trigger.toUpperCase()} pass — range ${tr.widthPct.toFixed(2)}% width · drift ${tr.driftPct.toFixed(2)}% · quality ${tr.quality.toFixed(2)}${breadth !== null ? ` · breadth ${breadth}%` : ""}`,
       trigger,
       range: tr,
       breadth,
@@ -304,4 +304,4 @@ export async function wyckoffLongGate(symbol: string, universe: string[], interv
   }
 }
 
-const fmt = (x: number): string => (x >= 1000 ? x.toFixed(0) : x >= 1 ? x.toFixed(2) : x.toPrecision(4));
+const fmt = (x: number): string => (x >= 1000 ? x.toFixed(2) : x >= 1 ? x.toFixed(2) : x.toPrecision(4));

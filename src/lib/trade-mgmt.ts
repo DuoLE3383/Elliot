@@ -33,6 +33,12 @@ export const TRAIL_KIND = "trail";
 /** Chạm SL phải vượt sâu ≥ 15% bề rộng stop mới đóng NGAY không chờ confirm. */
 export const SL_DEEP_FRAC = 0.15;
 
+/** Trail ROI (B) — arm: đỉnh ROE vượt mức này (%) mới bắt đầu dời trail. */
+export const TRAIL_ROI_ARM = 3;
+/** Trail ROI (B) — đuổi theo: stop bám đỉnh, nhường lại đúng số % ROE này
+ *  (spec user 0.3.40: "ROI > 3% dời trail tới 2% rồi đuổi theo ROI"). */
+export const TRAIL_ROI_GIVEBACK = 2;
+
 // ─── 1 · SL confirm — wick một nhịp không còn quét sạch stop ─────────────────
 
 export interface SlPending {

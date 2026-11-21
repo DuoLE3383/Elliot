@@ -168,7 +168,7 @@ export function detectSpring(d: Kline[]): WyTrigger | null {
   if (prevVol > 0 && last.v / prevVol < pval("WYC_SPRING_EXPAND", WYC_SPRING_EXPAND)) return null;
 
   const recovery = ((last.c - support) / support) * 100;
-  return { kind: "spring", score: recovery, note: `Spring: thủng đáy ${support.toPrecision(6)} rồi đóng +${recovery.toFixed(2)}% · vol ${volAvg > 0 ? (last.v / volAvg).toFixed(1) : "—"}×` };
+  return { kind: "spring", score: recovery, note: `Spring: thủng đáy ${support.toPrecision(6)} rồi đóng +${recovery.toFixed(2)}% · vol ${volAvg > 0 ? (last.v / volAvg).toFixed(2) : "—"}×` };
 }
 
 /** _sos_volume_ratio port — vol cuối ≥ ×20n ref VÀ ≥ quantile 0.95 của ref. */
@@ -209,7 +209,7 @@ export function detectSos(d: Kline[]): WyTrigger | null {
   const isCross = mLast != null && mPrev != null && prev.c <= mPrev && last.c > mLast;
   if (!isBreakout && !isCross) return null;
 
-  return { kind: "sos", score: vr, note: `SOS: +${dayPct.toFixed(1)}% · vol ${vr.toFixed(1)}× · ${isBreakout ? `breakout ${maxHigh.toPrecision(6)}` : "crossover MA50"}` };
+  return { kind: "sos", score: vr, note: `SOS: +${dayPct.toFixed(2)}% · vol ${vr.toFixed(2)}× · ${isBreakout ? `breakout ${maxHigh.toPrecision(6)}` : "crossover MA50"}` };
 }
 
 /** _detect_evr port — "nỗ lực không thành quả": 1 nến vol ≥ 1.8× (trong cửa
@@ -237,7 +237,7 @@ export function detectEvr(d: Kline[]): WyTrigger | null {
   const evLow = ev.l;
   if (d[d.length - 1].c < evLow) return null;
 
-  return { kind: "evr", score: vr, note: `EVR: vol ${vr.toFixed(1)}× ngày ${pct >= 0 ? "+" : ""}${pct.toFixed(1)}% giữ đáy` };
+  return { kind: "evr", score: vr, note: `EVR: vol ${vr.toFixed(2)}× ngày ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}% giữ đáy` };
 }
 
 /** _detect_trend_pullback port — MA20 đang dốc lên (10 ngày), pullback 5–20%
@@ -279,7 +279,7 @@ export function detectTrendPullback(d: Kline[]): WyTrigger | null {
   const volRatio = downMean / upMean;
   if (volRatio > pval("WYC_TP_VOL", WYC_TP_VOL)) return null;
 
-  return { kind: "trend_pullback", score: 1 - volRatio, note: `TrendPullback: rút −${pullback.toFixed(1)}% rồi hồi, vol xuống ${volRatio.toFixed(2)}× vol lên` };
+  return { kind: "trend_pullback", score: 1 - volRatio, note: `TrendPullback: rút −${pullback.toFixed(2)}% rồi hồi, vol xuống ${volRatio.toFixed(2)}× vol lên` };
 }
 
 // ── L5 exit — port _compute_stop_loss / _stop_loss_exit_signal /
@@ -376,7 +376,7 @@ export function detectUpthrust(d: Kline[]): { reason: string } | null {
     return null;
   }
   return {
-    reason: `Upthrust sau phân phối: thủng ${breakoutPct.toFixed(1)}% rồi đóng −${closeBackPct.toFixed(1)}% dưới resistance · râu ${Math.round(shadowRatio * 100)}% · vol ${volRatio.toFixed(1)}× · bias200 ${bias200.toFixed(0)}%`,
+    reason: `Upthrust sau phân phối: thủng ${breakoutPct.toFixed(2)}% rồi đóng −${closeBackPct.toFixed(2)}% dưới resistance · râu ${Math.round(shadowRatio * 100)}% · vol ${volRatio.toFixed(2)}× · bias200 ${bias200.toFixed(2)}%`,
   };
 }
 
@@ -397,7 +397,7 @@ export function detectDistribution(d: Kline[]): { reason: string } | null {
   const recentVol = vol.slice(-confirm).reduce((s, x) => s + x, 0) / confirm;
   if (refVol <= 0) return null;
   if (recentVol >= refVol * 0.5) return null;
-  return { reason: `Distribution: bias200 +${bias.toFixed(0)}% + ${confirm} ngày vol ${((recentVol / refVol) * 100).toFixed(0)}% ref (khô ở đỉnh)` };
+  return { reason: `Distribution: bias200 +${bias.toFixed(2)}% + ${confirm} ngày vol ${((recentVol / refVol) * 100).toFixed(2)}% ref (khô ở đỉnh)` };
 }
 
 // ── L2 markup + RPS ───────────────────────────────────────────────────────────
@@ -420,7 +420,7 @@ export function layer2(closes: number[], ret20: number, ret60: number, rpsMap: {
 
   const bias200 = ((closes[closes.length - 1] - m200) / m200) * 100;
   if (bias200 > pval("WYC_BIAS200_MAX", WYC_BIAS200_MAX)) {
-    return { markupOk: false, reason: `bias200 +${bias200.toFixed(0)}% > ${pval("WYC_BIAS200_MAX", WYC_BIAS200_MAX)}% — quá nóng (gốc global_entry_max_bias_200)`, bias200, rps50: 0, rps120: 0 };
+    return { markupOk: false, reason: `bias200 +${bias200.toFixed(2)}% > ${pval("WYC_BIAS200_MAX", WYC_BIAS200_MAX)}% — quá nóng (gốc global_entry_max_bias_200)`, bias200, rps50: 0, rps120: 0 };
   }
   // markup confirm: MA50 > MA200 giữ N ngày liên tục
   const need = pval("WYC_MARKUP_CONFIRM_DAYS", WYC_MARKUP_CONFIRM_DAYS);
@@ -439,7 +439,7 @@ export function layer2(closes: number[], ret20: number, ret60: number, rpsMap: {
   if (m50Prev != null && m50Prev > 0) {
     const angle = ((m50 - m50Prev) / m50Prev) * 100;
     if (angle < pval("WYC_MA50_ANGLE_MIN", WYC_MA50_ANGLE_MIN)) {
-      return { markupOk: false, reason: `góc MA50 ${angle.toFixed(1)}%/5d < ${pval("WYC_MA50_ANGLE_MIN", WYC_MA50_ANGLE_MIN)}%`, bias200, rps50: 0, rps120: 0 };
+      return { markupOk: false, reason: `góc MA50 ${angle.toFixed(2)}%/5d < ${pval("WYC_MA50_ANGLE_MIN", WYC_MA50_ANGLE_MIN)}%`, bias200, rps50: 0, rps120: 0 };
     }
   }
   // RPS percentile trong universe
@@ -453,15 +453,15 @@ export function layer2(closes: number[], ret20: number, ret60: number, rpsMap: {
   const rps50Min = pval("WYC_RPS50_MIN", WYC_RPS50_MIN);
   const rps120Min = pval("WYC_RPS120_MIN", WYC_RPS120_MIN);
   if (rps120 < rps120Min) {
-    return { markupOk: false, reason: `RPS120 ${rps120.toFixed(0)} < ${rps120Min}`, bias200, rps50, rps120 };
+    return { markupOk: false, reason: `RPS120 ${rps120.toFixed(2)} < ${rps120Min}`, bias200, rps50, rps120 };
   }
   // bypass gốc: RPS120 ≥ 80 → RPS50 chỉ cần ≥ 50
   const strong = rps120 >= pval("WYC_RPS120_STRONG", WYC_RPS120_STRONG);
   const need50 = strong ? 50 : rps50Min;
   if (rps50 < need50) {
-    return { markupOk: false, reason: `RPS50 ${rps50.toFixed(0)} < ${need50}${strong ? " (bypass strong)" : ""}`, bias200, rps50, rps120 };
+    return { markupOk: false, reason: `RPS50 ${rps50.toFixed(2)} < ${need50}${strong ? " (bypass strong)" : ""}`, bias200, rps50, rps120 };
   }
-  return { markupOk: true, reason: `markup OK · bias200 ${bias200.toFixed(0)}% · RPS ${rps50.toFixed(0)}/${rps120.toFixed(0)}`, bias200, rps50, rps120 };
+  return { markupOk: true, reason: `markup OK · bias200 ${bias200.toFixed(2)}% · RPS ${rps50.toFixed(2)}/${rps120.toFixed(2)}`, bias200, rps50, rps120 };
 }
 
 // ── sổ C — chuỗi vốn + tick ───────────────────────────────────────────────────

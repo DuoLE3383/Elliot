@@ -69,7 +69,7 @@ function Donut({ slices, winRate, label, sub, subClass }: {
               winRate == null ? "text-zinc-600" : winRate >= 50 ? "text-emerald-400" : "text-rose-400"
             }`}
           >
-            {winRate == null ? "—" : `${winRate.toFixed(0)}%`}
+            {winRate == null ? "—" : `${winRate.toFixed(2)}%`}
           </span>
           <span className="text-[9px] uppercase tracking-wide text-zinc-600">win</span>
         </div>
@@ -113,7 +113,7 @@ export function StrategyPies({ lang, pies, n, leverage }: Props) {
               label={t(lang, `strat.${key}`)}
               sub={
                 k.closed > 0
-                  ? `${k.netPnl >= 0 ? "+" : ""}${k.netPnl.toFixed(1)}% · ${t(lang, "analysis.pies.trades", { n: String(k.closed) })}`
+                  ? `${k.netPnl >= 0 ? "+" : ""}${k.netPnl.toFixed(2)}% · ${t(lang, "analysis.pies.trades", { n: String(k.closed) })}`
                   : t(lang, "analysis.pies.empty")
               }
               subClass={k.closed > 0 ? (k.netPnl >= 0 ? "text-emerald-400/90" : "text-rose-400/90") : "text-zinc-600"}

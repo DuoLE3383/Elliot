@@ -294,14 +294,14 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         {
           k: "Forecast",
           v: forecast.v,
-          sub: `${(lean * 100).toFixed(0)}% lean · Σprob LONG ${wLong.toFixed(1)} vs SHORT ${wShort.toFixed(1)}`,
+          sub: `${(lean * 100).toFixed(2)}% lean · Σprob LONG ${wLong.toFixed(2)} vs SHORT ${wShort.toFixed(2)}`,
           tone: forecast.tone,
           hint: "Trend forecast = probability-weighted consensus of the latest scan: lean = (Σprob LONG − Σprob SHORT) / (Σprob both), NEUTRAL excluded. lean ≥ +15% → LONG, ≤ −15% → SHORT, else BALANCED. Aggregation of existing model outputs, not a new predictive model.",
           hintVi: "Dự báo xu hướng = đồng thuận có trọng số xác suất từ scan mới nhất: lean = (Σprob LONG − Σprob SHORT)/(Σprob hai bên), bỏ NEUTRAL. lean ≥ +15% → LONG, ≤ −15% → SHORT, còn lại BALANCED. Đây là tổng hợp output các model hiện có, không phải model dự báo mới.",
         },
         {
           k: "Directional coverage",
-          v: scanRows.length > 0 ? `${(dirShare * 100).toFixed(0)}% (${dirN}/${scanRows.length})` : "—",
+          v: scanRows.length > 0 ? `${(dirShare * 100).toFixed(2)}% (${dirN}/${scanRows.length})` : "—",
           sub: "scan combos with a LONG/SHORT bias",
           tone: dirShare >= 0.3 ? "ok" : dirShare > 0 ? "info" : "dim",
           hint: "Share of scanned combos currently directional (not NEUTRAL). Low coverage = the models see no clear edge right now — a balanced/flat market.",
@@ -311,7 +311,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
           ? [{
               k: "Strongest signal",
               v: `${best.symbol.replace("USDT", "")} ${best.interval}`,
-              sub: `${best.bias} · prob ${(best.prob * 100).toFixed(0)}% · score ${best.score.toFixed(1)}`,
+              sub: `${best.bias} · prob ${(best.prob * 100).toFixed(2)}% · score ${best.score.toFixed(2)}`,
               tone: (best.bias === "LONG" ? "ok" : "bad") as StatTone,
               hint: "Highest-probability directional row in the latest scan (prob already aligned to the bias side) — the model's most confident call right now.",
               hintVi: "Dòng có xác suất cao nhất trong scan mới nhất (prob đã căn theo phía bias) — phán đoán tự tin nhất của model lúc này.",
@@ -391,7 +391,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
                   label: `${c.symbol.replace("USDT", "")} ${c.interval}`,
                   v: c.winRate,
                   // (0.2.91) chi tiết hover từng cột: số lệnh + ROE ròng
-                  sub: [`${c.closed} trades`, `net ${c.netPnlPct >= 0 ? "+" : ""}${c.netPnlPct.toFixed(1)}%`],
+                  sub: [`${c.closed} trades`, `net ${c.netPnlPct >= 0 ? "+" : ""}${c.netPnlPct.toFixed(2)}%`],
                 })),
                 hint: "Win rate per pair+timeframe (top 6 by closed trades, 0–100%). Bars ≥50% are green-tinted on the page. Hover a bar for trades count and net ROE.",
                 hintVi: "Win rate theo cặp+khung giờ (top 6 theo số lệnh đóng, 0–100%). Di chuột lên cột để xem số lệnh và ROE ròng.",
@@ -404,7 +404,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
                 items: combos.map((c) => ({
                   label: `${c.symbol.replace("USDT", "")} ${c.interval}`,
                   v: c.closed > 0 ? c.netPnlPct / c.closed : 0,
-                  sub: [`${c.closed} trades`, `WR ${c.winRate.toFixed(0)}%`, `net tổng ${c.netPnlPct >= 0 ? "+" : ""}${c.netPnlPct.toFixed(1)}%`],
+                  sub: [`${c.closed} trades`, `WR ${c.winRate.toFixed(2)}%`, `net tổng ${c.netPnlPct >= 0 ? "+" : ""}${c.netPnlPct.toFixed(2)}%`],
                 })),
                 hint: "Average ROE per closed trade for each pair+timeframe (net ROE sum ÷ trades) — the trade QUALITY behind the win rate: 67% WR can still lose money when losses outweigh wins. Hover a bar for trades, WR and net sum.",
                 hintVi: "ROE trung bình mỗi lệnh đã đóng theo cặp+khung (tổng ROE ròng ÷ số lệnh) — CHẤT LƯỢNG lệnh đằng sau win rate: WR 67% vẫn có thể lỗ nếu lỗ to hơn lãi. Di chuột xem số lệnh, WR và tổng net.",
@@ -418,8 +418,8 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         ...combos.map(
           (c): StatMetric => ({
             k: `${c.symbol.replace("USDT", "")} ${c.interval}`,
-            v: `${c.winRate.toFixed(0)}%`,
-            sub: `${c.closed} trades · net ${c.netPnlPct >= 0 ? "+" : ""}${c.netPnlPct.toFixed(1)}%`,
+            v: `${c.winRate.toFixed(2)}%`,
+            sub: `${c.closed} trades · net ${c.netPnlPct >= 0 ? "+" : ""}${c.netPnlPct.toFixed(2)}%`,
             // WR ≥50% xanh, ≥40% vàng, dưới đỏ — cùng ngưỡng với bảng theo cặp
             tone: c.winRate >= 50 ? "ok" : c.winRate >= 40 ? "warn" : "bad",
             hint: "Win rate of this pair+timeframe (win = ROE > 0). Tint: ≥50% green, 40–49% amber, <40% red. Sub shows trade count and net ROE sum.",
@@ -466,7 +466,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
           ? [{
               k: "Top ranked",
               v: top.symbol.replace("USDT", ""),
-              sub: `score ${top.score.toFixed(2)} · ATR ${top.atrPct.toFixed(2)}% · trend ${(top.trend * 100).toFixed(0)}% · 10d ${(top.ret10d * 100).toFixed(1)}%`,
+              sub: `score ${top.score.toFixed(2)} · ATR ${top.atrPct.toFixed(2)}% · trend ${(top.trend * 100).toFixed(2)}% · 10d ${(top.ret10d * 100).toFixed(2)}%`,
               tone: "info" as StatTone,
               hint: "Best score right now. Sub: total score, ATR% (volatility), trend share (0–100%) and 10-day return of that pair.",
               hintVi: "Cặp có điểm cao nhất lúc này. Dòng dưới: tổng điểm, ATR% (biến động), tỉ lệ xu hướng (0–100%) và lợi nhuận 10 ngày.",
@@ -526,7 +526,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       metrics: [
         { k: "Mode", v: cfg.on ? "Auto ON" : "Auto OFF", sub: "paper dry-run only", tone: cfg.on ? "ok" : "warn", hint: "Engine auto-trading switch (cfg.on). Green = engine may open dry-run trades automatically; amber = manual only. No real orders either way.", hintVi: "Công tắc tự động giao dịch (cfg.on). Xanh = engine được tự mở lệnh giấy; vàng = chỉ thủ công. Cả hai đều không phải lệnh thật." },
         { k: "Equity", v: st.capital != null ? `$${st.capital.toFixed(2)}` : "—", sub: "start $1000", tone: st.capital == null ? "dim" : st.capital > 1000 ? "ok" : st.capital < 1000 ? "bad" : "info", hint: "Current virtual capital. Above $1000 = net paper profit (green), below = net loss (red). See the equity curve below for the path.", hintVi: "Vốn ảo hiện tại. Trên $1000 = đang lãi giấy (xanh), dưới = đang lỗ (đỏ). Xem đường vốn bên dưới để biết hành trình." },
-        { k: "Closed / wins", v: `${st.stats.closed} / ${st.stats.wins}`, sub: `win rate ${st.stats.winRate.toFixed(0)}%`, tone: st.stats.closed === 0 ? "dim" : st.stats.winRate >= 50 ? "ok" : st.stats.winRate >= 40 ? "warn" : "bad", hint: "Closed trades / wins of the dry-run engine. Win-rate tint: ≥50% green, 40–49% amber, <40% red.", hintVi: "Số lệnh đã đóng / số thắng của engine dry-run. Màu WR: ≥50% xanh, 40–49% vàng, <40% đỏ." },
+        { k: "Closed / wins", v: `${st.stats.closed} / ${st.stats.wins}`, sub: `win rate ${st.stats.winRate.toFixed(2)}%`, tone: st.stats.closed === 0 ? "dim" : st.stats.winRate >= 50 ? "ok" : st.stats.winRate >= 40 ? "warn" : "bad", hint: "Closed trades / wins of the dry-run engine. Win-rate tint: ≥50% green, 40–49% amber, <40% red.", hintVi: "Số lệnh đã đóng / số thắng của engine dry-run. Màu WR: ≥50% xanh, 40–49% vàng, <40% đỏ." },
         { k: "Net ROE sum", v: `${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(2)}%`, tone: st.stats.netPnlPct > 0 ? "ok" : st.stats.netPnlPct < 0 ? "bad" : "dim", hint: "Sum of per-trade ROE (pnlPct, leverage-inclusive, net of round-trip fees since 0.2.77) over closed trades — NOT compounded; the equity curve shows the compounded path.", hintVi: "Tổng ROE từng lệnh (pnlPct, đã gồm đòn bẩy, đã trừ phí round-trip từ 0.2.77) của các lệnh đóng — KHÔNG compounding; đường vốn mới là đường cộng dồn." },
         { k: "Lesson samples", v: `${st.stats.closed * lw}`, sub: `${st.stats.closed} trades × LESSON_WEIGHT ${lw}`, tone: "info", hint: "Pseudo-sample count feeding the self-learning loop: each closed trade counts LESSON_WEIGHT times when re-ranking parameters.", hintVi: "Số mẫu giả nạp vào vòng tự học: mỗi lệnh đóng được tính LESSON_WEIGHT lần khi xếp lại tham số." },
       ],
@@ -551,7 +551,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         .map((b) => ({
           label: bandLabel(b),
           v: Math.round(b.exp * 100) / 100,
-          sub: [`${b.n} lệnh · WR ${b.wr.toFixed(0)}% · TB ${b.exp >= 0 ? "+" : ""}${b.exp.toFixed(2)}%/lệnh`],
+          sub: [`${b.n} lệnh · WR ${b.wr.toFixed(2)}% · TB ${b.exp >= 0 ? "+" : ""}${b.exp.toFixed(2)}%/lệnh`],
         }));
     const bandChart = (bands: DqfBand[] | undefined, unitName: string, hint: string, hintVi: string) =>
       (bands ?? []).some((b) => b.n > 0)
@@ -603,7 +603,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         { k: "Công tắc", v: f.on ? "DQF BẬT" : "DQF TẮT", sub: f.on ? "sàn tự học theo session" : "sàn = cfg panel", tone: f.on ? "ok" : "warn", hint: "DQF master switch (POST /api/dqf). ON = the dynamic quality floor learns from the whole Elliott session and overrides the panel floors at entry/flip time. OFF = panel cfg floors only. Either way nothing is applied below the safe defaults (60/0.80/70).", hintVi: "Công tắc chính DQF (POST /api/dqf). BẬT = sàn chất lượng tự học từ toàn bộ session Elliott và đè sàn panel lúc vào lệnh/flip. TẮT = chỉ dùng sàn cfg panel. Cả hai đều không bao giờ xuống dưới mặc định an toàn (60/0.80/70)." },
         { k: "Sàn hiệu lực", v: s ? fmtF(s.floors) : fmtF({ minScore: 60, minAuc: 0.8, minAcc: 70 }), sub: s ? `nguồn: ${s.src === "dqf" ? "DQF tự học" : "cfg panel (chưa đủ mẫu/tắt)"}` : "chưa có chu kỳ nào chạy", tone: s?.src === "dqf" ? "ok" : "info", hint: "The floors the engine ACTUALLY used last cycle: minScore / minAuc / minAcc (entry + flip + funnel tooltips). Source shows who decided: DQF (learned) vs cfg (panel).", hintVi: "Sàn engine ĐÃ DÙNG ở chu kỳ gần nhất: minScore / minAuc / minAcc (vào lệnh + flip + tooltip funnel). Nguồn cho biết ai quyết: DQF (tự học) hay cfg (panel)." },
         { k: "Mục tiêu bands", v: s?.target ? fmtF(s.target) : "—", sub: "ngưỡng hoà vốn từng metric", tone: "info", hint: "Band-derived target: for each metric the smallest floor whose entry-group has expectancy ≥ 0 (min 10 trades). Floors evolve ONE step (±2 score / ±0.01 AUC / ±1 ACC) toward it every ≤30min, clamped to defaults..caps.", hintVi: "Mục tiêu suy từ băng: với từng metric là ngưỡng NHỎ NHẤT mà nhóm lệnh ≥ ngưỡng có expectancy ≥ 0 (tối thiểu 10 lệnh). Sàn tiến hoá TỪNG BẬC (±2 điểm / ±0.01 AUC / ±1 ACC) mỗi ≤30 phút về phía mục tiêu, kẹp trong default..trần." },
-        { k: "Session (toàn bộ)", v: `${nSess} lệnh`, sub: sess ? `WR ${sess.wr.toFixed(0)}% · exp ${sess.exp >= 0 ? "+" : ""}${sess.exp.toFixed(2)}%/lệnh · net ${sess.net >= 0 ? "+" : ""}${sess.net.toFixed(1)}%` : "—", tone: !sess ? "dim" : sess.exp >= 0 ? "ok" : "bad", hint: "The WHOLE Elliott dry-run session (every closed AutoTrade row, flips included) — the dataset DQF learns from. Need ≥ 20 closed trades before it may speak.", hintVi: "TOÀN BỘ session dry-run Elliott (mọi lệnh AutoTrade đã đóng, kể cả flip) — tập dữ liệu DQF học. Cần ≥ 20 lệnh đóng trước khi được phát ngôn." },
+        { k: "Session (toàn bộ)", v: `${nSess} lệnh`, sub: sess ? `WR ${sess.wr.toFixed(2)}% · exp ${sess.exp >= 0 ? "+" : ""}${sess.exp.toFixed(2)}%/lệnh · net ${sess.net >= 0 ? "+" : ""}${sess.net.toFixed(2)}%` : "—", tone: !sess ? "dim" : sess.exp >= 0 ? "ok" : "bad", hint: "The WHOLE Elliott dry-run session (every closed AutoTrade row, flips included) — the dataset DQF learns from. Need ≥ 20 closed trades before it may speak.", hintVi: "TOÀN BỘ session dry-run Elliott (mọi lệnh AutoTrade đã đóng, kể cả flip) — tập dữ liệu DQF học. Cần ≥ 20 lệnh đóng trước khi được phát ngôn." },
         { k: "Payoff", v: sess && Number.isFinite(sess.payoff) ? sess.payoff.toFixed(2) : "—", sub: "lãi TB / lỗ TB", tone: !sess ? "dim" : sess.payoff >= 1 ? "ok" : "warn", hint: "Average win / average loss of the session — payoff < 1 with low WR is the bleed pattern that pushes floors up.", hintVi: "Lãi TB / lỗ TB của session — payoff < 1 kèm WR thấp là kiểu chảy máu khiến sàn bị siết lên." },
         { k: "Lý do hiện tại", v: s?.why ? (s.why.length > 64 ? `${s.why.slice(0, 64)}…` : s.why) : "—", wide: true, tone: "info", hint: s?.why ?? "Full reason with numbers from the last DQF decision (also in pm2 logs at every change).", hintVi: s?.why ?? "Lý do đầy đủ kèm số của quyết định DQF gần nhất (cũng nằm trong log pm2 mỗi lần đổi)." },
         { k: "Tiến hoá gần nhất", v: lastChange, wide: true, tone: hist0 ? "info" : "dim", hint: "Latest floor step: time + from → to (one step per change; full history below via the charts and db/dqf-state.json).", hintVi: "Bậc sàn gần nhất: thời điểm + from → to (mỗi lần đổi một bậc; lịch sử đầy đủ nằm trong phần biểu đồ và file db/dqf-state.json)." },
@@ -634,7 +634,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       state: (stale ? "warn" : "ok") as StatState,
       note: stale
         ? `Latest scan ${age == null ? "unknown" : `${age}m`} old — past SCAN_TTL ${SCAN_TTL / 60_000}m: panel keeps last scan by design; auto-cycle refreshes next 5m bucket.`
-        : `Fresh scan (< ${SCAN_TTL / 60_000}m). Candidates counted with the same auto-cycle filters: gate minAuc ${cfg.minAuc}/minAcc ${cfg.minAcc}/minScore ${cfg.minScore} + not regressed vs champion + outside noise band ±${(nb * 100).toFixed(0)}%.`,
+        : `Fresh scan (< ${SCAN_TTL / 60_000}m). Candidates counted with the same auto-cycle filters: gate minAuc ${cfg.minAuc}/minAcc ${cfg.minAcc}/minScore ${cfg.minScore} + not regressed vs champion + outside noise band ±${(nb * 100).toFixed(2)}%.`,
       accPct: 100,
       accNote: "live scan metrics — counted on ScanRow",
       accent: "amber" as StatAccent,
@@ -652,7 +652,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         : {}),
       metrics: [
         { k: "Latest scan", v: scan ? ago(scan.at) : "not scanned", sub: `${rows.length} combo`, tone: scan ? "info" : "bad", hint: "Age of the last full-pool scan (scheduler runs every 5m bucket). Past SCAN_TTL it is stale but kept by design.", hintVi: "Tuổi của lần scan toàn pool gần nhất (scheduler chạy theo bucket 5 phút). Quá SCAN_TTL là cũ nhưng vẫn giữ theo thiết kế." },
-        { k: "Gate-pass candidates", v: `${cands.length}/${rows.length}`, sub: cands[0] ? `best ${cands[0].symbol.replace("USDT", "")} ${cands[0].interval} score ${cands[0].score.toFixed(1)}` : "—", tone: cands.length > 0 ? "ok" : "warn", hint: "Rows passing the EXACT auto-cycle filter: quality gate (minAuc/minAcc/minScore) + not regressed vs champion + |prob−0.5| ≥ NOISE_BAND. Green when at least one candidate is actionable.", hintVi: "Số dòng qua đúng bộ lọc auto-cycle: cổng chất lượng (minAuc/minAcc/minScore) + không regress so với champion + |prob−0.5| ≥ NOISE_BAND. Xanh khi có ít nhất 1 ứng viên." },
+        { k: "Gate-pass candidates", v: `${cands.length}/${rows.length}`, sub: cands[0] ? `best ${cands[0].symbol.replace("USDT", "")} ${cands[0].interval} score ${cands[0].score.toFixed(2)}` : "—", tone: cands.length > 0 ? "ok" : "warn", hint: "Rows passing the EXACT auto-cycle filter: quality gate (minAuc/minAcc/minScore) + not regressed vs champion + |prob−0.5| ≥ NOISE_BAND. Green when at least one candidate is actionable.", hintVi: "Số dòng qua đúng bộ lọc auto-cycle: cổng chất lượng (minAuc/minAcc/minScore) + không regress so với champion + |prob−0.5| ≥ NOISE_BAND. Xanh khi có ít nhất 1 ứng viên." },
         { k: "NEUTRAL (skipped)", v: String(rows.filter((r) => r.bias === "NEUTRAL").length), tone: "dim", hint: "Combos the model tagged NEUTRAL — intentionally skipped, never traded.", hintVi: "Số combo model đánh dấu NEUTRAL — cố ý bỏ qua, không bao giờ vào lệnh." },
         { k: "Bcast gate 5m", v: `${pass}/${bcast.length} pass`, sub: "single gate algorithm for panel + Telegram", tone: bcast.length > 0 && pass === bcast.length ? "ok" : pass > 0 ? "info" : "warn", hint: "Broadcast verdicts stored in the DB that passed the gate — the SAME algorithm filters panel display and Telegram messages.", hintVi: "Verdict broadcast lưu trong DB đã qua cổng — panel và Telegram dùng CÙNG một thuật toán lọc." },
       ],
@@ -686,7 +686,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       state: (durH > 24 ? "warn" : "ok") as StatState,
       note:
         durH > 24
-          ? `Position open ${durH.toFixed(1)}h (>24h) — long vs 5m/flip cadence; only if no TP/SL/flip signal was strong enough. Worth LLM review.`
+          ? `Position open ${durH.toFixed(2)}h (>24h) — long vs 5m/flip cadence; only if no TP/SL/flip signal was strong enough. Worth LLM review.`
           : "Single dry-run position at a time. ROE = live Binance futures move × leverage — same formula as closeTradeDirect.",
       accPct: 100,
       accNote: "live price at request time (if Binance responds)",
@@ -694,7 +694,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       metrics: [
         // LONG xanh / SHORT đỏ — đúng quy ước side của cả app (suggestions, auto-panel…)
         { k: "Position", v: `${o.side} ${o.symbol.replace("USDT", "")} ${o.interval}`, sub: `×${o.leverage} · stake ${o.stakePct ?? 100}%`, tone: o.side === "LONG" ? "ok" : "bad", hint: "The single dry-run position: side (green LONG / red SHORT), pair, timeframe; sub = leverage and % of virtual capital staked.", hintVi: "Vị thế dry-run duy nhất: phía (LONG xanh / SHORT đỏ), cặp, khung; dòng dưới = đòn bẩy và % vốn ảo đang đặt." },
-        { k: "Entry", v: String(o.entryPrice), sub: `${durH.toFixed(1)}h ago`, tone: "info", hint: "Entry price recorded when the trade opened; sub = age of the position in hours.", hintVi: "Giá vào lệnh được ghi lúc mở; dòng dưới = tuổi vị thế theo giờ." },
+        { k: "Entry", v: String(o.entryPrice), sub: `${durH.toFixed(2)}h ago`, tone: "info", hint: "Entry price recorded when the trade opened; sub = age of the position in hours.", hintVi: "Giá vào lệnh được ghi lúc mở; dòng dưới = tuổi vị thế theo giờ." },
         ...(roe != null ? [{ k: "Unrealized ROE", v: `${roe >= 0 ? "+" : ""}${roe.toFixed(2)}%`, tone: (roe >= 0 ? "ok" : "bad") as StatTone, hint: "Floating ROE = price move toward the side × leverage, priced from the Binance futures ticker at request time — the same formula closeTradeDirect uses to settle.", hintVi: "ROE thả nổi = biến động giá theo phía × đòn bẩy, tính từ giá futures Binance tại lúc gọi — cùng công thức closeTradeDirect dùng để chốt." }] : []),
         { k: "SL / TP", v: `${o.slPct}% / ${o.tpPct}%`, ...(slDist != null ? { sub: `to SL ${slDist >= 0 ? "+" : ""}${slDist.toFixed(2)} pts %` } : {}), tone: "info", hint: "Configured stop-loss / take-profit in ROE %. Sub = distance from current price to the SL level in price % (positive = price is above the SL distance).", hintVi: "Cắt lỗ / chốt lời đã đặt theo % ROE. Dòng dưới = khoảng cách từ giá hiện tại tới mức SL theo % giá." },
         { k: "LLM at entry", v: o.llmVerdict ?? "—", sub: o.llmReason ?? undefined, tone: o.llmVerdict === "go" ? "ok" : o.llmVerdict === "skip" ? "warn" : o.llmVerdict ? "bad" : "dim", hint: "Risk-officer LLM verdict at entry: go = approved (green), skip = declined (amber), unreachable = LLM was down (red). Sub = the reason it gave.", hintVi: "Verdict của LLM risk officer lúc vào lệnh: go = duyệt (xanh), skip = từ chối (vàng), unreachable = LLM không phản hồi (đỏ). Dòng dưới = lý do." },
@@ -767,7 +767,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       return {
         label: side,
         v: rowsS.length ? (winsS / rowsS.length) * 100 : 0,
-        sub: [`${winsS}/${rowsS.length} trades`, `net ${netS >= 0 ? "+" : ""}${netS.toFixed(1)}%`],
+        sub: [`${winsS}/${rowsS.length} trades`, `net ${netS >= 0 ? "+" : ""}${netS.toFixed(2)}%`],
       };
     });
     if (closed.length > 0) {
@@ -795,7 +795,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         // TP nhiều hơn SL xanh, ngược lại đỏ — bằng nhau thì teal
         { k: "TP / SL", v: `${kinds.tp} / ${kinds.sl}`, sub: `trail ${kinds.trail} · flip ${kinds.flip} · tay ${kinds.manual}`, tone: kinds.tp > kinds.sl ? "ok" : kinds.tp < kinds.sl ? "bad" : "info", hint: "Take-profit vs stop-loss closes. More TP than SL = green; the sub counts the other close kinds (trail/flip/manual).", hintVi: "Số lệnh đóng ở chốt lời so với cắt lỗ. TP nhiều hơn SL = xanh; dòng dưới đếm các kiểu đóng khác (trail/flip/manual)." },
         ...(avg != null ? [{ k: "Avg ROE", v: `${avg >= 0 ? "+" : ""}${avg.toFixed(2)}%`, tone: (avg > 0 ? "ok" : avg < 0 ? "bad" : "dim") as StatTone, hint: "Mean ROE across all closed trades — the expectancy per trade before compounding.", hintVi: "ROE trung bình mọi lệnh đã đóng — kỳ vọng mỗi lệnh trước khi cộng dồn." }] : []),
-        ...(best != null ? [{ k: "Best / worst", v: `+${best.toFixed(1)}% / ${worst ?? 0}%`, tone: "info" as StatTone, hint: "Best and worst single-trade ROEs ever recorded — the tail risk you survived.", hintVi: "ROE tốt nhất và xấu nhất của một lệnh từ trước tới nay — rủi ro đuôi mà bạn đã sống sót." }] : []),
+        ...(best != null ? [{ k: "Best / worst", v: `+${best.toFixed(2)}% / ${worst ?? 0}%`, tone: "info" as StatTone, hint: "Best and worst single-trade ROEs ever recorded — the tail risk you survived.", hintVi: "ROE tốt nhất và xấu nhất của một lệnh từ trước tới nay — rủi ro đuôi mà bạn đã sống sót." }] : []),
         { k: "Last 7 days", v: `${last7d} closed trades`, tone: "info", hint: "Trades closed in the past 7 days — recent activity level of the engine.", hintVi: "Số lệnh đóng trong 7 ngày qua — mức độ hoạt động gần đây của engine." },
       ],
     };
@@ -879,7 +879,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       metrics: [
         { k: "Total suggestions", v: String(rows.length), sub: `${rows.length - res.length} awaiting horizon`, tone: "info", hint: "All stored suggestions (model proposals written during scans); sub = how many have not yet passed their evaluation horizon.", hintVi: "Mọi đề xuất đã lưu (model ghi trong lúc scan); dòng dưới = số chưa quá horizon chấm kết quả." },
         { k: "Win / Loss", v: `${win} / ${loss}`, sub: `flat ${flat} (excluded from hit-rate)`, tone: judged === 0 ? "dim" : win > loss ? "ok" : win < loss ? "bad" : "info", hint: "Resolved outcomes: win = price moved with the bias side between write and read; flat counts as neither.", hintVi: "Kết quả đã chấm: win = giá đi đúng phía bias từ lúc ghi tới lúc đọc; flat không tính bên nào." },
-        { k: "Side-aware hit-rate", v: judged > 0 ? `${((win / judged) * 100).toFixed(0)}%` : "—", sub: "prob aligned to bias side", tone: judged === 0 ? "dim" : (win / judged) * 100 >= 50 ? "ok" : (win / judged) * 100 >= 40 ? "warn" : "bad", hint: "win / (win + loss) — the probability of each suggestion was already aligned to its bias side, so this is the honest directional accuracy. Tint: ≥50% green, 40–49% amber.", hintVi: "win / (win + loss) — xác suất của từng đề xuất đã căn theo phía bias nên đây là độ chính xác hướng trung thực. Màu: ≥50% xanh, 40–49% vàng." },
+        { k: "Side-aware hit-rate", v: judged > 0 ? `${((win / judged) * 100).toFixed(2)}%` : "—", sub: "prob aligned to bias side", tone: judged === 0 ? "dim" : (win / judged) * 100 >= 50 ? "ok" : (win / judged) * 100 >= 40 ? "warn" : "bad", hint: "win / (win + loss) — the probability of each suggestion was already aligned to its bias side, so this is the honest directional accuracy. Tint: ≥50% green, 40–49% amber.", hintVi: "win / (win + loss) — xác suất của từng đề xuất đã căn theo phía bias nên đây là độ chính xác hướng trung thực. Màu: ≥50% xanh, 40–49% vàng." },
         ...(avgPnl != null ? [{ k: "Avg PnL", v: `${avgPnl >= 0 ? "+" : ""}${avgPnl.toFixed(2)}%`, tone: (avgPnl >= 0 ? "ok" : "bad") as StatTone, hint: "Mean PnL% over non-flat resolved suggestions.", hintVi: "PnL% trung bình các đề xuất đã chấm (không tính flat)." }] : []),
         { k: "LONG / SHORT", v: `${rows.filter((r) => r.bias === "LONG").length} / ${rows.filter((r) => r.bias === "SHORT").length}`, tone: "info", hint: "Side distribution of all stored suggestions — a healthy model proposes both sides depending on regime.", hintVi: "Phân bố phía của mọi đề xuất đã lưu — model healthy sẽ đề xuất cả hai phía tùy regime." },
       ],

@@ -33,7 +33,7 @@ function EquitySpark({ equity, wallet, lang }: { equity: AutoAnalytics["equity"]
     .map((p, i) => {
       const x = (i / (pts.length - 1)) * W;
       const y = H - 4 - ((p.capital - min) / (max - min || 1)) * (H - 10);
-      return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+      return `${i === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
     })
     .join(" ");
   const up = caps[caps.length - 1] >= (wallet ?? caps[0]);
@@ -80,7 +80,7 @@ export function AutoAnalytics({ lang, auto }: { lang: Lang; auto: AutoState | nu
   if (!a) return null;
   const closed = auto?.recentByBook?.[book] ?? auto?.trades.filter((x) => x.status === 'closed').slice(0, 12) ?? [];
   const tabs: Array<BookKey> = ['ALL', 'A', 'B', 'C', 'D'];
-  const holdTxt = a.avgHoldMin >= 1440 ? `${(a.avgHoldMin / 1440).toFixed(1)}d` : a.avgHoldMin >= 60 ? `${(a.avgHoldMin / 60).toFixed(1)}h` : `${Math.round(a.avgHoldMin)}m`;
+  const holdTxt = a.avgHoldMin >= 1440 ? `${(a.avgHoldMin / 1440).toFixed(2)}d` : a.avgHoldMin >= 60 ? `${(a.avgHoldMin / 60).toFixed(2)}h` : `${Math.round(a.avgHoldMin)}m`;
 
   const kpis: Array<{ label: string; value: string; cls?: string; tip?: string }> = [
     { label: t(lang, "ana.kpi.net"), value: `${(a.netPnlPct ?? 0) >= 0 ? "+" : ""}${num(a.netPnlPct ?? 0)}%`, cls: pctClass(a.netPnlPct ?? 0) },

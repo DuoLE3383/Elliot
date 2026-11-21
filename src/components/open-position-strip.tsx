@@ -110,7 +110,7 @@ export function OpenPositionStrip({
           <span className="relative h-1 rounded-full bg-zinc-800">
             <span
               className="absolute top-[-2px] h-[8px] w-[2px] rounded-full bg-zinc-100"
-              style={{ left: `calc(${posPct.toFixed(1)}% - 1px)` }}
+              style={{ left: `calc(${posPct.toFixed(2)}% - 1px)` }}
             />
           </span>
           <span className="flex justify-between font-mono text-[9px] leading-none text-zinc-500">

@@ -95,10 +95,10 @@ export function UniverseCard({ lang, existing, onAddSymbol }: Props) {
                     <span className="font-mono text-[10px] text-zinc-500">ATR {r.atrPct.toFixed(2)}%</span>
                     <span className={`font-mono text-[10px] ${trendCls(r.trend)}`}>
                       {r.trend >= 0 ? "+" : ""}
-                      {(r.trend * 100).toFixed(0)}%
+                      {(r.trend * 100).toFixed(2)}%
                     </span>
                     <span className="ml-auto font-mono text-[10px] text-zinc-500">
-                      24h {(r.ret24h * 100).toFixed(1)}% · 10d {(r.ret10d * 100).toFixed(1)}%
+                      24h {(r.ret24h * 100).toFixed(2)}% · 10d {(r.ret10d * 100).toFixed(2)}%
                     </span>
                   </button>
                   <button

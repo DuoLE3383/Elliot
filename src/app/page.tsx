@@ -757,7 +757,7 @@ export default function Home() {
       pushToast({
         kind: "xgb",
         text: t(lang, "xgb.applyBest.done", {
-          acc: best.acc.toFixed(1),
+          acc: best.acc.toFixed(2),
           auc: best.auc.toFixed(2),
         }),
       });

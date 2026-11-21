@@ -133,8 +133,8 @@ export function SessionsPanel({
                   {st && st.bullPct != null ? (
                     <span className={st.bullPct >= 50 ? "text-emerald-400" : "text-rose-400"}>
                       {t(lang, "sess.bull", {
-                        p: st.bullPct.toFixed(0),
-                        d: st.driftPct != null ? `${st.driftPct >= 0 ? "+" : ""}${st.driftPct.toFixed(3)}` : "—",
+                        p: st.bullPct.toFixed(2),
+                        d: st.driftPct != null ? `${st.driftPct >= 0 ? "+" : ""}${st.driftPct.toFixed(2)}` : "—",
                       })}
                     </span>
                   ) : (
@@ -209,7 +209,7 @@ export function SessionsPanel({
                       {forecast.score >= 0 ? "+" : ""}
                       {forecast.score}
                       <span className="ml-1.5 text-[10px] text-zinc-500">
-                        {t(lang, "sess.forecast.conf", { p: forecast.confidence.toFixed(0) })} · ±{forecast.band}
+                        {t(lang, "sess.forecast.conf", { p: forecast.confidence.toFixed(2) })} · ±{forecast.band}
                       </span>
                     </span>
                     {forecast.targetSession && (
@@ -244,7 +244,7 @@ export function SessionsPanel({
                           </span>
                           <span className={`shrink-0 font-mono ${m.cls}`}>
                             {m.mark}
-                            {f.lean == null ? "—" : `${f.lean >= 0 ? "+" : ""}${f.lean.toFixed(1)}`}
+                            {f.lean == null ? "—" : `${f.lean >= 0 ? "+" : ""}${f.lean.toFixed(2)}`}
                             <span className="ml-0.5 text-zinc-700">×{f.weight}</span>
                           </span>
                         </div>
@@ -270,8 +270,8 @@ export function SessionsPanel({
                         <span className={`rounded-md border px-2 py-0.5 font-mono text-sm font-bold ${callCls(call)}`}>
                           {call}
                         </span>
-                        <span className="font-mono text-[12px] text-zinc-300">Bull {bull.toFixed(0)}%</span>
-                        <span className="text-[10px] text-zinc-500">{t(lang, "sess.forecast.conf", { p: conf.toFixed(0) })}</span>
+                        <span className="font-mono text-[12px] text-zinc-300">Bull {bull.toFixed(2)}%</span>
+                        <span className="text-[10px] text-zinc-500">{t(lang, "sess.forecast.conf", { p: conf.toFixed(2) })}</span>
                       </div>
                       <p className="text-[10px] text-zinc-600">{t(lang, "sess.forecast.rule")}</p>
                     </div>
@@ -281,9 +281,9 @@ export function SessionsPanel({
               <p className="mt-1 text-[11px] text-zinc-400">
                 {t(lang, "sess.forecast.best", {
                   hi: t(lang, SESSION_LABEL[best.key]),
-                  hip: (best.bullPct ?? 0).toFixed(0),
+                  hip: (best.bullPct ?? 0).toFixed(2),
                   lo: t(lang, SESSION_LABEL[worst.key]),
-                  lop: (worst.bullPct ?? 0).toFixed(0),
+                  lop: (worst.bullPct ?? 0).toFixed(2),
                 })}
               </p>
               <p className="mt-1 text-[10px] leading-relaxed text-zinc-600">{t(lang, "sess.forecast.note")}</p>
@@ -301,7 +301,7 @@ export function SessionsPanel({
                 ? t(lang, "sess.cycle.volFlat")
                 : t(lang, "sess.cycle.vol", {
                     vol: t(lang, fc.volUp ? "vol.up" : "vol.down"),
-                    p: (fc.volUp ? (fc.dow.volUpPct ?? 50) : 100 - (fc.dow.volUpPct ?? 50)).toFixed(0),
+                    p: (fc.volUp ? (fc.dow.volUpPct ?? 50) : 100 - (fc.dow.volUpPct ?? 50)).toFixed(2),
                   });
             const inLabel2 =
               nx == null
@@ -327,7 +327,7 @@ export function SessionsPanel({
                   <span className={fc.dirUp ? "text-emerald-400" : "text-rose-400"}>
                     {t(lang, "sess.cycle.dir", {
                       dir: t(lang, fc.dirUp ? "dir.up" : "dir.down"),
-                      p: Math.max(fc.dow.upPct ?? 50, 100 - (fc.dow.upPct ?? 50)).toFixed(0),
+                      p: Math.max(fc.dow.upPct ?? 50, 100 - (fc.dow.upPct ?? 50)).toFixed(2),
                     })}
                   </span>
                   <span className={fc.volUp == null ? "text-zinc-500" : fc.volUp ? "text-emerald-400" : "text-rose-400"}>
@@ -340,9 +340,9 @@ export function SessionsPanel({
                       label: t(lang, `cycle.${fc.special.label}`),
                       n: fc.special.bucket.n,
                       dir: t(lang, fc.special.bucket.upPct >= 50 ? "dir.up" : "dir.down"),
-                      p: Math.max(fc.special.bucket.upPct, 100 - fc.special.bucket.upPct).toFixed(0),
+                      p: Math.max(fc.special.bucket.upPct, 100 - fc.special.bucket.upPct).toFixed(2),
                       vol: fc.special.bucket.volUpPct == null ? "—" : t(lang, fc.special.bucket.volUpPct >= 50 ? "vol.up" : "vol.down"),
-                      vp: fc.special.bucket.volUpPct == null ? "—" : Math.max(fc.special.bucket.volUpPct, 100 - fc.special.bucket.volUpPct).toFixed(0),
+                      vp: fc.special.bucket.volUpPct == null ? "—" : Math.max(fc.special.bucket.volUpPct, 100 - fc.special.bucket.volUpPct).toFixed(2),
                     })}
                   </p>
                 )}
@@ -350,9 +350,9 @@ export function SessionsPanel({
                   <p className="mt-1 text-[11px] text-zinc-400">
                     {t(lang, "sess.cycle.extremes", {
                       hi: t(lang, `dow.${ext.best.i}`),
-                      hip: (ext.best.b.upPct ?? 0).toFixed(0),
+                      hip: (ext.best.b.upPct ?? 0).toFixed(2),
                       lo: t(lang, `dow.${ext.worst.i}`),
-                      lop: (ext.worst.b.upPct ?? 0).toFixed(0),
+                      lop: (ext.worst.b.upPct ?? 0).toFixed(2),
                     })}
                   </p>
                 )}
@@ -384,10 +384,10 @@ export function SessionsPanel({
             n >= 1e12
               ? `$${(n / 1e12).toFixed(2)}T`
               : n >= 1e9
-                ? `$${(n / 1e9).toFixed(1)}B`
+                ? `$${(n / 1e9).toFixed(2)}B`
                 : n >= 1e6
-                  ? `$${(n / 1e6).toFixed(0)}M`
-                  : `$${n.toFixed(0)}`;
+                  ? `$${(n / 1e6).toFixed(2)}M`
+                  : `$${n.toFixed(2)}`;
           const week = fg?.week ?? [];
           const minV = week.length ? Math.min(...week.map((x) => x.value)) : 0;
           const maxV = week.length ? Math.max(...week.map((x) => x.value)) : 100;
@@ -456,14 +456,14 @@ export function SessionsPanel({
                   <>
                     <span className="text-zinc-500">{t(lang, "pulse.btcDom")}</span>
                     <span className="text-right font-mono font-semibold text-zinc-200">
-                      {g.btcDominance.toFixed(1)}%
+                      {g.btcDominance.toFixed(2)}%
                     </span>
                     <span className="text-zinc-500">{t(lang, "pulse.mcap")}</span>
                     <span className="text-right font-mono text-zinc-200">
                       {fmtUsd(g.marketCapUsd)}
                       <span className={`ml-1 text-[10px] ${g.marketCapChange24h >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                         {g.marketCapChange24h >= 0 ? "+" : ""}
-                        {g.marketCapChange24h.toFixed(1)}%
+                        {g.marketCapChange24h.toFixed(2)}%
                       </span>
                     </span>
                     <span className="text-zinc-500">{t(lang, "pulse.vol")}</span>
@@ -471,14 +471,14 @@ export function SessionsPanel({
                       {fmtUsd(g.volume24hUsd)}
                       <span className={`ml-1 text-[10px] ${g.volumeChange24h >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                         {g.volumeChange24h >= 0 ? "+" : ""}
-                        {g.volumeChange24h.toFixed(1)}%
+                        {g.volumeChange24h.toFixed(2)}%
                       </span>
                     </span>
                     {g.mcapFromAthPct != null && (
                       <>
                         <span className="text-zinc-500">{t(lang, "pulse.fromAth")}</span>
                         <span className="text-right font-mono text-zinc-300">
-                          {g.mcapFromAthPct.toFixed(1)}%
+                          {g.mcapFromAthPct.toFixed(2)}%
                         </span>
                       </>
                     )}
@@ -498,9 +498,9 @@ export function SessionsPanel({
                       <>
                         <span className="text-zinc-500">{t(lang, "pulse.longShort")}</span>
                         <span className="text-right font-mono text-zinc-200">
-                          <span className="text-emerald-400">{d.longAccountPct.toFixed(0)}%L</span>
+                          <span className="text-emerald-400">{d.longAccountPct.toFixed(2)}%L</span>
                           {" / "}
-                          <span className="text-rose-400">{(100 - d.longAccountPct).toFixed(0)}%S</span>
+                          <span className="text-rose-400">{(100 - d.longAccountPct).toFixed(2)}%S</span>
                         </span>
                       </>
                     )}
@@ -508,7 +508,7 @@ export function SessionsPanel({
                       <>
                         <span className="text-zinc-500">{t(lang, "pulse.topLong")}</span>
                         <span className="text-right font-mono text-zinc-200">
-                          {d.topLongPct.toFixed(0)}%L
+                          {d.topLongPct.toFixed(2)}%L
                         </span>
                       </>
                     )}
@@ -529,7 +529,7 @@ export function SessionsPanel({
                           }`}
                         >
                           {d.fundingRatePct >= 0 ? "+" : ""}
-                          {d.fundingRatePct.toFixed(4)}%
+                          {d.fundingRatePct.toFixed(2)}%
                         </span>
                       </>
                     )}

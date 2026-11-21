@@ -79,13 +79,13 @@ export function gateRow(r: ScanRow, ctx: GateCtx): GateVerdict {
     return { pass: false, reason: "outside top-30 8h universe" };
   }
   if (r.auc < sp.auc) return { pass: false, reason: `AUC ${r.auc.toFixed(2)} < ${sp.auc}` };
-  if (r.acc < sp.acc) return { pass: false, reason: `ACC ${r.acc.toFixed(0)}% < ${sp.acc}%` };
-  if (r.score < sp.score) return { pass: false, reason: `score ${r.score.toFixed(1)} < ${sp.score}` };
+  if (r.acc < sp.acc) return { pass: false, reason: `ACC ${r.acc.toFixed(2)}% < ${sp.acc}%` };
+  if (r.score < sp.score) return { pass: false, reason: `score ${r.score.toFixed(2)} < ${sp.score}` };
   const pl1 = pval("BCAST_PL1_MIN", BCAST_PL1_MIN);
-  if (r.tpPct < pl1) return { pass: false, reason: `PL1 ${r.tpPct.toFixed(1)}% < ${pl1}%` };
+  if (r.tpPct < pl1) return { pass: false, reason: `PL1 ${r.tpPct.toFixed(2)}% < ${pl1}%` };
   const volMin = pval("BCAST_VOL_MIN", BCAST_VOL_MIN);
   if (ctx.tickerVol != null && ctx.tickerVol > 0 && ctx.tickerVol < volMin) {
-    return { pass: false, reason: `vol24h $${(ctx.tickerVol / 1e6).toFixed(1)}M < $${(volMin / 1e6).toFixed(0)}M` };
+    return { pass: false, reason: `vol24h $${(ctx.tickerVol / 1e6).toFixed(2)}M < $${(volMin / 1e6).toFixed(2)}M` };
   }
   const left = bcastRepeatLeftMs(ctx.lastB[r.symbol], ctx.now);
   if (left > 0) return { pass: false, reason: `cooldown ${Math.ceil(left / 60_000)}m left` };
@@ -116,7 +116,7 @@ export function passesCoherence(i: CoherenceInput): string | null {
   const capS = pval("PRESSURE_CAP_SHORT", PRESSURE_CAP_SHORT);
   if (i.long && i.emaKind === "down" && i.emaStrong) return "strong EMA downtrend but suggests BUY (catching a falling knife)";
   if (!i.long && i.emaKind === "up" && i.emaStrong) return "strong EMA uptrend but suggests SELL (chasing the top)";
-  if (i.long && i.buyPressure <= floorL) return `buy pressure only ${i.buyPressure.toFixed(1)}% but suggests BUY`;
-  if (!i.long && i.buyPressure >= capS) return `buy pressure ${i.buyPressure.toFixed(1)}% but suggests SELL`;
+  if (i.long && i.buyPressure <= floorL) return `buy pressure only ${i.buyPressure.toFixed(2)}% but suggests BUY`;
+  if (!i.long && i.buyPressure >= capS) return `buy pressure ${i.buyPressure.toFixed(2)}% but suggests SELL`;
   return null;
 }

@@ -198,11 +198,11 @@ function macdRead(k: Kline[]): MacdRead {
 // passesCoherence — moved to bcast-gate.ts (re-exported above)
 
 function rsiZoneTxt(v: number): string {
-  if (v <= 30) return `${v.toFixed(0)} (oversold)`;
-  if (v < 45) return `${v.toFixed(0)} (buy zone)`;
-  if (v <= 55) return `${v.toFixed(0)} (neutral)`;
-  if (v < 70) return `${v.toFixed(0)} (sell zone)`;
-  return `${v.toFixed(0)} (overbought)`;
+  if (v <= 30) return `${v.toFixed(2)} (oversold)`;
+  if (v < 45) return `${v.toFixed(2)} (buy zone)`;
+  if (v <= 55) return `${v.toFixed(2)} (neutral)`;
+  if (v < 70) return `${v.toFixed(2)} (sell zone)`;
+  return `${v.toFixed(2)} (overbought)`;
 }
 
 /** 24h quote volume, its ratio to the 10-day mean, and taker-buy pressure. */
@@ -243,10 +243,10 @@ function srLevels(k: Kline[]): { support: number; resistance: number } {
 }
 
 function pressureLine(p: number): string | null {
-  if (p >= 70) return `💪 Strong buy pressure ${p.toFixed(1)}%`;
-  if (p >= 60) return `💪 Moderate buy pressure ${p.toFixed(1)}%`;
-  if (p <= 30) return `💪 Strong sell pressure ${(100 - p).toFixed(1)}%`;
-  if (p <= 40) return `💪 Moderate sell pressure ${(100 - p).toFixed(1)}%`;
+  if (p >= 70) return `💪 Strong buy pressure ${p.toFixed(2)}%`;
+  if (p >= 60) return `💪 Moderate buy pressure ${p.toFixed(2)}%`;
+  if (p <= 30) return `💪 Strong sell pressure ${(100 - p).toFixed(2)}%`;
+  if (p <= 40) return `💪 Moderate sell pressure ${(100 - p).toFixed(2)}%`;
   return null; // neutral — the reference template omits it too
 }
 
@@ -308,7 +308,7 @@ function coinBlock(c: CoinTech): string[] {
     `${sideTag(row.bias)} <b>${row.symbol}</b> ${row.interval} │ Score: <b>${row.score.toFixed(2)}</b> (${Math.round(row.score)}%) │ ${c.isNew ? " ⚡ NEW" : ""}\n`,
     `💰 Last price : <b>$${fmtPrice(c.price)}</b>`,
     `📈 Support/Res    : $${fmtPrice(c.support)} / $${fmtPrice(c.resistance)}`,
-    `📊 Volume 24h   : $${(c.vol24h / 1e6).toFixed(0)}M (${c.volRatio.toFixed(2)}x TB)`,
+    `📊 Volume 24h   : $${(c.vol24h / 1e6).toFixed(2)}M (${c.volRatio.toFixed(2)}x TB)`,
     `⚖️ Risk:Reward  : 1:${rr.toFixed(2)}`,
     `🌊 ATR %        : ${c.atrPct.toFixed(2)}%`,
     `🎯 PL1 %        : ${row.tpPct.toFixed(2)}%`,
@@ -325,8 +325,8 @@ function coinBlock(c: CoinTech): string[] {
     "",
     `💡 <b>Trade idea:</b>`,
     `  🎯 Entry (${sideWord(row.bias)}): $${fmtPrice(entryLo)} - $${fmtPrice(entryHi)}`,
-    `  🛡️ SL: $${fmtPrice(slPrice)} (${long ? "-" : "+"}${row.slPct.toFixed(1)}%)`,
-    `  🏆 TP1: $${fmtPrice(tp1Price)} (${long ? "+" : "-"}${row.tpPct.toFixed(1)}%)`,
+    `  🛡️ SL: $${fmtPrice(slPrice)} (${long ? "-" : "+"}${row.slPct.toFixed(2)}%)`,
+    `  🏆 TP1: $${fmtPrice(tp1Price)} (${long ? "+" : "-"}${row.tpPct.toFixed(2)}%)`,
     `  🏆 TP2: $${fmtPrice(tp2Price)} (${tp2Label})`,
     `<i>Not investment advice. You are solely responsible for your decisions.</i>`,
   );
@@ -448,7 +448,7 @@ export async function buildTopCoinsMessage(
     `============================`,
     `🏆 <b>${names} </b> — TOP ${picked.length} MOST PROMISING COINS`,
     `⏰ ${hh}h${mm} ${dateStr} │ Round #${state.n + 1}`,
-    `📋 Vol ≥ $${(volMinEff / 1e6).toFixed(0)}M │ PL1 ≥ ${pl1Eff}% │ Score ≥ ${spEff.score} │ AUC ≥ ${spEff.auc} │ ACC ≥ ${spEff.acc}% │ Repeat ≥ ${Math.round(repeatEff / 3_600_000)}h`,
+    `📋 Vol ≥ $${(volMinEff / 1e6).toFixed(2)}M │ PL1 ≥ ${pl1Eff}% │ Score ≥ ${spEff.score} │ AUC ≥ ${spEff.auc} │ ACC ≥ ${spEff.acc}% │ Repeat ≥ ${Math.round(repeatEff / 3_600_000)}h`,
     `Data: ${CANDIDATE_POOL} best combos out of ${rows.length} scanned combos`,
   ];
   for (const c of picked) out.push(...coinBlock(c), "");
@@ -483,14 +483,14 @@ async function marketPulseLine(): Promise<string | null> {
     if (mp.fearGreed) {
       parts.push(`F&G ${mp.fearGreed.now.value} (${FG_VN[mp.fearGreed.now.label] ?? mp.fearGreed.now.label})`);
     }
-    if (mp.global?.btcDominance != null) parts.push(`BTC.D ${mp.global.btcDominance.toFixed(1)}%`);
+    if (mp.global?.btcDominance != null) parts.push(`BTC.D ${mp.global.btcDominance.toFixed(2)}%`);
     if (mp.derivatives?.fundingRatePct != null) {
       const f = mp.derivatives.fundingRatePct;
-      parts.push(`Funding ${f >= 0 ? "+" : ""}${f.toFixed(3)}%`);
+      parts.push(`Funding ${f >= 0 ? "+" : ""}${f.toFixed(2)}%`);
     }
     if (mp.derivatives?.longAccountPct != null) {
       const l = mp.derivatives.longAccountPct;
-      parts.push(`L/S ${l.toFixed(0)}/${(100 - l).toFixed(0)}`);
+      parts.push(`L/S ${l.toFixed(2)}/${(100 - l).toFixed(2)}`);
     }
     if (parts.length === 0) return null;
     return `🌡 <b>Market:</b> ${parts.join(" · ")}`;
@@ -592,14 +592,14 @@ export async function buildScanTop10Message(
   enriched.forEach((c, i) => {
     const { row } = c;
     const long = row.bias !== "SHORT";
-    const pTxt = long ? `${(row.prob * 100).toFixed(1)}% up` : `${((1 - row.prob) * 100).toFixed(1)}% down`;
+    const pTxt = long ? `${(row.prob * 100).toFixed(2)}% up` : `${((1 - row.prob) * 100).toFixed(2)}% down`;
     const slPx = long ? c.price * (1 - row.slPct / 100) : c.price * (1 + row.slPct / 100);
     const tpPx = long ? c.price * (1 + row.tpPct / 100) : c.price * (1 - row.tpPct / 100);
     out.push(
       `${HR_LINE}`,
-      `${i + 1}. ${sideTag(row.bias)} <b>${row.symbol}</b> ${row.interval} │ Score <b>${row.score.toFixed(1)}</b> · AUC ${row.auc.toFixed(2)} · ACC ${row.acc.toFixed(1)}% · Prob ${pTxt}`,
-      `   💰 $${fmtPrice(c.price)} · 24h ${c.vol24h >= 1e6 ? `$${(c.vol24h / 1e6).toFixed(0)}M` : fmtPrice(c.vol24h)} · RSI ${c.rsiVal.toFixed(0)} · ATR ${c.atrPct.toFixed(2)}%${c.isNew ? " · ⚡NEW" : ""}`,
-      `   🚀 <b>PASSED THE GATE</b> — SL $${fmtPrice(slPx)} (${row.slPct.toFixed(1)}%) · TP1 $${fmtPrice(tpPx)} (+${row.tpPct.toFixed(1)}%)`,
+      `${i + 1}. ${sideTag(row.bias)} <b>${row.symbol}</b> ${row.interval} │ Score <b>${row.score.toFixed(2)}</b> · AUC ${row.auc.toFixed(2)} · ACC ${row.acc.toFixed(2)}% · Prob ${pTxt}`,
+      `   💰 $${fmtPrice(c.price)} · 24h ${c.vol24h >= 1e6 ? `$${(c.vol24h / 1e6).toFixed(2)}M` : fmtPrice(c.vol24h)} · RSI ${c.rsiVal.toFixed(2)} · ATR ${c.atrPct.toFixed(2)}%${c.isNew ? " · ⚡NEW" : ""}`,
+      `   🚀 <b>PASSED THE GATE</b> — SL $${fmtPrice(slPx)} (${row.slPct.toFixed(2)}%) · TP1 $${fmtPrice(tpPx)} (+${row.tpPct.toFixed(2)}%)`,
     );
   });
   out.push(HEAVY_LINE);

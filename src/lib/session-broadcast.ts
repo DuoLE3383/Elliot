@@ -100,7 +100,7 @@ async function fetchKlinesDirect(symbol: string, interval: string, limit: number
 // ─── Message builder — mirrors the "Phiên giao dịch" panel ────────────────────
 
 const driftTxt = (v: number | null | undefined): string =>
-  v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(3)}%`;
+  v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
 
 /** "6h21p" / "45p" — same shape as the panel's forecast countdown. */
 function inLabel(min: number): string {
@@ -116,9 +116,9 @@ function inLabel(min: number): string {
 export function sessionDirection(bullPct: number): { dir: "LONG" | "SHORT" | "SIDEWAYS"; pPct: number; pTxt: string } {
   const b = bullPct;
   // 0.2.60: ngưỡng 60/40 đọc pval — chỉnh được trên panel /ai (nhóm Universe / sessions)
-  if (b >= pval("SESS_BULL_LONG_MIN", SESS_BULL_LONG_MIN)) return { dir: "LONG", pPct: b, pTxt: `P≈${b.toFixed(1)}% bullish candles` };
-  if (b <= pval("SESS_BULL_SHORT_MAX", SESS_BULL_SHORT_MAX)) return { dir: "SHORT", pPct: 100 - b, pTxt: `P≈${(100 - b).toFixed(1)}% bearish candles` };
-  return { dir: "SIDEWAYS", pPct: Math.max(b, 100 - b), pTxt: `${b.toFixed(1)}% bullish candles — no clear lean` };
+  if (b >= pval("SESS_BULL_LONG_MIN", SESS_BULL_LONG_MIN)) return { dir: "LONG", pPct: b, pTxt: `P≈${b.toFixed(2)}% bullish candles` };
+  if (b <= pval("SESS_BULL_SHORT_MAX", SESS_BULL_SHORT_MAX)) return { dir: "SHORT", pPct: 100 - b, pTxt: `P≈${(100 - b).toFixed(2)}% bearish candles` };
+  return { dir: "SIDEWAYS", pPct: Math.max(b, 100 - b), pTxt: `${b.toFixed(2)}% bullish candles — no clear lean` };
 }
 
 /**
@@ -152,7 +152,7 @@ export function buildSessionOpenMessage(
       ? `⏳ <b>${NAME[opened].toUpperCase()} SESSION OPENS SOON</b> — in ${inLabel(inMin)} — ${pad2(vnHour)}:00 GMT+7 (${pad2(o.getUTCHours())}:00 UTC)`
       : `🚦 <b>${NAME[opened].toUpperCase()} SESSION</b> — ${pad2(vnHour)}:00 GMT+7 (${pad2(o.getUTCHours())}:00 UTC)`,
     HR,
-    `${pre ? "⏳" : "🚀"} <b>${NAME[opened]}</b> — Bull ${st?.bullPct != null ? `${st.bullPct.toFixed(0)}%` : "—"} · BTC drift ${driftTxt(st?.driftPct)} · ${
+    `${pre ? "⏳" : "🚀"} <b>${NAME[opened]}</b> — Bull ${st?.bullPct != null ? `${st.bullPct.toFixed(2)}%` : "—"} · BTC drift ${driftTxt(st?.driftPct)} · ${
       pre ? `opens in ${inLabel(inMin)}` : "<b>JUST OPENED 🚀</b>"
     }`,
   ];

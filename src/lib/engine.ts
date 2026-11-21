@@ -139,10 +139,12 @@ import {
   TRAIL_KIND,
   combineClosePnl,
   movePct1x,
+  runnerTp2,
   slConfirmStep,
   trailHit,
   trailRatchet,
   tp1Plan,
+  TRAIL_ROI_GIVEBACK,
   type SlPending,
 } from "./trade-mgmt";
 import { AGENT_PRESETS, type AgentId } from "./agent-presets";
@@ -476,9 +478,9 @@ async function persistTrainResult(
       params: JSON.stringify({
         ...res.params,
         lv,
-        marginAtr: Number(res.marginAtr.toFixed(3)),
-        ...(res.platt ? { platt: { a: res.platt.a, b: res.platt.b, eceRaw: Number(res.platt.eceRaw.toFixed(4)), eceCal: Number(res.platt.eceCal.toFixed(4)) } } : {}),
-        ...(res.reliability ? { reliability: res.reliability.map((r) => ({ ...r, avgP: Number(r.avgP.toFixed(4)), win: Number(r.win.toFixed(4)) })) } : {}),
+        marginAtr: Number(res.marginAtr.toFixed(2)),
+        ...(res.platt ? { platt: { a: res.platt.a, b: res.platt.b, eceRaw: Number(res.platt.eceRaw.toFixed(2)), eceCal: Number(res.platt.eceCal.toFixed(2)) } } : {}),
+        ...(res.reliability ? { reliability: res.reliability.map((r) => ({ ...r, avgP: Number(r.avgP.toFixed(2)), win: Number(r.win.toFixed(2)) })) } : {}),
         ...(res.lessons ? { lessons: res.lessons } : {}),
         ...(res.tuned ? { tuned: res.tuned } : {}),
       }),
@@ -851,7 +853,7 @@ async function trainCore(
         "🧠 <b>FULL TRAIN COMPLETE</b>",
         `${p.pairs.length} pair × ${p.cfg.runTf.length} TF (${p.cfg.runTf.join(",")}) · saved <b>${saved}/${combos}</b> combos`,
         best
-          ? `🏆 Best: <b>#${best.symbol}</b> ${best.interval} · ACC ${best.acc.toFixed(1)}% · AUC ${best.auc.toFixed(2)} · Score ${best.score.toFixed(1)}`
+          ? `🏆 Best: <b>#${best.symbol}</b> ${best.interval} · ACC ${best.acc.toFixed(2)}% · AUC ${best.auc.toFixed(2)} · Score ${best.score.toFixed(2)}`
           : "",
         lessonTotals.n > 0
           ? `🎓 Learned from <b>${lessonTotals.n}</b> real dry-run trades (${lessonTotals.wins} win · ${lessonTotals.n - lessonTotals.wins} lose) — model agrees on direction ${lessonTotals.agree}/${lessonTotals.n}`
@@ -1655,7 +1657,7 @@ async function cycleTick(): Promise<void> {
     // manual chỉ bỏ qua scale, không bỏ qua mui). R:R giữ nguyên.
     // B 0.3.4 — dynamic lev riêng cho lệnh này (không dùng p.leverage chung)
     const tradeLev = dynLeverage(best.score, c.minScore, live?.atrPct ?? entrySl);
-    console.log(`[engine] B 0.3.4 dynLev @ ${best.symbol} ${best.interval}: score ${best.score.toFixed(1)} · ATR ${(live?.atrPct ?? entrySl).toFixed(2)}% -> x${tradeLev}`);
+    console.log(`[engine] B 0.3.4 dynLev @ ${best.symbol} ${best.interval}: score ${best.score.toFixed(2)} · ATR ${(live?.atrPct ?? entrySl).toFixed(2)}% -> x${tradeLev}`);
     const levScale = c.tpMode === "manual" ? 1 : levNormScale(tradeLev);
     const adj = levAdjSlTp(entrySl, entryTp, levScale, tradeLev);
     let finalSl = adj.slPct;
@@ -1711,7 +1713,7 @@ async function cycleTick(): Promise<void> {
     const closedN = st.stats.closed;
     const track =
       closedN > 0
-        ? `${st.stats.wins}W/${closedN - st.stats.wins}L · win rate ${st.stats.winRate.toFixed(0)}% · net ${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(1)}% ROE (${closedN} paper trades)`
+        ? `${st.stats.wins}W/${closedN - st.stats.wins}L · win rate ${st.stats.winRate.toFixed(2)}% · net ${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(2)}% ROE (${closedN} paper trades)`
         : undefined;
     const { verdict: lastVerdict, vetoed } = await llmGate(
       best,
@@ -1745,7 +1747,7 @@ async function cycleTick(): Promise<void> {
     const needMargin = (capitalNow * stakeUsed) / 100;
     if (usedMargin + needMargin > capitalNow) {
       console.log(`[engine] multi het von: da dung ${usedMargin.toFixed(2)} / ${capitalNow.toFixed(2)} - skip ${best.symbol} ${best.interval} (can ${needMargin.toFixed(2)})`);
-      v.lastCycleStatus = `het von - ${opens.length} lenh mo dung ${usedMargin.toFixed(0)}/${capitalNow.toFixed(0)} USDT`;
+      v.lastCycleStatus = `het von - ${opens.length} lenh mo dung ${usedMargin.toFixed(2)}/${capitalNow.toFixed(2)} USDT`;
       return;
     }
     if (stakeUsed < c.riskPct) {
@@ -1882,7 +1884,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
   const st = await readAutoState();
   const track =
     st.stats.closed > 0
-      ? `${st.stats.wins}W/${st.stats.closed - st.stats.wins}L · win rate ${st.stats.winRate.toFixed(0)}% · net ${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(1)}% ROE (${st.stats.closed} paper trades)`
+      ? `${st.stats.wins}W/${st.stats.closed - st.stats.wins}L · win rate ${st.stats.winRate.toFixed(2)}% · net ${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(2)}% ROE (${st.stats.closed} paper trades)`
       : undefined;
   const { verdict: lastVerdict, vetoed } = await llmGate(row, to, finalSl, finalTp, track, { isFlip: true });
   if (vetoed) {
@@ -1990,7 +1992,7 @@ async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "c
   // ngưỡng thì không bù thêm — để SL làm việc
   if (row.auc < c.minAuc || row.acc < c.minAcc || row.score < c.minScore) {
     console.info(
-      `[engine] DCA ${open.symbol} ${open.interval} bỏ: model thoái hóa AUC ${row.auc.toFixed(2)} / ACC ${row.acc.toFixed(1)}% / điểm ${row.score.toFixed(1)} dưới ngưỡng chung ${c.minAuc.toFixed(2)} / ${c.minAcc.toFixed(0)}% / ${c.minScore} — để SL làm việc`,
+      `[engine] DCA ${open.symbol} ${open.interval} bỏ: model thoái hóa AUC ${row.auc.toFixed(2)} / ACC ${row.acc.toFixed(2)}% / điểm ${row.score.toFixed(2)} dưới ngưỡng chung ${c.minAuc.toFixed(2)} / ${c.minAcc.toFixed(2)}% / ${c.minScore} — để SL làm việc`,
     );
     return false;
   }
@@ -2092,13 +2094,13 @@ async function updateTrail(
     tr.peak = peak;
     persistEngine();
   }
-  // Trail ROI (B): peakROI > 3% => stopROI = peakROI - 1%, vuot mat act/dist cu
+  // Trail ROI (B): peakROI > 3% => stopROI = peakROI - 2% (đuổi theo, nhường 2% ROE)
   const peakRoi = trailMovePct(open.side, open.entryPrice, peak) * open.leverage;
   const roiStop = trailRoiStopPrice(open.side, open.entryPrice, peakRoi, open.leverage);
   const stop = roiStop ?? trailStopPrice(open.side, open.entryPrice, peak, act, dist);
   const curRoi = trailMovePct(open.side, open.entryPrice, price) * open.leverage;
   const hit = stop != null && (roiStop != null
-    ? curRoi <= peakRoi - 1
+    ? curRoi <= peakRoi - TRAIL_ROI_GIVEBACK
     : open.side === "SHORT" ? price >= stop : price <= stop);
   return { stop, hit, act, dist, atrPct: tr.atrPct, lev: tr.lev, src: tr.src };
 }
@@ -2111,9 +2113,9 @@ async function updateTrail(
 //   { dca: true }    — vừa DCA thêm, avg/SL/TP re-anchor (vẫn mở)
 //   { pending: true }— SL chờ confirm thêm nhịp (wick nông — "SL non" hết)
 //   null             — không có gì xảy ra
-// Runner phase (đã bank TP1): TP2 mở rộng / BE-trail ratchet / liquidation —
-// KHÔNG còn SL gốc, KHÔNG DCA, KHÔNG trailing cũ: rủi ro đã = 0, phần còn lại
-// chỉ chạy lời (evalExit tự lo near-TP2 warn).
+// Runner phase (đã bank TP1): SL khoá tại TP1/trail, trail ratchet đuổi theo
+// tới khi hết position — KHÔNG chốt cứng TP2, KHÔNG SL gốc, KHÔNG DCA, KHÔNG
+// trailing cũ: lời đã có sàn, phần còn lại chỉ chạy lời (0.3.40).
 export interface ExitEval {
   closed?: AutoTradeRow | null;
   kind?: "tp" | "sl" | "trail" | "flip";
@@ -2136,11 +2138,9 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
   if (runner) {
     if (liq) return { closed: await closeTradeDirect(open.id, price, "sl"), kind: "sl" };
     const move1x = movePct1x(open.side, open.entryPrice, price);
-    const tp2 = Math.max(0, open.tp2Pct ?? 0);
-    if (tp2 > 0 && move1x >= tp2) {
-      console.log(`[engine] RUNNER TP2 ${open.symbol} ${open.interval} — ${move1x.toFixed(2)}% ≥ ${tp2.toFixed(2)}% (tp1 banked ${((open.p1Share ?? 0) * 100).toFixed(0)}%)`);
-      return { closed: await closeTradeDirect(open.id, price, "tp"), kind: "tp" };
-    }
+    // 0.3.40 — BỎ chốt cứng TP2: runner để lời chạy, trail đuổi theo tới khi hết
+    // position (spec user: "TP mở rộng thì trail lại đuổi theo tiếp cho đến khi
+    // hết position"). tp2Pct chỉ còn là số tham chiếu hiển thị.
     const trail = Math.max(0, open.trailPct ?? 0);
     if (trailHit(open.side, price, open.entryPrice, trail)) {
       return { closed: await closeTradeDirect(open.id, price, TRAIL_KIND), kind: TRAIL_KIND };
@@ -2155,13 +2155,6 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
         // ghi hụt — nhịp kế tiếp ratchet lại từ mức cũ
       }
     }
-    // near-TP2 warn one-shot (tái dùng flag warned.tp của vị thế này)
-    const wRun = warnedOf(open.id);
-    if (!wRun.tp && tp2 > 0 && move1x >= tp2 * NEAR_FRAC && move1x < tp2) {
-      wRun.tp = true;
-      persistEngine();
-      if (tgReady() && !tgMuted("near")) void tgSendMessage(msgNear(open, price, "tp"), "HTML");
-    }
     return null;
   }
 
@@ -2171,11 +2164,12 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
   //    riêng của runner phía trên — BE + ratchet, không đụng p.trail nữa).
   const trail = await updateTrail(open, price, c);
   if (trail.hit) {
-    // B: normal phase + chua bank lan nao -> bank 50% o stopROI, 50% con lai thanh runner,
-    // SL doi len dung gia trail (peakROI-1). Runner cham trail lan nua -> dong 100% (nhanh duoi).
+    // B: normal phase + chua bank lan nao -> bank share% o stopROI (peakROI-2),
+    // phan con lai thanh runner, SL (trailPct floor) doi len DUNG gia trail.
+    // Runner cham trail lan nua -> dong 100% (nhanh duoi).
     const alreadyPartial = (open.p1Pct ?? null) != null;
     if (!alreadyPartial && trail.stop != null) {
-      // stopRoi = ROI tại đúng giá trail.stop (= peakROI - 1)
+      // stopRoi = ROI tại đúng giá trail.stop (= peakROI - TRAIL_ROI_GIVEBACK)
       const stopMovePct = open.side === "SHORT"
         ? ((open.entryPrice - trail.stop) / open.entryPrice) * 100
         : ((trail.stop - open.entryPrice) / open.entryPrice) * 100;
@@ -2189,16 +2183,16 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
           data: {
             p1Pct: Math.round((stopRoi - feeRoe(open.leverage)) * 100) / 100,
             p1Share: share,
-            tp2Pct: Math.max(open.tpPct * open.leverage, stopRoi + 2),
-            trailPct: 0,
+            tp2Pct: runnerTp2(open.tpPct, c.runnerTpMult),
+            trailPct: slMove,
             slPct: open.side === "SHORT" ? -slMove : slMove,
           },
         });
-        console.log(`[engine] TRAIL ROI partial ${open.symbol} ${open.interval} — bank ${(share * 100).toFixed(0)}% @ ROI ${stopRoi.toFixed(2)}% · runner SL dời lên ${slMove.toFixed(2)}% giá`);
+        console.log(`[engine] TRAIL ROI partial ${open.symbol} ${open.interval} — bank ${(share * 100).toFixed(2)}% @ ROI ${stopRoi.toFixed(2)}% · runner SL dời lên ${slMove.toFixed(2)}% giá`);
         if ((p as any).trailById) delete (p as any).trailById[open.id];
         slPendingSet(open.id, null);
         persistEngine();
-        if (tgReady()) void tgSendMessage(msgTp1(open, price, share, Math.max(open.tpPct, (stopRoi + 2) / Math.max(1, open.leverage)), Math.round((stopRoi - feeRoe(open.leverage)) * 100) / 100, "trail"), "HTML");
+        if (tgReady()) void tgSendMessage(msgTp1(open, price, share, runnerTp2(open.tpPct, c.runnerTpMult), Math.round((stopRoi - feeRoe(open.leverage)) * 100) / 100, "trail"), "HTML");
         return { tp1: true };
       } catch (e) {
         console.error(`[engine] TRAIL ROI partial failed: ${e instanceof Error ? e.message : e} — đóng toàn bộ như cũ`);
@@ -2220,10 +2214,10 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
         const p1Net = Math.round((plan.p1Pct - feeRoe(open.leverage)) * 100) / 100;
         await db.autoTrade.update({
           where: { id: open.id },
-          data: { p1Pct: p1Net, p1Share: plan.share, tp2Pct: plan.tp2Pct, trailPct: 0 },
+          data: { p1Pct: p1Net, p1Share: plan.share, tp2Pct: plan.tp2Pct, trailPct: open.tpPct },
         });
         console.log(
-          `[engine] TP1 partial ${open.symbol} ${open.interval} — bank ${(plan.share * 100).toFixed(0)}% stake (+${p1Net.toFixed(1)}% ROE sau phí) · runner TP2 ${plan.tp2Pct.toFixed(2)}% · SL về Breakeven`,
+          `[engine] TP1 partial ${open.symbol} ${open.interval} — bank ${(plan.share * 100).toFixed(2)}% stake (+${p1Net.toFixed(2)}% ROE sau phí) · runner SL khoá tại giá TP1 (${open.tpPct.toFixed(2)}% giá) · để lời chạy theo trail`,
         );
         Object.assign(warnedOf(open.id), { tp: false, sl: false });
         if ((p as any).trailById) delete (p as any).trailById[open.id];

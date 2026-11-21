@@ -280,7 +280,7 @@ export function decidePatch(
         patch.minAcc = nextAcc;
         patch.riskPct = nextRisk as AutoConfig["riskPct"];
         notes.push(
-          `fallback tighten (recent ${recentStats.n} closed, cross-method): exp ${recentStats.expectancy}% WR ${recentStats.winRate.toFixed(0)}% · active method only ${stats?.n ?? 0} → minScore ${nextScore} minAcc ${nextAcc} risk ${nextRisk}%`,
+          `fallback tighten (recent ${recentStats.n} closed, cross-method): exp ${recentStats.expectancy}% WR ${recentStats.winRate.toFixed(2)}% · active method only ${stats?.n ?? 0} → minScore ${nextScore} minAcc ${nextAcc} risk ${nextRisk}%`,
         );
         kind = "promote";
       } else {
@@ -295,14 +295,14 @@ export function decidePatch(
       patch.minScore = nextScore;
       patch.minAcc = nextAcc;
       patch.riskPct = nextRisk as AutoConfig["riskPct"];
-      notes.push(`tighten entry: exp ${stats.expectancy}% WR ${stats.winRate.toFixed(0)}% n=${stats.n} → minScore ${nextScore} minAcc ${nextAcc} risk ${nextRisk}%`);
+      notes.push(`tighten entry: exp ${stats.expectancy}% WR ${stats.winRate.toFixed(2)}% n=${stats.n} → minScore ${nextScore} minAcc ${nextAcc} risk ${nextRisk}%`);
       kind = "promote";
     }
   } else if (stats.n >= MIN_N_PROMOTE && stats.expectancy >= 0.3 && stats.winRate >= 48) {
     // mild restore only from 10 → 25, never jump to 50/100 automatically
     if (cfg.riskPct === 10) {
       patch.riskPct = 25;
-      notes.push(`restore risk 10→25 · exp ${stats.expectancy}% WR ${stats.winRate.toFixed(0)}% n=${stats.n}`);
+      notes.push(`restore risk 10→25 · exp ${stats.expectancy}% WR ${stats.winRate.toFixed(2)}% n=${stats.n}`);
       kind = "promote";
     }
   }
@@ -317,12 +317,12 @@ export function decidePatch(
     if (flipStats.expectancy < 0 && cur < FLIP_COOLDOWN_CHOICES.length - 1) {
       const next = FLIP_COOLDOWN_CHOICES[cur + 1];
       patch.flipCooldownMin = next;
-      notes.push(`flip churn bleed: exp ${flipStats.expectancy}% WR ${flipStats.winRate.toFixed(0)}% n=${flipStats.n} → flipCooldownMin ${cfg.flipCooldownMin}→${next}`);
+      notes.push(`flip churn bleed: exp ${flipStats.expectancy}% WR ${flipStats.winRate.toFixed(2)}% n=${flipStats.n} → flipCooldownMin ${cfg.flipCooldownMin}→${next}`);
       kind = "promote";
     } else if (flipStats.expectancy >= 0.3 && flipStats.winRate >= 48 && cur > 0) {
       const next = FLIP_COOLDOWN_CHOICES[cur - 1];
       patch.flipCooldownMin = next;
-      notes.push(`flip edge healthy: exp ${flipStats.expectancy}% WR ${flipStats.winRate.toFixed(0)}% n=${flipStats.n} → flipCooldownMin ${cfg.flipCooldownMin}→${next}`);
+      notes.push(`flip edge healthy: exp ${flipStats.expectancy}% WR ${flipStats.winRate.toFixed(2)}% n=${flipStats.n} → flipCooldownMin ${cfg.flipCooldownMin}→${next}`);
       kind = "promote";
     }
   }
@@ -335,7 +335,7 @@ export function decidePatch(
     return {
       patch: null,
       kind,
-      note: `tracking exp ${stats.expectancy}% WR ${stats.winRate.toFixed(0)}% n=${stats.n}`,
+      note: `tracking exp ${stats.expectancy}% WR ${stats.winRate.toFixed(2)}% n=${stats.n}`,
     };
   }
   return { patch, kind, note: notes.join(" · ") };

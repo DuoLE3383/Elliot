@@ -188,7 +188,7 @@ export function autopsyPrompt(input: AutopsyTradeInput, ev: AutopsyEvidence): { 
   const outcome = pnl > 0 ? "WIN" : "LOSS";
   const modelLine =
     input.prob != null
-      ? `model: prob=${input.prob.toFixed(3)} (P up) val_acc=${(input.acc ?? 0).toFixed(1)}% val_auc=${(input.auc ?? 0).toFixed(3)} score=${(input.score ?? 0).toFixed(1)}`
+      ? `model: prob=${input.prob.toFixed(2)} (P up) val_acc=${(input.acc ?? 0).toFixed(2)}% val_auc=${(input.auc ?? 0).toFixed(2)} score=${(input.score ?? 0).toFixed(2)}`
       : "model: not recorded (manual/legacy entry)";
   const officer =
     input.llmVerdict != null
@@ -200,7 +200,7 @@ export function autopsyPrompt(input: AutopsyTradeInput, ev: AutopsyEvidence): { 
           `mfe_check: max favorable ${ev.mfePct.toFixed(2)}% vs tp ${input.tpPct.toFixed(2)}% — price ${ev.mfePct >= input.tpPct ? "DID reach the TP zone" : "NEVER reached the TP zone"}`,
           `mae_check: max adverse ${ev.maePct.toFixed(2)}% vs sl ${input.slPct.toFixed(2)}% — the SL zone was ${ev.maePct >= input.slPct ? "touched" : "never touched"}`,
           `noise_check: avg candle range ${ev.noisePct.toFixed(2)}% vs sl ${input.slPct.toFixed(2)}% — per-candle noise is ${input.slPct > 0 ? (ev.noisePct / input.slPct).toFixed(2) : "0"}x the stop`,
-          `path_check: ${ev.candles} candles over ${ev.durMin.toFixed(0)}min${ev.covered ? ", window fully covered" : ", window PARTIALLY covered (data missing near entry)"}`,
+          `path_check: ${ev.candles} candles over ${ev.durMin.toFixed(2)}min${ev.covered ? ", window fully covered" : ", window PARTIALLY covered (data missing near entry)"}`,
         ]
       : ["path_check: candle data unavailable — rely on entry/outcome only"];
   const user = [
@@ -209,7 +209,7 @@ export function autopsyPrompt(input: AutopsyTradeInput, ev: AutopsyEvidence): { 
     `entry: entry=${input.entryPrice} sl=${input.slPct.toFixed(2)}%price tp=${input.tpPct.toFixed(2)}%price lev=x${input.leverage} rr=1:${rr.toFixed(2)} stake=${input.stakePct ?? 100}%equity`,
     modelLine,
     officer,
-    `outcome: exit=${input.exitPrice} kind=${input.exitKind ?? "manual"} pnl_roe=${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}% r=${ev.rMultiple >= 0 ? "+" : ""}${ev.rMultiple.toFixed(2)}x held=${ev.durMin.toFixed(0)}min`,
+    `outcome: exit=${input.exitPrice} kind=${input.exitKind ?? "manual"} pnl_roe=${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}% r=${ev.rMultiple >= 0 ? "+" : ""}${ev.rMultiple.toFixed(2)}x held=${ev.durMin.toFixed(2)}min`,
     "path (computed by code from candles — ground truth, do NOT recompute or contradict):",
     ...pathLines,
     'Reply ONLY one JSON object: {"tag":"...","why":["..."],"lesson":"..."}',
@@ -476,7 +476,7 @@ export async function recentAutopsyLessons(symbol: string, take = 5): Promise<st
         const a = JSON.parse(r.autopsy) as Partial<AutopsyJson>;
         if (!a.lesson) continue;
         const pnl = r.pnlPct ?? 0;
-        const head = `[${r.interval} ${r.side} ${r.exitKind ?? "manual"} ${pnl >= 0 ? "+" : ""}${pnl.toFixed(1)}% ROE · tag=${a.tag ?? "?"}]`;
+        const head = `[${r.interval} ${r.side} ${r.exitKind ?? "manual"} ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}% ROE · tag=${a.tag ?? "?"}]`;
         out.push(`${head} ${a.lesson}`.slice(0, 220));
       } catch {
         // JSON hỏng — bỏ bài này
@@ -518,7 +518,7 @@ export async function recentFlipLessons(symbol: string, take = 5): Promise<strin
         const a = JSON.parse(r.autopsy) as Partial<AutopsyJson>;
         if (!a.lesson) continue;
         const pnl = r.pnlPct ?? 0;
-        const head = `[${r.interval} ${r.side} FLIP ${pnl >= 0 ? "+" : ""}${pnl.toFixed(1)}% ROE · tag=${a.tag ?? "?"}]`;
+        const head = `[${r.interval} ${r.side} FLIP ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}% ROE · tag=${a.tag ?? "?"}]`;
         out.push(`${head} ${a.lesson}`.slice(0, 220));
       } catch {
         // JSON hỏng — bỏ bài này

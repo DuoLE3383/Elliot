@@ -8,7 +8,7 @@ import { feeRoe, roeOf, type AutoTradeRow, type ScanRow } from "./autotrade";
 import type { LlmVerdict } from "./llm";
 
 const HR = "━━━━━━━━━━━━━━━━━━";
-const levTxt = (x: number): string => `×${x % 1 === 0 ? x : x.toFixed(1)}`;
+const levTxt = (x: number): string => `×${x % 1 === 0 ? x : x.toFixed(2)}`;
 const sideTxt = (side: string): string => (side === "LONG" ? "LONG 🟢" : side === "SHORT" ? "SHORT 🔴" : "NEUTRAL ⚪");
 
 /** prob HIỂN THỊ THEO PHÍA model nghiêng về (cùng chuẩn PHE của §6c reliability).
@@ -19,10 +19,10 @@ const sideTxt = (side: string): string => (side === "LONG" ? "LONG 🟢" : side 
 const probTxt = (side: string, prob: number): string => {
   const p = side === "SHORT" ? 1 - prob : prob;
   return side === "LONG"
-    ? `Prob ${(p * 100).toFixed(1)}% toward LONG 🟢`
+    ? `Prob ${(p * 100).toFixed(2)}% toward LONG 🟢`
     : side === "SHORT"
-      ? `Prob ${(p * 100).toFixed(1)}% toward SHORT 🔴`
-      : `Prob ${(p * 100).toFixed(1)}%`;
+      ? `Prob ${(p * 100).toFixed(2)}% toward SHORT 🔴`
+      : `Prob ${(p * 100).toFixed(2)}%`;
 };
 
 /** absolute SL price level for a side (price-move %, before leverage) */
@@ -48,8 +48,8 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string): stri
     `📌 <b>#${r.symbol}</b> · ${r.interval}`,
     HR,
     `🎯 Entry: <b>${fmtPrice(r.entryPrice)}</b>`,
-    `🛑 SL: <b>${fmtPrice(slPrice(r.side, r.entryPrice, r.slPct))}</b> · −${r.slPct.toFixed(1)}% price (ROE ${slRoe.toFixed(1)}% @ ${levTxt(r.leverage)})`,
-    `🏁 TP: <b>${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(1)}% price (ROE +${tpRoe.toFixed(1)}% @ ${levTxt(r.leverage)})`,
+    `🛑 SL: <b>${fmtPrice(slPrice(r.side, r.entryPrice, r.slPct))}</b> · −${r.slPct.toFixed(2)}% price (ROE ${slRoe.toFixed(2)}% @ ${levTxt(r.leverage)})`,
+    `🏁 TP: <b>${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(2)}% price (ROE +${tpRoe.toFixed(2)}% @ ${levTxt(r.leverage)})`,
   ];
   if (feeRt > 0) {
     lines.push(`🧾 Fees round-trip: <b>−${feeRt.toFixed(2)}% ROE</b> (2 × ${feeSide.toFixed(2)}%/side @ ${levTxt(r.leverage)}) — realized ROE is net of fees`);
@@ -58,7 +58,7 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string): stri
   lines.push(
     `⚖️ Leverage ${levTxt(r.leverage)} · R:R 1:${rr.toFixed(2)}`,
     `📦 Margin: <b>${stake.toFixed(2)}</b> USDT · ${r.stakePct ?? 100}% equity · Kích thước ${notional.toFixed(2)} USDT · PnL SL -${((r.slPct ?? 0) * r.leverage * stake / 100).toFixed(2)} / TP +${((r.tpPct ?? 0) * r.leverage * stake / 100).toFixed(2)} USDT`,
-    `🧠 ${probTxt(r.side, r.prob ?? 0)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(1)}% · Score ${(r.score ?? 0).toFixed(1)}`,
+    `🧠 ${probTxt(r.side, r.prob ?? 0)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}% · Score ${(r.score ?? 0).toFixed(2)}`,
   );
   return lines.join("\n");
 };
@@ -90,13 +90,13 @@ export const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPn
     `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
     HR,
     `🎯 Entry ${fmtPrice(r.entryPrice)} → 🚪 Exit <b>${fmtPrice(r.exitPrice ?? 0)}</b>`,
-    `📐 SL ${r.slPct.toFixed(2)}% · TP ${r.tpPct.toFixed(2)}% · Lev ${levTxt(r.leverage)} · Score ${(r.score ?? 0).toFixed(1)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(1)}%`,
+    `📐 SL ${r.slPct.toFixed(2)}% · TP ${r.tpPct.toFixed(2)}% · Lev ${levTxt(r.leverage)} · Score ${(r.score ?? 0).toFixed(2)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}%`,
     banked != null && runner != null
-      ? `💵 PnL: Banked ${banked >= 0 ? "+" : ""}${banked.toFixed(1)}% × ${(share * 100).toFixed(0)}% + Runner ${runner >= 0 ? "+" : ""}${runner.toFixed(1)}% × ${((1 - share) * 100).toFixed(0)}% = <b>${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}% ROE tổng</b>`
+      ? `💵 PnL: Banked ${banked >= 0 ? "+" : ""}${banked.toFixed(2)}% × ${(share * 100).toFixed(2)}% + Runner ${runner >= 0 ? "+" : ""}${runner.toFixed(2)}% × ${((1 - share) * 100).toFixed(2)}% = <b>${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}% ROE tổng</b>`
       : `💵 PnL (ROE): <b>${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}%</b>${feeRt > 0 ? ` · fees −${feeRt.toFixed(2)}%` : ""}`,
     `💰 Equity: ${(r.capitalBefore ?? 0).toFixed(2)} → <b>${(r.capitalAfter ?? 0).toFixed(2)}</b> USDT (${deltaUsdt >= 0 ? "+" : ""}${deltaUsdt.toFixed(2)})`,
     ...(slip > 0 ? [`⚠️ Slippage +${slip.toFixed(2)}% giá (exit ${fmtPrice(exP)} vượt SL ${fmtPrice(slP)})`] : []),
-    `📈 Track record: ${closed} trades · Win rate ${winRate.toFixed(0)}% · Net vốn ${netPnlPct >= 0 ? "+" : ""}${netPnlPct.toFixed(1)}%`,
+    `📈 Track record: ${closed} trades · Win rate ${winRate.toFixed(2)}% · Net vốn ${netPnlPct >= 0 ? "+" : ""}${netPnlPct.toFixed(2)}%`,
   ].join("\n");
 }
 
@@ -109,8 +109,8 @@ export const msgNear = (r: AutoTradeRow, price: number, kind: "tp" | "sl"): stri
     `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
     HR,
     `${kind === "tp" ? "🏁" : "🛑"} ${kind === "tp" ? "Take Profit" : "Stop Loss"} ${fmtPrice(target)} · <b>${awayPct.toFixed(2)}%</b> away`,
-    `📊 SL ${r.slPct.toFixed(2)}% · TP ${r.tpPct.toFixed(2)}% · Lev ${levTxt(r.leverage)} · Score ${(r.score ?? 0).toFixed(1)} · AUC ${(r.auc ?? 0).toFixed(2)}
-📈 Price ${fmtPrice(price)} · ROE <b>${roe >= 0 ? "+" : ""}${roe.toFixed(1)}%</b> · Lev ${levTxt(r.leverage)}`,
+    `📊 SL ${r.slPct.toFixed(2)}% · TP ${r.tpPct.toFixed(2)}% · Lev ${levTxt(r.leverage)} · Score ${(r.score ?? 0).toFixed(2)} · AUC ${(r.auc ?? 0).toFixed(2)}
+📈 Price ${fmtPrice(price)} · ROE <b>${roe >= 0 ? "+" : ""}${roe.toFixed(2)}%</b> · Lev ${levTxt(r.leverage)}`,
   ].join("\n");
 };
 
@@ -141,11 +141,11 @@ export const msgDca = (
     HR,
     `🎯 Entry ${fmtPrice(prevEntry)} → add <b>${fmtPrice(dcaPrice)}</b> (${movedPct.toFixed(2)}% price)`,
     `📊 New average entry: <b>${fmtPrice(r.entryPrice)}</b>`,
-    `🛑 New SL: <b>${fmtPrice(slPrice(r.side, r.entryPrice, r.slPct))}</b> · −${r.slPct.toFixed(1)}% from avg`,
-    `🏁 New TP: <b>${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(1)}% from avg`,
+    `🛑 New SL: <b>${fmtPrice(slPrice(r.side, r.entryPrice, r.slPct))}</b> · −${r.slPct.toFixed(2)}% from avg`,
+    `🏁 New TP: <b>${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(2)}% from avg`,
     `📦 Margin: <b>${stake.toFixed(2)}</b> USDT · ${r.stakePct ?? 100}% equity · Kích thước ${notional.toFixed(2)} USDT · PnL SL -${((r.slPct ?? 0) * r.leverage * stake / 100).toFixed(2)} / TP +${((r.tpPct ?? 0) * r.leverage * stake / 100).toFixed(2)} USDT`,
-    `📈 ROE at DCA price: ${roe >= 0 ? "+" : ""}${roe.toFixed(1)}% @ ${levTxt(r.leverage)}`,
-    `🧠 Model still confirms · ${probTxt(r.side, confirm.prob)} · AUC ${confirm.auc.toFixed(2)} · ACC ${confirm.acc.toFixed(1)}%`,
+    `📈 ROE at DCA price: ${roe >= 0 ? "+" : ""}${roe.toFixed(2)}% @ ${levTxt(r.leverage)}`,
+    `🧠 Model still confirms · ${probTxt(r.side, confirm.prob)} · AUC ${confirm.auc.toFixed(2)} · ACC ${confirm.acc.toFixed(2)}%`,
   ].join("\n");
 };
 
@@ -155,7 +155,7 @@ export const msgLlmVeto = (r: ScanRow, v: LlmVerdict): string =>
     `🛑 <b>LLM VETO — setup blocked before entry</b>`,
     `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.bias)}`,
     HR,
-    `🧠 ${probTxt(r.bias, r.prob)} · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(1)}% · Score ${r.score.toFixed(1)}`,
+    `🧠 ${probTxt(r.bias, r.prob)} · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(2)}% · Score ${r.score.toFixed(2)}`,
     `💬 ${escHtml(v.reasons.slice(0, 3).join(" · ")) || "—"}`,
   ].join("\n");
 
@@ -177,12 +177,12 @@ export const msgTp1 = (
     `🪙 <b>TP1 PARTIAL — RUNNER ARMED</b>`,
     `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
     HR,
-    `✅ Banked <b>${(share * 100).toFixed(0)}%</b> stake ${src === "trail" ? "(TRAIL)" : "(TP1)"} (+${bank.toFixed(1)}% ROE phần banked, sau phí)` ,
+    `✅ Banked <b>${(share * 100).toFixed(2)}%</b> stake ${src === "trail" ? "(TRAIL)" : "(TP1)"} (+${bank.toFixed(2)}% ROE phần banked, sau phí)` ,
     src === "trail"
       ? `🛡 Runner: SL dời lên <b>giá trail</b> — khóa lời đã bank`
-      : `🛡 Runner: SL về <b>Breakeven (SL = Entry)</b> — rủi ro = 0`,
-    `🏁 TP mở rộng: <b>+${tp2Pct.toFixed(2)}%</b> giá (từ ${r.tpPct.toFixed(2)}%) — để lời chạy`,
-    `📈 Price ${fmtPrice(price)} · ROE ${roe >= 0 ? "+" : ""}${roe.toFixed(1)}% · trail khoá 50% quãng đi`,
+      : `🛡 Runner: SL khoá tại <b>giá TP1</b> — lời runner có sàn`,
+    `🏁 Runner: để lời chạy — trail đuổi theo (khoá 50% quãng đi) tới khi hết position, không chốt cứng TP2`,
+    `📈 Price ${fmtPrice(price)} · ROE ${roe >= 0 ? "+" : ""}${roe.toFixed(2)}% · SL floor ${r.tpPct.toFixed(2)}% giá (TP1)`,
   ].join("\n");
 };
 
@@ -199,11 +199,11 @@ export const msgAutopsy = (
     `🔬 <b>TRADE AUTOPSY · ${a.outcome === "win" ? "WIN ✅" : "LOSS 🔻"}</b>`,
     `📌 <b>#${t.symbol}</b> · ${t.interval} · ${sideTxt(t.side)} · ${kindTag(t.exitKind ?? null)}`,
     HR,
-    `💵 Result: <b>${(t.pnlPct ?? 0) >= 0 ? "+" : ""}${(t.pnlPct ?? 0).toFixed(2)}% ROE</b>${a.ev?.rMultiple != null ? ` · R ${a.ev.rMultiple >= 0 ? "+" : ""}${a.ev.rMultiple.toFixed(2)}x` : ""}${a.ev?.durMin != null ? ` · held ${a.ev.durMin.toFixed(0)}m` : ""}`,
+    `💵 Result: <b>${(t.pnlPct ?? 0) >= 0 ? "+" : ""}${(t.pnlPct ?? 0).toFixed(2)}% ROE</b>${a.ev?.rMultiple != null ? ` · R ${a.ev.rMultiple >= 0 ? "+" : ""}${a.ev.rMultiple.toFixed(2)}x` : ""}${a.ev?.durMin != null ? ` · held ${a.ev.durMin.toFixed(2)}m` : ""}`,
     `🏷️ tag: <b>${escHtml(a.tag)}</b>`,
     ...(a.why.length > 0 ? [`📝 ${a.why.map((w) => escHtml(w)).join("<br/>• ")}`] : []),
     `💡 <b>Lesson:</b> ${escHtml(a.lesson)}`,
-    `🧠 ${escHtml(a.model ?? "llm")}${a.ms ? ` · ${(a.ms / 1000).toFixed(1)}s` : ""} — lesson feeds the next review for this pair`,
+    `🧠 ${escHtml(a.model ?? "llm")}${a.ms ? ` · ${(a.ms / 1000).toFixed(2)}s` : ""} — lesson feeds the next review for this pair`,
   ].join("\n");
 
 // ─── ALERT builders (0.2.71) — tier-1 notify, KHÔNG BAO GIỜ bị TG_MUTE ───────
@@ -220,14 +220,14 @@ export const msgLossStreak = (
   equity: number | null,
 ): string => {
   const CAP = 6;
-  const shown = chain.slice(0, CAP).map((t) => `#${t.symbol} ${t.interval} ${(t.pnlPct ?? 0) >= 0 ? "+" : ""}${(t.pnlPct ?? 0).toFixed(1)}%`);
+  const shown = chain.slice(0, CAP).map((t) => `#${t.symbol} ${t.interval} ${(t.pnlPct ?? 0) >= 0 ? "+" : ""}${(t.pnlPct ?? 0).toFixed(2)}%`);
   if (chain.length > CAP) shown.push(`+${chain.length - CAP} more`);
   const net = chain.reduce((a, t) => a + (t.pnlPct ?? 0), 0);
   return [
     `🔴 <b>ALERT · LOSS STREAK — ${streak} losses in a row</b>`,
     HR,
     `📉 Chain (newest first): ${shown.join(" · ")}`,
-    `💰 Equity: <b>${equity != null ? eqTxt(equity) : "—"}</b> USDT · chain ROE <b>${net >= 0 ? "+" : ""}${net.toFixed(1)}%</b>`,
+    `💰 Equity: <b>${equity != null ? eqTxt(equity) : "—"}</b> USDT · chain ROE <b>${net >= 0 ? "+" : ""}${net.toFixed(2)}%</b>`,
     `🧠 Regime mismatch? Check /ai — entry gates, flip cooldown, or pause auto.`,
   ].join("\n");
 };
@@ -242,7 +242,7 @@ export const msgDrawdown = (
   crossedOn: { symbol: string; interval: string; pnlPct?: number | null },
 ): string =>
   [
-    `🔴 <b>ALERT · DRAWDOWN — equity ${x.ddPct.toFixed(1)}% under the 24h peak</b>`,
+    `🔴 <b>ALERT · DRAWDOWN — equity ${x.ddPct.toFixed(2)}% under the 24h peak</b>`,
     HR,
     `💰 Equity <b>${eqTxt(x.nowEq)}</b> USDT · 24h peak ${eqTxt(x.peak)} → alert level ${eqTxt(x.level)}`,
     `🚪 Crossed on: <b>#${crossedOn.symbol}</b> ${crossedOn.interval} closed ${(crossedOn.pnlPct ?? 0) >= 0 ? "+" : ""}${(crossedOn.pnlPct ?? 0).toFixed(2)}%`,

@@ -185,7 +185,7 @@ export function universeBroadcastText(
   const hhmm = when.toISOString().slice(11, 16) + " UTC";
   const showDelta = prev.length > 0;
 
-  const pct = (v: number): string => `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}`;
+  const pct = (v: number): string => `${v >= 0 ? "+" : ""}${(v * 100).toFixed(2)}`;
 
   const rows = show.map((r, idx) => {
     const sym = r.symbol.replace("USDT", "");

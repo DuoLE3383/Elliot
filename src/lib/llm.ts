@@ -303,7 +303,7 @@ export function setupPrompt(s: LlmSetup): string {
   // đuôi risk line — chỉ khi phí bật: FEE_PCT 0 → risk line y hệt 0.2.77
   const feeSeg =
     feeRt > 0 && rr > 0
-      ? ` · fees 2x${f.toFixed(2)}%/side = ${feeRt.toFixed(2)}% ROE -> net: sl -${netSl.toFixed(1)}% / tp ${netTp >= 0 ? "+" : ""}${netTp.toFixed(1)}% ROE (${
+      ? ` · fees 2x${f.toFixed(2)}%/side = ${feeRt.toFixed(2)}% ROE -> net: sl -${netSl.toFixed(2)}% / tp ${netTp >= 0 ? "+" : ""}${netTp.toFixed(2)}% ROE (${
           netTp > 0 ? `net rr 1:${(netTp / netSl).toFixed(2)}` : "payoff inverted by fees — see fee_check"
         })`
       : "";
@@ -313,7 +313,7 @@ export function setupPrompt(s: LlmSetup): string {
     feeRt > 0 && rr > 0
       ? netTp <= 0
         ? `fee_check: round-trip fees 2x${f.toFixed(2)}%/side = ${feeRt.toFixed(2)}% ROE at x${s.leverage} EXCEED the tp ROE ${tpRoe.toFixed(2)}% — payoff INVERTED by fees (net tp ${netTp.toFixed(2)}%)`
-        : `fee_check: round-trip fees 2x${f.toFixed(2)}%/side = ${feeRt.toFixed(2)}% ROE at x${s.leverage} — consumes ${feeShare.toFixed(1)}% of the tp ROE ${tpRoe.toFixed(2)}% (net tp +${netTp.toFixed(2)}%) — ${
+        : `fee_check: round-trip fees 2x${f.toFixed(2)}%/side = ${feeRt.toFixed(2)}% ROE at x${s.leverage} — consumes ${feeShare.toFixed(2)}% of the tp ROE ${tpRoe.toFixed(2)}% (net tp +${netTp.toFixed(2)}%) — ${
             feeShare >= 50 ? "over HALF the target goes to fees" : "NOT payoff-inverting"
           }`
       : null;
@@ -323,7 +323,7 @@ export function setupPrompt(s: LlmSetup): string {
   // lý do skip). Chấm sẵn để model không còn chỗ diễn.
   const accNotBarely = s.acc >= 60;
   const aucNotBarely = s.auc >= 0.6;
-  const coinflipLine = `coinflip_check: val_acc=${s.acc.toFixed(1)}% (+${(s.acc - 50).toFixed(1)} pts, ${accNotBarely ? "not barely" : "barely"}) · val_auc=${s.auc.toFixed(3)} (+${(s.auc - 0.5).toFixed(3)}${aucNotBarely ? ", not barely" : ", barely"}) — the "barely above coin flip" skip condition ${accNotBarely && aucNotBarely ? "does NOT apply" : "MAY apply"}`;
+  const coinflipLine = `coinflip_check: val_acc=${s.acc.toFixed(2)}% (+${(s.acc - 50).toFixed(2)} pts, ${accNotBarely ? "not barely" : "barely"}) · val_auc=${s.auc.toFixed(2)} (+${(s.auc - 0.5).toFixed(2)}${aucNotBarely ? ", not barely" : ", barely"}) — the "barely above coin flip" skip condition ${accNotBarely && aucNotBarely ? "does NOT apply" : "MAY apply"}`;
   // liq_check — liquidation cách SL bao nhiêu lần: x20 → liq 5% vs SL 1.2% là
   // 4.2x (an toàn — SL luôn khớp trước liq). Ratio < 2x = SL đặt sát liq
   // (gap giá xuyên SL → liq vẫn xảy ra); ratio < 1 = liq NẰM TRONG stop —
@@ -331,14 +331,14 @@ export function setupPrompt(s: LlmSetup): string {
   const liqRatio = s.slPct > 0 ? liqPct / s.slPct : 99;
   const liqLine =
     liqRatio < 1
-      ? `liq_check: liquidation ${liqPct.toFixed(1)}% is INSIDE the SL ${s.slPct.toFixed(1)}% (liq hits first) — dangerously close`
+      ? `liq_check: liquidation ${liqPct.toFixed(2)}% is INSIDE the SL ${s.slPct.toFixed(2)}% (liq hits first) — dangerously close`
       : liqRatio < 2
-        ? `liq_check: liquidation ${liqPct.toFixed(1)}% is only ${liqRatio.toFixed(1)}x beyond the SL ${s.slPct.toFixed(1)}% — dangerously close`
-        : `liq_check: liquidation ${liqPct.toFixed(1)}% is ${liqRatio.toFixed(1)}x beyond the SL ${s.slPct.toFixed(1)}% — NOT dangerously close`;
+        ? `liq_check: liquidation ${liqPct.toFixed(2)}% is only ${liqRatio.toFixed(2)}x beyond the SL ${s.slPct.toFixed(2)}% — dangerously close`
+        : `liq_check: liquidation ${liqPct.toFixed(2)}% is ${liqRatio.toFixed(2)}x beyond the SL ${s.slPct.toFixed(2)}% — NOT dangerously close`;
   return [
     `pair=${s.symbol} tf=${s.interval} side=${s.side}`,
-    `model_quality: prob=${s.prob.toFixed(3)} confidence=${s.confidence.toFixed(2)} val_auc=${s.auc.toFixed(3)} val_acc=${s.acc.toFixed(1)}% train_samples=${s.samples} horizon=${s.horizon}bars`,
-    `risk: leverage=x${s.leverage} (liquidation at ${liqPct.toFixed(1)}% adverse) stake=${s.stakePct}%equity sl=${s.slPct.toFixed(1)}%price tp=${s.tpPct.toFixed(1)}%price rr=1:${rr.toFixed(2)}${feeSeg}`,
+    `model_quality: prob=${s.prob.toFixed(2)} confidence=${s.confidence.toFixed(2)} val_auc=${s.auc.toFixed(2)} val_acc=${s.acc.toFixed(2)}% train_samples=${s.samples} horizon=${s.horizon}bars`,
+    `risk: leverage=x${s.leverage} (liquidation at ${liqPct.toFixed(2)}% adverse) stake=${s.stakePct}%equity sl=${s.slPct.toFixed(2)}%price tp=${s.tpPct.toFixed(2)}%price rr=1:${rr.toFixed(2)}${feeSeg}`,
     // ── khối checks: tính sẵn bằng code — system prompt cấm model mâu thuẫn ──
     "checks (pre-computed by code — treat as ground truth, do NOT recompute or contradict):",
     ...(rr > 0
@@ -350,11 +350,11 @@ export function setupPrompt(s: LlmSetup): string {
     ...(typeof s.score === "number"
       ? [
           s.gatePassed
-            ? `gate_check: engine gate PASSED (score ${s.score.toFixed(1)})`
-            : `gate_check: engine gate NOT passed (score ${s.score.toFixed(1)}) — engine would NOT auto-trade this combo`,
+            ? `gate_check: engine gate PASSED (score ${s.score.toFixed(2)})`
+            : `gate_check: engine gate NOT passed (score ${s.score.toFixed(2)}) — engine would NOT auto-trade this combo`,
         ]
       : []),
-    `sample_base: ${s.samples} train rows${days > 0 ? ` ~ ${days.toFixed(1)} days of ${s.interval} candles` : ""}`,
+    `sample_base: ${s.samples} train rows${days > 0 ? ` ~ ${days.toFixed(2)} days of ${s.interval} candles` : ""}`,
     // champ_check — champion–challenger: model hiện tại so với đỉnh tốt nhất
     // từng train của cặp này. Engine chỉ trade combo KHÔNG regressed (champ −
     // 0.02) nên dòng này chủ yếu để LLM thấy khoảng cách tới đỉnh: model tụt
@@ -366,7 +366,7 @@ export function setupPrompt(s: LlmSetup): string {
             const gap = s.auc - (s.champAuc ?? 0);
             const verdict =
               gap >= 0 ? "AT or ABOVE champion — regression gate passed" : gap >= -0.02 ? "within regression tolerance (<0.02 below)" : "REGRESSED vs champion — engine would skip this combo";
-            return `champ_check: best-ever of this pair+tf is val_auc=${(s.champAuc ?? 0).toFixed(3)}/val_acc=${(s.champAcc ?? 0).toFixed(1)}% — current run val_auc=${s.auc.toFixed(3)} (${gap >= 0 ? "+" : ""}${gap.toFixed(3)}) ${verdict}`;
+            return `champ_check: best-ever of this pair+tf is val_auc=${(s.champAuc ?? 0).toFixed(2)}/val_acc=${(s.champAcc ?? 0).toFixed(2)}% — current run val_auc=${s.auc.toFixed(2)} (${gap >= 0 ? "+" : ""}${gap.toFixed(2)}) ${verdict}`;
           })(),
         ]
       : []),
@@ -430,9 +430,9 @@ export function factCheckReasons(reasons: string[], s: LlmSetup, verdict: "go" |
     // verdict skip nhưng mượn coin-flip cho số liệu MẠNH → vô lý
     if (verdict === "skip") {
       if (s.acc >= 60 && /(val_acc|accuracy|acc)/.test(low) && /(50|coin.?flip)/.test(low))
-        return `${reason} ⚠ contradicts coinflip_check: val_acc=${s.acc.toFixed(1)}% is ${(s.acc - 50).toFixed(1)} points ABOVE a coin flip`;
+        return `${reason} ⚠ contradicts coinflip_check: val_acc=${s.acc.toFixed(2)}% is ${(s.acc - 50).toFixed(2)} points ABOVE a coin flip`;
       if (s.auc >= 0.6 && /(val_auc|auc)/.test(low) && /(0\.5|coin.?flip)/.test(low))
-        return `${reason} ⚠ contradicts coinflip_check: val_auc=${s.auc.toFixed(3)} is ${(s.auc - 0.5).toFixed(3)} ABOVE 0.5`;
+        return `${reason} ⚠ contradicts coinflip_check: val_auc=${s.auc.toFixed(2)} is ${(s.auc - 0.5).toFixed(2)} ABOVE 0.5`;
     }
     return reason;
   });

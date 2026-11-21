@@ -85,7 +85,7 @@ export function RailContext({ lang, a, stats, whale, openPaper, confirmed }: Pro
                   <b className="font-semibold text-zinc-200">{t(lang, SESSION_LABEL[s.key])}</b>
                   {s.bullPct != null && (
                     <span className={`font-mono ${s.bullPct >= 50 ? "text-emerald-400" : "text-rose-400"}`}>
-                      {s.bullPct.toFixed(0)}%
+                      {s.bullPct.toFixed(2)}%
                     </span>
                   )}
                 </span>

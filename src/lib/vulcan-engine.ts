@@ -218,12 +218,12 @@ async function vulcanSymbolTick(symbol: string, lastCandleT: Map<string, number>
         capitalBefore: head,
       },
     });
-    console.log(`[vulcan] OPEN ${action.side} ${symbol} @ ${action.entry} stop ${action.stopPrice.toFixed(6)} (ATR×${vulcanLiveParams().atrStopMult}) vốn ${head} id=${created.id}`);
+    console.log(`[vulcan] OPEN ${action.side} ${symbol} @ ${action.entry} stop ${action.stopPrice.toFixed(2)} (ATR×${vulcanLiveParams().atrStopMult}) vốn ${head} id=${created.id}`);
     void tgSendMessage(
       [
       `OPEN A - ${symbol} ${action.side} 15m`,
       `Entry ${action.entry} - Vao ${new Date(now).toLocaleTimeString("vi-VN", { hour12: false })} - So A Vulcan`,
-      `SL ${action.stopPrice.toFixed(4)} - Trail Donchian`,
+      `SL ${action.stopPrice.toFixed(2)} - Trail Donchian`,
       `Von truoc ${head} - Lev x5 - Stake 10%`,
       ].join(String.fromCharCode(10)),
       "HTML",

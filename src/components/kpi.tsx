@@ -157,7 +157,7 @@ export function KpiCards({
           <span>
             {t(lang, "auto.pos.stake")}{" "}
             <span className="text-zinc-200">
-              {stake > 0 ? `${stake.toFixed(0)}` : `${autoOpen.stakePct ?? 100}%`} · ×{autoOpen.leverage}
+              {stake > 0 ? `${stake.toFixed(2)}` : `${autoOpen.stakePct ?? 100}%`} · ×{autoOpen.leverage}
             </span>
           </span>
           <span className="text-zinc-500">
@@ -173,7 +173,7 @@ export function KpiCards({
           />
           <span
             className="absolute top-1/2 h-2.5 w-0.5 -translate-y-1/2 rounded-full bg-zinc-100 shadow"
-            style={{ left: `calc(${posPct.toFixed(1)}% - 1px)` }}
+            style={{ left: `calc(${posPct.toFixed(2)}% - 1px)` }}
           />
         </div>
 
@@ -231,7 +231,7 @@ export function KpiCards({
             )}
             {cell(
               t(lang, "kpi.winRate"),
-              `${stats.winRate.toFixed(0)}%`,
+              `${stats.winRate.toFixed(2)}%`,
               <span>
                 {t(lang, "kpi.breakdown", {
                   tp: stats.tpCount,
@@ -286,7 +286,7 @@ export function KpiCards({
         })}
         {cell(
           t(lang, "kpi.winRate"),
-          `${stats.winRate.toFixed(0)}%`,
+          `${stats.winRate.toFixed(2)}%`,
           <span>
             {t(lang, "kpi.breakdown", {
               tp: stats.tpCount,

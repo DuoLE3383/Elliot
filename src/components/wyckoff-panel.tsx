@@ -123,14 +123,14 @@ export function WyckoffPanel({ lang, wy, on, sens }: Props) {
               <Tile
                 label={t(lang, "wy.rsi")}
                 icon={<Waves className="h-3.5 w-3.5" />}
-                value={dash?.rsi != null ? dash.rsi.toFixed(1) : "—"}
+                value={dash?.rsi != null ? dash.rsi.toFixed(2) : "—"}
                 valueClass={rsiClass}
                 sub={rsiSub}
               />
               <Tile
                 label={t(lang, "wy.vol")}
                 icon={<BarChart3 className="h-3.5 w-3.5" />}
-                value={dash?.volRatio != null ? `${dash.volRatio.toFixed(1)}x` : "—"}
+                value={dash?.volRatio != null ? `${dash.volRatio.toFixed(2)}x` : "—"}
                 valueClass={volClass}
                 sub={volSub}
               />
