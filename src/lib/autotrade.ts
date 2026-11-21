@@ -732,8 +732,9 @@ export function trailMovePct(side: string, entry: number, peak: number): number 
  *  Tra ve gia stop tuong ung: LONG entry*(1+(stopROI)/lev/100),
  *  SHORT entry*(1-(stopROI)/lev/100). ROI o day la % (vd 8.91 = +8.91%). */
 export function trailRoiStopPrice(side: string, entry: number, peakRoi: number, leverage: number): number | null {
-  if (!entry || !leverage || peakRoi <= TRAIL_ROI_ARM) return null;
-  const stopRoi = peakRoi - TRAIL_ROI_GIVEBACK;
+  if (!entry || !leverage || peakRoi < TRAIL_ROI_ARM) return null;
+  // spec #2+#3: lock tối thiểu 2% ROI, gap 1% từ peak (chỉ tăng nhờ peak monotonic)
+  const stopRoi = Math.max(peakRoi - TRAIL_ROI_GIVEBACK, 2);
   const m = stopRoi / leverage / 100;
   return side === "SHORT" ? entry * (1 - m) : entry * (1 + m);
 }

@@ -102,15 +102,20 @@ export function decideVulcanLive(candles: Candle[], open: VulcanOpenState | null
     // 2) trailing — cập nhật đỉnh bằng nến hiện tại, siết stop cho các tick sau
     if (open.side === "LONG" && bar.h > state.peak) state.peak = bar.h;
     if (open.side === "SHORT" && (state.peak === 0 || bar.l < state.peak)) state.peak = bar.l;
-    if (!state.trailArmed && movePct >= p.trailTriggerPct) state.trailArmed = true;
+    // spec #1+#2+#3: arm 3% ROI, lock 2% ROI, trail gap 1% ROI (không phải % giá)
+    const peakMovePct = open.side === "LONG"
+      ? ((state.peak - open.entry) / open.entry) * 100
+      : ((open.entry - state.peak) / open.entry) * 100;
+    const peakRoi = peakMovePct * VULCAN_LEV;
+    if (!state.trailArmed && peakRoi >= 3) state.trailArmed = true;
     if (state.trailArmed) {
-      if (open.side === "LONG") {
-        const ts = state.peak * (1 - p.trailGivebackPct / 100);
-        if (ts > state.stopPrice) state.stopPrice = ts;
-      } else {
-        const ts = state.peak * (1 + p.trailGivebackPct / 100);
-        if (ts < state.stopPrice) state.stopPrice = ts;
-      }
+      const stopRoi = Math.max(peakRoi - 1, 2);
+      const stopMovePct = stopRoi / VULCAN_LEV;
+      const ts = open.side === "LONG"
+        ? open.entry * (1 + stopMovePct / 100)
+        : open.entry * (1 - stopMovePct / 100);
+      if (open.side === "LONG" && ts > state.stopPrice) state.stopPrice = ts;
+      if (open.side === "SHORT" && ts < state.stopPrice) state.stopPrice = ts;
     }
 
     // 3) ROI ladder theo % giá + phút nắm giữ

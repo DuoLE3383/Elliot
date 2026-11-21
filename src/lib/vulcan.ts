@@ -240,15 +240,20 @@ export function backtestDonchian(symbol: string, c: Candle[], params?: Partial<V
       const heldMin = (bar.t - pos.entryT) / 60000;
       if (pos.side === "LONG" && bar.h > pos.peak) pos.peak = bar.h;
       if (pos.side === "SHORT" && (pos.peak === 0 || bar.l < pos.peak)) pos.peak = bar.l;
-      if (!pos.trailArmed && movePct >= p.trailTriggerPct) pos.trailArmed = true;
+      // spec #1+#2+#3 — arm 3% ROI, lock 2% ROI, trail gap 1% ROI
+      const peakMovePct = pos.side === "LONG"
+        ? ((pos.peak - pos.entry) / pos.entry) * 100
+        : ((pos.entry - pos.peak) / pos.entry) * 100;
+      const peakRoi = peakMovePct * VULCAN_DEFAULTS.leverage;
+      if (!pos.trailArmed && peakRoi >= 3) pos.trailArmed = true;
       if (pos.trailArmed) {
-        if (pos.side === "LONG") {
-          const trailStop = pos.peak * (1 - p.trailGivebackPct / 100);
-          if (trailStop > pos.stop) pos.stop = trailStop;
-        } else {
-          const trailStop = pos.peak * (1 + p.trailGivebackPct / 100);
-          if (trailStop < pos.stop) pos.stop = trailStop;
-        }
+        const stopRoi = Math.max(peakRoi - 1, 2);
+        const stopMovePct = stopRoi / VULCAN_DEFAULTS.leverage;
+        const ts = pos.side === "LONG"
+          ? pos.entry * (1 + stopMovePct / 100)
+          : pos.entry * (1 - stopMovePct / 100);
+        if (pos.side === "LONG" && ts > pos.stop) pos.stop = ts;
+        if (pos.side === "SHORT" && ts < pos.stop) pos.stop = ts;
       }
       let roiHit = false;
       for (let k = p.roiLadder.length - 1; k >= 0; k--) {

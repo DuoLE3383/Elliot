@@ -98,18 +98,12 @@ export function replayExit(
       const curRoi = trailMovePct(trade.side, entry, price) * trade.leverage;
       const hit = stop != null && (roiStop != null ? curRoi <= peakRoi - TRAIL_ROI_GIVEBACK : trade.side === "SHORT" ? price >= stop : price <= stop);
       if (hit && stop != null) {
-        if (p1Pct == null) {
-          // TRAIL ROI partial — bank share%, runner SL (trailPct) dời lên giá trail (evalExit)
-          const stopMove = movePct1x(trade.side, entry, stop);
-          const stopRoi = Math.round(stopMove * trade.leverage * 100) / 100;
-          p1Pct = Math.round((stopRoi - feeRoe(trade.leverage)) * 100) / 100;
-          p1Share = 0.5;
-          tp2Pct = runnerTp2(trade.tpPct, cfg.runnerTpMult);
-          trailPct = stopMove; runner = true;
-          notes.push(`trail ROI partial @ nến ${new Date(sorted[i].t).toISOString()} — bank 50% ROI ${stopRoi}%`);
-          continue;
-        }
-        return finish(price, sorted[i].t, "trail", p1Pct, p1Share, trade, notes, { peakPrice, peakRoi, trailArmed, missedClosePrice, missedPnlPct });
+        // 0.3.41 — spec user: trail hit TRƯỚC TP1 → đóng 100% tại stop
+        const fillAt = trade.side === "LONG"
+          ? (stop > price ? stop : price)
+          : (stop < price ? stop : price);
+        notes.push(`trail close @ nến ${new Date(sorted[i].t).toISOString()} — fill ${fillAt} (stop ${stop}, mark ${price})`);
+        return finish(fillAt, sorted[i].t, "trail", p1Pct, p1Share, trade, notes, { peakPrice, peakRoi, trailArmed, missedClosePrice, missedPnlPct });
       }
     }
     const kind = slTpHit(trade.side, price, entry, trade.slPct, trade.tpPct);

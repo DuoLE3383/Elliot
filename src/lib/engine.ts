@@ -2164,41 +2164,10 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
   //    riêng của runner phía trên — BE + ratchet, không đụng p.trail nữa).
   const trail = await updateTrail(open, price, c);
   if (trail.hit) {
-    // B: normal phase + chua bank lan nao -> bank share% o stopROI (peakROI-2),
-    // phan con lai thanh runner, SL (trailPct floor) doi len DUNG gia trail.
-    // Runner cham trail lan nua -> dong 100% (nhanh duoi).
-    const alreadyPartial = (open.p1Pct ?? null) != null;
-    if (!alreadyPartial && trail.stop != null) {
-      // stopRoi = ROI tại đúng giá trail.stop (= peakROI - TRAIL_ROI_GIVEBACK)
-      const stopMovePct = open.side === "SHORT"
-        ? ((open.entryPrice - trail.stop) / open.entryPrice) * 100
-        : ((trail.stop - open.entryPrice) / open.entryPrice) * 100;
-      const stopRoi = Math.round(stopMovePct * open.leverage * 100) / 100;
-      const slMove = Math.max(0.05, stopRoi / Math.max(1, open.leverage));
-      // 0.3.35 — dùng runnerSharePct (cùng TP1 plan), không hardcode 50%
-      const share = Math.min(0.9, Math.max(0.1, (c.runnerSharePct ?? 50) / 100));
-      try {
-        await db.autoTrade.update({
-          where: { id: open.id },
-          data: {
-            p1Pct: Math.round((stopRoi - feeRoe(open.leverage)) * 100) / 100,
-            p1Share: share,
-            tp2Pct: runnerTp2(open.tpPct, c.runnerTpMult),
-            trailPct: slMove,
-            slPct: open.side === "SHORT" ? -slMove : slMove,
-          },
-        });
-        console.log(`[engine] TRAIL ROI partial ${open.symbol} ${open.interval} — bank ${(share * 100).toFixed(2)}% @ ROI ${stopRoi.toFixed(2)}% · runner SL dời lên ${slMove.toFixed(2)}% giá`);
-        if ((p as any).trailById) delete (p as any).trailById[open.id];
-        slPendingSet(open.id, null);
-        persistEngine();
-        if (tgReady()) void tgSendMessage(msgTp1(open, price, share, runnerTp2(open.tpPct, c.runnerTpMult), Math.round((stopRoi - feeRoe(open.leverage)) * 100) / 100, "trail"), "HTML");
-        return { tp1: true };
-      } catch (e) {
-        console.error(`[engine] TRAIL ROI partial failed: ${e instanceof Error ? e.message : e} — đóng toàn bộ như cũ`);
-      }
-    }
-    return { closed: await closeTradeDirect(open.id, price, "trail"), kind: "trail" };
+    // 0.3.41 spec user #5: trail hit TRƯỚC TP1 → close 100% tại stop (không partial).
+    const fill = trail.stop != null && (open.side === "LONG" ? trail.stop > price : trail.stop < price)
+      ? trail.stop : price;
+    return { closed: await closeTradeDirect(open.id, fill, "trail"), kind: "trail" };
   }
   const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
   if (liq) return { closed: await closeTradeDirect(open.id, price, "sl"), kind: "sl" };
