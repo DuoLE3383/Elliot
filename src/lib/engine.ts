@@ -637,7 +637,7 @@ async function loadTradeLessons(): Promise<Map<string, TradeLesson[]>> {
   const map = new Map<string, TradeLesson[]>();
   try {
     const closed = await db.autoTrade.findMany({
-      where: { status: "closed" },
+      where: { status: "closed", NOT: { methodId: "force" } },
       orderBy: { exitTime: "desc" },
       take: 500,
     });
@@ -1426,7 +1426,7 @@ function applyAgentPreset(cfg: any): any {
   return { ...cfg, ...pr, runTf: cfg?.runTf?.length ? cfg.runTf : [...pr.runTf] };
 }
 
-function dynLeverage(score: number, minScore: number, atrPct: number): number {
+export function dynLeverage(score: number, minScore: number, atrPct: number): number {
   const scorePart = 5 + Math.min(15, Math.max(0, score - minScore)) * 1.0;
   const volPart = Math.max(0.33, Math.min(1, 0.6 / Math.max(0.3, atrPct)));
   const lev = Math.round(scorePart * volPart);
@@ -1564,11 +1564,11 @@ async function cycleTick(): Promise<void> {
         if (cand.bias !== "LONG") { kept.push(cand); continue; }
         try {
           const wy = await wyckoffLongGate(cand.symbol, wyUniverse, cand.interval);
-          if (!wy.ok) { wyBlocked++; continue; }
+          if (!wy.ok) { wyBlocked++; (cand as any).score = Math.max(0, ((cand as any).score ?? 0) - 5); (cand as any).wyPenalty = true; }
           kept.push(cand);
         } catch { kept.push(cand); } // fail-open — Wyckoff lỗi thì không giết engine
       }
-      if (wyBlocked > 0) console.log(`[engine] Wyckoff pre-filter — loại ${wyBlocked}/${cands.length} LONG no Spring/SOS, còn ${kept.length} cands`);
+      if (wyBlocked > 0) console.log(`[engine] Wyckoff pre-filter (mem v0.3.50, C -5 khong loai) — loại ${wyBlocked}/${cands.length} LONG no Spring/SOS, còn ${kept.length} cands`);
       cands.splice(0, cands.length, ...kept);
     }
     const openKeys = new Set((st.opens ?? (st.open ? [st.open] : [])).map((o) => `${o.symbol}|${o.interval}`));

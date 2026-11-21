@@ -85,13 +85,14 @@ export async function POST(req: NextRequest) {
       entryPrice,
       slPct: num(body.slPct, 0.1, 90, 2),
       tpPct: num(body.tpPct, 0.1, 90, 3),
-      leverage: num(body.leverage, 1, 125, 1),
-      stakePct: num(body.stakePct, 1, 100, 100),
+      leverage: num(body.leverage, 1, 125, 10),
+      stakePct: num(body.stakePct, 1, 100, 1),
       prob: num(body.prob, 0, 1, 0.5),
       acc: num(body.acc, 0, 100, 0),
       auc: num(body.auc, 0, 1, 0.5),
       score: num(body.score, -1000, 1000, 0),
       capitalBefore: num(body.capitalBefore, 0, Infinity, 1000),
+      methodId: typeof body.methodId === "string" && body.methodId ? body.methodId.slice(0, 64) : null,
     },
   });
   return NextResponse.json({ trade: serialize(row) }, { status: 201 });

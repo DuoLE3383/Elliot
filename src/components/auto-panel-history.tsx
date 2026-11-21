@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { fetchForceStats, shouldWarnForce } from "@/lib/force-learn";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RotateCcw } from "lucide-react";
@@ -81,10 +82,10 @@ export function AutoHistory(props: any) {
                 </button>
               </span>
             </div>
-            <div className="flex-1 overflow-hidden rounded-lg border border-zinc-800">
+            <div className="flex-1 overflow-x-auto rounded-lg border border-zinc-800">
               {/* cột số co đúng nội dung (kể cả nhãn vi "HƯỚNG"), PAIR (1fr)
                   nhận toàn bộ phần còn lại — hết cảnh whitespace-normal leading-snug "XMR…" */}
-              <div className="grid grid-cols-[minmax(0,1fr)_39px_41px_42px_30px_28px_38px] gap-x-0.5 border-b border-zinc-800 bg-zinc-950/60 px-1.5 py-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
+              <div className="grid grid-cols-[170px_40px_52px_60px_44px_54px_50px_64px] min-w- gap-x-0.5 border-b border-zinc-800 bg-zinc-950/60 px-1.5 py-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
                 <span>{t(lang, "auto.col.pair")}</span>
                 <span>{t(lang, "auto.col.tf")}</span>
                 <span>{t(lang, "auto.col.side")}</span>
@@ -92,6 +93,7 @@ export function AutoHistory(props: any) {
                 <span className="text-right">{t(lang, "auto.col.auc")}</span>
                 <span className="text-right">{t(lang, "auto.col.acc")}</span>
                 <span className="text-right">{t(lang, "auto.col.score")}</span>
+                <span className="text-right">Force</span>
               </div>
               {rows.filter((r) => {
                 if (Object.keys(confluenceMap).length === 0) return true;
@@ -106,7 +108,7 @@ export function AutoHistory(props: any) {
                     type="button"
                     onClick={() => onPickPair(r.symbol, r.interval)}
                     title={why ? t(lang, "auto.block.tip", { why }) : undefined}
-                    className={`grid w-full grid-cols-[minmax(0,1fr)_39px_41px_42px_30px_28px_38px] items-center gap-x-0.5 px-1.5 py-1 text-left font-mono text-[10px] hover:bg-zinc-800/60 ${
+                    className={`grid w-full grid-cols-[170px_40px_52px_60px_44px_54px_50px_64px] min-w- items-center gap-x-0.5 px-1.5 py-1 text-left font-mono text-[10px] hover:bg-zinc-800/60 ${
                       i === 0 ? "bg-teal-950/20" : ""
                     }`}
                   >
@@ -136,6 +138,9 @@ export function AutoHistory(props: any) {
                     <span className={`text-right ${r.auc >= ef.minAuc ? "text-emerald-400" : "text-zinc-500"}`}>{r.auc.toFixed(2)}</span>
                     <span className={`text-right ${r.acc >= ef.minAcc ? "text-emerald-400" : "text-zinc-500"}`}>{r.acc.toFixed(2)}%</span>
                     <span className={`text-right font-bold ${tradeable && !r.regressed ? "text-teal-300" : "text-zinc-600"}`}>{r.score.toFixed(2)}</span>
+                    <span className="text-right">
+                      <button type="button" onClick={async (e) => { e.stopPropagation(); try { const st = await fetchForceStats(r.symbol, r.interval, r.bias); const warn = shouldWarnForce(st, r.symbol, r.interval, r.bias); if (warn && !confirm(warn + "\n\nVẫn Force?")) return; } catch {} fetch("/api/force-open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol: r.symbol, interval: r.interval, bias: r.bias, agent: "HEDGE", score: r.score, riskPct: (cfg as any)?.riskPct ?? 10 }) }).then(() => window.location.reload()); }} className="rounded bg-teal-600 px-1.5 py-0.5 text- font-bold text-white hover:bg-teal-500 disabled:opacity-40" disabled={r.bias === "NEUTRAL"}>Force</button>
+                    </span>
                   </button>
                 );
               })}
