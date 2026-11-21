@@ -33,6 +33,7 @@ import {
   type ScanRow,
 } from "@/lib/autotrade";
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
+import { AGENT_META, AGENT_PRESETS } from "@/lib/agent-presets";
 import { EV_GATE_MIN, feeRoe, SHORT_PROB_MIN } from "@/lib/params";
 import { MAX_LEVERAGE, type EngineSettings, type Ticker } from "@/lib/types";
 import { INTERVALS } from "@/lib/types";
@@ -41,21 +42,9 @@ import { msgClose, slPrice, tpPrice } from "@/lib/tg-msgs";
 import { NOISE_BAND } from "@/lib/xgb";
 import { Bot, ListChecks, Play, ScanLine, Send, Square } from "lucide-react";
 
-// ─── AGENTS — VAULT / HEDGE / ALPHA / GRAIL ───
-const AGENTS = [
-  { id: "VAULT", icon: "🗄", desc: "Safe" },
-  { id: "HEDGE", icon: "⚖", desc: "Balanced" },
-  { id: "ALPHA", icon: "🚀", desc: "Aggressive" },
-  { id: "GRAIL", icon: "👑", desc: "Elliott 🏵" },
-] as const;
-
-// AGENT UI PRESETS — bấm Agent là panel đổi số theo, không chỉ đổi nút
-const AGENT_UI_PRESETS: Record<string, any> = {
-  VAULT: { riskPct: 0.5, minAuc: 0.82, minAcc: 80, minScore: 72, runTf: ["15m", "1h"], cooldownMin: 120, runnerSharePct: 30, runnerTpMult: 2, runnerTrailLock: 0.7, slConfirmTicks: 2 },
-  HEDGE: { riskPct: 1.0, minAuc: 0.78, minAcc: 76, minScore: 66, runTf: ["5m", "15m", "1h"], cooldownMin: 60, runnerSharePct: 50, runnerTpMult: 2, runnerTrailLock: 0.5, slConfirmTicks: 2 },
-  ALPHA: { riskPct: 2.0, minAuc: 0.74, minAcc: 72, minScore: 60, runTf: ["5m", "15m", "1h", "4h"], cooldownMin: 30, runnerSharePct: 70, runnerTpMult: 2.5, runnerTrailLock: 0.3, slConfirmTicks: 2 },
-  GRAIL: { riskPct: 1.0, minAuc: 0.80, minAcc: 78, minScore: 70, runTf: ["15m", "1h"], cooldownMin: 60, runnerSharePct: 50, runnerTpMult: 2, runnerTrailLock: 0.5, slConfirmTicks: 2 },
-};
+// ─── AGENTS — nguồn duy nhất src/lib/agent-presets.ts (khớp engine + digest) ──
+const AGENTS = AGENT_META;
+const AGENT_UI_PRESETS: Record<string, any> = AGENT_PRESETS;
 
 
 

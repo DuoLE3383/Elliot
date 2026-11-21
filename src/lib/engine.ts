@@ -145,6 +145,7 @@ import {
   tp1Plan,
   type SlPending,
 } from "./trade-mgmt";
+import { AGENT_PRESETS, type AgentId } from "./agent-presets";
 
 // ─── engine state (global + persisted) ───────────────────────────────────────
 
@@ -1414,21 +1415,13 @@ async function llmGate(
 // score vừa đủ gate -> 5x, mạnh +15 điểm -> 20x, ATR to -> tự hạ lev
 // Trần cứng 20x — không bao giờ vượt, dù score cao tới đâu
 
-// ─── AGENTS — VAULT / HEDGE / ALPHA / GRAIL ───
-// Panel số cũ vẫn hiện nhưng VÔ HIỆU — engine chỉ đọc agent rồi map ra số.
-// User chỉ chọn Agent, không chỉnh Risk/Leverage/Gate/TF tay nữa.
-const AGENT_PRESETS = {
-  VAULT:  { riskPct: 0.5, minAuc: 0.82, minAcc: 80, minScore: 72, runTf: ["15m", "1h"], cooldownMin: 120, runnerSharePct: 30, runnerTpMult: 2, runnerTrailLock: 0.7, slConfirmTicks: 2 },
-  HEDGE:  { riskPct: 1.0, minAuc: 0.72, minAcc: 68, minScore: 55, runTf: ["5m", "15m", "1h"], cooldownMin: 60,  runnerSharePct: 50, runnerTpMult: 2, runnerTrailLock: 0.5, slConfirmTicks: 2 },
-  ALPHA:  { riskPct: 2.0, minAuc: 0.74, minAcc: 72, minScore: 60, runTf: ["5m", "15m", "1h", "4h"], cooldownMin: 30, runnerSharePct: 70, runnerTpMult: 2.5, runnerTrailLock: 0.3, slConfirmTicks: 2 },
-  GRAIL:  { riskPct: 1.0, minAuc: 0.80, minAcc: 78, minScore: 70, runTf: ["15m", "1h"], cooldownMin: 60,  runnerSharePct: 50, runnerTpMult: 2, runnerTrailLock: 0.5, slConfirmTicks: 2 },
-} as const;
+// ─── AGENTS — nguồn duy nhất: ./agent-presets (UI + engine + digest cùng số) ──
 function applyAgentPreset(cfg: any): any {
-  const id = (cfg?.agent || "HEDGE") as keyof typeof AGENT_PRESETS;
-  if (id === "GRAIL") return cfg; // GRAIL locked — chưa map, giữ HEDGE
+  const id = (cfg?.agent || "HEDGE") as AgentId;
+  if (id === "GRAIL") return cfg; // GRAIL locked — chưa map, giữ cfg hiện tại
   const pr = AGENT_PRESETS[id] || AGENT_PRESETS.HEDGE;
-  // Giữ runTf user đã bật/tắt — preset Agent không được ghi đè TF (nếu không Scan mãi 3 TF)
-  return { ...cfg, ...pr, runTf: cfg?.runTf?.length ? cfg.runTf : pr.runTf };
+  // Giữ runTf user đã bật/tắt — preset Agent không được ghi đè TF
+  return { ...cfg, ...pr, runTf: cfg?.runTf?.length ? cfg.runTf : [...pr.runTf] };
 }
 
 function dynLeverage(score: number, minScore: number, atrPct: number): number {
@@ -2182,25 +2175,33 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
     // SL doi len dung gia trail (peakROI-1). Runner cham trail lan nua -> dong 100% (nhanh duoi).
     const alreadyPartial = (open.p1Pct ?? null) != null;
     if (!alreadyPartial && trail.stop != null) {
-      // stopRoi = ROI tai dung gia trail.stop (= peakROI - 1) - tinh tu gia, khong can peak
+      // stopRoi = ROI tại đúng giá trail.stop (= peakROI - 1)
       const stopMovePct = open.side === "SHORT"
         ? ((open.entryPrice - trail.stop) / open.entryPrice) * 100
         : ((trail.stop - open.entryPrice) / open.entryPrice) * 100;
       const stopRoi = Math.round(stopMovePct * open.leverage * 100) / 100;
-      const slMove = Math.max(0.05, stopRoi / Math.max(1, open.leverage)); // % gia cua SL moi
+      const slMove = Math.max(0.05, stopRoi / Math.max(1, open.leverage));
+      // 0.3.35 — dùng runnerSharePct (cùng TP1 plan), không hardcode 50%
+      const share = Math.min(0.9, Math.max(0.1, (c.runnerSharePct ?? 50) / 100));
       try {
         await db.autoTrade.update({
           where: { id: open.id },
-          data: { p1Pct: Math.round((stopRoi - feeRoe(open.leverage)) * 100) / 100, p1Share: 0.5, tp2Pct: Math.max(open.tpPct * open.leverage, stopRoi + 2), trailPct: 0, slPct: open.side === "SHORT" ? -slMove : slMove },
+          data: {
+            p1Pct: Math.round((stopRoi - feeRoe(open.leverage)) * 100) / 100,
+            p1Share: share,
+            tp2Pct: Math.max(open.tpPct * open.leverage, stopRoi + 2),
+            trailPct: 0,
+            slPct: open.side === "SHORT" ? -slMove : slMove,
+          },
         });
-        console.log(`[engine] TRAIL ROI partial ${open.symbol} ${open.interval} — bank 50% @ ROI ${stopRoi.toFixed(2)}% · runner SL doi len ${slMove.toFixed(2)}% gia`);
+        console.log(`[engine] TRAIL ROI partial ${open.symbol} ${open.interval} — bank ${(share * 100).toFixed(0)}% @ ROI ${stopRoi.toFixed(2)}% · runner SL dời lên ${slMove.toFixed(2)}% giá`);
         if ((p as any).trailById) delete (p as any).trailById[open.id];
         slPendingSet(open.id, null);
         persistEngine();
-        if (tgReady()) void tgSendMessage(msgTp1(open, price, 0.5, Math.max(open.tpPct, (stopRoi + 2) / Math.max(1, open.leverage)), Math.round((stopRoi - feeRoe(open.leverage)) * 100) / 100, "trail"), "HTML");
+        if (tgReady()) void tgSendMessage(msgTp1(open, price, share, Math.max(open.tpPct, (stopRoi + 2) / Math.max(1, open.leverage)), Math.round((stopRoi - feeRoe(open.leverage)) * 100) / 100, "trail"), "HTML");
         return { tp1: true };
       } catch (e) {
-        console.error(`[engine] TRAIL ROI partial failed: ${e instanceof Error ? e.message : e} — dong toan bo nhu cu`);
+        console.error(`[engine] TRAIL ROI partial failed: ${e instanceof Error ? e.message : e} — đóng toàn bộ như cũ`);
       }
     }
     return { closed: await closeTradeDirect(open.id, price, "trail"), kind: "trail" };

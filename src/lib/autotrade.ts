@@ -34,6 +34,7 @@ import {
   feeRoe,
   pval,
 } from "./params";
+import { agentGateTuple, agentIconOf, agentPresetOf } from "./agent-presets";
 
 // Knob sống ở ./params — MỘT nguồn config; re-export cho chỗ cũ không đổi path.
 // feeRoe định nghĩa ở ./params từ 0.2.78 (llm.ts cần chính công thức đó mà không
@@ -1288,12 +1289,13 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
   // TG UPGRADE — Agent header: lấy agent từ state nếu có, fallback HEDGE
   const anySt0 = st as any;
   const agentId = (anySt0.agent || anySt0.cfg?.agent || "HEDGE") as string;
-  const AGATE: Record<string, [number, number, number, number]> = { VAULT: [0.5, 72, 0.82, 80], HEDGE: [1.0, 55, 0.72, 68], ALPHA: [2.0, 60, 0.74, 72], GRAIL: [1.0, 70, 0.80, 78] };
-  const ag = AGATE[agentId] || AGATE.HEDGE;
-  const agentIcon = agentId === "VAULT" ? "🗄" : agentId === "ALPHA" ? "🚀" : agentId === "GRAIL" ? "👑" : "⚖";
+  const ag = agentGateTuple(agentId); // [risk, score, auc, acc] — cùng nguồn engine/UI
+  const agentIcon = agentIconOf(agentId);
+  const rp = agentPresetOf(agentId);
+  const runnerTxt = `${rp.runnerSharePct}/${rp.runnerTpMult}/${rp.runnerTrailLock}`;
   const lines = [
     title,
-    `${agentIcon} Agent: <b>${agentId}</b> · Risk ${ag[0]}% · Gate Score ${ag[1]} / AUC ${ag[2]} / ACC ${ag[3]}% · Runner 50/2/0.5`,
+    `${agentIcon} Agent: <b>${agentId}</b> · Risk ${ag[0]}% · Gate Score ${ag[1]} / AUC ${ag[2]} / ACC ${ag[3]}% · Runner ${runnerTxt}`,
     DIGEST_HR,
     `📊 <b>${capLabel}</b>: ${opened.length} opened · ${recent.length} closed · WR <b>${wr}</b>${eqTxt2} · Margin ${roe}`,
     `💰 Equity <b>${eq}</b> USDT · ${st.stats.closed} closed all-time${st.open ? " · 1 open" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(0)}%` : "—"}`,
@@ -1307,7 +1309,13 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
   if (recent.length === 0) {
     // HOURLY 0 lenh: chi 1 dong ly do — khong nhoi Best/Books/Scan/Did/Sleep (filler lap moi gio).
     // Lesson/autopsy KHONG nam o day: chi gui khi autopsy that su xong (tin AUTOPSY rieng).
-    lines.push(`❌ 0 lệnh: 0 combo qua gate ${ag[1]} / AUC ${ag[2]} / ACC ${ag[3]}% + noise guard — đứng ngoài đúng gate`);
+    // 0.3.35 — không gộp cứng "noise guard": lý do thật nằm ở status engine
+    const why = (anySt0.lastCycleStatus || anySt0.cfg?.lastCycleStatus || "").toString().slice(0, 120);
+    lines.push(
+      why
+        ? `❌ 0 lệnh trong cửa sổ — gate Score ${ag[1]} / AUC ${ag[2]} / ACC ${ag[3]}% · ${why}`
+        : `❌ 0 lệnh trong cửa sổ — không combo qua gate Score ${ag[1]} / AUC ${ag[2]} / ACC ${ag[3]}% (xem status engine: sàn / regress / whale / nhiễu)`,
+    );
     return lines;
   }
 
