@@ -91,7 +91,7 @@ export function lastRefVolRatio(vol: number[], window: number): number | null {
 }
 
 /** nhận diện range 90 nến ngày (zone trừ nến cuối) — port identify_trading_range. */
-export function identifyTradingRange(d: Kline[], lookback = 90, swingWindow = 3, excludeLast = 1): WyckoffRange | null {
+export function identifyTradingRange(d: Kline[], lookback = 90, swingWindow = 3, excludeLast = 1, overrides?: { minW?: number; maxW?: number; driftMax?: number }): WyckoffRange | null {
   const minBars = Math.max(40, swingWindow * 2 + 20);
   if (d.length < minBars + Math.max(excludeLast, 0)) return null;
   const zone = d.slice(0, d.length - Math.max(excludeLast, 0)).slice(-Math.max(lookback, minBars));
@@ -112,8 +112,8 @@ export function identifyTradingRange(d: Kline[], lookback = 90, swingWindow = 3,
   if (!Number.isFinite(support) || !Number.isFinite(resistance) || support <= 0 || resistance <= support) return null;
 
   const widthPct = ((resistance - support) / support) * 100;
-  const maxW = pval("WY_RANGE_MAX_W", WY_RANGE_MAX_W);
-  const minW = pval("WY_RANGE_MIN_W", WY_RANGE_MIN_W);
+  const maxW = overrides?.maxW ?? pval("WY_RANGE_MAX_W", WY_RANGE_MAX_W);
+  const minW = overrides?.minW ?? pval("WY_RANGE_MIN_W", WY_RANGE_MIN_W);
   if (widthPct < minW || widthPct > maxW) return null;
 
   const clean = close.filter(Number.isFinite);
@@ -121,7 +121,8 @@ export function identifyTradingRange(d: Kline[], lookback = 90, swingWindow = 3,
   const last = clean[clean.length - 1];
   if (!Number.isFinite(first) || first <= 0 || !Number.isFinite(last)) return null;
   const driftPct = Math.abs(((last - first) / first) * 100);
-  if (driftPct > pval("WY_DRIFT_MAX", WY_DRIFT_MAX)) return null;
+  const driftMax = overrides?.driftMax ?? pval("WY_DRIFT_MAX", WY_DRIFT_MAX);
+  if (driftPct > driftMax) return null;
 
   const tol = 0.035;
   const sTests = low.filter((x) => x <= support * (1 + tol)).length;
@@ -143,7 +144,7 @@ export function identifyTradingRange(d: Kline[], lookback = 90, swingWindow = 3,
   const idealWidth = Math.min(Math.max(atrPct * 4, 6), 40);
   const widthScore = Math.max(0, 1 - Math.abs(widthPct - idealWidth) / Math.max(idealWidth, 1));
   const testScore = Math.min((sTests + rTests) / 6, 1);
-  const driftScore = Math.max(0, 1 - driftPct / pval("WY_DRIFT_MAX", WY_DRIFT_MAX));
+  const driftScore = Math.max(0, 1 - driftPct / driftMax);
   const quality = 0.45 * testScore + 0.35 * widthScore + 0.20 * driftScore;
 
   return {
@@ -163,36 +164,40 @@ export function identifyTradingRange(d: Kline[], lookback = 90, swingWindow = 3,
 /** Trigger trên nến ngày ĐÃ ĐÓNG cuối so với range trước đó — port detect_triggers
  *  (chỉ Spring + SOS, đúng 2 trigger đã verify có edge; LPS/EVR bị bỏ vì verify
  *  chỉ ra LPS ồn, EVR hiếm không đủ mẫu). */
-export function detectTriggers(d: Kline[], tr: WyckoffRange): { trigger: "spring" | "sos" | "none"; upthrust: boolean } {
+export function detectTriggers(d: Kline[], tr: WyckoffRange, overrides?: { sosPct?: number }): { trigger: "spring" | "sos" | "none"; upthrust: boolean } {
   const n = d.length;
   if (n < 3) return { trigger: "none", upthrust: false };
-  const lastClose = d[n - 1].c;
-  const lastLow = d[n - 1].l;
-  const lastHigh = d[n - 1].h;
-  const prevLow = d[n - 2].l;
-  const prevClose = d[n - 2].c;
   const vol = d.map((k) => k.v);
-  const { mid, support, resistance, width, quality } = tr;
-
-  let trigger: "spring" | "sos" | "none" = "none";
-  // Spring
-  const vrSpring = lastRefVolRatio(vol, 5);
-  const pierced = Math.min(prevLow, lastLow) <= support * 0.995;
-  const recovered = lastClose > support * 1.005;
-  const inRange = lastClose < mid + width * 0.25;
-  if (vrSpring !== null && pierced && recovered && inRange && vrSpring >= pval("WY_SPRING_VOL", WY_SPRING_VOL)) {
-    trigger = "spring";
-  }
-  // SOS (ưu tiên — breakout mạnh hơn fake-out)
-  const vrSos = lastRefVolRatio(vol, Math.max(20, 5));
-  const pctChg = Number.isFinite(prevClose) && prevClose > 0 ? ((lastClose - prevClose) / prevClose) * 100 : 0;
-  const breakout = lastClose >= resistance * 0.99;
-  if (vrSos !== null && breakout && pctChg >= pval("WY_SOS_PCT", WY_SOS_PCT) && vrSos >= pval("WY_SOS_VOL", WY_SOS_VOL)) {
-    trigger = "sos";
-  }
-  // Upthrust (L5) — thủng đỉnh rồi đóng lại dưới đỉnh: failed breakout, chặn LONG
+  const { mid, support, resistance, width } = tr;
+  // Upthrust chỉ check nến cuối — failed breakout mới nhất
+  const lastHigh = d[n - 1].h;
+  const lastClose = d[n - 1].c;
   const upthrust = lastHigh > resistance * 1.005 && lastClose < resistance * 0.995;
-  return { trigger, upthrust };
+  // Quét 5 nến ngày cuối — Spring/SOS có hiệu lực vài ngày, không phải 1 ngày
+  const lookback = Math.max(1, Math.min(5, n - 1));
+  for (let i = n - lookback; i < n; i++) {
+    const cur = d[i];
+    const prev = d[i - 1];
+    if (!cur || !prev) continue;
+    const volSlice = vol.slice(0, i + 1);
+    // Spring ở nến i
+    const vrSpring = lastRefVolRatio(volSlice, 5);
+    const pierced = Math.min(prev.l, cur.l) <= support * 0.995;
+    const recovered = cur.c > support * 1.005;
+    const inRange = cur.c < mid + width * 0.25;
+    if (vrSpring !== null && pierced && recovered && inRange && vrSpring >= pval("WY_SPRING_VOL", WY_SPRING_VOL)) {
+      return { trigger: "spring", upthrust };
+    }
+    // SOS ở nến i — breakout mạnh hơn fake-out
+    const vrSos = lastRefVolRatio(volSlice, Math.max(20, 5));
+    const pctChg = Number.isFinite(prev.c) && prev.c > 0 ? ((cur.c - prev.c) / prev.c) * 100 : 0;
+    const breakout = cur.c >= resistance * 0.99;
+    const sosPct = overrides?.sosPct ?? pval("WY_SOS_PCT", WY_SOS_PCT);
+    if (vrSos !== null && breakout && pctChg >= sosPct && vrSos >= pval("WY_SOS_VOL", WY_SOS_VOL)) {
+      return { trigger: "sos", upthrust };
+    }
+  }
+  return { trigger: "none", upthrust };
 }
 
 // ── breadth regime: % symbol universe có close ngày ≥ MA20 (cache 30 phút) ───
@@ -245,6 +250,22 @@ export async function breadthPct(symbols: string[]): Promise<{ pct: number; n: n
 
 // ── verdict chính — gọi từ engine trước khi mở lệnh LONG ─────────────────────
 
+// ── Scale ngưỡng Wyckoff theo TF (v0.3.42) ────────────────────────────────
+// Verify 07/11 chỉ có trên 1d: width 4%, SOS +6%, drift 18%.
+// Xuống TF nhỏ, biến động 1 nến nhỏ lại theo căn thời gian, nên ngưỡng phải nhỏ lại.
+// Nếu giữ ngưỡng 1d cho 1h/4h thì LONG 1h/4h gần như không bao giờ qua.
+export const WY_TF_SCALE: Record<string, { rangeMin: number; sosPct: number; driftMax: number }> = {
+  "5m":  { rangeMin: 0.5, sosPct: 0.5, driftMax: 2 },
+  "15m": { rangeMin: 0.8, sosPct: 0.8, driftMax: 3 },
+  "30m": { rangeMin: 1.2, sosPct: 1.2, driftMax: 4 },
+  "1h":  { rangeMin: 1.5, sosPct: 1.5, driftMax: 6 },
+  "4h":  { rangeMin: 2.5, sosPct: 3.0, driftMax: 10 },
+  "1d":  { rangeMin: 4.0, sosPct: 6.0, driftMax: 18 },
+};
+export function wyTfScale(interval: string) {
+  return WY_TF_SCALE[interval] ?? WY_TF_SCALE["1d"];
+}
+
 /** Cổng LONG sổ B. Data lỗi → fail-open (ok=true, failOpen=true, lý do ghi rõ). */
 export async function wyckoffLongGate(symbol: string, universe: string[], interval = "1d"): Promise<WyckoffVerdict> {
   const sym = symbol.toUpperCase();
@@ -254,9 +275,11 @@ export async function wyckoffLongGate(symbol: string, universe: string[], interv
   }
   try {
     const now = Date.now();
+    // FIX v0.3.42: Multi-TF 1h/4h/1d như sổ D — NHƯNG scale ngưỡng theo TF.
+    // V0.3.41 ép về 1d là rollback, v0.3.42 khôi phục multi-TF + scale đúng.
+    // Ngưỡng ngày (width 4%, SOS +6%, drift 18%) không xài được cho 1h/4h.
     const tfMs: Record<string, number> = { "5m": 300_000, "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": DAY_MS };
     const intervalMs = tfMs[interval] ?? DAY_MS;
-    // Range: 90 nến TF đang chọn (đủ dài để thấy tích luỹ) — nến ngày vẫn giữ cho breadth/regime
     const lookback = interval === "1d" ? Math.max(pval("WY_RANGE_LOOKBACK", WY_RANGE_LOOKBACK) + 60, 150) : Math.max(pval("WY_RANGE_LOOKBACK", WY_RANGE_LOOKBACK) * 2 + 60, 240);
     const raw = await fetchKlinesDirect(sym, interval, lookback);
     // chỉ nến ngày ĐÃ ĐÓNG — nến đang chạy không đủ tư cách làm trigger
@@ -264,8 +287,11 @@ export async function wyckoffLongGate(symbol: string, universe: string[], interv
     if (d.length < 120) {
       return { ...base, ok: true, reason: `fail-open: chỉ ${d.length} nến ${interval} đã đóng`, trigger: "none", range: null, breadth: null, regime: "unknown", upthrust: false, suggestedStopPct: null, failOpen: true };
     }
-    const tr = identifyTradingRange(d, pval("WY_RANGE_LOOKBACK", WY_RANGE_LOOKBACK));
-    const { trigger, upthrust } = tr ? detectTriggers(d, tr) : { trigger: "none" as const, upthrust: false };
+    const tfScale = wyTfScale(interval);
+    // v0.3.43: truyền ngưỡng đã scale theo TF vào identify + detect
+    // 1h: width ≥1.5%, SOS ≥1.5%, drift ≤6% · 4h: width ≥2.5%, SOS ≥3%, drift ≤10% · 1d: 4% / 6% / 18%
+    const tr = identifyTradingRange(d, pval("WY_RANGE_LOOKBACK", WY_RANGE_LOOKBACK), 3, 1, { minW: tfScale.rangeMin, driftMax: tfScale.driftMax });
+    const { trigger, upthrust } = tr ? detectTriggers(d, tr, { sosPct: tfScale.sosPct }) : { trigger: "none" as const, upthrust: false };
     const br = await breadthPct(universe);
     const breadth = br ? br.pct : null;
     const breadthMin = pval("WY_BREADTH_MIN", WY_BREADTH_MIN);
@@ -279,10 +305,19 @@ export async function wyckoffLongGate(symbol: string, universe: string[], interv
       return { ...base, ok: false, reason: `Upthrust — nến ${interval} thủng đỉnh ${fmt(tr.resistance)} rồi đóng lại dưới đỉnh (failed breakout)`, trigger, range: tr, breadth, regime, upthrust: true, suggestedStopPct, failOpen: false };
     }
     if (!tr) {
-      return { ...base, ok: false, reason: `không có trading range hợp lệ (width 4–45%, drift ≤18%, test ≥2 mặt mỗi biên trong ${pval("WY_RANGE_LOOKBACK", WY_RANGE_LOOKBACK)} nến ${interval})`, trigger, range: null, breadth, regime, upthrust, suggestedStopPct: null, failOpen: false };
+      // Trend fallback: không có range vì đang trend (drift >18% / width >45%)
+      // mà breadth ≥ min + RISK_ON + close > MA20 (20 nến 1d) thì cho LONG qua
+      // lý do: trend lên không cần range tích lũy — bắt trend phải có range là chặn sai
+      const closes20 = d.slice(-20).map((k) => k.c);
+      const ma20 = closes20.length >= 20 ? closes20.reduce((s, x) => s + x, 0) / 20 : NaN;
+      const isTrendUp = breadth !== null && breadth >= breadthMin && regime === "RISK_ON" && Number.isFinite(ma20) && lastClose > ma20;
+      if (isTrendUp) {
+        return { ...base, ok: true, reason: `trend, no range — breadth ${breadth}% + RISK_ON + close > MA20 ${interval} (không bắt trend phải có range)`, trigger, range: null, breadth, regime, upthrust, suggestedStopPct: null, failOpen: false };
+      }
+      return { ...base, ok: false, reason: `không có trading range hợp lệ (width ${wyTfScale(interval).rangeMin}–45%, drift ≤${wyTfScale(interval).driftMax}%, test ≥2 mặt mỗi biên trong ${pval("WY_RANGE_LOOKBACK", WY_RANGE_LOOKBACK)} nến ${interval})`, trigger, range: null, breadth, regime, upthrust, suggestedStopPct: null, failOpen: false };
     }
     if (trigger === "none") {
-      return { ...base, ok: false, reason: `range hợp lệ nhưng chưa có trigger Spring/SOS ở nến ${interval} cuối`, trigger, range: tr, breadth, regime, upthrust, suggestedStopPct, failOpen: false };
+      return { ...base, ok: false, reason: `range hợp lệ nhưng chưa có trigger Spring/SOS ở 5 nến ${interval} cuối`, trigger, range: tr, breadth, regime, upthrust, suggestedStopPct, failOpen: false };
     }
     if (regime === "RISK_OFF") {
       return { ...base, ok: false, reason: `trigger ${trigger} nhưng regime RISK_OFF (breadth ${breadth}% < ${breadthMin}% trên MA20) — verify: SOS RISK_OFF −1.77%/28.6%`, trigger, range: tr, breadth, regime, upthrust, suggestedStopPct, failOpen: false };
