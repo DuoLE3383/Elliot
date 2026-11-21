@@ -1299,26 +1299,15 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
     `💰 Equity <b>${eq}</b> USDT · ${st.stats.closed} closed all-time${st.open ? " · 1 open" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(0)}%` : "—"}`,
   ];
   const best = (st.byCombo ?? []).filter((c) => c.closed >= 3).sort((a, b) => b.winRate - a.winRate)[0];
-  if (best) lines.push(`🏆 Best: <b>#${baseSym(best.symbol)}</b> ${best.interval} · WR ${best.winRate.toFixed(0)}% (${best.closed} trades)`);
+  if (best && recent.length > 0) lines.push(`🏆 Best: <b>#${baseSym(best.symbol)}</b> ${best.interval} · WR ${best.winRate.toFixed(0)}% (${best.closed} trades)`);
   if (st.open)
     lines.push(`🔓 Holding: <b>#${baseSym(st.open.symbol)}</b> ${st.open.interval} ${sideTag(st.open.side)} @ ${fmtPrice(st.open.entryPrice)}`);
 
   lines.push("");
   if (recent.length === 0) {
-    // B 0.3.4 hourly diagnostics — 0 lệnh phải nói VÌ SAO, không chỉ 😴
-    // Lấy từ AutoState nếu engine có lưu, nếu chưa có thì fallback về gate hiện tại
-    const anySt = st as any;
-    const cycleTxt = anySt.lastCycleStatus || anySt.cycleStatus || anySt.lastCycle || "";
-    const scanTxt = anySt.lastScanStatus || anySt.scanStatus || "";
-    const breadth = anySt.breadthPct ?? anySt.breadth ?? null;
-    lines.push(`🔍 Scan gần nhất: ${scanTxt || "scan chạy, 0 combo qua gate"} (scan hiện tại, không phải tổng ${periodLabel})`);
-    if (cycleTxt) lines.push(`❌ Vì sao 0 lệnh: ${cycleTxt}`);
-    else lines.push(`❌ Vì sao 0 lệnh: 0 combo qua gate ${ag[1]} / AUC ${ag[2]} / ACC ${ag[3]}% + noise guard (SL >= 0.8x ATR)`);
-    if (breadth != null) lines.push(`📉 Breadth: ${Number(breadth).toFixed(1)}%${Number(breadth) < 5 ? " — thị trường yếu, C RISK_OFF" : ""}`);
-    // TG UPGRADE — Books + GRAIL progress (B = closed all-time của Book B, C = breadth)
-    lines.push(`📚 Books: A Vulcan · B XGB ${st.stats.closed} closed all-time · C Wyckoff ${Number(breadth ?? 99) < 5 ? "RISK_OFF" : "OK"} · GRAIL ${st.stats.closed >= 20 && Number(breadth ?? 99) >= 5 ? "✅ mở" : "🔒 khóa (cần B ≥20 + C hết RISK_OFF)"}`);
-    lines.push(`✅ Đã làm ${periodLabel}: scan + universe re-rank + check SL/TP lệnh open · train skipped nếu chưa đủ 20 lệnh đóng`);
-    lines.push(`😴 No trades closed ${periodLabel} — đứng ngoài đúng gate, không phải engine chết`);
+    // HOURLY 0 lenh: chi 1 dong ly do — khong nhoi Best/Books/Scan/Did/Sleep (filler lap moi gio).
+    // Lesson/autopsy KHONG nam o day: chi gui khi autopsy that su xong (tin AUTOPSY rieng).
+    lines.push(`❌ 0 lệnh: 0 combo qua gate ${ag[1]} / AUC ${ag[2]} / ACC ${ag[3]}% + noise guard — đứng ngoài đúng gate`);
     return lines;
   }
 
