@@ -302,6 +302,20 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   const [tab, setTab] = useState<"agent" | "capital" | "tpsl" | "trail" | "runner" | "filters" | "more">("agent");
   const [savingCfg, setSavingCfg] = useState(false);
   const [saveCfgMsg, setSaveCfgMsg] = useState("");
+  const saveCfg = async () => {
+    setSavingCfg(true);
+    setSaveCfgMsg("");
+    try {
+      onCfgChange({ capital: cfg.capital, riskPct: cfg.riskPct } as any);
+      onLeverageChange(leverage);
+      setSaveCfgMsg("\u2705 \u0110\u00e3 l\u01b0u \u2014 engine d\u00f9ng t\u1eeb cycle k\u1ebf ti\u1ebfp \u00b7 l\u1ec7nh \u0111ang open gi\u1eef stake c\u0169");
+      pushToast({ kind: "success", text: "\u0110\u00e3 l\u01b0u setting \u2014 Capital " + cfg.capital + " \u00b7 Risk " + cfg.riskPct + "% \u00b7 Lev \u00d7" + leverage });
+    } catch {
+      setSaveCfgMsg("\u274c L\u01b0u l\u1ed7i \u2014 th\u1eed l\u1ea1i");
+    } finally {
+      setSavingCfg(false);
+    }
+  };
 
   useEffect(() => {
     langRef.current = lang;
@@ -674,6 +688,10 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                   />
                 )}
                 <Switch checked={cfg.on} onCheckedChange={(v) => updateCfg({ on: v })} aria-label={t(lang, "auto.on")} />
+                <button type="button" disabled={savingCfg} onClick={() => void saveCfg()} className="h-7 rounded-md bg-emerald-500 px-3 font-mono text- font-bold text-black hover:bg-emerald-400 disabled:opacity-50">
+                  {savingCfg ? "\u0110ang l\u01b0u\u2026" : "\uD83D\uDCBE Save"}
+                </button>
+                {saveCfgMsg && <span className="max-w- truncate text- text-zinc-400" title={saveCfgMsg}>{saveCfgMsg}</span>}
               </div>
             </div>
             <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">{t(lang, "auto2.settingsSub")}</p>
@@ -886,31 +904,6 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                     />
                   </span>
                 </label>
-                {/* SAVE — xac nhan 1 lan: capital + risk + leverage xuong page/backend, engine dung tu cycle ke tiep. Lenh dang open GIU NGUYEN stake cu. */}
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    disabled={savingCfg}
-                    onClick={async () => {
-                      setSavingCfg(true);
-                      setSaveCfgMsg("");
-                      try {
-                        onCfgChange({ capital: cfg.capital, riskPct: cfg.riskPct } as any);
-                        onLeverageChange(leverage);
-                        setSaveCfgMsg("✅ Đã lưu — engine dùng từ cycle kế tiếp · lệnh đang open giữ stake cũ");
-                        pushToast({ kind: "success", text: `Đã lưu setting — Capital ${cfg.capital} · Risk ${cfg.riskPct}% · Lev ×${leverage}` });
-                      } catch {
-                        setSaveCfgMsg("❌ Lưu lỗi — thử lại");
-                      } finally {
-                        setSavingCfg(false);
-                      }
-                    }}
-                    className="h-8 rounded-md bg-emerald-500 px-4 font-mono text- font-bold text-black hover:bg-emerald-400 disabled:opacity-50"
-                  >
-                    {savingCfg ? "Đang lưu…" : "💾 Save"}
-                  </button>
-                  {saveCfgMsg && <span className="text- text-zinc-400">{saveCfgMsg}</span>}
-                </div>
               </div>
             )}
 

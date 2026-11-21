@@ -27,6 +27,7 @@
 // — toàn bộ state vị thế nằm trong dòng WyckoffBook (như sổ A).
 
 import { db } from "./db";
+import { tgSendMessage } from "./telegram-store";
 import { fetchKlinesDirect } from "./klines-direct";
 import { feeRoe, pval } from "./params";
 import {
@@ -685,6 +686,16 @@ async function wyckoffTick(): Promise<void> {
     },
   });
   console.log(`[wyckoff-C] OPEN LONG ${pick.sym} @ ${entry} trigger ${pick.trig.kind} score ${pick.trig.score.toFixed(2)} stop ${stop.toPrecision(6)} (đáy ${accumLow.toPrecision(6)}) vốn ${head} · ${pick.note}${candidates.length > 1 ? ` · ${candidates.length} ứng viên, chọn score cao nhất` : ""}`);
+    void tgSendMessage(
+      [
+      `OPEN C - ${pick.sym} LONG 1d`,
+      `Entry ${entry} - Vao ${new Date().toLocaleTimeString("vi-VN", { hour12: false })} - So C Wyckoff`,
+      `SL ${stop.toPrecision(6)} - Trigger ${pick.trig.kind} - Score ${pick.trig.score.toFixed(2)}`,
+      `Von truoc ${head} - Lev x1 - Stake 10%`,
+      ].join(String.fromCharCode(10)),
+      "HTML",
+      { dedupeKey: `open:C:${pick.sym}:${entry}` },
+    ).catch(() => {});
 }
 
 let cStarted = false;

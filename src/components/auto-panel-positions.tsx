@@ -121,6 +121,39 @@ export function AutoPositions(props: any) {
             {opens.map((open) => (
               <div key={open.id} className="rounded-lg border border-zinc-700 bg-zinc-900 p-2.5">
 
+                {(() => {
+                  const etRaw = open.entryTime ?? open.openedAt ?? open.createdAt ?? null;
+                  const et = etRaw ? new Date(etRaw) : null;
+                  const mins = et ? Math.max(0, Math.floor((Date.now() - et.getTime()) / 60000)) : null;
+                  const book = open.book ?? "B";
+                  const mark = tickers[open.symbol]?.price ?? open.entryPrice;
+                  const mv = open.side === "SHORT" ? (open.entryPrice - mark) / open.entryPrice : (mark - open.entryPrice) / open.entryPrice;
+                  const roi = mv * open.leverage * 100;
+                  const timeTxt = et ? et.toLocaleTimeString("vi-VN", { hour12: false }) : "—";
+                  const ago = mins == null ? "" : mins < 1 ? "vua vao" : mins < 60 ? mins + " phut truoc" : Math.floor(mins / 60) + "h" + (mins % 60) + "m truoc";
+                  return (
+                    <div className="mb-1 space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-xs font-bold text-sky-300">SO {book}</span>
+                        <span className="font-mono text-sm font-bold text-zinc-100">{open.symbol}</span>
+                        <span className="rounded px-1.5 py-0.5 font-mono text-xs font-bold bg-rose-950/70 text-rose-300">{open.side}</span>
+                        <span className="font-mono text-xs text-zinc-400">{open.interval}</span>
+                        <span className="ml-auto font-mono text-xs text-zinc-300">Vao {timeTxt} - {ago}</span>
+                      </div>
+                      <div className="flex items-end justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Entry</div>
+                          <div className="font-mono text-3xl font-bold leading-none text-zinc-50">{fmtPrice(open.entryPrice)}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs text-zinc-500">Mark - cach Entry</div>
+                          <div className="font-mono text-sm font-bold text-zinc-200">{fmtPrice(mark)} - <span className={mv >= 0 ? "text-emerald-400" : "text-rose-400"}>{mv >= 0 ? "+" : ""}{(mv * 100).toFixed(2)}%</span></div>
+                          <div className="font-mono text-xs font-bold text-emerald-400">ROE {roi >= 0 ? "+" : ""}{roi.toFixed(2)}%</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
                   <span className="text-zinc-500">{t(lang, "auto.col.pair")}</span>
                   <span className="text-right font-mono text-zinc-200">
@@ -228,6 +261,27 @@ export function AutoPositions(props: any) {
                     );
                   })()}
                 </div>
+                {(() => {
+                  const sl = slPrice(open.side, open.entryPrice, open.slPct);
+                  const hasTp = (open.tpPct ?? 0) > 0;
+                  const tp = hasTp ? tpPrice(open.side, open.entryPrice, open.tpPct) : open.entryPrice;
+                  const mark = tickers[open.symbol]?.price ?? open.entryPrice;
+                  const lo = Math.min(sl, tp, open.entryPrice);
+                  const hi = Math.max(sl, tp, open.entryPrice);
+                  const pct = (v) => hi > lo ? Math.max(2, Math.min(98, ((v - lo) / (hi - lo)) * 100)) : 50;
+                  const dSl = Math.abs((sl - mark) / mark) * 100;
+                  const dTp = hasTp ? Math.abs((tp - mark) / mark) * 100 : null;
+                  return (
+                    <div className="mt-2 space-y-1">
+                      <div className="flex justify-between font-mono text-xs text-zinc-500"><span>SL {fmtPrice(sl)}</span><span>Entry {fmtPrice(open.entryPrice)}</span><span>{hasTp ? "TP " + fmtPrice(tp) : "TP Trail"}</span></div>
+                      <div className="relative h-2 rounded-full bg-zinc-800">
+                        <div className="absolute top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-zinc-100" style={{ left: pct(open.entryPrice) + "%" }} />
+                        <div className="absolute top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-emerald-400" style={{ left: pct(mark) + "%" }} />
+                      </div>
+                      <div className="flex justify-between font-mono text-xs text-zinc-500"><span>Con {dSl.toFixed(2)}% toi SL</span><span>{dTp != null ? "Con " + dTp.toFixed(2) + "% toi TP" : "TP theo Trail"}</span></div>
+                    </div>
+                  );
+                })()}
                 <Button size="sm" variant="outline" className="mt-2 h-7 w-full border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800" onClick={() => void closeNow(open)}>
                   <Square className="mr-1.5 h-3 w-3" />
                   {t(lang, "auto.pos.close")}

@@ -10,6 +10,7 @@ import { identifyTradingRange } from "./wyckoff-gate";
 import { fetchKlinesDirect } from "./klines-direct";
 import { breadthPct } from "./wyckoff-gate";
 import { db } from "./db";
+import { tgSendMessage } from "./telegram-store";
 
 // Pair lấy từ pair scan / Universe — KHÔNG hardcode, KHÔNG fallback.
 // startLiquidEngine(symbols: string[]) nhận symbols từ scheduler, scan fail -> STANDBY.
@@ -103,6 +104,16 @@ export async function startLiquidEngine(symbols: string[]) {
               const tpPrice = entry * (1 - (dec.stopPct * 1.4) / 100);
               await db.liquidBook.create({ data: { symbol: sym, side: "SHORT", trigger: ("[" + tf + "] " + dec.reason).slice(0, 80), score: 0, breadth, entryPrice: entry, status: "open", stopPrice, tpPrice } });
               console.log(`[liquid] OPEN SHORT ${sym} [${tf}] @ ${entry} · SL ${stopPrice.toFixed(4)} · TP ${tpPrice.toFixed(4)} · ${dec.reason}`);
+    void tgSendMessage(
+      [
+      `OPEN D - ${sym} SHORT`,
+      `Entry ${entry} - Vao ${new Date().toLocaleTimeString("vi-VN", { hour12: false })} - So D Liquid`,
+      `SL ${stopPrice.toFixed(4)} - TP ${tpPrice.toFixed(4)}`,
+      `Lev x3 - Stake 10%`,
+      ].join(String.fromCharCode(10)),
+      "HTML",
+      { dedupeKey: `open:D:${sym}:${tf}:${entry}` },
+    ).catch(() => {});
             } else {
               console.log(`[liquid] SKIP ${sym} - da co lenh mo`);
             }
