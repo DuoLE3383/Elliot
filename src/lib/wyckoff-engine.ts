@@ -472,16 +472,18 @@ interface DailyCache {
 const dailyCache = new Map<string, DailyCache>();
 const DAILY_TTL = 15 * 60_000;
 
-async function daily(symbol: string): Promise<Kline[] | null> {
-  const hit = dailyCache.get(symbol);
+async function daily(symbol: string, tf = "1d"): Promise<Kline[] | null> {
+  const key = symbol + ":" + tf;
+  const hit = dailyCache.get(key);
   const now = Date.now();
   if (hit && now - hit.at < DAILY_TTL) return hit.klines;
   try {
-    const kl = await fetchKlinesDirect(symbol, "1d", 260);
+    const kl = await fetchKlinesDirect(symbol, tf, 260);
     // chỉ nến ngày ĐÃ ĐÓNG
-    const closed = kl.filter((k) => k.t + DAY_MS <= now);
+    const tfMs = tf === "1h" ? 3600_000 : tf === "4h" ? 4 * 3600_000 : DAY_MS;
+    const closed = kl.filter((k) => k.t + tfMs <= now);
     if (closed.length < 60) return null;
-    dailyCache.set(symbol, { at: now, klines: closed });
+    dailyCache.set(key, { at: now, klines: closed });
     return closed;
   } catch {
     return null;
@@ -610,9 +612,9 @@ async function wyckoffTick(): Promise<void> {
 
   // fetch daily toàn universe (cache 15 phút)
   const dailies = new Map<string, Kline[]>();
-  for (const sym of syms) {
-    const d = await daily(sym);
-    if (d) dailies.set(sym, d);
+  for (const tf of ["1h", "4h", "1d"]) for (const sym of syms) {
+    const d = await daily(sym, tf);
+    if (d) dailies.set(sym + ":" + tf, d);
   }
   // RPS input: ret20/ret60 toàn universe (nến ngày: 20/60 ngày)
   const ret20s: number[] = [];
@@ -623,9 +625,10 @@ async function wyckoffTick(): Promise<void> {
     if (n > 61) ret60s.push((d[n - 1].c / d[n - 61].c - 1) * 100);
   }
 
-  const candidates: Array<{ sym: string; trig: WyTrigger; note: string }> = [];
-  for (const sym of syms) {
-    const d = dailies.get(sym);
+  const candidates: Array<{ sym: string; trig: WyTrigger; note: string; tf: string }> = [];
+  for (const [key, d] of dailies) {
+    const sym = key.split(":")[0];
+    const tf = key.split(":")[1];
     if (!d || d.length < 200) continue; // L2 cần MA200; Spring cần 62
     // L1 thanh khoản — quote vol 20 ngày
     if (quoteVol20(d) < pval("WYC_L1_QUOTE_VOL", WYC_L1_QUOTE_VOL)) continue;
@@ -641,7 +644,7 @@ async function wyckoffTick(): Promise<void> {
       detectEvr(d) ??
       detectTrendPullback(d);
     if (!trig) continue;
-    candidates.push({ sym, trig, note: `${trig.note} · ${l2.reason}` });
+    candidates.push({ sym, trig, note: "[" + tf + "] " + trig.note + " · " + l2.reason, tf });
   }
 
   if (candidates.length === 0) {
@@ -653,7 +656,7 @@ async function wyckoffTick(): Promise<void> {
   const norm = (t: WyTrigger): number => (t.kind === "spring" ? t.score * 10 : t.kind === "trend_pullback" ? t.score * 10 : t.score);
   candidates.sort((a, b) => norm(b.trig) - norm(a.trig));
   const pick = candidates[0];
-  const d = dailies.get(pick.sym)!;
+  const d = dailies.get(pick.sym + ":" + pick.tf)!;
   const head = await wyckoffChainHead();
   const entry = d[d.length - 1].c;
   const accumLow = Math.min(...d.slice(-60).map((k) => k.l));

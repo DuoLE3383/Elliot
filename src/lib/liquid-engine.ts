@@ -24,7 +24,7 @@ export type LiquidDecision =
   | { action: "WAIT"; reason: string };
 
 export function decideLiquidShort(
-  d: any[], // Kline[] nến ngày, >= 90 nến
+  d: any[], // Kline[] >= 90 nến, khung nao cung duoc (1h/4h/1d)
   breadth: number | null,
   breadthMin: number
 ): LiquidDecision {
@@ -66,7 +66,7 @@ export async function startLiquidEngine(symbols: string[]) {
     try {
       const opens = await db.liquidBook.findMany({ where: { status: "open" } });
       for (const o of opens) {
-        const kd: any[] = await fetchKlinesDirect(o.symbol, "1d", 2);
+        const kd: any[] = await fetchKlinesDirect(o.symbol, "1h", 2);
         const last: any = kd[kd.length - 1];
         const mark = Number(last?.close ?? last?.c ?? last?.closePrice ?? 0);
         if (!mark || !o.entryPrice) continue;
@@ -85,9 +85,9 @@ export async function startLiquidEngine(symbols: string[]) {
     try { const b: any = await (breadthPct as any)(list); breadth = b?.pct ?? null; } catch { breadth = null; }
     let lastReason = "đang quét";
     const reasonCount: Record<string, number> = {};
-    for (const sym of list) {
+    for (const tf of ["1h", "4h", "1d"]) for (const sym of list) {
       try {
-        const d = await fetchKlinesDirect(sym, "1d", 120);
+        const d = await fetchKlinesDirect(sym, tf, 120);
         if (!d || d.length < 90) continue;
         const dec = decideLiquidShort(d, breadth, 60);
         lastReason = `${sym}: ${dec.reason}`;
@@ -101,8 +101,8 @@ export async function startLiquidEngine(symbols: string[]) {
             if (!existing) {
               const stopPrice = entry * (1 + dec.stopPct / 100);
               const tpPrice = entry * (1 - (dec.stopPct * 1.4) / 100);
-              await db.liquidBook.create({ data: { symbol: sym, side: "SHORT", trigger: dec.reason.slice(0, 80), score: 0, breadth, entryPrice: entry, status: "open", stopPrice, tpPrice } });
-              console.log(`[liquid] OPEN SHORT ${sym} @ ${entry} · SL ${stopPrice.toFixed(4)} · TP ${tpPrice.toFixed(4)} · ${dec.reason}`);
+              await db.liquidBook.create({ data: { symbol: sym, side: "SHORT", trigger: ("[" + tf + "] " + dec.reason).slice(0, 80), score: 0, breadth, entryPrice: entry, status: "open", stopPrice, tpPrice } });
+              console.log(`[liquid] OPEN SHORT ${sym} [${tf}] @ ${entry} · SL ${stopPrice.toFixed(4)} · TP ${tpPrice.toFixed(4)} · ${dec.reason}`);
             } else {
               console.log(`[liquid] SKIP ${sym} - da co lenh mo`);
             }
