@@ -518,10 +518,11 @@ export function tradeLessonsToSamples(
   const step = ITV_MS[interval] ?? 0;
   if (step <= 0 || klines.length < 10) return [];
   const out: LessonSample[] = [];
+  let skipPnl0 = 0, skipWarmup = 0, skipFeats = 0, skipOutside = 0;
   for (const tr of trades) {
     if (!tr || typeof tr.t !== "number" || tr.t <= 0) continue;
     if (tr.side !== "LONG" && tr.side !== "SHORT") continue;
-    if (typeof tr.pnl !== "number" || tr.pnl === 0) continue;
+    if (typeof tr.pnl !== "number" || tr.pnl === 0) { skipPnl0++; continue; }
     // last bar whose CLOSE happened at/before the entry — a mid-bar entry
     // must not see its own bar's close (that would be lookahead)
     let j = -1;
@@ -531,13 +532,15 @@ export function tradeLessonsToSamples(
         break;
       }
     }
-    if (j < WARMUP) continue; // indicators not warmed up — no honest features
+    if (j === -1) { skipOutside++; continue; }
+    if (j < WARMUP) { skipWarmup++; continue; } // indicators not warmed up — no honest features
     const feats = featuresAt(klines, j, ctx);
-    if (!feats) continue;
+    if (!feats) { skipFeats++; continue; }
     const win = tr.pnl > 0;
     const y = tr.side === "LONG" ? (win ? 1 : 0) : win ? 0 : 1;
     out.push({ feats, y, win });
   }
+  if (trades.length > 0 && (skipPnl0 + skipWarmup + skipFeats + skipOutside) > 0) console.log(`[xgb] lessons ${interval} in=${trades.length} ok=${out.length} skip pnl0=${skipPnl0} outside=${skipOutside} warmup=${skipWarmup} feats=${skipFeats}`);
   return out;
 }
 

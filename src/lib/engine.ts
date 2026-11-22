@@ -637,12 +637,13 @@ async function loadTradeLessons(): Promise<Map<string, TradeLesson[]>> {
   const map = new Map<string, TradeLesson[]>();
   try {
     const closed = await db.autoTrade.findMany({
-      where: { status: "closed", NOT: { methodId: "force" } },
+      where: { status: "closed" }, // lay ca NULL, loc force bang JS o duoi
       orderBy: { exitTime: "desc" },
       take: 500,
     });
     for (const t of closed) {
       if (!t.exitTime) continue;
+      if ((t as any).methodId === "force") continue; // chi bo force, giu NULL
       const key = `${t.symbol}|${t.interval}`;
       const lst = map.get(key) ?? [];
       if (lst.length < 40) {
