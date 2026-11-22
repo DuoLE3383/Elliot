@@ -1064,10 +1064,18 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         scanCombos: scanRows.length,
         scanAgeMin: eng.scan ? min(now - eng.scan.at) : null,
         // "GATE PASSED (RECENT)" — đếm từ bảng BcastVerdict (gate DUY NHẤT panel + Telegram
-        // dùng, engine upsert mỗi tick 5p): combo verdict "pass" và được chấm trong 24h gần nhất.
-        // Không còn phụ thuộc snapshot RAM eng.scan — số sống qua restart, thị trường yên tĩnh
-        // vẫn giữ nguyên combo đã pass lần chấm gần nhất trong ngày thay vì rớt về 0.
-        gatePass: bcast.filter((b) => b.verdict === "pass" && now - new Date(b.at).getTime() < 24 * 3_600_000).length,
+        // dùng, engine upsert mỗi tick 5p): combo được chấm trong 24h gần nhất và chất lượng
+        // còn đạt floor. Không phụ thuộc snapshot RAM eng.scan — sống qua restart, thị trường
+        // yên tĩnh vẫn giữ combo đã pass lần chấm gần nhất thay vì rớt về 0.
+        // Cooldown 3h/symbol (BCAST_REPEAT_MS) là luật anti-spam broadcast, KHÔNG phải lỗi
+        // chất lượng: gateRow (bcast-gate.ts) chấm cooldown CUỐI CÙNG nên reject "cooldown
+        // Nm left" đã qua đủ AUC/ACC/score/PL1/vol — tính cả nhóm này để số không tụt oan
+        // đúng lúc symbol đang hot. Riêng "outside top-30" là fail tầng universe → không tính.
+        gatePass: bcast.filter(
+          (b) =>
+            now - new Date(b.at).getTime() < 24 * 3_600_000 &&
+            (b.verdict === "pass" || (b.verdict === "reject" && b.reason.includes("cooldown"))),
+        ).length,
         directional: scanRows.filter((r) => r.bias !== "NEUTRAL").length,
         neutral: scanRows.filter((r) => r.bias === "NEUTRAL").length,
         bcastPass: bcast.filter((b) => b.verdict === "pass").length,
