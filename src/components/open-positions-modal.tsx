@@ -180,7 +180,7 @@ export function OpenPositionsModal({
           ) : (
             positions.map((pos, i) => {
               const isLong = pos.side?.toUpperCase() === "LONG";
-              const isProfit = (pos.pnlUsd ?? 0) >= 0; // mau tam theo pnlUsd, se ghi de bang pnlTotal o duoi
+              // isProfit tinh sau roiVal qua pnlTotal
               const sl = pos.slPrice ?? 0;
               const tp = pos.tpPrice ?? 0;
               const entry = pos.entryPrice ?? 0;
@@ -191,7 +191,7 @@ export function OpenPositionsModal({
               const bankedRoi = Number((pos as any)?.p1Pct ?? 0);
               const marginFull = Number((pos as any)?.margin ?? (pos as any)?.entryCapital ?? 0);
               const bankedPnl = hasTp1 ? marginFull * p1ShareFrac * (bankedRoi / 100) : 0;
-              const roiVal = Number((pos as any)?.roi ?? (pos as any)?.roePct ?? 0);
+              const roiVal = Number((pos as any)?.roi ?? (pos as any)?.roePct ?? 0); const marginRemain = hasTp1 ? marginFull * (1 - p1ShareFrac) : marginFull; const pnlTotal = hasTp1 ? bankedPnl + marginRemain * (roiVal / 100) : marginFull * (roiVal / 100); const isProfit = pnlTotal >= 0;
               const roiIsProfit = roiVal >= 0; // ROI am -> do, khong lay mau theo pnlTotal
               const span = Math.abs(tp - sl);
               const clamp01 = (val: number) => Math.max(4, Math.min(96, val));
@@ -257,7 +257,7 @@ export function OpenPositionsModal({
                           isProfit ? "text-emerald-400" : "text-rose-400"
                         }`}
                       >
-                        {fmtUsd(pos.pnlUsd, true)}
+                        {fmtUsd(pnlTotal, true)}
                       </div>
                     </div>
                   </div>
