@@ -107,7 +107,7 @@ const toneText = (tone?: StatTone): string => (tone ? TONE_TEXT[tone] : "text-zi
 const toneEdge = (tone?: StatTone): string => (tone ? TONE_EDGE[tone] : "border-l-zinc-800/80");
 
 // ── bảng màu APM khớp ảnh tham chiếu ──
-const LIME = "emerald-400";
+const LIME = "#34d399";
 const GREY = "#9aa0a6";
 
 /** một dòng bảng con theo cặp của /api/journal?symbol=ALL */
@@ -486,7 +486,7 @@ export default function StatsPage() {
       });
       ev.push(
         flow.open
-          ? { dot: "rose-400", text: t(lang, "apm.ev.openpos", { sym: flow.open.symbol.replace("USDT", ""), side: flow.open.side, h: flow.open.ageH.toFixed(2) }), right: flow.open.roi != null ? `${flow.open.roi >= 0 ? "+" : ""}${flow.open.roi.toFixed(2)}%` : undefined }
+          ? { dot: "#fb7185", text: t(lang, "apm.ev.openpos", { sym: flow.open.symbol.replace("USDT", ""), side: flow.open.side, h: flow.open.ageH.toFixed(2) }), right: flow.open.roi != null ? `${flow.open.roi >= 0 ? "+" : ""}${flow.open.roi.toFixed(2)}%` : undefined }
           : { dot: "#8b8b94", text: t(lang, "apm.ev.flat"), dim: true },
       );
       ev.push({ dot: snap?.dqfOn ? LIME : "#8b8b94", text: snap?.dqfOn ? t(lang, "apm.ev.dqfOn") : t(lang, "apm.ev.dqfOff"), right: "DQF" });
@@ -512,7 +512,7 @@ export default function StatsPage() {
     // Trade Scorecard
     const sc = [
       { label: t(lang, "apm.score.tp"), n: fc.tp, color: LIME },
-      { label: t(lang, "apm.score.sl"), n: fc.sl, color: "rose-400" },
+      { label: t(lang, "apm.score.sl"), n: fc.sl, color: "#fb7185" },
       { label: t(lang, "apm.score.flip"), n: fc.flip, color: "#fbbf24" },
       { label: t(lang, "apm.score.manual"), n: fc.manual, color: "#8b8b94" },
     ];
@@ -586,7 +586,7 @@ export default function StatsPage() {
         <Panel>
           <PanelHead
             label={t(lang, "apm.rail.score")}
-            dot="rose-400"
+            dot="#fb7185"
             right={<span className="rounded-full bg-[#1a1a20] px-2 py-0.5 font-mono text-[10px] text-zinc-400">{t(lang, "apm.score.totalSub", { n: fc.closedTrades })}</span>}
           />
           <div className="divide-y divide-[#1a1a20]">
@@ -602,7 +602,7 @@ export default function StatsPage() {
             <div className="flex items-center gap-2.5 px-4 py-2">
               <p className="w-24 shrink-0 whitespace-normal leading-snug text-[11px] text-zinc-300">{t(lang, "apm.score.open")}</p>
               <span className="h-[6px] min-w-0 flex-1 overflow-hidden rounded-full bg-[#1c1c22] border border-transparent border-[rose-40055]">
-                <span className="block h-full rounded-full" style={{ width: fc.open ? "100%" : "0%", background: "rose-400" }} />
+                <span className="block h-full rounded-full" style={{ width: fc.open ? "100%" : "0%", background: "#fb7185" }} />
               </span>
               <span className="w-8 shrink-0 text-right font-mono text-[11px] font-semibold text-rose-400">{fc.open ? 1 : 0}</span>
             </div>
@@ -627,15 +627,15 @@ export default function StatsPage() {
     return (
       <div className="space-y-2">
         <NetCard label={t(lang, "apm.net.label")} value={eq != null ? `$${eq.toFixed(2)}` : "—"} sub={t(lang, "apm.net.startSub")} color={eq != null && eq >= 1000 ? LIME : "#e9e9ec"} />
-        <NetCard label={t(lang, "apm.net.netroi")} value={`${(flow?.netRoi ?? 0) >= 0 ? "+" : ""}${(flow?.netRoi ?? 0).toFixed(2)}%`} sub={`${fc.closedTrades} ${t(lang, "apm.net.closed").toLowerCase()}`} color={(flow?.netRoi ?? 0) >= 0 ? LIME : "rose-400"} />
+        <NetCard label={t(lang, "apm.net.netroi")} value={`${(flow?.netRoi ?? 0) >= 0 ? "+" : ""}${(flow?.netRoi ?? 0).toFixed(2)}%`} sub={`${fc.closedTrades} ${t(lang, "apm.net.closed").toLowerCase()}`} color={(flow?.netRoi ?? 0) >= 0 ? LIME : "#fb7185"} />
         <NetCard label={t(lang, "apm.net.winrate")} value={`${(flow?.winRate ?? 0).toFixed(2)}%`} sub={t(lang, "apm.net.wilsonSub", { n: wilson.toFixed(2) })} />
         <NetCard label={t(lang, "apm.net.closed")} value={`${fc.closedTrades}`} sub={`${flow?.wins ?? 0} wins · ${fc.sl} SL`} />
-        <NetCard label={t(lang, "apm.net.avg")} value={`${(flow?.avgRoi ?? 0) >= 0 ? "+" : ""}${(flow?.avgRoi ?? 0).toFixed(2)}%`} color={(flow?.avgRoi ?? 0) >= 0 ? LIME : "rose-400"} />
+        <NetCard label={t(lang, "apm.net.avg")} value={`${(flow?.avgRoi ?? 0) >= 0 ? "+" : ""}${(flow?.avgRoi ?? 0).toFixed(2)}%`} color={(flow?.avgRoi ?? 0) >= 0 ? LIME : "#fb7185"} />
         <NetCard
           label={t(lang, "apm.net.unreal")}
           value={openRoi != null ? `${openRoi >= 0 ? "+" : ""}${openRoi.toFixed(2)}%` : "—"}
           sub={flow?.open ? t(lang, "apm.net.openSub", { sym: flow.open.symbol.replace("USDT", ""), side: flow.open.side, h: flow.open.ageH.toFixed(2) }) : t(lang, "apm.band.flat")}
-          color={openRoi != null ? (openRoi >= 0 ? LIME : "rose-400") : "#8b8b94"}
+          color={openRoi != null ? (openRoi >= 0 ? LIME : "#fb7185") : "#8b8b94"}
         />
       </div>
     );
@@ -1027,9 +1027,9 @@ export default function StatsPage() {
                         {/* legend tình trạng — y các chip Normal/Success/Error/Pending ảnh ref */}
                         {[
                           { c: LIME, l: t(lang, "apm.band.success") },
-                          { c: "rose-400", l: t(lang, "apm.band.error") },
+                          { c: "#fb7185", l: t(lang, "apm.band.error") },
                           { c: "#9aa0a6", l: t(lang, "apm.band.normal") },
-                          { c: "rose-400", l: t(lang, "apm.band.pending"), dash: true },
+                          { c: "#fb7185", l: t(lang, "apm.band.pending"), dash: true },
                         ].map((x) => (
                           <span key={x.l} className="hidden items-center gap-1 text-[9.5px] text-zinc-500 sm:flex">
                             <span className="h-1.5 w-1.5 rounded-full" style={{ background: x.c, opacity: x.dash ? 0.6 : 1 }} />
@@ -1057,10 +1057,10 @@ export default function StatsPage() {
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:hidden">
                   {[
                     { l: t(lang, "apm.net.equity"), v: flow?.equity != null ? `$${flow.equity.toFixed(2)}` : "—", c: flow?.equity != null && flow.equity >= 1000 ? LIME : undefined },
-                    { l: t(lang, "apm.net.netroi"), v: `${(flow?.netRoi ?? 0) >= 0 ? "+" : ""}${(flow?.netRoi ?? 0).toFixed(2)}%`, c: (flow?.netRoi ?? 0) >= 0 ? LIME : "rose-400" },
+                    { l: t(lang, "apm.net.netroi"), v: `${(flow?.netRoi ?? 0) >= 0 ? "+" : ""}${(flow?.netRoi ?? 0).toFixed(2)}%`, c: (flow?.netRoi ?? 0) >= 0 ? LIME : "#fb7185" },
                     { l: t(lang, "apm.net.winrate"), v: `${(flow?.winRate ?? 0).toFixed(2)}%` },
                     { l: t(lang, "apm.net.closed"), v: `${fc.closedTrades}` },
-                    { l: t(lang, "apm.net.avg"), v: `${(flow?.avgRoi ?? 0) >= 0 ? "+" : ""}${(flow?.avgRoi ?? 0).toFixed(2)}%`, c: (flow?.avgRoi ?? 0) >= 0 ? LIME : "rose-400" },
+                    { l: t(lang, "apm.net.avg"), v: `${(flow?.avgRoi ?? 0) >= 0 ? "+" : ""}${(flow?.avgRoi ?? 0).toFixed(2)}%`, c: (flow?.avgRoi ?? 0) >= 0 ? LIME : "#fb7185" },
                     { l: t(lang, "apm.net.unreal"), v: flow?.open?.roi != null ? `${flow.open.roi >= 0 ? "+" : ""}${flow.open.roi.toFixed(2)}%` : "—" },
                   ].map((x) => (
                     <div key={x.l} className="rounded-xl border border-[#232329] bg-[#101014]/95 px-3 py-2">

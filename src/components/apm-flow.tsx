@@ -46,8 +46,8 @@ export interface ApmFlowCounts {
   openPositions?: OpenPositionItem[];
 }
 
-const LIME = "emerald-400";
-const RED = "rose-400";
+const LIME = "#34d399";
+const RED = "#fb7185";
 const GREY = "#9aa0a6";
 const AMBER = "#fbbf24";
 const INK = "#15151a";
