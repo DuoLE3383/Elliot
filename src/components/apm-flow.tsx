@@ -277,13 +277,18 @@ export function ApmFlowMap({
     ? rawOpenList
     : [{ id: "flat", symbol: "", side: "", roi: null, ageH: 0, isFlat: true }];
 
-  const midStartY = ROW_Y[1];
+  const midStartY = ROW_Y[0];
+  const midTotalH = midItems.length * (NH + ROW_GAP) - ROW_GAP;
+  const leftStep = (midTotalH - NH) / 4;
+  const rightStep = (midTotalH - NH) / 3;
+  const leftY = (i: number) => ROW_Y[0] + i * leftStep;
+  const rightY = (i: number) => ROW_Y[0] + i * rightStep;
   const midNodeY = (idx: number): number => midStartY + idx * (NH + ROW_GAP);
   const midCy = (idx: number): number => midNodeY(idx) + NH / 2;
 
   const midBottomY = midStartY + midItems.length * (NH + ROW_GAP);
   const rightBottomY = ROW_Y[3] + NH;
-  const H = Math.max(BASE_H, midBottomY + 32, rightBottomY + 32);
+  const H = Math.max(BASE_H, midStartY + midTotalH + 32);
 
   const tradesCy = cy(0);
   const ySrc = (dy: number): number => tradesCy + dy;
@@ -295,19 +300,19 @@ export function ApmFlowMap({
     : "1h sig";
 
   const leftNodes: NodeSpec[] = [
-    { x: COL_A_X, y: ROW_Y[0], id: "st-universe", title: t(lang, "apm.node.universe"), value: `${f.universePool}`, sub: "UNIVERSE staples + trend", dot: "#22d3ee", valColor: TXT },
-    { x: COL_A_X, y: ROW_Y[1], id: "st-universe", title: t(lang, "apm.node.published"), value: `${f.publishedTop}`, sub: `${f.uptrend} uptrend`, dot: "#38bdf8", valColor: TXT },
+    { x: COL_A_X, y: leftY(0), id: "st-universe", title: t(lang, "apm.node.universe"), value: `${f.universePool}`, sub: "UNIVERSE staples + trend", dot: "#22d3ee", valColor: TXT },
+    { x: COL_A_X, y: leftY(1), id: "st-universe", title: t(lang, "apm.node.published"), value: `${f.publishedTop}`, sub: `${f.uptrend} uptrend`, dot: "#38bdf8", valColor: TXT },
     {
-      x: COL_A_X, y: ROW_Y[2], id: "st-dock", title: t(lang, "apm.node.scan"), value: `${f.scanCombos}`,
+      x: COL_A_X, y: leftY(2), id: "st-dock", title: t(lang, "apm.node.scan"), value: `${f.scanCombos}`,
       sub: scanSub, dot: "#a78bfa", valColor: TXT,
       glow: f.scanAgeMin != null && f.scanAgeMin <= 6,
     },
     {
-      x: COL_A_X, y: ROW_Y[3], id: "st-dock", title: t(lang, "apm.node.gate"), value: `${f.gatePass}`,
+      x: COL_A_X, y: leftY(3), id: "st-dock", title: t(lang, "apm.node.gate"), value: `${f.gatePass}`,
       sub: t(lang, "apm.node.gate"), dot: LIME, valColor: f.gatePass > 0 ? LIME : SUB,
       stroke: f.gatePass > 0 ? "rgba(200,245,66,0.45)" : undefined, glow: f.gatePass > 0,
     },
-    { x: COL_A_X, y: ROW_Y[4], id: "st-dock", title: t(lang, "apm.node.skipped"), value: `${f.neutral}`, sub: "NEUTRAL / noise", dot: GREY, valColor: SUB },
+    { x: COL_A_X, y: leftY(4), id: "st-dock", title: t(lang, "apm.node.skipped"), value: `${f.neutral}`, sub: "NEUTRAL / noise", dot: GREY, valColor: SUB },
   ];
 
   const middleNodes: NodeSpec[] = midItems.map((pos, idx) => {
@@ -337,14 +342,14 @@ export function ApmFlowMap({
   });
 
   const rightNodes: NodeSpec[] = [
-    { x: COL_B_X, y: ROW_Y[0], id: "st-hist", title: t(lang, "apm.node.trades"), value: `${f.tradesTotal}`, sub: `${f.closedTrades} closed`, dot: LIME, valColor: TXT },
-    { x: COL_B_X, y: ROW_Y[1], id: "st-hist", title: t(lang, "apm.node.tp"), value: `${f.tp}`, sub: t(lang, "apm.band.success"), dot: LIME, valColor: LIME, stroke: "rgba(200,245,66,0.3)" },
-    { x: COL_B_X, y: ROW_Y[2], id: "st-hist", title: t(lang, "apm.node.sl"), value: `${f.sl}`, sub: t(lang, "apm.band.error"), dot: RED, valColor: RED, stroke: "rgba(244,82,92,0.3)" },
-    { x: COL_B_X, y: ROW_Y[3], id: "st-hist", title: t(lang, "apm.node.flip"), value: `${f.flip + f.manual}`, sub: `flip ${f.flip} · manual ${f.manual}`, dot: AMBER, valColor: AMBER },
+    { x: COL_B_X, y: rightY(0), id: "st-hist", title: t(lang, "apm.node.trades"), value: `${f.tradesTotal}`, sub: `${f.closedTrades} closed`, dot: LIME, valColor: TXT },
+    { x: COL_B_X, y: rightY(1), id: "st-hist", title: t(lang, "apm.node.tp"), value: `${f.tp}`, sub: t(lang, "apm.band.success"), dot: LIME, valColor: LIME, stroke: "rgba(200,245,66,0.3)" },
+    { x: COL_B_X, y: rightY(2), id: "st-hist", title: t(lang, "apm.node.sl"), value: `${f.sl}`, sub: t(lang, "apm.band.error"), dot: RED, valColor: RED, stroke: "rgba(244,82,92,0.3)" },
+    { x: COL_B_X, y: rightY(3), id: "st-hist", title: t(lang, "apm.node.flip"), value: `${f.flip + f.manual}`, sub: `flip ${f.flip} · manual ${f.manual}`, dot: AMBER, valColor: AMBER },
   ];
 
   const nodes: NodeSpec[] = [...leftNodes, ...middleNodes, ...rightNodes];
-  const gateCy = cy(3);
+  const gateCy = leftY(3) + NH / 2;
   const firstMidCy = midCy(0);
 
   return (
@@ -357,17 +362,17 @@ export function ApmFlowMap({
             {[0, 1, 2, 3].map((r) => (
               <Wire
                 key={`la-${r}`}
-                x1={cxL} y1={ROW_Y[r] + NH} x2={cxL} y2={ROW_Y[r + 1]}
+                x1={cxL} y1={leftY(r) + NH} x2={cxL} y2={leftY(r + 1)}
                 color={GREY} dash="2 5"
               />
             ))}
 
             {/* Skipped — nhánh thoát ra ngoài cạnh trái (Normal) */}
             <Wire
-              x1={COL_A_X} y1={cy(4)} x2={12} y2={cy(4)}
+              x1={COL_A_X} y1={leftY(4) + NH / 2} x2={12} y2={leftY(4) + NH / 2}
               color={GREY} dash="3 6" dim
             />
-            <BandChip x={40} y={cy(4) - 16} color={GREY} label={t(lang, "apm.band.normal")} />
+            <BandChip x={40} y={leftY(4) + NH / 2 - 16} color={GREY} label={t(lang, "apm.band.normal")} />
 
             {/* Gate pass → từng vị thế: Pending (đứt tím) khi flat, lime khi có dòng */}
             {midItems.map((pos, idx) => {
@@ -414,9 +419,9 @@ export function ApmFlowMap({
             />
 
             {/* Trades → TP / SL / Flip (bulge phải, mảnh đứt) */}
-            <BulgeWire xEdge={edgeR} y1={ySrc(-12)} y2={cy(1)} bulgeX={926} color={LIME} hot={f.tp > 0} />
-            <BulgeWire xEdge={edgeR} y1={ySrc(0)} y2={cy(2)} bulgeX={944} color={RED} hot={f.sl > 0} />
-            <BulgeWire xEdge={edgeR} y1={ySrc(12)} y2={cy(3)} bulgeX={962} color={AMBER} hot={f.flip + f.manual > 0} />
+            <BulgeWire xEdge={edgeR} y1={ySrc(-12)} y2={rightY(1) + NH / 2} bulgeX={926} color={LIME} hot={f.tp > 0} />
+            <BulgeWire xEdge={edgeR} y1={ySrc(0)} y2={rightY(2) + NH / 2} bulgeX={944} color={RED} hot={f.sl > 0} />
+            <BulgeWire xEdge={edgeR} y1={ySrc(12)} y2={rightY(3) + NH / 2} bulgeX={962} color={AMBER} hot={f.flip + f.manual > 0} />
             <BandChip x={926} y={ySrc(-26)} color={LIME} label={t(lang, "apm.band.success")} />
             <BandChip x={944} y={ySrc(30)} color={RED} label={t(lang, "apm.band.error")} />
             <BandChip x={962} y={ySrc(58)} color={AMBER} label={t(lang, "apm.band.normal")} />
