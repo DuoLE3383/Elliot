@@ -111,7 +111,7 @@ export function OpenPositionsModal({
                   <div className="grid grid-cols-3 gap-2 rounded-lg bg-[#111116] px-3 py-2 border border-[#202027]">
                     <div><div className="text-xs uppercase text-[#7c7c86]">Entry</div><div className="font-mono text-xs font-semibold">{fmtPrice(pos.entryPrice)}</div></div>
                     <div><div className="text-xs uppercase text-[#7c7c86]">Mark</div><div className="font-mono text-xs font-semibold">{fmtPrice(pos.markPrice)}</div></div>
-                    <div className="text-right"><div className="text-xs uppercase text-[#7c7c86]">PnL</div><div className={`font-mono text-xs font-bold ${(pos.pnlUsd >= 0) ? "text-emerald-400" : "text-rose-400"}`}>{fmtUsd(pos.pnlUsd, true)}</div></div>
+                    <div className="text-right"><div className="text-xs uppercase text-[#7c7c86]">PnL</div><div className={`font-mono text-xs font-bold ${isProfit ? "text-emerald-400" : "text-rose-400"}`}>{fmtUsd(pnlTotal, true)}</div></div>
                   </div>
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between font-mono text-xs text-[#9aa0a6]">

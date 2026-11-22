@@ -850,13 +850,13 @@ async function trainCore(
   if (opts.mode === "all" && saved > 0 && tgReady()) {
     try {
       const lines = [
-        "🧠 <b>FULL TRAIN COMPLETE</b>",
+        "🧠 <b>Complete Trainer</b>",
         `${p.pairs.length} pair × ${p.cfg.runTf.length} TF (${p.cfg.runTf.join(",")}) · saved <b>${saved}/${combos}</b> combos`,
         best
           ? `🏆 Best: <b>#${best.symbol}</b> ${best.interval} · ACC ${best.acc.toFixed(2)}% · AUC ${best.auc.toFixed(2)} · Score ${best.score.toFixed(2)}`
           : "",
         lessonTotals.n > 0
-          ? `🎓 Learned from <b>${lessonTotals.n}</b> real dry-run trades (${lessonTotals.wins} win · ${lessonTotals.n - lessonTotals.wins} lose) — model agrees on direction ${lessonTotals.agree}/${lessonTotals.n}`
+          ? `🎓 Lessons: <b>${lessonTotals.n}</b> samples (${lessonTotals.wins} win · ${lessonTotals.n - lessonTotals.wins} lose) — model agrees on direction ${lessonTotals.agree}/${lessonTotals.n}`
           : "",
         `⚙️ ${pool.parallelism} backend workers${xgbPoolAvailable() ? "" : " (sequential fallback)"}`,
       ].filter(Boolean);
