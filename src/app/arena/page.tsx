@@ -48,13 +48,17 @@ function StatCard({ title, sub, s, accent }: { title: string; sub: string; s: Ar
   );
 }
 
-function EquityChart({ aEquity, bEquity, cEquity }: { aEquity: ArenaSnapshot["aEquity"]; bEquity: ArenaSnapshot["bEquity"]; cEquity: ArenaSnapshot["cEquity"] }) {
-  const all = [...aEquity.map((p) => p.capital), ...bEquity.map((p) => p.capital), ...cEquity.map((p) => p.capital)];
+function EquityChart({ aEquity, bEquity, cEquity, dEquity }: { aEquity: ArenaSnapshot["aEquity"]; bEquity: ArenaSnapshot["bEquity"]; cEquity: ArenaSnapshot["cEquity"]; dEquity: ArenaSnapshot["dEquity"] }) {
+  const all = [...aEquity.map((p) => p.capital), ...bEquity.map((p) => p.capital), ...cEquity.map((p) => p.capital), ...dEquity.map((p) => p.capital)];
   if (all.length < 2) {
     return <div className="p-6 text-center text-sm text-white/40">Chưa đủ lệnh đóng để vẽ đường vốn — các sổ đang tích tụ.</div>;
   }
-  const min = Math.min(...all) * 0.999;
-  const max = Math.max(...all) * 1.001;
+  const trueMin = Math.min(...all);
+  const trueMax = Math.max(...all);
+  // SET CỨNG: Y-domain = [base*0.90 (-10%), base*1.50 (+50%)] — không auto-scale theo trade
+  const base = aEquity[0]?.capital ?? bEquity[0]?.capital ?? cEquity[0]?.capital ?? dEquity[0]?.capital ?? 1000;
+  const min = base * 0.90;
+  const max = base * 1.50;
   const W = 720;
   const H = 180;
   const toXY = (pts: ArenaSnapshot["aEquity"]): string =>
@@ -72,6 +76,7 @@ function EquityChart({ aEquity, bEquity, cEquity }: { aEquity: ArenaSnapshot["aE
       <polyline points={toXY(bEquity)} fill="none" stroke="#60a5fa" strokeWidth="2" opacity="0.9" />
       <polyline points={toXY(aEquity)} fill="none" stroke="#f59e0b" strokeWidth="2" opacity="0.9" />
       <polyline points={toXY(cEquity)} fill="none" stroke="#a78bfa" strokeWidth="2" opacity="0.9" />
+      <polyline points={toXY(dEquity)} fill="none" stroke="#34d399" strokeWidth="2" opacity="0.9" />
       <text x="8" y="16" fontSize="12" fill="#f59e0b">
         A — Vulcan
       </text>
@@ -82,7 +87,7 @@ function EquityChart({ aEquity, bEquity, cEquity }: { aEquity: ArenaSnapshot["aE
         C — Wyckoff
       </text>
       <text x={W - 8} y={H - 8} fontSize="11" fill="#ffffff66" textAnchor="end">
-        {num(min)} — {num(max)} USDT
+        {num(trueMin)} — {num(trueMax)} USDT
       </text>
     </svg>
   );
@@ -114,7 +119,7 @@ export default async function ArenaPage() {
             <StatCard title="B — Elliott" sub="engine tín hiệu + prob + llm gate · lev theo cfg" s={snap.b} accent="#60a5fa" />
             <StatCard title="C — Wyckoff gốc" sub="phễu 5 lớp · nến ngày · lev 1 · long-only · stake 10%" s={snap.c} accent="#a78bfa" />
           </div>
-          <EquityChart aEquity={snap.aEquity} bEquity={snap.bEquity} cEquity={snap.cEquity} />
+          <EquityChart aEquity={snap.aEquity} bEquity={snap.bEquity} cEquity={snap.cEquity} dEquity={snap.dEquity} />
           <div className="overflow-x-auto rounded-lg border border-white/10">
             <table className="w-full text-sm">
               <thead className="bg-white/5 text-left text-white/50">

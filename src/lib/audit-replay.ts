@@ -75,7 +75,8 @@ export function replayExit(
     }
   }
   for (let i = 0; i < sorted.length; i++) {
-    const price = sorted[i].c;
+    const bar = sorted[i];
+    const price = bar.c;
     if (!price || !entry) continue;
     // Liquidation — ưu tiên như evalExit
     if (liquidationHit(trade.side, price, entry, trade.leverage)) {
@@ -90,20 +91,28 @@ export function replayExit(
       continue;
     }
     // NORMAL PHASE — trail trước SL/TP như evalExit
+    // 0.3.42 — peak dùng WICK (H/L), hit check dùng WICK — khớp live engine
     if (cfg.trailOn) {
-      peak = trailNextPeak(trade.side, peak, price);
+      const peakWick = trade.side === "SHORT" ? (bar.l ?? bar.c) : (bar.h ?? bar.c);
+      peak = trailNextPeak(trade.side, peak, peakWick);
       const peakRoi = trailMovePct(trade.side, entry, peak) * trade.leverage;
       const roiStop = trailRoiStopPrice(trade.side, entry, peakRoi, trade.leverage);
       const stop = roiStop ?? trailStopPrice(trade.side, entry, peak, act, dist);
-      const curRoi = trailMovePct(trade.side, entry, price) * trade.leverage;
-      const hit = stop != null && (roiStop != null ? curRoi <= peakRoi - TRAIL_ROI_GIVEBACK : trade.side === "SHORT" ? price >= stop : price <= stop);
-      if (hit && stop != null) {
-        // 0.3.41 — spec user: trail hit TRƯỚC TP1 → đóng 100% tại stop
-        const fillAt = trade.side === "LONG"
-          ? (stop > price ? stop : price)
-          : (stop < price ? stop : price);
-        notes.push(`trail close @ nến ${new Date(sorted[i].t).toISOString()} — fill ${fillAt} (stop ${stop}, mark ${price})`);
-        return finish(fillAt, sorted[i].t, "trail", p1Pct, p1Share, trade, notes, { peakPrice, peakRoi, trailArmed, missedClosePrice, missedPnlPct });
+      if (stop != null) {
+        // hit check: giá cực trị trong bar chạm stop chưa
+        const hitHit = trade.side === "SHORT" ? (bar.h ?? bar.c) : (bar.l ?? bar.c);
+        const hit = roiStop != null
+          ? (trade.side === "SHORT" ? hitHit >= stop : hitHit <= stop)
+          : (trade.side === "SHORT" ? price >= stop : price <= stop);
+        if (hit) {
+          // 0.3.41 — spec: trail hit TRƯỚC TP1 → đóng 100% tại stop (gap → open)
+          const openP = bar.o ?? price;
+          const fillAt = trade.side === "LONG"
+            ? Math.min(openP, stop)
+            : Math.max(openP, stop);
+          notes.push(`trail close @ nến ${new Date(sorted[i].t).toISOString()} — fill ${fillAt} (stop ${stop}, mark ${price}, H=${bar.h} L=${bar.l})`);
+          return finish(fillAt, sorted[i].t, "trail", p1Pct, p1Share, trade, notes, { peakPrice, peakRoi, trailArmed, missedClosePrice, missedPnlPct });
+        }
       }
     }
     const kind = slTpHit(trade.side, price, entry, trade.slPct, trade.tpPct);

@@ -1,6 +1,6 @@
 // ─── /api/force-open — Force Start từ BEST ────────────────────────────────
 // Bypass DQF/Wyckoff/combo. Mở ngay ở giá live, thoát vẫn theo Elliot/A.
-// THEO ĐÚNG ENGINE B: stake = clampStake(riskPct HEDGE 1.0%), lev = dynLeverage(score, minScore, ATR)
+// THEO ĐÚNG ENGINE B: stake = clampStake(riskPct HEDGE 10%), lev = dynLeverage(score, minScore, ATR)
 // KHÔNG 100%, KHÔNG 2% (ALPHA), KHÔNG hardcode 10.
 import { NextRequest, NextResponse } from "next/server";
 import { POST as autotradePOST } from "../autotrade/route";

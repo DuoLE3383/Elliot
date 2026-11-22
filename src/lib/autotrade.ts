@@ -665,6 +665,11 @@ export function levNormScale(lev: number): number {
  */
 export function levAdjSlTp(sl: number, tp: number, scale: number, lev: number): { slPct: number; tpPct: number } {
   const safe = pval("TP_LIQ_SAFE", TP_LIQ_SAFE);
+  // Kẹp đầu vào — SL/TP âm / 0 / NaN không bao giờ được vào lệnh (XLM cũ sl -0.32% là từ đây)
+  // Fallback an toàn: SL 0.8% / TP 1.2% (đúng floor 5m), giữ R:R 1.5
+  if (!isFinite(sl) || sl <= 0) sl = 0.8;
+  if (!isFinite(tp) || tp <= 0) tp = sl * 1.5;
+  if (!isFinite(scale) || scale <= 0) scale = 1;
   let s = sl * scale;
   let t = tp * scale;
   const cap = lev > 0 ? (safe / 100) * (100 / lev) : 0; // = safe/lev (% giá)
@@ -689,6 +694,9 @@ export function levAdjSlTp(sl: number, tp: number, scale: number, lev: number): 
     s *= k;
     t *= k;
   }
+  // Kẹp đầu ra — không bao giờ trả SL/TP <= 0 dù cap/roeCap có co tới đâu
+  if (!isFinite(s) || s <= 0) s = 0.15;
+  if (!isFinite(t) || t <= 0) t = s * 1.5;
   return { slPct: Math.floor(s * 100) / 100, tpPct: Math.round(t * 100) / 100 };
 }
 
@@ -1490,7 +1498,7 @@ export const AUTO_DEFAULTS: AutoConfig = {
   capital: 1000,
   // audit 04/11: 25% vốn/lệnh là nguyên nhân −40% net ROE hoá nhỏ thành
   // swing vốn lớn; khuyến nghị 2-3%/lệnh — mặc định 3, trần RISK_MAX_STAKE
-  // (params §4e) kẹp bất kể panel đặt gì. Thêm lựa chọn 2/3/5% ở RISK_CHOICES.
+  // (params §4e) kẹp bất kể panel đặt gì. SET CỨNG [10,20,30,50] ở RISK_CHOICES.
   riskPct: 3,
   tpMode: "dyn",
   slPct: 1,
@@ -1546,7 +1554,7 @@ export const FLIP_COOLDOWN_CHOICES = [0, 15, 30, 60] as const;
 export const DCA_CHOICES = [0, 1, 2] as const;
 /** Stake/lệnh chọn trên panel — thêm 2/3/5% (audit khuyến nghị) giữ nguyên
  *  các mức cũ; engine vẫn kẹp bằng RISK_MAX_STAKE cho dù chọn mức nào. */
-export const RISK_CHOICES = [2, 3, 5, 10, 25, 50, 100] as const;
+export const RISK_CHOICES = [10, 20, 30, 50] as const; // SET CỨNG min 10% / max 50%
 export const TP_MODES = ["dyn", "auto", "manual"] as const;
 
 /** Chuẩn hoá tpMode — MỘT nguồn cho localStorage (loadAutoConfig), engine.json

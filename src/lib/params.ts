@@ -245,17 +245,20 @@ export const RISK_MAX_LEV = 5;
  *  (SL làm việc — bù averaging-down ở stake đầy là martingale). 0 = tắt.
  *  Mặc định 3 (audit: stake 2-3%/lệnh — thanh lý MỘT vị thế mất tối đa 3% vốn).
  *  Muốn chạy dcaMax ≥ 1 thoải mái: hạ stake về ≤ trần/2 hoặc nới trần này. */
-export const RISK_MAX_STAKE = 3;
+export const RISK_MAX_STAKE = 50;
 
 /** Leverage hiệu dụng = min(lev, RISK_MAX_LEV); cap 0/tắt → nguyên giá trị. */
 export function clampLev(lev: number): number {
   const cap = pval("RISK_MAX_LEV", RISK_MAX_LEV);
   return cap > 0 && lev > cap ? cap : lev;
 }
-/** Stake hiệu dụng MỘT lần vào/lật = min(pct, RISK_MAX_STAKE); 0/tắt → nguyên. */
+/** Stake hiệu dụng MỘT lần vào/lật = clamp(pct, 10, RISK_MAX_STAKE). SET CỨNG min 10% / max 50%. */
 export function clampStake(pct: number): number {
   const cap = pval("RISK_MAX_STAKE", RISK_MAX_STAKE);
-  return cap > 0 && pct > cap ? cap : pct;
+  // SET CỨNG [10, 50] — mọi đường vào (Auto / Force / Flip) đều qua đây
+  const v = Number.isFinite(pct) ? pct : 10;
+  const floored = v < 10 ? 10 : v;
+  return cap > 0 && floored > cap ? cap : floored;
 }
 /** Bù DCA có được phép không — tổng stake (đã cam + bù mới) phải nằm trong
  *  trần RISK_MAX_STAKE. eps chống sai số dấu phẩy động khi tổng == trần. */
@@ -274,13 +277,13 @@ export function allowDcaAdd(curStake: number, addStake: number): boolean {
 /** Bật cổng Wyckoff cho LONG (false = hành vi 0.2.95). */
 export const WYCKOFF_GATE = true;
 /** Số nến NGÀY của zone range (bản verify dùng 90). */
-export const WY_RANGE_LOOKBACK = 90;
+export const WY_RANGE_LOOKBACK = 60;
 /** Width range hợp lệ tối thiểu (% từ đáy tới đỉnh). */
-export const WY_RANGE_MIN_W = 4;
+export const WY_RANGE_MIN_W = 3;
 /** Width range hợp lệ tối đa (%). Verify: 45. */
-export const WY_RANGE_MAX_W = 45;
+export const WY_RANGE_MAX_W = 60;
 /** Drift tối đa trong zone (% |đầu–cuối zone|). Verify: 18. */
-export const WY_DRIFT_MAX = 18;
+export const WY_DRIFT_MAX = 25;
 /** Spring: vol nến cuối ≥ ×trung bình 5 nến trước. */
 export const WY_SPRING_VOL = 1.3;
 /** SOS: nến ngày cuối đóng ≥ +this % so với nến trước (khung NGÀY — không hạ

@@ -142,18 +142,24 @@ export async function arenaSnapshot(): Promise<ArenaSnapshot> {
   c.nOpen = cOpen;
   d.nOpen = dOpen;
 
-  const aEquity: EquityPoint[] = aRows
-    .filter((r) => r.capitalAfter != null)
-    .map((r) => ({ t: (r.exitTime ?? r.createdAt).toISOString(), capital: r.capitalAfter as number }));
-  const bEquity: EquityPoint[] = bRows
-    .filter((r) => r.capitalAfter != null)
-    .map((r) => ({ t: (r.exitTime ?? r.createdAt).toISOString(), capital: r.capitalAfter as number }));
-  const dEquity: EquityPoint[] = dRows
-    .filter((r) => r.capitalAfter != null)
-    .map((r) => ({ t: (r.exitTime ?? r.createdAt).toISOString(), capital: r.capitalAfter as number }));
-  const cEquity: EquityPoint[] = cRows
-    .filter((r) => r.capitalAfter != null)
-    .map((r) => ({ t: (r.exitTime ?? r.createdAt).toISOString(), capital: r.capitalAfter as number }));
+  // Equity THẬT = start + cộng dồn delta từng lệnh theo exitTime (không lấy capitalAfter thô)
+  // capitalAfter thô là vốn riêng của lệnh đó, lấy làm equity sẽ sai khi lệnh chồng nhau
+  const equityFromRows = (rows: Array<{ capitalBefore: number | null; capitalAfter: number | null; exitTime: Date | null; createdAt: Date }>): EquityPoint[] => {
+    if (!rows.length) return [];
+    const start = rows[0].capitalBefore ?? rows[0].capitalAfter ?? 0;
+    let cum = start;
+    const pts: EquityPoint[] = [{ t: (rows[0].exitTime ?? rows[0].createdAt).toISOString(), capital: Math.round(cum * 100) / 100 }];
+    for (const r of rows) {
+      if (r.capitalAfter == null || r.capitalBefore == null) continue;
+      cum += r.capitalAfter - r.capitalBefore;
+      pts.push({ t: (r.exitTime ?? r.createdAt).toISOString(), capital: Math.round(cum * 100) / 100 });
+    }
+    return pts;
+  };
+  const aEquity = equityFromRows(aRows);
+  const bEquity = equityFromRows(bRows);
+  const dEquity = equityFromRows(dRows);
+  const cEquity = equityFromRows(cRows);
 
   // sổ live — vốn là balance thật trước/sau, ROE như các sổ giấy
   const lRoes = lRows.map((r) => r.roePct ?? 0);

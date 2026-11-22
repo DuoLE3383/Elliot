@@ -22,7 +22,7 @@ export interface AgentPreset {
 /** Preset vận hành — engine apply khi user chọn Agent (GRAIL lock riêng). */
 export const AGENT_PRESETS: Record<AgentId, AgentPreset> = {
   VAULT: {
-    riskPct: 0.5,
+    riskPct: 10,
     minAuc: 0.82,
     minAcc: 80,
     minScore: 72,
@@ -35,7 +35,7 @@ export const AGENT_PRESETS: Record<AgentId, AgentPreset> = {
   },
   // Balanced — khớp gate đang chạy live / Telegram (55/0.72/68)
   HEDGE: {
-    riskPct: 1.0,
+    riskPct: 10,
     minAuc: 0.72,
     minAcc: 68,
     minScore: 55,
@@ -47,7 +47,7 @@ export const AGENT_PRESETS: Record<AgentId, AgentPreset> = {
     slConfirmTicks: 2,
   },
   ALPHA: {
-    riskPct: 2.0,
+    riskPct: 10,
     minAuc: 0.74,
     minAcc: 72,
     minScore: 60,
@@ -59,7 +59,7 @@ export const AGENT_PRESETS: Record<AgentId, AgentPreset> = {
     slConfirmTicks: 2,
   },
   GRAIL: {
-    riskPct: 1.0,
+    riskPct: 10,
     minAuc: 0.8,
     minAcc: 78,
     minScore: 70,

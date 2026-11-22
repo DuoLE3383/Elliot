@@ -74,7 +74,7 @@ function ConfluenceTable({ onPickPair }: { onPickPair: (sym: string, itv: string
     if (!tf) return <span className="text-zinc-700">—</span>;
     const c = tf.side === "LONG" ? "text-emerald-400" : tf.side === "SHORT" ? "text-rose-400" : "text-zinc-500";
     const arrow = tf.side === "LONG" ? "▲" : tf.side === "SHORT" ? "▼" : "→";
-    return <span className={c}>{arrow}{Math.abs(tf.score).toFixed(2)}</span>;
+    return <span className={`${c} whitespace-nowrap tabular-nums`}>{arrow}{Math.abs(tf.score).toFixed(2)}</span>;
   };
   return (
     <div className="flex h-full flex-col space-y-1.5">
@@ -82,13 +82,13 @@ function ConfluenceTable({ onPickPair }: { onPickPair: (sym: string, itv: string
         <span className="text-[11px] font-medium uppercase tracking-wide text-violet-400">Confluence · Multi-TF</span>
         <span className="whitespace-nowrap font-mono text-[10px] text-zinc-400">✅ {strong} STRONG · ⚠️ {risk} RISK · ❌ {conflict} CONFLICT</span>
       </div>
-      <div className="flex-1 overflow-hidden rounded-lg border border-zinc-800">
-        <div className="grid grid-cols-[minmax(0,1fr)_34px_34px_34px_34px_68px] gap-x-1 border-b border-zinc-800 bg-zinc-950/60 px-1.5 py-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
+      <div className="flex-1 overflow-x-auto rounded-lg border border-zinc-800">
+        <div className="grid grid-cols-[110px_52px_52px_52px_52px_92px] min-w- gap-x-1 border-b border-zinc-800 bg-zinc-950/60 px-1.5 py-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
           <span>Symbol</span><span>5m</span><span>15m</span><span>1h</span><span>4h</span><span className="text-right">Verdict</span>
         </div>
         {data.slice(0, 8).map((r: any) => (
           <button key={r.symbol} type="button" onClick={() => onPickPair(r.symbol, "15m")}
-            className="grid w-full grid-cols-[minmax(0,1fr)_34px_34px_34px_34px_68px] items-center gap-x-1 px-1.5 py-[2px] text-left font-mono text-[10px] hover:bg-zinc-800/60">
+            className="grid w-full grid-cols-[110px_52px_52px_52px_52px_92px] min-w- items-center gap-x-1 px-1.5 py-[2px] text-left font-mono text-[10px] hover:bg-zinc-800/60">
             <span className="whitespace-normal leading-snug text-zinc-200">{r.symbol.replace("USDT", "")}</span>
             {TFS.map((tf) => <span key={tf}>{cell(r.tfs?.[tf])}</span>)}
             <span className={`whitespace-nowrap text-right text-[9px] font-bold ${r.verdict === "STRONG" ? "text-emerald-400" : r.verdict === "RISK" ? "text-amber-400" : "text-zinc-500"}`}>{r.verdict} {r.agree}</span>

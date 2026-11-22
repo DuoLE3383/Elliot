@@ -33,7 +33,7 @@ export function decideLiquidShort(
     return { action: "WAIT", reason: `RISK_ON (breadth ${breadth}%) — không SHORT khi thị trường hồi` };
   const range = identifyTradingRange(d, 90, 3, 1);
   if (!range)
-    return { action: "WAIT", reason: "không có trading range hợp lệ (width 4–45%, drift ≤18%, test ≥2 mặt mỗi biên trong 90 nến 1d)" };
+    return { action: "WAIT", reason: "không có trading range hợp lệ (width 3–60%, drift ≤25%, test ≥1 mặt mỗi biên trong 60 nến 1d)" };
   const up = detectUpthrust(d);
   const dist = detectDistribution(d);
   if (!up && !dist)

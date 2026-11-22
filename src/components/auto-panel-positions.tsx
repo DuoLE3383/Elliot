@@ -107,9 +107,9 @@ export function AutoPositions(props: any) {
                   return (
                     <div className="mb-0.5 space-y-0.5">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-xs font-bold text-sky-300">SO {book}</span>
+                        <span className={`rounded px-1.5 py-0.5 font-mono text-xs font-bold ${book === "A" ? "bg-violet-950/70 text-violet-300" : book === "C" ? "bg-amber-950/70 text-amber-300" : book === "D" ? "bg-emerald-950/70 text-emerald-300" : "bg-sky-950/70 text-sky-300"}`}>{book}</span>
                         <span className="font-mono text-sm font-bold text-zinc-100">{open.symbol}</span>
-                        <span className="rounded px-1.5 py-0.5 font-mono text-xs font-bold bg-rose-950/70 text-rose-300">{open.side}</span>
+                        <span className={`rounded px-1.5 py-0.5 font-mono text-xs font-bold ${open.side === "LONG" ? "bg-emerald-950/70 text-emerald-300" : "bg-rose-950/70 text-rose-300"}`}>{open.side}</span>
                         <span className="font-mono text-xs text-zinc-400">{open.interval}</span>
                         <span className="ml-auto font-mono text-xs text-zinc-300">Vao {timeTxt} - {ago}</span>
                       </div>
@@ -121,7 +121,7 @@ export function AutoPositions(props: any) {
                         <div className="text-right">
                           <div className="text-xs text-zinc-500">Mark - cach Entry</div>
                           <div className="font-mono text-sm font-bold text-zinc-200">{fmtPrice(mark)} - <span className={mv >= 0 ? "text-emerald-400" : "text-rose-400"}>{mv >= 0 ? "+" : ""}{(mv * 100).toFixed(2)}%</span></div>
-                          <div className="font-mono text-xs font-bold text-emerald-400">ROE {roi >= 0 ? "+" : ""}{roi.toFixed(2)}%</div>
+                          <div className="font-mono text-xs font-bold text-emerald-400">ROI {roi >= 0 ? "+" : ""}{roi.toFixed(2)}%</div>
                         </div>
                       </div>
                     </div>
@@ -146,7 +146,7 @@ export function AutoPositions(props: any) {
                       const pnl = (margin * roi) / 100;
                       return (
                         <span className={pnl >= 0 ? "font-bold text-emerald-400" : "font-bold text-rose-400"}>
-                          {pnl >= 0 ? "+$" : "-$"}{Math.abs(pnl).toFixed(2)} · ROI {roi >= 0 ? "+" : ""}{roi.toFixed(2)}%
+                          {pnl >= 0 ? "+$" : "-$"}{Math.abs(pnl).toFixed(2)}
                         </span>
                       );
                     })()}

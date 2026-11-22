@@ -4,7 +4,7 @@
 //   · baseline chop −0.14%/45.6%   · Gate Spring|SOS + breadth≥50 = +3.87%/58.7%
 //   · SOS khi RISK_ON +7.10%/65.2% vs RISK_OFF −1.77%/28.6% → regime BẮT BUỘC.
 // Chỉ dùng ĐÚNG phần đã verify, không thêm phần chưa test:
-//   · range 90 nến ngày: width 4–45%, drift ≤18%, test ≥2 mặt mỗi biên
+//   · range 90 nến ngày: width 3–60%, drift ≤25%, test ≥1 mặt mỗi biên
 //   · Spring: vol ≥ 1.3×(5 nến), thủng đáy ≤ 99.5%, đóng > 100.5% đáy,
 //     đóng < mid + 25% width
 //   · SOS: nến ngày đóng ≥ +6% và vol ≥ 3×(20 nến), close ≥ 99% resistance
@@ -258,9 +258,9 @@ export const WY_TF_SCALE: Record<string, { rangeMin: number; sosPct: number; dri
   "5m":  { rangeMin: 0.5, sosPct: 0.5, driftMax: 2 },
   "15m": { rangeMin: 0.8, sosPct: 0.8, driftMax: 3 },
   "30m": { rangeMin: 1.2, sosPct: 1.2, driftMax: 4 },
-  "1h":  { rangeMin: 1.5, sosPct: 1.5, driftMax: 6 },
-  "4h":  { rangeMin: 2.5, sosPct: 3.0, driftMax: 10 },
-  "1d":  { rangeMin: 4.0, sosPct: 6.0, driftMax: 18 },
+  "1h":  { rangeMin: 1.5, sosPct: 1.5, driftMax: 10 },
+  "4h":  { rangeMin: 2.5, sosPct: 3.0, driftMax: 15 },
+  "1d":  { rangeMin: 3.0, sosPct: 6.0, driftMax: 25 },
 };
 export function wyTfScale(interval: string) {
   return WY_TF_SCALE[interval] ?? WY_TF_SCALE["1d"];
@@ -314,7 +314,7 @@ export async function wyckoffLongGate(symbol: string, universe: string[], interv
       if (isTrendUp) {
         return { ...base, ok: true, reason: `trend, no range — breadth ${breadth}% + RISK_ON + close > MA20 ${interval} (không bắt trend phải có range)`, trigger, range: null, breadth, regime, upthrust, suggestedStopPct: null, failOpen: false };
       }
-      return { ...base, ok: false, reason: `không có trading range hợp lệ (width ${wyTfScale(interval).rangeMin}–45%, drift ≤${wyTfScale(interval).driftMax}%, test ≥2 mặt mỗi biên trong ${pval("WY_RANGE_LOOKBACK", WY_RANGE_LOOKBACK)} nến ${interval})`, trigger, range: null, breadth, regime, upthrust, suggestedStopPct: null, failOpen: false };
+      return { ...base, ok: false, reason: `không có trading range hợp lệ (width ${wyTfScale(interval).rangeMin}–60%, drift ≤${wyTfScale(interval).driftMax}%, test ≥1 mặt mỗi biên trong ${pval("WY_RANGE_LOOKBACK", WY_RANGE_LOOKBACK)} nến ${interval})`, trigger, range: null, breadth, regime, upthrust, suggestedStopPct: null, failOpen: false };
     }
     if (trigger === "none") {
       return { ...base, ok: false, reason: `range hợp lệ nhưng chưa có trigger Spring/SOS ở 5 nến ${interval} cuối`, trigger, range: tr, breadth, regime, upthrust, suggestedStopPct, failOpen: false };
