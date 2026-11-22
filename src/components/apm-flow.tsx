@@ -288,7 +288,7 @@ export function ApmFlowMap({
 
   const midBottomY = midStartY + midItems.length * (NH + ROW_GAP);
   const rightBottomY = ROW_Y[3] + NH;
-  const H = Math.max(BASE_H, midStartY + midTotalH + 32);
+  const H = Math.max(BASE_H, midStartY + midTotalH + 72);
 
   const tradesCy = cy(0);
   const ySrc = (dy: number): number => tradesCy + dy;
@@ -372,7 +372,7 @@ export function ApmFlowMap({
               x1={COL_A_X} y1={leftY(4) + NH / 2} x2={12} y2={leftY(4) + NH / 2}
               color={GREY} dash="3 6" dim
             />
-            <BandChip x={40} y={leftY(4) + NH / 2 - 16} color={GREY} label={t(lang, "apm.band.normal")} />
+            <BandChip x={40} y={leftY(4) + NH + 8} color={GREY} label={t(lang, "apm.band.normal")} />
 
             {/* Gate pass → từng vị thế: Pending (đứt tím) khi flat, lime khi có dòng */}
             {midItems.map((pos, idx) => {
@@ -422,9 +422,9 @@ export function ApmFlowMap({
             <BulgeWire xEdge={edgeR} y1={ySrc(-12)} y2={rightY(1) + NH / 2} bulgeX={926} color={LIME} hot={f.tp > 0} />
             <BulgeWire xEdge={edgeR} y1={ySrc(0)} y2={rightY(2) + NH / 2} bulgeX={944} color={RED} hot={f.sl > 0} />
             <BulgeWire xEdge={edgeR} y1={ySrc(12)} y2={rightY(3) + NH / 2} bulgeX={962} color={AMBER} hot={f.flip + f.manual > 0} />
-            <BandChip x={926} y={ySrc(-26)} color={LIME} label={t(lang, "apm.band.success")} />
-            <BandChip x={944} y={ySrc(30)} color={RED} label={t(lang, "apm.band.error")} />
-            <BandChip x={962} y={ySrc(58)} color={AMBER} label={t(lang, "apm.band.normal")} />
+            <BandChip x={926} y={rightY(1) + NH / 2 - 16} color={LIME} label={t(lang, "apm.band.success")} />
+            <BandChip x={944} y={rightY(2) + NH / 2 - 16} color={RED} label={t(lang, "apm.band.error")} />
+            <BandChip x={962} y={rightY(3) + NH / 2 - 16} color={AMBER} label={t(lang, "apm.band.normal")} />
 
             {nodes.map((n, i) => (
               <FlowNode
