@@ -349,28 +349,6 @@ export function ApmFlowMap({
 
   return (
     <div>
-      {/* header — "● Trading Flow Map" + legend, y hệt ảnh tham chiếu */}
-      <div className="mb-2 flex items-center justify-between gap-3 px-1">
-        <div className="flex items-center gap-2">
-          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: LIME }} />
-          <span className="text-[13px] font-semibold tracking-wide text-zinc-100">
-            {t(lang, "apm.flow.title")}
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
-          {[
-            { c: LIME, k: "apm.band.success" as const },
-            { c: RED, k: "apm.band.error" as const },
-            { c: GREY, k: "apm.band.normal" as const },
-            { c: VIOLET, k: "apm.band.pending" as const },
-          ].map(({ c, k }) => (
-            <span key={k} className="inline-flex items-center gap-1.5 text-[10px] text-zinc-400">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ background: c }} />
-              {t(lang, k)}
-            </span>
-          ))}
-        </div>
-      </div>
 
       <div className="rail-scroll overflow-x-auto">
         <div className="min-w-[880px]">
