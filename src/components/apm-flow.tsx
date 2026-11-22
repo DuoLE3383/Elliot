@@ -1,5 +1,21 @@
 "use client";
 
+// ─── Trading Flow Map (0.3.54 — thiết kế lại theo ảnh tham chiếu user) ────────
+// User: "ý tôi là kiểu vầy nè" + ảnh: map 3 cột nền tối — header "● Trading
+// Flow Map" + legend Success/Error/Normal/Pending bên phải, thẻ mono viền
+// phát sáng, nối bằng ĐƯỜNG CONG NÉT ĐỨT mảnh (không còn dải băng dày).
+// Giữ nguyên 100% hợp dữ liệu (ApmFlowCounts) + hành vi bấm node của 0.3.4:
+// onNodeClick(id trạm) + onSelectPosition(idx) — /stats không phải đổi gì.
+// Cấu trúc:
+//   • CỘT TRÁI — Universe pool → Published top → Scan combos → Gate pass →
+//     Skipped, nối bằng chấm đứt dọc (dòng dữ liệu đi xuống).
+//   • CỘT GIỮA — thẻ "Open position #n" (symbol mono, side, "x.xxh · ROI"),
+//     viền đứt + glow theo side (LONG lime / SHORT red).
+//   • CỘT PHẢI — Trades opened → TP exits (Success) / SL exits (Error) /
+//     Flip · manual (Normal) — bulge nét đứt từ cạnh phải node Trades.
+// Nguồn: /api/stats khối `flow` (universePool/publishedTop/uptrend/scanCombos/
+// gatePass/neutral/openPositions ROI live) — không thêm API mới.
+
 import { t, type Lang } from "@/lib/i18n";
 
 export interface OpenPositionItem {
@@ -50,112 +66,85 @@ const LIME = "#34d399";
 const RED = "#fb7185";
 const GREY = "#9aa0a6";
 const AMBER = "#fbbf24";
+const VIOLET = "#a78bfa";
 const INK = "#15151a";
 const EDGE = "#26262c";
 const TXT = "#e9e9ec";
 const SUB = "#8b8b94";
 
 const NW = 196;
-const NH = 66;
-const ROW_GAP = 16;
+const NH = 76;
+const ROW_GAP = 18;
 const COL_A_X = 30;
 const COL_M_X = 365;
 const COL_B_X = 695;
-const ROW_Y = [20, 138, 256, 374, 492];
+const ROW_Y = [20, 150, 280, 410, 540];
 const BASE_W = 1040;
-const BASE_H = 604;
+const BASE_H = 648;
 
 const cy = (row: number): number => ROW_Y[row] + NH / 2;
 const cxL = COL_A_X + NW / 2;
 const edgeR = COL_B_X + NW;
 
-const thick = (n: number, max: number): number =>
-  n <= 0 ? 1.4 : Math.min(18, 3 + 15 * Math.sqrt(n / Math.max(max, 1)));
-
-function Ribbon({
-  x1, y1, x2, y2, w, color, hot, dashed, dim,
+// ─── Wire — đường cong nét đứt mảnh (thay dải băng dày của 0.3.4) ────────────
+// hot = đang có dòng chảy thật (có lệnh / có pass) → xung chạy nhanh hơn.
+function Wire({
+  x1, y1, x2, y2, color, hot, dashed, dim, dash,
 }: {
   x1: number; y1: number; x2: number; y2: number;
-  w: number; color: string; hot?: boolean; dashed?: boolean; dim?: boolean;
+  color: string; hot?: boolean; dashed?: boolean; dim?: boolean; dash?: string;
 }) {
   const c1x = x1 + (x2 - x1) * 0.45;
   const c2x = x1 + (x2 - x1) * 0.55;
-  const h = w / 2;
-  const fill =
-    `M ${x1} ${y1 - h} C ${c1x} ${y1 - h} ${c2x} ${y2 - h} ${x2} ${y2 - h}` +
-    ` L ${x2} ${y2 + h} C ${c2x} ${y2 + h} ${c1x} ${y1 + h} ${x1} ${y1 + h} Z`;
-  const core = `M ${x1} ${y1} C ${c1x} ${y1} ${c2x} ${y2} ${x2} ${y2}`;
+  const d = `M ${x1} ${y1} C ${c1x} ${y1} ${c2x} ${y2} ${x2} ${y2}`;
   return (
-    <g className="apm-band" opacity={dim ? 0.5 : 1}>
-      <path d={fill} fill={color} fillOpacity={hot ? 0.4 : 0.24} />
-      {!dashed && (
-        <path d={core} fill="none" stroke={color} strokeOpacity={0.55} strokeWidth={1.1} />
-      )}
+    <g className="apm-band" opacity={dim ? 0.4 : 1}>
       <path
-        d={core}
+        d={d}
         fill="none"
-        stroke="#0b0b0e"
-        strokeOpacity={0.5}
-        strokeWidth={Math.max(1.4, w * 0.45)}
-        strokeDasharray={dashed ? "3 7" : "5 9"}
+        stroke={color}
+        strokeOpacity={hot ? 0.9 : 0.5}
+        strokeWidth={1.7}
+        strokeLinecap="round"
+        strokeDasharray={dash ?? (dashed ? "3 6" : "7 8")}
         className={hot ? "pipe-flow-hot" : "pipe-flow"}
       />
-      {dashed && (
-        <path
-          d={core}
-          fill="none"
-          stroke={color}
-          strokeOpacity={0.85}
-          strokeWidth={1.2}
-          strokeDasharray="4 5"
-        />
+      {hot && (
+        <path d={d} fill="none" stroke={color} strokeOpacity={0.16} strokeWidth={5} strokeLinecap="round" />
       )}
     </g>
   );
 }
 
-function BulgeRibbon({
-  xEdge, y1, y2, bulgeX, w, color, hot, dashed, dim,
+// Bulge — cong phồng ra ngoài cạnh phải (Trades → TP/SL/Flip), mảnh + đứt.
+function BulgeWire({
+  xEdge, y1, y2, bulgeX, color, hot, dashed,
 }: {
   xEdge: number; y1: number; y2: number; bulgeX: number;
-  w: number; color: string; hot?: boolean; dashed?: boolean; dim?: boolean;
+  color: string; hot?: boolean; dashed?: boolean;
 }) {
-  const h = w / 2;
-  const fill =
-    `M ${xEdge} ${y1 - h} C ${bulgeX} ${y1 - h} ${bulgeX} ${y2 - h} ${xEdge} ${y2 - h}` +
-    ` L ${xEdge} ${y2 + h} C ${bulgeX} ${y2 + h} ${bulgeX} ${y1 + h} ${xEdge} ${y1 + h} Z`;
-  const core = `M ${xEdge} ${y1} C ${bulgeX} ${y1} ${bulgeX} ${y2} ${xEdge} ${y2}`;
+  const d = `M ${xEdge} ${y1} C ${bulgeX} ${y1} ${bulgeX} ${y2} ${xEdge} ${y2}`;
   return (
-    <g className="apm-band" opacity={dim ? 0.5 : 1}>
-      <path d={fill} fill={color} fillOpacity={hot ? 0.4 : 0.24} />
-      {!dashed && (
-        <path d={core} fill="none" stroke={color} strokeOpacity={0.55} strokeWidth={1.1} />
-      )}
+    <g className="apm-band" opacity={hot ? 1 : 0.75}>
       <path
-        d={core}
+        d={d}
         fill="none"
-        stroke="#0b0b0e"
-        strokeOpacity={0.5}
-        strokeWidth={Math.max(1.4, w * 0.45)}
-        strokeDasharray={dashed ? "3 7" : "5 9"}
+        stroke={color}
+        strokeOpacity={hot ? 0.9 : 0.5}
+        strokeWidth={1.7}
+        strokeLinecap="round"
+        strokeDasharray={dashed ? "3 6" : "7 8"}
         className={hot ? "pipe-flow-hot" : "pipe-flow"}
       />
-      {dashed && (
-        <path
-          d={core}
-          fill="none"
-          stroke={color}
-          strokeOpacity={0.85}
-          strokeWidth={1.2}
-          strokeDasharray="4 5"
-        />
+      {hot && (
+        <path d={d} fill="none" stroke={color} strokeOpacity={0.16} strokeWidth={5} strokeLinecap="round" />
       )}
     </g>
   );
 }
 
 function BandChip({ x, y, color, label }: { x: number; y: number; color: string; label: string }) {
-  const w = label.length * 5.4 + 14;
+  const w = label.length * 5.6 + 14;
   return (
     <g>
       <rect
@@ -221,32 +210,32 @@ function FlowNode({
       transform={`translate(${n.x} ${n.y})`}
       onClick={handleClick}
       className="cursor-pointer"
-      style={{ filter: n.glow ? `drop-shadow(0 0 10px ${n.dot})` : undefined }}
+      style={{ filter: n.glow ? `drop-shadow(0 0 9px ${n.dot})` : undefined }}
     >
       <rect
         width={NW}
         height={NH}
-        rx={13}
+        rx={14}
         fill={INK}
         stroke={n.stroke ?? EDGE}
         strokeWidth={1}
         strokeDasharray={n.strokeDash}
       />
-      <circle cx={16} cy={20} r={3.5} fill={n.dot} />
-      <text x={26} y={23.5} fontSize={10.5} fontWeight={600} fill={TXT}>
+      <circle cx={16} cy={21} r={3.5} fill={n.dot} />
+      <text x={26} y={24.5} fontSize={10.5} fontWeight={600} fill={TXT}>
         {n.title}
       </text>
       <text
         x={16}
-        y={45}
-        fontSize={16}
+        y={49}
+        fontSize={16.5}
         fontWeight={700}
         fill={n.valColor}
         fontFamily="var(--font-geist-mono), monospace"
       >
         {n.value}
       </text>
-      <text x={16} y={58} fontSize={9} fill={SUB}>
+      <text x={16} y={64} fontSize={9} fill={SUB}>
         {n.sub}
       </text>
       <title>{`${n.title} — ${n.value} · ${n.sub}`}</title>
@@ -296,21 +285,22 @@ export function ApmFlowMap({
   const rightBottomY = ROW_Y[3] + NH;
   const H = Math.max(BASE_H, midBottomY + 32, rightBottomY + 32);
 
-  const wGate = thick(f.gatePass, Math.max(f.scanCombos, 1));
-  const wTp = thick(f.tp, maxExit);
-  const wSl = thick(f.sl, maxExit);
-  const wFlip = thick(f.flip + f.manual, maxExit);
-
   const tradesCy = cy(0);
   const ySrc = (dy: number): number => tradesCy + dy;
+
+  // Scan combos: ảnh tham chiếu hiện "1h sig" — giữ ý nghĩa: khung tín hiệu 1h.
+  // Scan stale thì ghi thêm tuổi để không mất thông tin "dữ liệu mới đến đây".
+  const scanSub = f.scanAgeMin != null && f.scanAgeMin > 6
+    ? `${f.scanAgeMin}m ago · 1h sig`
+    : "1h sig";
 
   const leftNodes: NodeSpec[] = [
     { x: COL_A_X, y: ROW_Y[0], id: "st-universe", title: t(lang, "apm.node.universe"), value: `${f.universePool}`, sub: "UNIVERSE staples + trend", dot: "#22d3ee", valColor: TXT },
     { x: COL_A_X, y: ROW_Y[1], id: "st-universe", title: t(lang, "apm.node.published"), value: `${f.publishedTop}`, sub: `${f.uptrend} uptrend`, dot: "#38bdf8", valColor: TXT },
     {
       x: COL_A_X, y: ROW_Y[2], id: "st-dock", title: t(lang, "apm.node.scan"), value: `${f.scanCombos}`,
-      sub: f.scanAgeMin != null ? `${f.scanAgeMin}m ago` : "—", dot: "#a78bfa", valColor: TXT,
-      glow: f.scanAgeMin != null && f.scanAgeMin <= 5,
+      sub: scanSub, dot: "#a78bfa", valColor: TXT,
+      glow: f.scanAgeMin != null && f.scanAgeMin <= 6,
     },
     {
       x: COL_A_X, y: ROW_Y[3], id: "st-dock", title: t(lang, "apm.node.gate"), value: `${f.gatePass}`,
@@ -347,7 +337,7 @@ export function ApmFlowMap({
   });
 
   const rightNodes: NodeSpec[] = [
-    { x: COL_B_X, y: ROW_Y[0], id: "st-hist", title: t(lang, "apm.node.trades"), value: `${f.tradesTotal}`, sub: `${f.closedTrades} closed`, dot: "#34d399", valColor: TXT },
+    { x: COL_B_X, y: ROW_Y[0], id: "st-hist", title: t(lang, "apm.node.trades"), value: `${f.tradesTotal}`, sub: `${f.closedTrades} closed`, dot: LIME, valColor: TXT },
     { x: COL_B_X, y: ROW_Y[1], id: "st-hist", title: t(lang, "apm.node.tp"), value: `${f.tp}`, sub: t(lang, "apm.band.success"), dot: LIME, valColor: LIME, stroke: "rgba(200,245,66,0.3)" },
     { x: COL_B_X, y: ROW_Y[2], id: "st-hist", title: t(lang, "apm.node.sl"), value: `${f.sl}`, sub: t(lang, "apm.band.error"), dot: RED, valColor: RED, stroke: "rgba(244,82,92,0.3)" },
     { x: COL_B_X, y: ROW_Y[3], id: "st-hist", title: t(lang, "apm.node.flip"), value: `${f.flip + f.manual}`, sub: `flip ${f.flip} · manual ${f.manual}`, dot: AMBER, valColor: AMBER },
@@ -355,79 +345,114 @@ export function ApmFlowMap({
 
   const nodes: NodeSpec[] = [...leftNodes, ...middleNodes, ...rightNodes];
   const gateCy = cy(3);
-  const perOpenWidth = hasOpen ? Math.max(2.6, wGate / midItems.length) : 1.6;
   const firstMidCy = midCy(0);
 
   return (
-    <div className="rail-scroll overflow-x-auto">
-      <div className="min-w-[880px]">
-        <svg viewBox={`0 0 ${BASE_W} ${H}`} width="100%" role="img" aria-label="trading flow map">
-          {[0, 1, 2].map((r) => (
-            <g key={`la-${r}`}>
-              <Ribbon x1={cxL} y1={ROW_Y[r] + NH} x2={cxL} y2={ROW_Y[r + 1]} w={4} color={GREY} />
-            </g>
+    <div>
+      {/* header — "● Trading Flow Map" + legend, y hệt ảnh tham chiếu */}
+      <div className="mb-2 flex items-center justify-between gap-3 px-1">
+        <div className="flex items-center gap-2">
+          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: LIME }} />
+          <span className="text-[13px] font-semibold tracking-wide text-zinc-100">
+            {t(lang, "apm.flow.title")}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
+          {[
+            { c: LIME, k: "apm.band.success" as const },
+            { c: RED, k: "apm.band.error" as const },
+            { c: GREY, k: "apm.band.normal" as const },
+            { c: VIOLET, k: "apm.band.pending" as const },
+          ].map(({ c, k }) => (
+            <span key={k} className="inline-flex items-center gap-1.5 text-[10px] text-zinc-400">
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: c }} />
+              {t(lang, k)}
+            </span>
           ))}
+        </div>
+      </div>
 
-          <BulgeRibbon
-            xEdge={COL_A_X} y1={cy(2)} y2={cy(4)} bulgeX={12}
-            w={thick(f.neutral, Math.max(f.scanCombos, 1))} color={GREY}
-          />
-          <BandChip x={46} y={348} color={GREY} label={t(lang, "apm.band.normal")} />
-
-          {midItems.map((pos, idx) => {
-            const targetY = midCy(idx);
-            const active = !pos.isFlat;
-            return (
-              <Ribbon
-                key={`gate-mid-${pos.id ?? idx}`}
-                x1={COL_A_X + NW} y1={gateCy} x2={COL_M_X} y2={targetY}
-                w={perOpenWidth} color={active ? LIME : GREY}
-                dashed={!active} dim={!active} hot={active && f.gatePass > 0}
+      <div className="rail-scroll overflow-x-auto">
+        <div className="min-w-[880px]">
+          <svg viewBox={`0 0 ${BASE_W} ${H}`} width="100%" role="img" aria-label="trading flow map">
+            {/* chuỗi dọc cột trái — 4 khoảng, chấm đứt mảnh */}
+            {[0, 1, 2, 3].map((r) => (
+              <Wire
+                key={`la-${r}`}
+                x1={cxL} y1={ROW_Y[r] + NH} x2={cxL} y2={ROW_Y[r + 1]}
+                color={GREY} dash="2 5"
               />
-            );
-          })}
-          <BandChip
-            x={(COL_A_X + NW + COL_M_X) / 2}
-            y={gateCy * 0.5 + firstMidCy * 0.5}
-            color={hasOpen ? LIME : GREY}
-            label={hasOpen ? t(lang, "apm.band.pending") : t(lang, "apm.band.success")}
-          />
+            ))}
 
-          {midItems.map((pos, idx) => {
-            const srcY = midCy(idx);
-            const active = !pos.isFlat;
-            return (
-              <Ribbon
-                key={`mid-opened-${pos.id ?? idx}`}
-                x1={COL_M_X + NW} y1={srcY} x2={COL_B_X} y2={tradesCy}
-                w={perOpenWidth} color={active ? LIME : GREY}
-                dashed={!active} dim={!active} hot={active && f.tradesTotal > 0}
-              />
-            );
-          })}
-          <BandChip
-            x={(COL_M_X + NW + COL_B_X) / 2}
-            y={firstMidCy * 0.5 + tradesCy * 0.5}
-            color={LIME}
-            label={t(lang, "apm.band.success")}
-          />
-
-          <BulgeRibbon xEdge={edgeR} y1={ySrc(-12)} y2={cy(1)} bulgeX={928} w={wTp} color={LIME} hot={f.tp > 0} />
-          <BulgeRibbon xEdge={edgeR} y1={ySrc(0)} y2={cy(2)} bulgeX={946} w={wSl} color={RED} hot={f.sl > 0} />
-          <BulgeRibbon xEdge={edgeR} y1={ySrc(12)} y2={cy(3)} bulgeX={964} w={wFlip} color={AMBER} />
-          <BandChip x={928} y={112} color={LIME} label={t(lang, "apm.band.success")} />
-          <BandChip x={946} y={171} color={RED} label={t(lang, "apm.band.error")} />
-          <BandChip x={964} y={230} color={AMBER} label={t(lang, "apm.band.normal")} />
-
-          {nodes.map((n, i) => (
-            <FlowNode
-              key={`${n.id}-${n.x}-${n.y}-${i}`}
-              n={n}
-              onClick={click}
-              onSelectPosition={onSelectPosition}
+            {/* Skipped — nhánh thoát ra ngoài cạnh trái (Normal) */}
+            <Wire
+              x1={COL_A_X} y1={cy(4)} x2={12} y2={cy(4)}
+              color={GREY} dash="3 6" dim
             />
-          ))}
-        </svg>
+            <BandChip x={40} y={cy(4) - 16} color={GREY} label={t(lang, "apm.band.normal")} />
+
+            {/* Gate pass → từng vị thế: Pending (đứt tím) khi flat, lime khi có dòng */}
+            {midItems.map((pos, idx) => {
+              const targetY = midCy(idx);
+              const active = !pos.isFlat;
+              return (
+                <Wire
+                  key={`gate-mid-${pos.id ?? idx}`}
+                  x1={COL_A_X + NW} y1={gateCy} x2={COL_M_X} y2={targetY}
+                  color={active ? LIME : VIOLET}
+                  dashed={!active}
+                  dim={!active}
+                  hot={active && f.gatePass > 0}
+                />
+              );
+            })}
+            <BandChip
+              x={(COL_A_X + NW + COL_M_X) / 2}
+              y={gateCy * 0.5 + firstMidCy * 0.5}
+              color={hasOpen ? LIME : VIOLET}
+              label={hasOpen ? t(lang, "apm.band.pending") : t(lang, "apm.band.success")}
+            />
+
+            {/* Vị thế → Trades opened */}
+            {midItems.map((pos, idx) => {
+              const srcY = midCy(idx);
+              const active = !pos.isFlat;
+              return (
+                <Wire
+                  key={`mid-opened-${pos.id ?? idx}`}
+                  x1={COL_M_X + NW} y1={srcY} x2={COL_B_X} y2={tradesCy}
+                  color={active ? LIME : GREY}
+                  dashed={!active}
+                  dim={!active}
+                  hot={active && f.tradesTotal > 0}
+                />
+              );
+            })}
+            <BandChip
+              x={(COL_M_X + NW + COL_B_X) / 2}
+              y={firstMidCy * 0.5 + tradesCy * 0.5}
+              color={LIME}
+              label={t(lang, "apm.band.success")}
+            />
+
+            {/* Trades → TP / SL / Flip (bulge phải, mảnh đứt) */}
+            <BulgeWire xEdge={edgeR} y1={ySrc(-12)} y2={cy(1)} bulgeX={926} color={LIME} hot={f.tp > 0} />
+            <BulgeWire xEdge={edgeR} y1={ySrc(0)} y2={cy(2)} bulgeX={944} color={RED} hot={f.sl > 0} />
+            <BulgeWire xEdge={edgeR} y1={ySrc(12)} y2={cy(3)} bulgeX={962} color={AMBER} hot={f.flip + f.manual > 0} />
+            <BandChip x={926} y={ySrc(-26)} color={LIME} label={t(lang, "apm.band.success")} />
+            <BandChip x={944} y={ySrc(30)} color={RED} label={t(lang, "apm.band.error")} />
+            <BandChip x={962} y={ySrc(58)} color={AMBER} label={t(lang, "apm.band.normal")} />
+
+            {nodes.map((n, i) => (
+              <FlowNode
+                key={`${n.id}-${n.x}-${n.y}-${i}`}
+                n={n}
+                onClick={click}
+                onSelectPosition={onSelectPosition}
+              />
+            ))}
+          </svg>
+        </div>
       </div>
     </div>
   );
