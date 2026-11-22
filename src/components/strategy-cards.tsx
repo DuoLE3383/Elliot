@@ -3,7 +3,7 @@
 // ─── StrategyCards (v0.3.12 redesign) — Strategy Control Center trên /auto ────
 // Theo mockup: section header (icon + tiêu đề + legend + nút Auto-Flip), 4 card
 // A/B/C/D — badge chữ cái, tên + mô tả, pill trạng thái (● ON / ⏸ STANDBY),
-// 3 hàng số (Net ROE · WR Closed · Closed/Open), sparkline đường vốn thật,
+// 3 hàng số (Net ROI · WR Closed · Closed/Open), sparkline đường vốn thật,
 // nút STOP/START viền màu. LOGIC GIỮ NGUYÊN 0.2.98: cờ A/C hydrate từ engine,
 // sổ B theo cfg.on, toggleBook POST sync riêng, LIVE mirror không đụng tới.
 // START ALL / STOP ALL đã dời lên Topbar (trang sở hữu setAll).
@@ -18,7 +18,7 @@ interface ArenaLite {
   a: BookStats;
   b: BookStats;
   c: BookStats;
-  live: { on: boolean; nClosed: number; nOpen: number; wr: number; netRoe: number };
+  live: { on: boolean; nClosed: number; nOpen: number; wr: number; netRoi: number };
   aEquity?: EquityPoint[];
   bEquity?: EquityPoint[];
   cEquity?: EquityPoint[];
@@ -53,15 +53,15 @@ export function strategyAdvice(
   const out: Array<{ id: "a" | "b" | "c"; action: "on" | "off" | "hold"; reason: string }> = books.map((b) => ({ id: b.id, action: "hold", reason: "" }));
   for (const b of active) {
     const idx = out.findIndex((o) => o.id === b.id);
-    if (b.s.netRoe <= -10 && b.s.wr < 35) {
-      out[idx] = { id: b.id, action: "off", reason: `net ${num(b.s.netRoe)}% · WR ${num(b.s.wr)}% — dừng để sổ khác chạy` };
-    } else if (b.s.netRoe >= 5 && b.s.wr >= 40) {
-      out[idx] = { id: b.id, action: "on", reason: `net +${num(b.s.netRoe)}% · WR ${num(b.s.wr)}% trên ${b.s.nClosed} lệnh` };
+    if (b.s.netRoi <= -10 && b.s.wr < 35) {
+      out[idx] = { id: b.id, action: "off", reason: `net ${num(b.s.netRoi)}% · WR ${num(b.s.wr)}% — dừng để sổ khác chạy` };
+    } else if (b.s.netRoi >= 5 && b.s.wr >= 40) {
+      out[idx] = { id: b.id, action: "on", reason: `net +${num(b.s.netRoi)}% · WR ${num(b.s.wr)}% trên ${b.s.nClosed} lệnh` };
     }
   }
   const ons = out.filter((o) => o.action === "on");
   if (ons.length > 1) {
-    const best = books.filter((b) => ons.some((o) => o.id === b.id)).sort((x, y) => y.s.netRoe - x.s.netRoe)[0];
+    const best = books.filter((b) => ons.some((o) => o.id === b.id)).sort((x, y) => y.s.netRoi - x.s.netRoi)[0];
     for (const o of out) {
       if (o.action === "on" && o.id !== best.id) {
         o.action = "hold";
@@ -318,7 +318,7 @@ export function StrategyCards({ lang, cfgOn, onCfgPatch, onCfgToggle, books, onT
           const st = statsOf(spec.id);
           const on = isOn(spec.id);
           const hasData = st != null && st.nClosed > 0;
-          const netRoe = st?.netRoe ?? 0;
+          const netRoi = st?.netRoi ?? 0;
           const adv = adviceMap.get(spec.id as "a" | "b" | "c");
           return (
             <article
@@ -359,9 +359,9 @@ export function StrategyCards({ lang, cfgOn, onCfgPatch, onCfgToggle, books, onT
 
               {/* metric rows */}
               <dl className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 font-mono text-[11px]">
-                <dt className="text-zinc-500">Net ROE</dt>
-                <dd className={`text-right font-bold ${hasData ? (netRoe >= 0 ? "text-emerald-400" : "text-rose-400") : "text-zinc-500"}`}>
-                  {hasData ? `${netRoe >= 0 ? "+" : ""}${num(netRoe)}%` : "—"}
+                <dt className="text-zinc-500">Net ROI</dt>
+                <dd className={`text-right font-bold ${hasData ? (netRoi >= 0 ? "text-emerald-400" : "text-rose-400") : "text-zinc-500"}`}>
+                  {hasData ? `${netRoi >= 0 ? "+" : ""}${num(netRoi)}%` : "—"}
                 </dd>
                 <dt className="text-zinc-500">WR (Closed)</dt>
                 <dd className="text-right font-bold text-zinc-200">{hasData ? `${num(st!.wr)}%` : "—"}</dd>

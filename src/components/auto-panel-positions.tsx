@@ -5,11 +5,11 @@ import { Square } from "lucide-react";
 import { trailRoiStopPrice } from "@/lib/autotrade";
 
 // Tach tu auto-panel.tsx - POSITIONS OPENING (Card 1369). Props any de tsc khong ket type.
-// 0.3.12b — khối tóm tắt hiệu suất kiểu mockup: donut uROE (tỷ trọng margin
+// 0.3.12b — khối tóm tắt hiệu suất kiểu mockup: donut uROI (tỷ trọng margin
 // LONG/SHORT) + 4 hàng stats (Open · LONG/SHORT · WR đóng · uPnL) — toàn bộ số
 // thật từ opens + closedHist + tickers, không có lệnh thì vẽ vành đen + "—".
 export function AutoPositions(props: any) {
-  const { opens, open, tickers, cfg, capitalNow, lang, t, closeNow, closeOpen, fmtPrice, slPrice, tpPrice, trailStopPrice, trailMovePct, engineTrail, roeOf, rows, closedHist, leverage } = props;
+  const { opens, open, tickers, cfg, capitalNow, lang, t, closeNow, closeOpen, fmtPrice, slPrice, tpPrice, trailStopPrice, trailMovePct, engineTrail, roiOf, rows, closedHist, leverage } = props;
   const closeFn = closeNow ?? closeOpen;
   return (
     <Card className="border-[#1e2d4d]/70 bg-[#0a0f1e]/80 h-full">
@@ -39,7 +39,7 @@ export function AutoPositions(props: any) {
           const longs = opens.filter((o: any) => o.side === "LONG");
           const shorts = opens.filter((o: any) => o.side !== "LONG");
           const marginOf = (o: any) => ((o.capitalBefore ?? capitalNow) * (o.stakePct ?? 100)) / 100;
-          let upnl = 0, marginSum = 0, roeWeighted = 0;
+          let upnl = 0, marginSum = 0, roiWeighted = 0;
           for (const o of opens) {
             const margin = marginOf(o);
             const mark = tickers[o.symbol]?.price ?? o.entryPrice;
@@ -47,9 +47,9 @@ export function AutoPositions(props: any) {
             const roi = move * o.leverage * 100;
             upnl += (margin * roi) / 100;
             marginSum += margin;
-            roeWeighted += roi * margin;
+            roiWeighted += roi * margin;
           }
-          const uRoe = marginSum > 0 ? roeWeighted / marginSum : null;
+          const uRoi = marginSum > 0 ? roiWeighted / marginSum : null;
           const longMargin = longs.reduce((s: number, o: any) => s + marginOf(o), 0);
           const longFrac = marginSum > 0 ? longMargin / marginSum : 0;
           // donut: vành tròn — xanh emerald = margin LONG, đỏ rose = margin SHORT
@@ -59,10 +59,10 @@ export function AutoPositions(props: any) {
           const wins = closed.filter((x: any) => (x.pnlPct ?? 0) > 0).length;
           const wr = closed.length > 0 ? (wins / closed.length) * 100 : null;
           return (
-            <div className="flex items-center gap-4 rounded-xl border-2 bg-[#0b1222]/60 px-3 py-2.5" style={{ borderColor: uRoe == null ? "#1e2d4d" : uRoe >= 0 ? "#10b981" : "#f43f5e" }}>
+            <div className="flex items-center gap-4 rounded-xl border-2 bg-[#0b1222]/60 px-3 py-2.5" style={{ borderColor: uRoi == null ? "#1e2d4d" : uRoi >= 0 ? "#10b981" : "#f43f5e" }}>
               <div className="w-20 shrink-0 text-center">
-                  <div className={`font-mono text-lg font-bold ${uRoe == null ? "text-zinc-600" : uRoe >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{uRoe == null ? "—" : `${uRoe >= 0 ? "+" : ""}${uRoe.toFixed(2)}%`}</div>
-                  <div className="text-[8px] font-semibold uppercase leading-tight tracking-wide text-zinc-500">{t(lang, "auto2.perfUroe")}</div>
+                  <div className={`font-mono text-lg font-bold ${uRoi == null ? "text-zinc-600" : uRoi >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{uRoi == null ? "—" : `${uRoi >= 0 ? "+" : ""}${uRoi.toFixed(2)}%`}</div>
+                  <div className="text-[8px] font-semibold uppercase leading-tight tracking-wide text-zinc-500">{t(lang, "auto2.perfUroi")}</div>
                 </div>
               {/* 4 hàng stats */}
               <dl className="grid min-w-0 flex-1 grid-cols-1 gap-y-1 font-mono text-[11px] sm:grid-cols-2 sm:gap-x-4">

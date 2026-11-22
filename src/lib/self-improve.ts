@@ -40,8 +40,8 @@ export interface MethodStats {
   n: number;
   wins: number;
   winRate: number;
-  netRoe: number;
-  expectancy: number; // netRoe / n
+  netRoi: number;
+  expectancy: number; // netRoi / n
   avgWin: number;
   avgLoss: number;
 }
@@ -116,7 +116,7 @@ export async function measureMethods(): Promise<MethodStats[]> {
       n: a.n,
       wins: a.wins,
       winRate: a.n ? (a.wins / a.n) * 100 : 0,
-      netRoe: Math.round(a.net * 100) / 100,
+      netRoi: Math.round(a.net * 100) / 100,
       expectancy: a.n ? Math.round((a.net / a.n) * 100) / 100 : 0,
       avgWin: a.wins ? a.winSum / a.wins : 0,
       avgLoss: a.n - a.wins ? a.lossSum / (a.n - a.wins) : 0,
@@ -158,7 +158,7 @@ export async function measureFlips(): Promise<MethodStats | null> {
     n,
     wins,
     winRate: n ? (wins / n) * 100 : 0,
-    netRoe: Math.round(net * 100) / 100,
+    netRoi: Math.round(net * 100) / 100,
     expectancy: n ? Math.round((net / n) * 100) / 100 : 0,
     avgWin: wins ? winSum / wins : 0,
     avgLoss: n - wins ? lossSum / (n - wins) : 0,
@@ -187,7 +187,7 @@ export function aggStats(methodId: string, pnls: number[]): MethodStats {
     n,
     wins,
     winRate: n ? (wins / n) * 100 : 0,
-    netRoe: Math.round(net * 100) / 100,
+    netRoi: Math.round(net * 100) / 100,
     expectancy: n ? Math.round((net / n) * 100) / 100 : 0,
     avgWin: wins ? winSum / wins : 0,
     avgLoss: n - wins ? lossSum / (n - wins) : 0,

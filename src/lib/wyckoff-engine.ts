@@ -29,7 +29,7 @@
 import { db } from "./db";
 import { tgSendMessage } from "./telegram-store";
 import { fetchKlinesDirect } from "./klines-direct";
-import { feeRoe, pval } from "./params";
+import { feeRoi, pval } from "./params";
 import {
   WYC_BIAS200_MAX,
   WYC_BREADTH_MIN,
@@ -575,7 +575,7 @@ async function wyckoffTick(): Promise<void> {
         const price = d[d.length - 1].c;
         const raw = (price - openRow.entryPrice) / openRow.entryPrice;
         const movePct = Math.round(raw * 100 * 100) / 100;
-        const pnlPct = Math.round((movePct * WYC_LEV - feeRoe(WYC_LEV)) * 100) / 100;
+        const pnlPct = Math.round((movePct * WYC_LEV - feeRoi(WYC_LEV)) * 100) / 100;
         const before = openRow.capitalBefore ?? (await wyckoffChainHead());
         const delta = Math.round(before * (pval("WYC_STAKE_PCT", WYC_STAKE_PCT) / 100) * (pnlPct / 100) * 100) / 100;
         const after = Math.max(0, Math.round((before + delta) * 100) / 100);
@@ -592,7 +592,7 @@ async function wyckoffTick(): Promise<void> {
             capitalAfter: after,
           },
         });
-        console.log(`[wyckoff-C] CLOSE LONG ${openRow.symbol} @ ${price} (${exitKind}) move ${movePct}% ROE ${pnlPct}% vốn ${before}→${after} — ${exitReason}`);
+        console.log(`[wyckoff-C] CLOSE LONG ${openRow.symbol} @ ${price} (${exitKind}) move ${movePct}% ROI ${pnlPct}% vốn ${before}→${after} — ${exitReason}`);
         return;
       }
       logStatus(`giữ LONG ${openRow.symbol} · stop ${stop.toPrecision(6)} (${openRow.stopKind})${breadthVal !== null ? ` · breadth ${breadthVal}%` : ""}`);

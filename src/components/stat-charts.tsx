@@ -8,7 +8,7 @@
 //
 // 0.2.91 — "rê chuột để xem chi tiết": MỖI cột/điểm/đoạn có tooltip riêng
 // (React state — chạy cả cảm ứng qua tap) hiện label + giá trị + các dòng
-// `sub` do server tính sẵn (số lệnh, net ROE, phía, kiểu đóng, thời điểm…).
+// `sub` do server tính sẵn (số lệnh, net ROI, phía, kiểu đóng, thời điểm…).
 // Tooltip đặt BÊN TRONG khung chart (top) nên không đè lên hint của ChartBox
 // (hint vẫn nằm phía trên khung).
 

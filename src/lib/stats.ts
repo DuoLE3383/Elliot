@@ -120,6 +120,8 @@ export interface StatSection {
  *  metrics dạng chữ để client không phải parse string — mọi số đây là số
  *  nguyên/thật từ cùng nguồn DB + engine với các section. */
 export interface StatsFlow {
+  totalEquity?: number;
+  totalStartCapital?: number;
   // ── phễu quét (trái sơ đồ) ──
   universePool: number; // tổng cặp UNIVERSE (11 staples + mở rộng)
   publishedTop: number; // cặp được chấm điểm lần re-rank gần nhất
@@ -139,8 +141,8 @@ export interface StatsFlow {
   wins: number;
   winRate: number; // %
   wilson: number; // Wilson 95% LB — độ tin cậy cận dưới
-  netRoe: number; // % tổng ROE ròng
-  avgRoe: number; // % ROE bình quân/lệnh
+  netRoi: number; // % tổng ROI ròng
+  avgRoi: number; // % ROI bình quân/lệnh
   tp: number;
   sl: number;
   flip: number;
@@ -150,7 +152,8 @@ export interface StatsFlow {
   // ── dry-run vốn + lệnh đang mở ──
   autoOn: boolean;
   equity: number | null;
-  open: { symbol: string; side: string; roe: number | null; ageH: number } | null;
+  open: { symbol: string; side: string; roi: number | null; ageH: number } | null;
+  openPositions?: Array<{ symbol: string; side: string; roi: number | null; ageH: number }>;
   // ── phiên ──
   activeSessions: string[];
   nextSession: string;
@@ -206,19 +209,33 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
   // / flow) thay vì mỗi section tự đọc; DB chết → null, safe() từng section
   // vẫn tự xử lý đúng
   const st0 = await readAutoState().catch(() => null);
+  // Flow hien du opens: B (st0.opens) + A/C/D (db truc tiep, giong /api/books-open)
+  let booksOpens: any[] = [];
+  try {
+    const [aRows, cRows, dRows] = await Promise.all([
+      (db as any).vulcanBook?.findMany({ where: { status: "open" } }) ?? [],
+      (db as any).wyckoffBook?.findMany({ where: { status: "open" } }) ?? [],
+      (db as any).liquidBook?.findMany({ where: { status: "open" } }) ?? [],
+    ]);
+    const mapBook = (r: any, lev: number) => ({ symbol: r.symbol, side: r.side, entryPrice: Number(r.entryPrice ?? 0), leverage: lev, entryTime: r.entryTime ?? r.createdAt ?? null });
+    booksOpens = [...aRows.map((r: any) => mapBook(r, 5)), ...cRows.map((r: any) => mapBook(r, 1)), ...dRows.map((r: any) => mapBook(r, 3))];
+  } catch { booksOpens = []; }
+  const allOpens: any[] = [...(st0?.opens ?? (st0?.open ? [st0.open] : [])), ...booksOpens];
   // giá live cho lệnh đang mở — fetch MỘT lần dùng chung (trước đây open tự
   // fetch; giờ flow + open chia sẻ, tiết kiệm 1 round-trip Binance mỗi poll)
   let livePrice: number | null = null;
-  if (st0?.open?.symbol) {
-    try {
-      const r = await fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${st0.open.symbol}`, {
-        signal: AbortSignal.timeout(2500),
-        cache: "no-store",
-      });
-      if (r.ok) livePrice = Number((await r.json()).price) || null;
-    } catch {
-      livePrice = null;
-    }
+  const priceMap: Record<string, number> = {};
+  if (allOpens.length > 0) {
+    const syms = Array.from(new Set(allOpens.map((x: any) => x.symbol).filter(Boolean)));
+    const results = await Promise.all(syms.map(async (sym) => {
+      try {
+        const r = await fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${sym}`, { signal: AbortSignal.timeout(2500), cache: "no-store" });
+        if (r.ok) return [sym, Number((await r.json()).price) || null];
+      } catch {}
+      return [sym, null];
+    }));
+    for (const [sym, px] of results) { if (px != null) priceMap[sym as string] = px as number; }
+    if (st0?.open?.symbol && priceMap[st0.open.symbol] != null) livePrice = priceMap[st0.open.symbol];
   }
 
   // ─── 1. Market Model — dự báo xu hướng (thay panel Trading sessions 0.2.68) ─
@@ -375,7 +392,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     return {
       state: (match ? "ok" : "warn") as StatState,
       note: match
-        ? "Two independent paths (direct win count vs comboStats sum) match — consistent with win = ROE > 0 in autotrade.comboStats."
+        ? "Two independent paths (direct win count vs comboStats sum) match — consistent with win = ROI > 0 in autotrade.comboStats."
         : `Count mismatch: count()=${winsByCount} vs sum=${wins} — check null/odd pnlPct rows.`,
       accPct: wilsonLB(wins, closed),
       accNote: `Wilson 95% lower bound on ${closed} closed trades — worst-case WR still credible`,
@@ -390,14 +407,14 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
                 items: combos.map((c) => ({
                   label: `${c.symbol.replace("USDT", "")} ${c.interval}`,
                   v: c.winRate,
-                  // (0.2.91) chi tiết hover từng cột: số lệnh + ROE ròng
+                  // (0.2.91) chi tiết hover từng cột: số lệnh + ROI ròng
                   sub: [`${c.closed} trades`, `net ${c.netPnlPct >= 0 ? "+" : ""}${c.netPnlPct.toFixed(2)}%`],
                 })),
-                hint: "Win rate per pair+timeframe (top 6 by closed trades, 0–100%). Bars ≥50% are green-tinted on the page. Hover a bar for trades count and net ROE.",
-                hintVi: "Win rate theo cặp+khung giờ (top 6 theo số lệnh đóng, 0–100%). Di chuột lên cột để xem số lệnh và ROE ròng.",
+                hint: "Win rate per pair+timeframe (top 6 by closed trades, 0–100%). Bars ≥50% are green-tinted on the page. Hover a bar for trades count and net ROI.",
+                hintVi: "Win rate theo cặp+khung giờ (top 6 theo số lệnh đóng, 0–100%). Di chuột lên cột để xem số lệnh và ROI ròng.",
               },
               {
-                // (0.2.91) ROE trung bình MỖI LỆNH theo combo — WR cao mà avg
+                // (0.2.91) ROI trung bình MỖI LỆNH theo combo — WR cao mà avg
                 // âm là thắng ít nhưng lỗ to: chất lượng lệnh đằng sau WR
                 kind: "bars" as const,
                 unit: "%",
@@ -406,14 +423,14 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
                   v: c.closed > 0 ? c.netPnlPct / c.closed : 0,
                   sub: [`${c.closed} trades`, `WR ${c.winRate.toFixed(2)}%`, `net tổng ${c.netPnlPct >= 0 ? "+" : ""}${c.netPnlPct.toFixed(2)}%`],
                 })),
-                hint: "Average ROE per closed trade for each pair+timeframe (net ROE sum ÷ trades) — the trade QUALITY behind the win rate: 67% WR can still lose money when losses outweigh wins. Hover a bar for trades, WR and net sum.",
-                hintVi: "ROE trung bình mỗi lệnh đã đóng theo cặp+khung (tổng ROE ròng ÷ số lệnh) — CHẤT LƯỢNG lệnh đằng sau win rate: WR 67% vẫn có thể lỗ nếu lỗ to hơn lãi. Di chuột xem số lệnh, WR và tổng net.",
+                hint: "Average ROI per closed trade for each pair+timeframe (net ROI sum ÷ trades) — the trade QUALITY behind the win rate: 67% WR can still lose money when losses outweigh wins. Hover a bar for trades, WR and net sum.",
+                hintVi: "ROI trung bình mỗi lệnh đã đóng theo cặp+khung (tổng ROI ròng ÷ số lệnh) — CHẤT LƯỢNG lệnh đằng sau win rate: WR 67% vẫn có thể lỗ nếu lỗ to hơn lãi. Di chuột xem số lệnh, WR và tổng net.",
               },
             ],
           }
         : {}),
       metrics: [
-        { k: "Closed trades", v: String(closed), sub: `${wins} wins`, tone: "info", hint: "All AutoTrade rows with status=closed across every pair/timeframe; a win = ROE (pnlPct) > 0.", hintVi: "Mọi lệnh AutoTrade đã đóng ở mọi cặp/khung; thắng = ROE (pnlPct) > 0." },
+        { k: "Closed trades", v: String(closed), sub: `${wins} wins`, tone: "info", hint: "All AutoTrade rows with status=closed across every pair/timeframe; a win = ROI (pnlPct) > 0.", hintVi: "Mọi lệnh AutoTrade đã đóng ở mọi cặp/khung; thắng = ROI (pnlPct) > 0." },
         { k: "Combos with data", v: String(comboStats(rows).length), tone: "info", hint: "Distinct symbol+interval combos with at least one closed trade.", hintVi: "Số combo symbol+khung giờ có ít nhất 1 lệnh đã đóng." },
         ...combos.map(
           (c): StatMetric => ({
@@ -422,8 +439,8 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
             sub: `${c.closed} trades · net ${c.netPnlPct >= 0 ? "+" : ""}${c.netPnlPct.toFixed(2)}%`,
             // WR ≥50% xanh, ≥40% vàng, dưới đỏ — cùng ngưỡng với bảng theo cặp
             tone: c.winRate >= 50 ? "ok" : c.winRate >= 40 ? "warn" : "bad",
-            hint: "Win rate of this pair+timeframe (win = ROE > 0). Tint: ≥50% green, 40–49% amber, <40% red. Sub shows trade count and net ROE sum.",
-            hintVi: "Win rate của cặp+khung này (thắng = ROE > 0). Màu: ≥50% xanh, 40–49% vàng, <40% đỏ. Dòng dưới = số lệnh và tổng ROE ròng.",
+            hint: "Win rate of this pair+timeframe (win = ROI > 0). Tint: ≥50% green, 40–49% amber, <40% red. Sub shows trade count and net ROI sum.",
+            hintVi: "Win rate của cặp+khung này (thắng = ROI > 0). Màu: ≥50% xanh, 40–49% vàng, <40% đỏ. Dòng dưới = số lệnh và tổng ROI ròng.",
           }),
         ),
       ],
@@ -527,7 +544,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         { k: "Mode", v: cfg.on ? "Auto ON" : "Auto OFF", sub: "paper dry-run only", tone: cfg.on ? "ok" : "warn", hint: "Engine auto-trading switch (cfg.on). Green = engine may open dry-run trades automatically; amber = manual only. No real orders either way.", hintVi: "Công tắc tự động giao dịch (cfg.on). Xanh = engine được tự mở lệnh giấy; vàng = chỉ thủ công. Cả hai đều không phải lệnh thật." },
         { k: "Equity", v: st.capital != null ? `$${st.capital.toFixed(2)}` : "—", sub: "start $1000", tone: st.capital == null ? "dim" : st.capital > 1000 ? "ok" : st.capital < 1000 ? "bad" : "info", hint: "Current virtual capital. Above $1000 = net paper profit (green), below = net loss (red). See the equity curve below for the path.", hintVi: "Vốn ảo hiện tại. Trên $1000 = đang lãi giấy (xanh), dưới = đang lỗ (đỏ). Xem đường vốn bên dưới để biết hành trình." },
         { k: "Closed / wins", v: `${st.stats.closed} / ${st.stats.wins}`, sub: `win rate ${st.stats.winRate.toFixed(2)}%`, tone: st.stats.closed === 0 ? "dim" : st.stats.winRate >= 50 ? "ok" : st.stats.winRate >= 40 ? "warn" : "bad", hint: "Closed trades / wins of the dry-run engine. Win-rate tint: ≥50% green, 40–49% amber, <40% red.", hintVi: "Số lệnh đã đóng / số thắng của engine dry-run. Màu WR: ≥50% xanh, 40–49% vàng, <40% đỏ." },
-        { k: "Net ROE sum", v: `${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(2)}%`, tone: st.stats.netPnlPct > 0 ? "ok" : st.stats.netPnlPct < 0 ? "bad" : "dim", hint: "Sum of per-trade ROE (pnlPct, leverage-inclusive, net of round-trip fees since 0.2.77) over closed trades — NOT compounded; the equity curve shows the compounded path.", hintVi: "Tổng ROE từng lệnh (pnlPct, đã gồm đòn bẩy, đã trừ phí round-trip từ 0.2.77) của các lệnh đóng — KHÔNG compounding; đường vốn mới là đường cộng dồn." },
+        { k: "Net ROI sum", v: `${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(2)}%`, tone: st.stats.netPnlPct > 0 ? "ok" : st.stats.netPnlPct < 0 ? "bad" : "dim", hint: "Sum of per-trade ROI (pnlPct, leverage-inclusive, net of round-trip fees since 0.2.77) over closed trades — NOT compounded; the equity curve shows the compounded path.", hintVi: "Tổng ROI từng lệnh (pnlPct, đã gồm đòn bẩy, đã trừ phí round-trip từ 0.2.77) của các lệnh đóng — KHÔNG compounding; đường vốn mới là đường cộng dồn." },
         { k: "Lesson samples", v: `${st.stats.closed * lw}`, sub: `${st.stats.closed} trades × LESSON_WEIGHT ${lw}`, tone: "info", hint: "Pseudo-sample count feeding the self-learning loop: each closed trade counts LESSON_WEIGHT times when re-ranking parameters.", hintVi: "Số mẫu giả nạp vào vòng tự học: mỗi lệnh đóng được tính LESSON_WEIGHT lần khi xếp lại tham số." },
       ],
     };
@@ -583,8 +600,8 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         ...bandChart(
           s?.bands.score,
           "%",
-          "Expectancy (avg ROE%/trade, leverage+fee included) cumulated per ENTRY-SCORE band from the ENTIRE Elliott session. The DQF floor moves toward the break-even boundary: smallest floor whose band-group ≥ 0. Hover for n/WR.",
-          "Expectancy (TB ROE%/lệnh, gồm đòn bẩy + phí) theo BĂNG ĐIỂM LÚC VÀO của TOÀN BỘ session Elliott. Sàn DQF tiến về mép hoà vốn: ngưỡng nhỏ nhất mà nhóm ≥ ngưỡng có exp ≥ 0. Di chuột xem n/WR.",
+          "Expectancy (avg ROI%/trade, leverage+fee included) cumulated per ENTRY-SCORE band from the ENTIRE Elliott session. The DQF floor moves toward the break-even boundary: smallest floor whose band-group ≥ 0. Hover for n/WR.",
+          "Expectancy (TB ROI%/lệnh, gồm đòn bẩy + phí) theo BĂNG ĐIỂM LÚC VÀO của TOÀN BỘ session Elliott. Sàn DQF tiến về mép hoà vốn: ngưỡng nhỏ nhất mà nhóm ≥ ngưỡng có exp ≥ 0. Di chuột xem n/WR.",
         ),
         ...bandChart(
           s?.bands.auc,
@@ -677,7 +694,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     const durH = durMs / 3_600_000;
     // giá live do buildStatsSnapshot fetch sẵn MỘT lần dùng chung với flow
     const last: number | null = livePrice;
-    const roe =
+    const roi =
       last != null
         ? ((o.side === "SHORT" ? (o.entryPrice - last) / o.entryPrice : (last - o.entryPrice) / o.entryPrice) * 100 * o.leverage)
         : null;
@@ -687,7 +704,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       note:
         durH > 24
           ? `Position open ${durH.toFixed(2)}h (>24h) — long vs 5m/flip cadence; only if no TP/SL/flip signal was strong enough. Worth LLM review.`
-          : "Single dry-run position at a time. ROE = live Binance futures move × leverage — same formula as closeTradeDirect.",
+          : "Single dry-run position at a time. ROI = live Binance futures move × leverage — same formula as closeTradeDirect.",
       accPct: 100,
       accNote: "live price at request time (if Binance responds)",
       accent: "rose" as StatAccent,
@@ -695,8 +712,8 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         // LONG xanh / SHORT đỏ — đúng quy ước side của cả app (suggestions, auto-panel…)
         { k: "Position", v: `${o.side} ${o.symbol.replace("USDT", "")} ${o.interval}`, sub: `×${o.leverage} · stake ${o.stakePct ?? 100}%`, tone: o.side === "LONG" ? "ok" : "bad", hint: "The single dry-run position: side (green LONG / red SHORT), pair, timeframe; sub = leverage and % of virtual capital staked.", hintVi: "Vị thế dry-run duy nhất: phía (LONG xanh / SHORT đỏ), cặp, khung; dòng dưới = đòn bẩy và % vốn ảo đang đặt." },
         { k: "Entry", v: String(o.entryPrice), sub: `${durH.toFixed(2)}h ago`, tone: "info", hint: "Entry price recorded when the trade opened; sub = age of the position in hours.", hintVi: "Giá vào lệnh được ghi lúc mở; dòng dưới = tuổi vị thế theo giờ." },
-        ...(roe != null ? [{ k: "Unrealized ROE", v: `${roe >= 0 ? "+" : ""}${roe.toFixed(2)}%`, tone: (roe >= 0 ? "ok" : "bad") as StatTone, hint: "Floating ROE = price move toward the side × leverage, priced from the Binance futures ticker at request time — the same formula closeTradeDirect uses to settle.", hintVi: "ROE thả nổi = biến động giá theo phía × đòn bẩy, tính từ giá futures Binance tại lúc gọi — cùng công thức closeTradeDirect dùng để chốt." }] : []),
-        { k: "SL / TP", v: `${o.slPct}% / ${o.tpPct}%`, ...(slDist != null ? { sub: `to SL ${slDist >= 0 ? "+" : ""}${slDist.toFixed(2)} pts %` } : {}), tone: "info", hint: "Configured stop-loss / take-profit in ROE %. Sub = distance from current price to the SL level in price % (positive = price is above the SL distance).", hintVi: "Cắt lỗ / chốt lời đã đặt theo % ROE. Dòng dưới = khoảng cách từ giá hiện tại tới mức SL theo % giá." },
+        ...(roi != null ? [{ k: "Unrealized ROI", v: `${roi >= 0 ? "+" : ""}${roi.toFixed(2)}%`, tone: (roi >= 0 ? "ok" : "bad") as StatTone, hint: "Floating ROI = price move toward the side × leverage, priced from the Binance futures ticker at request time — the same formula closeTradeDirect uses to settle.", hintVi: "ROI thả nổi = biến động giá theo phía × đòn bẩy, tính từ giá futures Binance tại lúc gọi — cùng công thức closeTradeDirect dùng để chốt." }] : []),
+        { k: "SL / TP", v: `${o.slPct}% / ${o.tpPct}%`, ...(slDist != null ? { sub: `to SL ${slDist >= 0 ? "+" : ""}${slDist.toFixed(2)} pts %` } : {}), tone: "info", hint: "Configured stop-loss / take-profit in ROI %. Sub = distance from current price to the SL level in price % (positive = price is above the SL distance).", hintVi: "Cắt lỗ / chốt lời đã đặt theo % ROI. Dòng dưới = khoảng cách từ giá hiện tại tới mức SL theo % giá." },
         { k: "LLM at entry", v: o.llmVerdict ?? "—", sub: o.llmReason ?? undefined, tone: o.llmVerdict === "go" ? "ok" : o.llmVerdict === "skip" ? "warn" : o.llmVerdict ? "bad" : "dim", hint: "Risk-officer LLM verdict at entry: go = approved (green), skip = declined (amber), unreachable = LLM was down (red). Sub = the reason it gave.", hintVi: "Verdict của LLM risk officer lúc vào lệnh: go = duyệt (xanh), skip = từ chối (vàng), unreachable = LLM không phản hồi (đỏ). Dòng dưới = lý do." },
       ],
     };
@@ -740,8 +757,8 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         kind: "bars",
         unit: "%",
         items: pnlBars,
-        hint: "ROE of the last 20 closed trades (oldest → newest): green = profit, red = loss; height scales to the biggest absolute move. Hover a bar for pair+timeframe and exact ROE.",
-        hintVi: "ROE 20 lệnh đóng gần nhất (cũ → mới): xanh = lãi, đỏ = lỗ; chiều cao theo lần biến động lớn nhất. Di chuột lên cột để xem cặp+khung và ROE chính xác.",
+        hint: "ROI of the last 20 closed trades (oldest → newest): green = profit, red = loss; height scales to the biggest absolute move. Hover a bar for pair+timeframe and exact ROI.",
+        hintVi: "ROI 20 lệnh đóng gần nhất (cũ → mới): xanh = lãi, đỏ = lỗ; chiều cao theo lần biến động lớn nhất. Di chuột lên cột để xem cặp+khung và ROI chính xác.",
       });
     }
     if (closed.length > 0) {
@@ -776,8 +793,8 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         unit: "%",
         max: 100,
         items: sideBars,
-        hint: "Win rate by side (LONG vs SHORT, win = ROE > 0). A persistent gap means the model leans wrong on one direction or the regime favours the other side. Hover for wins/closed and net ROE.",
-        hintVi: "Win rate theo phía (LONG so với SHORT, thắng = ROE > 0). Lệch bền vững nghĩa là model nghiêng sai một hướng hoặc regime bất lợi phía kia. Di chuột xem thắng/tổng và ROE ròng.",
+        hint: "Win rate by side (LONG vs SHORT, win = ROI > 0). A persistent gap means the model leans wrong on one direction or the regime favours the other side. Hover for wins/closed and net ROI.",
+        hintVi: "Win rate theo phía (LONG so với SHORT, thắng = ROI > 0). Lệch bền vững nghĩa là model nghiêng sai một hướng hoặc regime bất lợi phía kia. Di chuột xem thắng/tổng và ROI ròng.",
       });
     }
     return {
@@ -794,8 +811,8 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         { k: "Total trades", v: String(rows.length), sub: `${rows.length - closed.length} open · ${closed.length} closed`, tone: "info", hint: "Every AutoTrade row (newest 2000): sub shows how many are still open vs closed.", hintVi: "Mọi dòng AutoTrade (2000 mới nhất): dòng dưới cho biết đang mở bao nhiêu / đã đóng bao nhiêu." },
         // TP nhiều hơn SL xanh, ngược lại đỏ — bằng nhau thì teal
         { k: "TP / SL", v: `${kinds.tp} / ${kinds.sl}`, sub: `trail ${kinds.trail} · flip ${kinds.flip} · tay ${kinds.manual}`, tone: kinds.tp > kinds.sl ? "ok" : kinds.tp < kinds.sl ? "bad" : "info", hint: "Take-profit vs stop-loss closes. More TP than SL = green; the sub counts the other close kinds (trail/flip/manual).", hintVi: "Số lệnh đóng ở chốt lời so với cắt lỗ. TP nhiều hơn SL = xanh; dòng dưới đếm các kiểu đóng khác (trail/flip/manual)." },
-        ...(avg != null ? [{ k: "Avg ROE", v: `${avg >= 0 ? "+" : ""}${avg.toFixed(2)}%`, tone: (avg > 0 ? "ok" : avg < 0 ? "bad" : "dim") as StatTone, hint: "Mean ROE across all closed trades — the expectancy per trade before compounding.", hintVi: "ROE trung bình mọi lệnh đã đóng — kỳ vọng mỗi lệnh trước khi cộng dồn." }] : []),
-        ...(best != null ? [{ k: "Best / worst", v: `+${best.toFixed(2)}% / ${worst ?? 0}%`, tone: "info" as StatTone, hint: "Best and worst single-trade ROEs ever recorded — the tail risk you survived.", hintVi: "ROE tốt nhất và xấu nhất của một lệnh từ trước tới nay — rủi ro đuôi mà bạn đã sống sót." }] : []),
+        ...(avg != null ? [{ k: "Avg ROI", v: `${avg >= 0 ? "+" : ""}${avg.toFixed(2)}%`, tone: (avg > 0 ? "ok" : avg < 0 ? "bad" : "dim") as StatTone, hint: "Mean ROI across all closed trades — the expectancy per trade before compounding.", hintVi: "ROI trung bình mọi lệnh đã đóng — kỳ vọng mỗi lệnh trước khi cộng dồn." }] : []),
+        ...(best != null ? [{ k: "Best / worst", v: `+${best.toFixed(2)}% / ${worst ?? 0}%`, tone: "info" as StatTone, hint: "Best and worst single-trade ROIs ever recorded — the tail risk you survived.", hintVi: "ROI tốt nhất và xấu nhất của một lệnh từ trước tới nay — rủi ro đuôi mà bạn đã sống sót." }] : []),
         { k: "Last 7 days", v: `${last7d} closed trades`, tone: "info", hint: "Trades closed in the past 7 days — recent activity level of the engine.", hintVi: "Số lệnh đóng trong 7 ngày qua — mức độ hoạt động gần đây của engine." },
       ],
     };
@@ -890,8 +907,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
   // DB chết → flow = null, trang vẫn render các section bình thường.
   const flow = await (async (): Promise<StatsFlow | null> => {
     try {
-      const rows = await db.autoTrade.findMany({
-        select: { status: true, exitKind: true, pnlPct: true, exitTime: true },
+      const rows = await db.autoTrade.findMany({ // lay full: can margin/entry/exit/leverage/p1Pct/p1Share de tinh PARTIAL
         orderBy: { createdAt: "desc" },
         take: 2000,
       });
@@ -914,7 +930,13 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       const uRows = eng.universe?.rows ?? [];
       const o = st0?.open ?? null;
       const ageH = o?.entryTime ? (now - new Date(o.entryTime).getTime()) / 3_600_000 : 0;
-      const roe =
+      const openPositions = allOpens.map((x: any) => {
+        const px = priceMap[x.symbol] ?? (x.symbol === o?.symbol ? livePrice : null);
+        const ah = x?.entryTime ? (now - new Date(x.entryTime).getTime()) / 3_600_000 : 0;
+        const rr = px != null && x.entryPrice ? (x.side === "SHORT" ? (x.entryPrice - px) / x.entryPrice : (px - x.entryPrice) / x.entryPrice) * 100 * Number(x.leverage ?? 1) : null;
+      return { symbol: x.symbol, side: x.side, roi: rr, ageH: ah };
+      });
+      const roi =
         o && livePrice != null
           ? (o.side === "SHORT"
               ? (o.entryPrice - livePrice) / o.entryPrice
@@ -935,6 +957,106 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       }
       const cnt = { ok: 0, warn: 0, na: 0 };
       for (const s of [market, combo, universe, auto, dqfSec, dock, openPos, hist, sg]) cnt[s.state] += 1;
+      // LEDGER DUY NHAT - moi card (TOTAL EQUITY / TOTAL PNL / NET ROI / WIN RATE / TOTAL TRADES / Flow / Recent Trades) deu xai cai nay
+      // A=autoTrade (base 1000), B=vulcanBook (base 1000), C=wyckoffBook (base 0), D=liquidBook (base 0), E=liveBook (base 0)
+      // TOTAL START = 2000. TOTAL EQUITY = 2000 + PNL closed (chuoi von) + PNL open (net, da tru phi)
+      const ledger = await (async () => {
+        const books = [
+          { name: "A", model: "autoTrade", start: 1000 },
+          { name: "B", model: "vulcanBook", start: 1000 },
+          { name: "C", model: "wyckoffBook", start: 0 },
+          { name: "D", model: "liquidBook", start: 0 },
+          { name: "E", model: "liveBook", start: 0 },
+        ] as const;
+        let pnlClosed = 0, wins = 0, closed = 0;
+        const perBook: Record<string, { start: number; pnlClosed: number; closed: number; wins: number }> = {};
+        for (const b of books) {
+          let pc = 0, w = 0, c = 0;
+          try {
+            const br: any[] = await (db as any)[b.model].findMany({ take: 5000, orderBy: { createdAt: "asc" } });
+            for (const r of br) {
+              if (r.status === "closed" || r.exitPrice != null) {
+                const before = Number(r.capitalBefore ?? r.balanceBefore ?? NaN);
+                const after = Number(r.capitalAfter ?? r.balanceAfter ?? NaN);
+                if (Number.isFinite(before) && Number.isFinite(after)) pc += after - before;
+                const pct = Number(r.pnlPct ?? r.roePct ?? NaN);
+                if (Number.isFinite(pct)) { c++; if (pct > 0) w++; }
+              }
+            }
+          } catch {}
+          perBook[b.name] = { start: b.start, pnlClosed: Math.round(pc*100)/100, closed: c, wins: w };
+          pnlClosed += pc; wins += w; closed += c;
+        }
+        // Open net (da tru phi, da gom TP1) - dung allOpens, margin theo capitalBefore*stakePct
+        let pnlOpen = 0;
+        const marginOfL = (r: any) => {
+          const d = Number(r.margin ?? r.entryCapital ?? NaN);
+          if (Number.isFinite(d) && d > 0) return d;
+          const stakeRaw = Number(r.stakePct ?? r.stake ?? NaN);
+          const stake = Number.isFinite(stakeRaw) && stakeRaw > 0 ? stakeRaw : 10; // VulcanBook khong luu stake -> mac dinh 10% (VULCAN_STAKE_PCT)
+          const base = Number(r.capitalBefore ?? r.balanceBefore ?? r.capital ?? NaN);
+          if (Number.isFinite(base) && base > 0) return base * (stake / 100);
+          return 1000 * (stake / 100);
+          return 0;
+        };
+        for (const x of allOpens as any[]) {
+          const px = priceMap[x.symbol] ?? Number((x as any).markPrice ?? (x as any).lastPrice ?? NaN);
+          const lev = Number(x.leverage ?? 1);
+          const gross = Number.isFinite(px) && x.entryPrice ? (x.side === "SHORT" ? (x.entryPrice - px) / x.entryPrice : (px - x.entryPrice) / x.entryPrice) * 100 * lev : 0;
+          const fee = 0.06 * lev;
+          const sr = Number(x.p1Share ?? 0);
+          const share = sr > 1 ? Math.min(1, sr/100) : Math.min(1, Math.max(0, sr));
+          const hasTp1 = (x as any).p1Pct != null && share > 0;
+          const net = hasTp1 ? share * Number((x as any).p1Pct) + (1-share)*(gross - fee) : gross - fee;
+          pnlOpen += marginOfL(x) * (net/100);
+        }
+        pnlClosed = Math.round(pnlClosed*100)/100; pnlOpen = Math.round(pnlOpen*100)/100;
+        const totalStart = 2000;
+        return { perBook, totalStart, pnlClosed, pnlOpen, totalPnl: Math.round((pnlClosed+pnlOpen)*100)/100, totalEquity: Math.round((totalStart+pnlClosed+pnlOpen)*100)/100, wins, closed, open: (allOpens as any[]).length, winRate: closed ? wins/closed*100 : 0, netRoiClosed: totalStart ? pnlClosed/totalStart*100 : 0 };
+      })();
+      // SO CAI CHUAN: PNL$ = sum(capitalAfter - capitalBefore) cua closed (da tru phi, da gom TP1)
+      // + sum(open unrealized NET). Khong dung margin*ROI gross (thieu phi, thieu so).
+      // Open: ROI net = share*p1Pct + (1-share)*(gross - 0.06*lev) neu co TP1, else gross - 0.06*lev
+      const totalPnlAllBooks = await (async () => {
+        let s = 0;
+        // Closed: chuoi von cua ca 5 so - lay capitalAfter-before, khong tinh lai tu ROI
+        const bookNames = ["autoTrade","vulcanBook","wyckoffBook","liquidBook","liveBook"] as const;
+        for (const bn of bookNames) {
+          try {
+            const br: any[] = await (db as any)[bn].findMany({ take: 5000, orderBy: { createdAt: "asc" } });
+            for (const r of br) {
+              if (r.status === "closed" || r.exitPrice != null) {
+                const before = Number(r.capitalBefore ?? r.balanceBefore ?? NaN);
+                const after = Number(r.capitalAfter ?? r.balanceAfter ?? NaN);
+                if (Number.isFinite(before) && Number.isFinite(after)) s += after - before;
+              }
+            }
+          } catch {}
+        }
+        // Open: unrealized NET
+        const marginOf2 = (r: any) => {
+          const d = Number(r.margin ?? r.entryCapital ?? NaN);
+          if (Number.isFinite(d) && d > 0) return d;
+          const stakeRaw = Number(r.stakePct ?? r.stake ?? NaN);
+          const stake = Number.isFinite(stakeRaw) && stakeRaw > 0 ? stakeRaw : 10; // VulcanBook khong luu stake -> mac dinh 10% (VULCAN_STAKE_PCT)
+          const base = Number(r.capitalBefore ?? r.balanceBefore ?? r.capital ?? NaN);
+          if (Number.isFinite(base) && base > 0) return base * (stake / 100);
+          return 1000 * (stake / 100);
+          return 0;
+        };
+        for (const x of allOpens as any[]) {
+          const px = priceMap[x.symbol] ?? Number((x as any).markPrice ?? (x as any).lastPrice ?? NaN);
+          const lev = Number(x.leverage ?? 1);
+          const gross = Number.isFinite(px) && x.entryPrice ? (x.side === "SHORT" ? (x.entryPrice - px) / x.entryPrice : (px - x.entryPrice) / x.entryPrice) * 100 * lev : 0;
+          const fee = 0.06 * lev;
+          const shareRaw = Number(x.p1Share ?? 0);
+          const share = shareRaw > 1 ? Math.min(1, shareRaw / 100) : Math.min(1, Math.max(0, shareRaw));
+          const hasTp1 = (x as any).p1Pct != null && share > 0;
+          const net = hasTp1 ? share * Number((x as any).p1Pct) + (1 - share) * (gross - fee) : gross - fee;
+          s += marginOf2(x) * (net / 100);
+        }
+        return Math.round(s * 100) / 100;
+      })();
       return {
         universePool: UNIVERSE.length,
         publishedTop: uRows.length,
@@ -953,8 +1075,8 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         wins,
         winRate: closedRows.length > 0 ? (wins / closedRows.length) * 100 : 0,
         wilson: wilsonLB(wins, closedRows.length),
-        netRoe: st0?.stats.netPnlPct ?? sumPnl,
-        avgRoe: pnls.length ? sumPnl / pnls.length : 0,
+        netRoi: st0?.stats.netPnlPct ?? sumPnl,
+        avgRoi: pnls.length ? sumPnl / pnls.length : 0,
         tp: kinds.tp,
         sl: kinds.sl,
         flip: kinds.flip,
@@ -963,7 +1085,11 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         last7d: closedRows.filter((r) => r.exitTime && now - new Date(r.exitTime).getTime() < 7 * 86_400_000).length,
         autoOn: cfg.on,
         equity: st0?.capital ?? null,
-        open: o ? { symbol: o.symbol, side: o.side, roe, ageH } : null,
+        totalStartCapital: 2000, // 2 so x 1000
+        totalEquity: ledger.totalEquity, // 2000 + closed (chuoi von) + open (net, da tru phi) - 1 nguon duy nhat
+        ledger, // Sổ cái duy nhất: perBook A/B/C/D, pnlClosed, pnlOpen, totalPnl, winRate, closed, open
+        open: o ? { symbol: o.symbol, side: o.side, roi, ageH } : null,
+        openPositions,
         activeSessions: active.map((s) => SESSION_VI[s]),
         nextSession: SESSION_VI[nextKey],
         nextInMin: nextIn === 999 ? 0 : nextIn * 60,

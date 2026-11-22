@@ -240,7 +240,7 @@ export async function liveClose(symbol: string, side: "LONG" | "SHORT", dryRunTr
     const fill = ord.avgPrice ?? open.entryPrice;
     const raw = side === "LONG" ? (fill - open.entryPrice) / open.entryPrice : (open.entryPrice - fill) / open.entryPrice;
     const movePct = Math.round(raw * 100 * 100) / 100;
-    const roePct = Math.round(movePct * open.leverage * 100) / 100; // ROE = move × lev (phí 2 chân ghi note)
+    const roePct = Math.round(movePct * open.leverage * 100) / 100; // ROI = move × lev (phí 2 chân ghi note)
     await db.liveBook.update({
       where: { id: open.id },
       data: {

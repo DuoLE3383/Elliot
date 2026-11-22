@@ -53,7 +53,7 @@ export interface AutopsyEvidence {
   mfePct: number;
   /** max adverse excursion % giá theo phía lệnh — giá từng đi ngược sâu nhất */
   maePct: number;
-  /** pnl ROE % / (sl% × leverage) — thắng/thua bao nhiêu lần R đã risking */
+  /** pnl ROI % / (sl% × leverage) — thắng/thua bao nhiêu lần R đã risking */
   rMultiple: number;
   /** số phút giữ lệnh */
   durMin: number;
@@ -135,12 +135,12 @@ export function computeEvidence(klines: Kline[], input: AutopsyTradeInput): Auto
     }
   }
   const clamp = (x: number): number => Math.min(999, Math.max(0, Math.round(x * 100) / 100));
-  const slRoe = Math.abs(input.slPct) * input.leverage;
+  const slRoi = Math.abs(input.slPct) * input.leverage;
   const pnl = input.pnlPct ?? 0;
   return {
     mfePct: clamp(mfe),
     maePct: clamp(mae),
-    rMultiple: slRoe > 0 ? Math.round((pnl / slRoe) * 100) / 100 : 0,
+    rMultiple: slRoi > 0 ? Math.round((pnl / slRoi) * 100) / 100 : 0,
     durMin: Math.max(0, Math.round(((input.exitTime - input.entryTime) / 60_000) * 10) / 10),
     noisePct: n > 0 ? clamp(noiseSum / n) : 0,
     candles: klines.length,
@@ -209,7 +209,7 @@ export function autopsyPrompt(input: AutopsyTradeInput, ev: AutopsyEvidence): { 
     `entry: entry=${input.entryPrice} sl=${input.slPct.toFixed(2)}%price tp=${input.tpPct.toFixed(2)}%price lev=x${input.leverage} rr=1:${rr.toFixed(2)} stake=${input.stakePct ?? 100}%equity`,
     modelLine,
     officer,
-    `outcome: exit=${input.exitPrice} kind=${input.exitKind ?? "manual"} pnl_roe=${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}% r=${ev.rMultiple >= 0 ? "+" : ""}${ev.rMultiple.toFixed(2)}x held=${ev.durMin.toFixed(2)}min`,
+    `outcome: exit=${input.exitPrice} kind=${input.exitKind ?? "manual"} pnl_roi=${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}% r=${ev.rMultiple >= 0 ? "+" : ""}${ev.rMultiple.toFixed(2)}x held=${ev.durMin.toFixed(2)}min`,
     "path (computed by code from candles — ground truth, do NOT recompute or contradict):",
     ...pathLines,
     'Reply ONLY one JSON object: {"tag":"...","why":["..."],"lesson":"..."}',
@@ -476,7 +476,7 @@ export async function recentAutopsyLessons(symbol: string, take = 5): Promise<st
         const a = JSON.parse(r.autopsy) as Partial<AutopsyJson>;
         if (!a.lesson) continue;
         const pnl = r.pnlPct ?? 0;
-        const head = `[${r.interval} ${r.side} ${r.exitKind ?? "manual"} ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}% ROE · tag=${a.tag ?? "?"}]`;
+        const head = `[${r.interval} ${r.side} ${r.exitKind ?? "manual"} ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}% ROI · tag=${a.tag ?? "?"}]`;
         out.push(`${head} ${a.lesson}`.slice(0, 220));
       } catch {
         // JSON hỏng — bỏ bài này
@@ -518,7 +518,7 @@ export async function recentFlipLessons(symbol: string, take = 5): Promise<strin
         const a = JSON.parse(r.autopsy) as Partial<AutopsyJson>;
         if (!a.lesson) continue;
         const pnl = r.pnlPct ?? 0;
-        const head = `[${r.interval} ${r.side} FLIP ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}% ROE · tag=${a.tag ?? "?"}]`;
+        const head = `[${r.interval} ${r.side} FLIP ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}% ROI · tag=${a.tag ?? "?"}]`;
         out.push(`${head} ${a.lesson}`.slice(0, 220));
       } catch {
         // JSON hỏng — bỏ bài này

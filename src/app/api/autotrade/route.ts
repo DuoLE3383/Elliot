@@ -7,7 +7,7 @@
 // POST  { action: "open", symbol, interval, side, entryPrice, slPct, tpPct,
 //         leverage, stakePct, prob, acc, auc, score, capitalBefore }
 //         → opens ONE position; rejected while another is open
-// PATCH { action: "close", id, exitPrice, exitKind } → settles ROE + capital
+// PATCH { action: "close", id, exitPrice, exitKind } → settles ROI + capital
 // PATCH { action: "reset" }                          → wipe the whole book
 // PATCH { action: "reset_capital", capital?, note? }  → LỆNH RESET VỐN (0.2.86):
 //         xoá sạch sổ lệnh + ghi vốn mới vào ví DryRunState (một dòng id
@@ -15,16 +15,16 @@
 //         1000. readAutoState rơi về ví khi sổ trống → UI thấy tiền NGAY, và
 //         capitalBefore của lệnh kế tiếp bắt đầu đúng từ con số đó.
 // PATCH { action: "audit", repair?: bool }           → RÀ SỔ DRY-RUN (0.2.87):
-//         tính lại ROE mọi lệnh closed theo công thức hiện hành (phí round-trip
+//         tính lại ROI mọi lệnh closed theo công thức hiện hành (phí round-trip
 //         + thanh lý −100), thống kê LONG/SHORT tách biệt trước/sau chuẩn hoá.
-//         repair=true → ghi ROE đúng + CHẠY LẠI CHUỖI VỐN toàn sổ.
+//         repair=true → ghi ROI đúng + CHẠY LẠI CHUỖI VỐN toàn sổ.
 // DELETE ?id                                    → remove one row (housekeeping)
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { isCorruptDbError, corruptDbHint } from "@/lib/db-hardening";
 import { readAutoState, readOpenPosition, readWallet, serialize } from "@/lib/autostate";
-import { feeRoe } from "@/lib/autotrade";
+import { feeRoi } from "@/lib/autotrade";
 import { combineClosePnl } from "@/lib/trade-mgmt";
 import { autopsyClosedTrade } from "@/lib/autopsy";
 import { auditBook, repairBook } from "@/lib/audit-book";
@@ -148,9 +148,9 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ok: true, capital: cap, resetAt: resetAt.toISOString() });
   }
 
-  // ─── RÀ SỔ DRY-RUN (0.2.87) — tính lại ROE mọi lệnh đã đóng theo công thức
+  // ─── RÀ SỔ DRY-RUN (0.2.87) — tính lại ROI mọi lệnh đã đóng theo công thức
   // hiện hành + thống kê LONG/SHORT tách biệt. repair=false (mặc định): chỉ
-  // BÁO (dry audit). repair=true: ghi ROE đúng + CHẠY LẠI CHUỖI VỐN toàn sổ —
+  // BÁO (dry audit). repair=true: ghi ROI đúng + CHẠY LẠI CHUỖI VỐN toàn sổ —
   // sửa một dòng mà không tái lập chuỗi vốn là equity vẫn sai.
   if (body.action === "audit") {
     const rows = await db.autoTrade.findMany({ orderBy: { createdAt: "asc" } });
@@ -170,7 +170,7 @@ export async function PATCH(req: NextRequest) {
       const after = await db.autoTrade.findMany({ orderBy: { createdAt: "asc" } });
       const reportAfter = auditBook(after);
       console.log(
-        `[autotrade] audit+repair — sửa ${plan.pnlFixed} ROE, dán lại ${plan.capitalRefixed} mốc vốn; còn lệch ${reportAfter.issues.length} dòng sau chạy (dòng này thiếu entry/exit — bỏ qua được)`,
+        `[autotrade] audit+repair — sửa ${plan.pnlFixed} ROI, dán lại ${plan.capitalRefixed} mốc vốn; còn lệch ${reportAfter.issues.length} dòng sau chạy (dòng này thiếu entry/exit — bỏ qua được)`,
       );
       return NextResponse.json({
         ok: true,
@@ -200,22 +200,22 @@ export async function PATCH(req: NextRequest) {
   const exitKind =
     body.exitKind === "tp" ? "tp" : body.exitKind === "sl" ? "sl" : body.exitKind === "flip" ? "flip" : body.exitKind === "trail" ? "trail" : "manual";
 
-  // signed % price move in the position's direction, then ROE = move × leverage
+  // signed % price move in the position's direction, then ROI = move × leverage
   const movePct =
     row.side === "SHORT" ? ((row.entryPrice - exitPrice) / row.entryPrice) * 100 : ((exitPrice - row.entryPrice) / row.entryPrice) * 100;
-  // ROE SAU PHÍ (0.2.77) — giữ nguyên bit công thức với closeTradeDirect của
+  // ROI SAU PHÍ (0.2.77) — giữ nguyên bit công thức với closeTradeDirect của
   // engine.ts (một settlement, hai cửa vào): trừ round-trip 2 bên phí giao
-  // dịch, thanh lý vẫn −100, phí không kéo ROE xuống dưới đáy −100.
-  let remPnl = Math.round((movePct * row.leverage - feeRoe(row.leverage)) * 100) / 100;
+  // dịch, thanh lý vẫn −100, phí không kéo ROI xuống dưới đáy −100.
+  let remPnl = Math.round((movePct * row.leverage - feeRoi(row.leverage)) * 100) / 100;
   // liquidation guard: an adverse move of 100/leverage % wipes the margin
   const adverse = row.side === "SHORT" ? -movePct : movePct;
   if (row.leverage > 1 && adverse <= -(100 / row.leverage)) remPnl = -100;
   else if (remPnl < -100) remPnl = -100;
-  // 0.3.3 — COMBINE CLOSE: lệnh đã qua TP1 partial → ROE tổng = share×p1 + (1−share)×rem
+  // 0.3.3 — COMBINE CLOSE: lệnh đã qua TP1 partial → ROI tổng = share×p1 + (1−share)×rem
   const pnlPct = combineClosePnl(row.p1Pct, row.p1Share, remPnl);
 
   const capitalBefore = row.capitalBefore ?? 1000;
-  // only the STAKED share of equity takes risk: delta = stake × ROE
+  // only the STAKED share of equity takes risk: delta = stake × ROI
   const stakePct = row.stakePct ?? 100;
   const delta = Math.round(capitalBefore * (stakePct / 100) * (pnlPct / 100) * 100) / 100;
   const capitalAfter = Math.max(0, Math.round((capitalBefore + delta) * 100) / 100);

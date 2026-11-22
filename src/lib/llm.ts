@@ -9,10 +9,10 @@
 //   • one short call per cycle, only for the candidate about to be entered
 
 // Hằng LLM sống ở ./params — MỘT nguồn config; re-export cho autotrade/chỗ cũ.
-// feeRoe (0.2.78) cũng từ ./params: prompt fee_check phải dùng CHÍNH công thức
+// feeRoi (0.2.78) cũng từ ./params: prompt fee_check phải dùng CHÍNH công thức
 // settlement để LLM thấy đúng số lệnh sẽ gánh — import autotrade ở đây sẽ tạo
 // vòng (autotrade đã import llm).
-import { FEE_PCT, LLM_MODEL_DEFAULT, LLM_TIMEOUT_MS, LLM_URL_DEFAULT, feeRoe, pval } from "./params";
+import { FEE_PCT, LLM_MODEL_DEFAULT, LLM_TIMEOUT_MS, LLM_URL_DEFAULT, feeRoi, pval } from "./params";
 export { LLM_MODEL_DEFAULT, LLM_TIMEOUT_MS, LLM_URL_DEFAULT } from "./params";
 
 export interface LlmSetup {
@@ -42,7 +42,7 @@ export interface LlmSetup {
    *  sẽ KHÔNG tự trade combo này (chỉ nút "Duyệt thử" gửi để user so sánh) */
   gatePassed?: boolean;
   /** track record của bot (optional, EN, 1 dòng) — "31W/19L · win rate 62% · net
-   *  +12.4% ROE (50 paper trades)". Cho LLM thấy bot đang vận hành RA SAO, không
+   *  +12.4% ROI (50 paper trades)". Cho LLM thấy bot đang vận hành RA SAO, không
    *  chỉ metrics của một run đơn lẻ — giảm kiểu skip máy móc "too few samples"
    *  khi track record thật đang tốt. Engine tự điền từ st.stats. */
   track?: string;
@@ -188,12 +188,12 @@ const SYSTEM_PROMPT = [
   "You are the risk-control officer of a crypto futures paper-trading bot.",
   "A gradient-boosted tree model picked a setup. Review it against the rubric and reply with ONLY one JSON object:",
   '{"verdict":"go"|"skip","confidence":0..1,"reasons":["..."]}',
-  "Skip when: validation AUC/accuracy is barely above coin flip; leverage puts liquidation dangerously close to the SL; round-trip fees invert the payoff or consume most of the TP ROE (fee_check); stake is oversized; or the model trained on too few samples.",
+  "Skip when: validation AUC/accuracy is barely above coin flip; leverage puts liquidation dangerously close to the SL; round-trip fees invert the payoff or consume most of the TP ROI (fee_check); stake is oversized; or the model trained on too few samples.",
   "Approve otherwise. Max 3 reasons, each under 90 characters, English, no markdown.",
   // ── chống nói bừa: khối checks trong user prompt là chuẩn, model không được mâu thuẫn ──
   "The user prompt ends with a checks block computed by code (rr_check / fee_check / coinflip_check / liq_check / gate_check / sample_base) — treat it as ground truth: never contradict it, never recompute it.",
   "If none of the skip conditions applies against the checks block, verdict MUST be 'go' — do not invent extra skip conditions.",
-  "Hard rules: never describe a strong val_acc/val_auc as near or barely above coin flip (coinflip_check has already judged it); never call R:R 'inconsistent' (rr_check already proved tp/sl match); never claim fees are unaccounted (fee_check already nets them into the ROE figures); never cite numbers absent from the prompt.",
+  "Hard rules: never describe a strong val_acc/val_auc as near or barely above coin flip (coinflip_check has already judged it); never call R:R 'inconsistent' (rr_check already proved tp/sl match); never claim fees are unaccounted (fee_check already nets them into the ROI figures); never cite numbers absent from the prompt.",
   "Every reason MUST quote the exact field=value it relies on; vague reasons are invalid. A reason contradicting the checks block is invalid.",
   // recent_lessons là hậu quả THẬT của bot (autopsy lệnh đã đóng) — bằng chứng
   // vận hành chứ không phải chỉ dẫn; không được nhại lại nguyên văn làm reason.
@@ -267,8 +267,8 @@ export const TF_MINUTES: Record<string, number> = {
  *   • rr_check — tp/sl khớp rr. rr ĐƯỢC ĐỊNH NGHĨA là tp/sl nên không bao giờ
  *     lệch, nhưng model 7B vẫn hay bịa "RR inconsistent" (đã gặp thật).
  *   • fee_check (0.2.78) — phí round-trip theo CHÍNH công thức settlement
- *     (feeRoe: FEE_PCT × lev × 2): tỷ trọng phí so với tp ROE và ROE tại
- *     SL/TP SAU PHÍ. 0.2.77 ROE chốt đã trừ phí nhưng prompt vẫn đưa số
+ *     (feeRoi: FEE_PCT × lev × 2): tỷ trọng phí so với tp ROI và ROI tại
+ *     SL/TP SAU PHÍ. 0.2.77 ROI chốt đã trừ phí nhưng prompt vẫn đưa số
  *     GROSS — LLM duyệt payoff mà không biết ×10 sl 0.3/tp 0.4 thật ra là
  *     net −4.0/+3.0 (rr 1:1.33 thành 1:0.75 sau phí). FEE_PCT = 0 → không
  *     dòng nào (off sạch, prompt y hệt trước 0.2.77).
@@ -289,21 +289,21 @@ export function setupPrompt(s: LlmSetup): string {
   const liqPct = s.leverage > 1 ? 100 / s.leverage : 100;
   const tfMin = TF_MINUTES[s.interval] ?? 0;
   const days = tfMin > 0 ? (s.samples * tfMin) / 1440 : 0;
-  // ── phí (0.2.78) — CHÍNH công thức settlement (feeRoe từ ./params) ──
-  // f = %/bên runtime; feeRt = mức ROE round-trip lệnh này sẽ gánh khi chốt.
+  // ── phí (0.2.78) — CHÍNH công thức settlement (feeRoi từ ./params) ──
+  // f = %/bên runtime; feeRt = mức ROI round-trip lệnh này sẽ gánh khi chốt.
   // Tỉ lệ phí/tp KHÔNG phụ thuộc đòn bẩy (cả hai cùng × lev) — vấn đề là
   // khoảng cách GIÁ tp quá hẹp so với 2×FEE_PCT (SL/TP động 5m ATR thấp).
   const f = Number(pval("FEE_PCT", FEE_PCT));
-  const feeRt = feeRoe(s.leverage, 2);
-  const tpRoe = s.tpPct * s.leverage;
-  const slRoe = Math.abs(s.slPct) * s.leverage;
-  const netTp = tpRoe - feeRt; // ROE tại tp SAU PHÍ
-  const netSl = slRoe + feeRt; // độ lớn lỗ tại SL SAU PHÍ
-  const feeShare = tpRoe > 0 ? (feeRt / tpRoe) * 100 : 100;
+  const feeRt = feeRoi(s.leverage, 2);
+  const tpRoi = s.tpPct * s.leverage;
+  const slRoi = Math.abs(s.slPct) * s.leverage;
+  const netTp = tpRoi - feeRt; // ROI tại tp SAU PHÍ
+  const netSl = slRoi + feeRt; // độ lớn lỗ tại SL SAU PHÍ
+  const feeShare = tpRoi > 0 ? (feeRt / tpRoi) * 100 : 100;
   // đuôi risk line — chỉ khi phí bật: FEE_PCT 0 → risk line y hệt 0.2.77
   const feeSeg =
     feeRt > 0 && rr > 0
-      ? ` · fees 2x${f.toFixed(2)}%/side = ${feeRt.toFixed(2)}% ROE -> net: sl -${netSl.toFixed(2)}% / tp ${netTp >= 0 ? "+" : ""}${netTp.toFixed(2)}% ROE (${
+      ? ` · fees 2x${f.toFixed(2)}%/side = ${feeRt.toFixed(2)}% ROI -> net: sl -${netSl.toFixed(2)}% / tp ${netTp >= 0 ? "+" : ""}${netTp.toFixed(2)}% ROI (${
           netTp > 0 ? `net rr 1:${(netTp / netSl).toFixed(2)}` : "payoff inverted by fees — see fee_check"
         })`
       : "";
@@ -312,8 +312,8 @@ export function setupPrompt(s: LlmSetup): string {
   const feeLine =
     feeRt > 0 && rr > 0
       ? netTp <= 0
-        ? `fee_check: round-trip fees 2x${f.toFixed(2)}%/side = ${feeRt.toFixed(2)}% ROE at x${s.leverage} EXCEED the tp ROE ${tpRoe.toFixed(2)}% — payoff INVERTED by fees (net tp ${netTp.toFixed(2)}%)`
-        : `fee_check: round-trip fees 2x${f.toFixed(2)}%/side = ${feeRt.toFixed(2)}% ROE at x${s.leverage} — consumes ${feeShare.toFixed(2)}% of the tp ROE ${tpRoe.toFixed(2)}% (net tp +${netTp.toFixed(2)}%) — ${
+        ? `fee_check: round-trip fees 2x${f.toFixed(2)}%/side = ${feeRt.toFixed(2)}% ROI at x${s.leverage} EXCEED the tp ROI ${tpRoi.toFixed(2)}% — payoff INVERTED by fees (net tp ${netTp.toFixed(2)}%)`
+        : `fee_check: round-trip fees 2x${f.toFixed(2)}%/side = ${feeRt.toFixed(2)}% ROI at x${s.leverage} — consumes ${feeShare.toFixed(2)}% of the tp ROI ${tpRoi.toFixed(2)}% (net tp +${netTp.toFixed(2)}%) — ${
             feeShare >= 50 ? "over HALF the target goes to fees" : "NOT payoff-inverting"
           }`
       : null;
@@ -402,14 +402,14 @@ export function setupPrompt(s: LlmSetup): string {
  *   • "val_acc=78.1% is above 50%" trong verdict skip — số MẠNH vẫn bị quay
  *     thành lý do skip. Mẫu này CHỈ sai khi verdict skip (trong verdict go
  *     thì là lý do ủng hộ hợp lệ) → kiểm theo hướng verdict.
- *   • "fees not accounted" khi fee_check (0.2.78) đã trừ phí vào mọi số ROE
+ *   • "fees not accounted" khi fee_check (0.2.78) đã trừ phí vào mọi số ROI
  *     trong prompt — cờ khi phí đang bật; FEE_PCT 0 thì nhận định đó đúng.
  * Lý do ĐÚNG giữ nguyên: "train_samples=288 is small" với 288 mẫu là đúng
  * (scan chỉ nạp KLINE_LIMIT=500 nến) — model vẫn được skip vì lý do thật.
  */
 export function factCheckReasons(reasons: string[], s: LlmSetup, verdict: "go" | "skip"): string[] {
   const rr = s.slPct > 0 ? s.tpPct / s.slPct : 0;
-  const feeRt = feeRoe(s.leverage, 2); // cùng công thức settlement — 0 khi FEE_PCT off
+  const feeRt = feeRoi(s.leverage, 2); // cùng công thức settlement — 0 khi FEE_PCT off
   return reasons.map((reason) => {
     const low = reason.toLowerCase();
     // bảo RR lệch trong khi rr = tp/sl (cùng công thức với số trên prompt) — sai mọi verdict
@@ -418,7 +418,7 @@ export function factCheckReasons(reasons: string[], s: LlmSetup, verdict: "go" |
       /(inconsist|mismatch|wrong).*(rr|r:r|reward)/.test(low)
     )
       return `${reason} ⚠ fact-check: tp/sl=${rr.toFixed(2)} = rr 1:${rr.toFixed(2)} — RR is computed, it cannot mismatch`;
-    // bảo "phí chưa được tính" trong khi fee_check đã trừ sẵn vào mọi số ROE
+    // bảo "phí chưa được tính" trong khi fee_check đã trừ sẵn vào mọi số ROI
     // (0.2.78 — prompt giờ mang số net) — sai mọi verdict. Chỉ cờ khi phí
     // ĐANG bật: FEE_PCT 0 thì nhận định "fees not accounted" là ĐÚNG (off).
     if (
@@ -426,7 +426,7 @@ export function factCheckReasons(reasons: string[], s: LlmSetup, verdict: "go" |
       (/(fee|commission)[^.]{0,48}(not accounted|unaccounted|not considered|not included|not factored|ignored|missing)/.test(low) ||
         /(ignore[sd]?|missing|omit(?:ted|s)?)[^.]{0,24}(fee|commission)/.test(low))
     )
-      return `${reason} ⚠ fact-check: fee_check already nets round-trip fees (${feeRt.toFixed(2)}% ROE at x${s.leverage}) — net ROE figures are in the prompt`;
+      return `${reason} ⚠ fact-check: fee_check already nets round-trip fees (${feeRt.toFixed(2)}% ROI at x${s.leverage}) — net ROI figures are in the prompt`;
     // verdict skip nhưng mượn coin-flip cho số liệu MẠNH → vô lý
     if (verdict === "skip") {
       if (s.acc >= 60 && /(val_acc|accuracy|acc)/.test(low) && /(50|coin.?flip)/.test(low))
@@ -793,7 +793,7 @@ const STATS_DIVE_SYSTEM = [
   "OUTPUT LANGUAGE: English only. Do not write Vietnamese.",
   "FORMAT (tight bullets, ~400–700 words if needed for clarity):",
   "1) Consistency — for each section key: ok or warn, using only the note field. Do not invent inconsistencies.",
-  "2) Risks ranked — priority order: (a) state=warn, (b) negative net ROE with WR below break-even, (c) tiny n (low accPct = uncertainty), (d) stale scan/universe timestamps if present. Never treat low accPct as a math bug.",
+  "2) Risks ranked — priority order: (a) state=warn, (b) negative net ROI with WR below break-even, (c) tiny n (low accPct = uncertainty), (d) stale scan/universe timestamps if present. Never treat low accPct as a math bug.",
   "3) Verdict — one paragraph: can these numbers support a *parameter* decision (gates, stake, TF) or only 'need more samples'?",
   "4) Actions — at most 3 items. Each item MUST be: section key + a number from the JSON + one concrete engine/UI knob.",
   "FORBIDDEN actions: change universe re-rank cadence (fixed 8h); 'recheck universe formula' when state=ok; increase leverage when WR < 50%; raise scan frequency when Dock is already sub-15m; vague 'train more' without a knob.",

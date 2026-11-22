@@ -479,7 +479,7 @@ export interface TradeLesson {
   /** entry time (epoch ms) */
   t: number;
   side: "LONG" | "SHORT";
-  /** realized ROE % — >0 win, <0 lose */
+  /** realized ROI % — >0 win, <0 lose */
   pnl: number;
 }
 

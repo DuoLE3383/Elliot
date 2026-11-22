@@ -1,21 +1,32 @@
 "use client";
 
-// ─── ApmFlowMap — Trading Flow Map kiểu APM (0.3.4) ─────────────────────────
-// Dựng lại trang /stats theo thiết kế tham chiếu (NetGitFinancial — Dribbble):
-// 2 cột node + dải băng (ribbon) cong nối giữa chúng, DÀY THEO SỐ LƯỢNG và
-// MÀU THEO TÌNH TRẠNG: xanh lime = Success (lãi/qua cổng), đỏ = Error (SL),
-// xám = Normal (bỏ qua/trung tính), đỏ nét đứt = Pending (lệnh đang mở).
-//  - Cột trái = phễu quét: Universe → Published top → Scan → Gate pass /
-//    Skipped (nối dọc bằng connector nhỏ + bypass cho nhánh bị loại).
-//  - Cột phải = sổ lệnh: Trades opened → Open position / TP / SL / Flip.
-//  - Băng hero: Gate pass → Trades opened (dải lime dày nhất khi có ứng viên).
-//  - Xung điện chạy trên băng (dash trượt — dùng lại keyframes pipe-dash của
-//    PipeMap 0.2.85, cùng ngôn ngữ "dòng điện" với nền circuit).
-//  - Bấm node → onNodeClick(id) mở trạm tương ứng (accordion cũ → giờ là
-//    trang chi tiết section của layout APM).
-// Toạ độ cố định, không measure DOM, không random → SSR = client.
-
 import { t, type Lang } from "@/lib/i18n";
+
+export interface OpenPositionItem {
+  id?: string;
+  symbol: string;
+  side: "LONG" | "SHORT" | string;
+  roi: number | null;
+  ageH: number;
+  entryPrice?: number;
+  markPrice?: number;
+  pnlUsd?: number;
+  marginUsd?: number;
+  marginPct?: number;
+  sizeUsd?: number;
+  leverage?: number;
+  liqPrice?: number;
+  slPrice?: number;
+  slPct?: number;
+  slRoiPct?: number;
+  tpPrice?: number;
+  tpPct?: number;
+  tpRoiPct?: number;
+  trailText?: string;
+  distSlPct?: number;
+  distTpPct?: number;
+  timeframe?: string;
+}
 
 export interface ApmFlowCounts {
   universePool: number;
@@ -31,10 +42,10 @@ export interface ApmFlowCounts {
   sl: number;
   flip: number;
   manual: number;
-  open: { symbol: string; side: string; roe: number | null; ageH: number } | null;
+  open: OpenPositionItem | OpenPositionItem[] | null;
+  openPositions?: OpenPositionItem[];
 }
 
-// ── bảng màu khớp ảnh tham chiếu ──
 const LIME = "#c8f542";
 const RED = "#f4525c";
 const GREY = "#9aa0a6";
@@ -44,27 +55,23 @@ const EDGE = "#26262c";
 const TXT = "#e9e9ec";
 const SUB = "#8b8b94";
 
-// ── hình học lưới (viewBox 960×604 — svg scale theo bề rộng, mobile cuộn ngang)
-// Kênh băng: băng quạt outcome + bypass Skipped chạy QUANH CỌT node (bulge
-// ngoài mép) — không bao giờ bị node che, đúng kiểu băng cong viền của ảnh ref.
-const NW = 200; // bề rộng node
-const NH = 66; // bề cao node
-const COL_A_X = 30; // cột trái 30..230 — chanel bypass bên trái tại x≈12
-const COL_B_X = 640; // cột phải 640..840 — kênh bulge phải 868..916
-const ROW_Y = [20, 138, 256, 374, 492]; // 5 hàng
-const W = 960;
-const H = 604;
+const NW = 196;
+const NH = 66;
+const ROW_GAP = 16;
+const COL_A_X = 30;
+const COL_M_X = 365;
+const COL_B_X = 695;
+const ROW_Y = [20, 138, 256, 374, 492];
+const BASE_W = 1040;
+const BASE_H = 604;
 
 const cy = (row: number): number => ROW_Y[row] + NH / 2;
 const cxL = COL_A_X + NW / 2;
-const cxR = COL_B_X + NW / 2;
-const edgeR = COL_B_X + NW; // mép phải cột B — nguồn băng quạt outcome
+const edgeR = COL_B_X + NW;
 
-/** độ dày băng theo số lượng: 0 → hairline; còn lại 3..18 theo căn bậc hai */
 const thick = (n: number, max: number): number =>
   n <= 0 ? 1.4 : Math.min(18, 3 + 15 * Math.sqrt(n / Math.max(max, 1)));
 
-/** ribbon cubic-bezier giữa 2 điểm — dải fill dày `w` + lõi dash chạy */
 function Ribbon({
   x1, y1, x2, y2, w, color, hot, dashed, dim,
 }: {
@@ -84,7 +91,6 @@ function Ribbon({
       {!dashed && (
         <path d={core} fill="none" stroke={color} strokeOpacity={0.55} strokeWidth={1.1} />
       )}
-      {/* xung điện chạy dọc băng — dash tối trên nền sáng tạo cảm giác dòng chảy */}
       <path
         d={core}
         fill="none"
@@ -108,8 +114,6 @@ function Ribbon({
   );
 }
 
-/** ribbon BULGE: rời mép cột, cong ra ngoài (bulgeX) rồi quay vào node đích —
- *  dùng cho quạt outcome (phải) và bypass Skipped (trái) để băng không cắt node */
 function BulgeRibbon({
   xEdge, y1, y2, bulgeX, w, color, hot, dashed, dim,
 }: {
@@ -124,7 +128,9 @@ function BulgeRibbon({
   return (
     <g className="apm-band" opacity={dim ? 0.5 : 1}>
       <path d={fill} fill={color} fillOpacity={hot ? 0.4 : 0.24} />
-      {!dashed && <path d={core} fill="none" stroke={color} strokeOpacity={0.55} strokeWidth={1.1} />}
+      {!dashed && (
+        <path d={core} fill="none" stroke={color} strokeOpacity={0.55} strokeWidth={1.1} />
+      )}
       <path
         d={core}
         fill="none"
@@ -134,18 +140,45 @@ function BulgeRibbon({
         strokeDasharray={dashed ? "3 7" : "5 9"}
         className={hot ? "pipe-flow-hot" : "pipe-flow"}
       />
-      {dashed && <path d={core} fill="none" stroke={color} strokeOpacity={0.85} strokeWidth={1.2} strokeDasharray="4 5" />}
+      {dashed && (
+        <path
+          d={core}
+          fill="none"
+          stroke={color}
+          strokeOpacity={0.85}
+          strokeWidth={1.2}
+          strokeDasharray="4 5"
+        />
+      )}
     </g>
   );
 }
 
-/** chip nhãn tình trạng đặt giữa băng (kiểu "Success/Error/Pending" ảnh ref) */
 function BandChip({ x, y, color, label }: { x: number; y: number; color: string; label: string }) {
   const w = label.length * 5.4 + 14;
   return (
     <g>
-      <rect x={x - w / 2} y={y - 8} width={w} height={16} rx={8} fill="#0b0b0e" fillOpacity={0.92} stroke={color} strokeOpacity={0.55} strokeWidth={0.8} />
-      <text x={x} y={y + 3.5} textAnchor="middle" fontSize={8.5} fontWeight={600} fill={color} letterSpacing={0.4}>
+      <rect
+        x={x - w / 2}
+        y={y - 8}
+        width={w}
+        height={16}
+        rx={8}
+        fill="#0b0b0e"
+        fillOpacity={0.92}
+        stroke={color}
+        strokeOpacity={0.55}
+        strokeWidth={0.8}
+      />
+      <text
+        x={x}
+        y={y + 3.5}
+        textAnchor="middle"
+        fontSize={8.5}
+        fontWeight={600}
+        fill={color}
+        letterSpacing={0.4}
+      >
         {label}
       </text>
     </g>
@@ -153,8 +186,8 @@ function BandChip({ x, y, color, label }: { x: number; y: number; color: string;
 }
 
 interface NodeSpec {
-  row: number;
-  col: "A" | "B";
+  x: number;
+  y: number;
   id: string;
   title: string;
   value: string;
@@ -164,24 +197,53 @@ interface NodeSpec {
   stroke?: string;
   strokeDash?: string;
   glow?: boolean;
+  posIndex?: number;
 }
 
-function FlowNode({ n, onClick }: { n: NodeSpec; onClick: (id: string) => void }) {
-  const x = n.col === "A" ? COL_A_X : COL_B_X;
-  const y = ROW_Y[n.row];
+function FlowNode({
+  n,
+  onClick,
+  onSelectPosition,
+}: {
+  n: NodeSpec;
+  onClick: (id: string) => void;
+  onSelectPosition?: (idx: number) => void;
+}) {
+  const handleClick = () => {
+    if (typeof n.posIndex === "number" && onSelectPosition) {
+      onSelectPosition(n.posIndex);
+    }
+    onClick(n.id);
+  };
+
   return (
     <g
-      transform={`translate(${x} ${y})`}
-      onClick={() => onClick(n.id)}
+      transform={`translate(${n.x} ${n.y})`}
+      onClick={handleClick}
       className="cursor-pointer"
       style={{ filter: n.glow ? `drop-shadow(0 0 10px ${n.dot})` : undefined }}
     >
-      <rect width={NW} height={NH} rx={13} fill={INK} stroke={n.stroke ?? EDGE} strokeWidth={1} strokeDasharray={n.strokeDash} />
+      <rect
+        width={NW}
+        height={NH}
+        rx={13}
+        fill={INK}
+        stroke={n.stroke ?? EDGE}
+        strokeWidth={1}
+        strokeDasharray={n.strokeDash}
+      />
       <circle cx={16} cy={20} r={3.5} fill={n.dot} />
       <text x={26} y={23.5} fontSize={10.5} fontWeight={600} fill={TXT}>
         {n.title}
       </text>
-      <text x={16} y={45} fontSize={16} fontWeight={700} fill={n.valColor} fontFamily="var(--font-geist-mono), monospace">
+      <text
+        x={16}
+        y={45}
+        fontSize={16}
+        fontWeight={700}
+        fill={n.valColor}
+        fontFamily="var(--font-geist-mono), monospace"
+      >
         {n.value}
       </text>
       <text x={16} y={58} fontSize={9} fill={SUB}>
@@ -192,96 +254,178 @@ function FlowNode({ n, onClick }: { n: NodeSpec; onClick: (id: string) => void }
   );
 }
 
+function normalizeOpenPositions(f: ApmFlowCounts): OpenPositionItem[] {
+  if (Array.isArray(f.openPositions) && f.openPositions.length > 0) {
+    return f.openPositions;
+  }
+  if (Array.isArray(f.open)) {
+    return f.open;
+  }
+  if (f.open) {
+    return [f.open];
+  }
+  return [];
+}
+
 export function ApmFlowMap({
   lang,
   f,
   onNodeClick,
+  onSelectPosition,
 }: {
   lang: Lang;
   f: ApmFlowCounts;
   onNodeClick?: (id: string) => void;
+  onSelectPosition?: (idx: number) => void;
 }) {
   const click = (id: string) => onNodeClick?.(id);
   const maxExit = Math.max(f.tp, f.sl, f.flip, f.manual, 1);
-  const hasOpen = !!f.open;
 
-  // ── độ dày các băng ──
+  const rawOpenList = normalizeOpenPositions(f);
+  const hasOpen = rawOpenList.length > 0;
+
+  const midItems: Array<OpenPositionItem & { isFlat?: boolean }> = hasOpen
+    ? rawOpenList
+    : [{ id: "flat", symbol: "", side: "", roi: null, ageH: 0, isFlat: true }];
+
+  const midStartY = ROW_Y[1];
+  const midNodeY = (idx: number): number => midStartY + idx * (NH + ROW_GAP);
+  const midCy = (idx: number): number => midNodeY(idx) + NH / 2;
+
+  const midBottomY = midStartY + midItems.length * (NH + ROW_GAP);
+  const rightBottomY = ROW_Y[3] + NH;
+  const H = Math.max(BASE_H, midBottomY + 32, rightBottomY + 32);
+
   const wGate = thick(f.gatePass, Math.max(f.scanCombos, 1));
-  const wOpen = thick(hasOpen ? 1 : 0, 1);
   const wTp = thick(f.tp, maxExit);
   const wSl = thick(f.sl, maxExit);
   const wFlip = thick(f.flip + f.manual, maxExit);
-  // giãn điểm xuất phát trên mép phải node Trades opened để 4 băng quạt không
-  // đan xen thành búi — mỗi băng chìa từ vùng dọc riêng của node nguồn
-  const ySrc = (dy: number): number => cy(0) + dy; // cy(0)=53, node trải 20..86
 
-  // ── node specs ──
-  const nodes: NodeSpec[] = [
-    { row: 0, col: "A", id: "st-universe", title: t(lang, "apm.node.universe"), value: `${f.universePool}`, sub: "UNIVERSE staples + trend", dot: "#22d3ee", valColor: TXT },
-    { row: 1, col: "A", id: "st-universe", title: t(lang, "apm.node.published"), value: `${f.publishedTop}`, sub: `${f.uptrend} uptrend`, dot: "#38bdf8", valColor: TXT },
+  const tradesCy = cy(0);
+  const ySrc = (dy: number): number => tradesCy + dy;
+
+  const leftNodes: NodeSpec[] = [
+    { x: COL_A_X, y: ROW_Y[0], id: "st-universe", title: t(lang, "apm.node.universe"), value: `${f.universePool}`, sub: "UNIVERSE staples + trend", dot: "#22d3ee", valColor: TXT },
+    { x: COL_A_X, y: ROW_Y[1], id: "st-universe", title: t(lang, "apm.node.published"), value: `${f.publishedTop}`, sub: `${f.uptrend} uptrend`, dot: "#38bdf8", valColor: TXT },
     {
-      row: 2, col: "A", id: "st-dock", title: t(lang, "apm.node.scan"), value: `${f.scanCombos}`,
+      x: COL_A_X, y: ROW_Y[2], id: "st-dock", title: t(lang, "apm.node.scan"), value: `${f.scanCombos}`,
       sub: f.scanAgeMin != null ? `${f.scanAgeMin}m ago` : "—", dot: "#a78bfa", valColor: TXT,
       glow: f.scanAgeMin != null && f.scanAgeMin <= 5,
     },
     {
-      row: 3, col: "A", id: "st-dock", title: t(lang, "apm.node.gate"), value: `${f.gatePass}`,
+      x: COL_A_X, y: ROW_Y[3], id: "st-dock", title: t(lang, "apm.node.gate"), value: `${f.gatePass}`,
       sub: t(lang, "apm.node.gate"), dot: LIME, valColor: f.gatePass > 0 ? LIME : SUB,
       stroke: f.gatePass > 0 ? "rgba(200,245,66,0.45)" : undefined, glow: f.gatePass > 0,
     },
-    { row: 4, col: "A", id: "st-dock", title: t(lang, "apm.node.skipped"), value: `${f.neutral}`, sub: "NEUTRAL / noise", dot: GREY, valColor: SUB },
-    { row: 0, col: "B", id: "st-hist", title: t(lang, "apm.node.trades"), value: `${f.tradesTotal}`, sub: `${f.closedTrades} closed`, dot: "#34d399", valColor: TXT },
-    hasOpen && f.open
-      ? {
-          row: 1, col: "B", id: "st-open",
-          title: t(lang, "apm.node.openpos"),
-          value: `${f.open.symbol.replace("USDT", "")} ${f.open.side}`,
-          sub: `${f.open.ageH.toFixed(2)}h${f.open.roe != null ? ` · ROE ${f.open.roe >= 0 ? "+" : ""}${f.open.roe.toFixed(2)}%` : ""}`,
-          dot: RED, valColor: f.open.roe != null ? (f.open.roe >= 0 ? LIME : RED) : TXT,
-          stroke: "rgba(244,82,92,0.55)", strokeDash: "5 4", glow: true,
-        }
-      : {
-          row: 1, col: "B", id: "st-open",
-          title: t(lang, "apm.node.openpos"), value: "flat",
-          sub: t(lang, "apm.flow.flat"), dot: GREY, valColor: SUB,
-        },
-    { row: 2, col: "B", id: "st-hist", title: t(lang, "apm.node.tp"), value: `${f.tp}`, sub: t(lang, "apm.band.success"), dot: LIME, valColor: LIME, stroke: "rgba(200,245,66,0.3)" },
-    { row: 3, col: "B", id: "st-hist", title: t(lang, "apm.node.sl"), value: `${f.sl}`, sub: t(lang, "apm.band.error"), dot: RED, valColor: RED, stroke: "rgba(244,82,92,0.3)" },
-    { row: 4, col: "B", id: "st-hist", title: t(lang, "apm.node.flip"), value: `${f.flip + f.manual}`, sub: `flip ${f.flip} · manual ${f.manual}`, dot: AMBER, valColor: AMBER },
+    { x: COL_A_X, y: ROW_Y[4], id: "st-dock", title: t(lang, "apm.node.skipped"), value: `${f.neutral}`, sub: "NEUTRAL / noise", dot: GREY, valColor: SUB },
   ];
+
+  const middleNodes: NodeSpec[] = midItems.map((pos, idx) => {
+    if (pos.isFlat) {
+      return {
+        x: COL_M_X, y: midNodeY(idx), id: "st-open",
+        title: t(lang, "apm.node.openpos"), value: "flat",
+        sub: t(lang, "apm.flow.flat"), dot: GREY, valColor: SUB,
+      };
+    }
+    const roiText = pos.roi != null ? ` · ROI ${pos.roi >= 0 ? "+" : ""}${pos.roi.toFixed(2)}%` : "";
+    const roiColor = pos.roi != null ? (pos.roi >= 0 ? LIME : RED) : TXT;
+    return {
+      x: COL_M_X,
+      y: midNodeY(idx),
+      id: "st-open",
+      posIndex: idx,
+      title: `${t(lang, "apm.node.openpos")} #${idx + 1}`,
+      value: `${pos.symbol.replace("USDT", "")} ${pos.side}`,
+      sub: `${pos.ageH.toFixed(2)}h${roiText}`,
+      dot: pos.side === "LONG" ? LIME : RED,
+      valColor: roiColor,
+      stroke: pos.side === "LONG" ? "rgba(200,245,66,0.38)" : "rgba(244,82,92,0.5)",
+      strokeDash: "5 4",
+      glow: true,
+    };
+  });
+
+  const rightNodes: NodeSpec[] = [
+    { x: COL_B_X, y: ROW_Y[0], id: "st-hist", title: t(lang, "apm.node.trades"), value: `${f.tradesTotal}`, sub: `${f.closedTrades} closed`, dot: "#34d399", valColor: TXT },
+    { x: COL_B_X, y: ROW_Y[1], id: "st-hist", title: t(lang, "apm.node.tp"), value: `${f.tp}`, sub: t(lang, "apm.band.success"), dot: LIME, valColor: LIME, stroke: "rgba(200,245,66,0.3)" },
+    { x: COL_B_X, y: ROW_Y[2], id: "st-hist", title: t(lang, "apm.node.sl"), value: `${f.sl}`, sub: t(lang, "apm.band.error"), dot: RED, valColor: RED, stroke: "rgba(244,82,92,0.3)" },
+    { x: COL_B_X, y: ROW_Y[3], id: "st-hist", title: t(lang, "apm.node.flip"), value: `${f.flip + f.manual}`, sub: `flip ${f.flip} · manual ${f.manual}`, dot: AMBER, valColor: AMBER },
+  ];
+
+  const nodes: NodeSpec[] = [...leftNodes, ...middleNodes, ...rightNodes];
+  const gateCy = cy(3);
+  const perOpenWidth = hasOpen ? Math.max(2.6, wGate / midItems.length) : 1.6;
+  const firstMidCy = midCy(0);
 
   return (
     <div className="rail-scroll overflow-x-auto">
-      <div className="min-w-[780px]">
-        <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="trading flow map">
-          {/* ── connector dọc cột trái: phễu chảy xuống ── */}
+      <div className="min-w-[880px]">
+        <svg viewBox={`0 0 ${BASE_W} ${H}`} width="100%" role="img" aria-label="trading flow map">
           {[0, 1, 2].map((r) => (
             <g key={`la-${r}`}>
               <Ribbon x1={cxL} y1={ROW_Y[r] + NH} x2={cxL} y2={ROW_Y[r + 1]} w={4} color={GREY} />
             </g>
           ))}
-          {/* bypass Scan → Skipped: nhánh bị loại cong QUANH mép trái (không cắt node) */}
+
           <BulgeRibbon
             xEdge={COL_A_X} y1={cy(2)} y2={cy(4)} bulgeX={12}
             w={thick(f.neutral, Math.max(f.scanCombos, 1))} color={GREY}
           />
           <BandChip x={46} y={348} color={GREY} label={t(lang, "apm.band.normal")} />
-          {/* ── băng hero: Gate pass → Trades opened ── */}
-          <Ribbon x1={COL_A_X + NW} y1={cy(3)} x2={COL_B_X} y2={cy(0)} w={wGate} color={LIME} hot={f.gatePass > 0} />
-          <BandChip x={435} y={cy(3) * 0.5 + cy(0) * 0.5} color={LIME} label={t(lang, "apm.band.success")} />
-          {/* ── quạt Trades opened → Open / TP / SL / Flip: cong quanh mép phải,
-              điểm xuất phát giãn dọc (−16/−6/+6/+16) để băng không đan nhau ── */}
-          <BulgeRibbon xEdge={edgeR} y1={ySrc(-16)} y2={cy(1)} bulgeX={868} w={wOpen} color={RED} dashed dim={!hasOpen} />
-          <BulgeRibbon xEdge={edgeR} y1={ySrc(-6)} y2={cy(2)} bulgeX={884} w={wTp} color={LIME} hot={f.tp > 0} />
-          <BulgeRibbon xEdge={edgeR} y1={ySrc(6)} y2={cy(3)} bulgeX={900} w={wSl} color={RED} hot={f.sl > 0} />
-          <BulgeRibbon xEdge={edgeR} y1={ySrc(16)} y2={cy(4)} bulgeX={916} w={wFlip} color={AMBER} />
-          <BandChip x={868} y={112} color={RED} label={t(lang, "apm.band.pending")} />
-          <BandChip x={884} y={171} color={LIME} label={t(lang, "apm.band.success")} />
-          <BandChip x={900} y={230} color={RED} label={t(lang, "apm.band.error")} />
-          <BandChip x={916} y={289} color={AMBER} label={t(lang, "apm.band.normal")} />
-          {/* ── node vẽ CUỐI (đè lên băng tại điểm nối) ── */}
+
+          {midItems.map((pos, idx) => {
+            const targetY = midCy(idx);
+            const active = !pos.isFlat;
+            return (
+              <Ribbon
+                key={`gate-mid-${pos.id ?? idx}`}
+                x1={COL_A_X + NW} y1={gateCy} x2={COL_M_X} y2={targetY}
+                w={perOpenWidth} color={active ? LIME : GREY}
+                dashed={!active} dim={!active} hot={active && f.gatePass > 0}
+              />
+            );
+          })}
+          <BandChip
+            x={(COL_A_X + NW + COL_M_X) / 2}
+            y={gateCy * 0.5 + firstMidCy * 0.5}
+            color={hasOpen ? LIME : GREY}
+            label={hasOpen ? t(lang, "apm.band.pending") : t(lang, "apm.band.success")}
+          />
+
+          {midItems.map((pos, idx) => {
+            const srcY = midCy(idx);
+            const active = !pos.isFlat;
+            return (
+              <Ribbon
+                key={`mid-opened-${pos.id ?? idx}`}
+                x1={COL_M_X + NW} y1={srcY} x2={COL_B_X} y2={tradesCy}
+                w={perOpenWidth} color={active ? LIME : GREY}
+                dashed={!active} dim={!active} hot={active && f.tradesTotal > 0}
+              />
+            );
+          })}
+          <BandChip
+            x={(COL_M_X + NW + COL_B_X) / 2}
+            y={firstMidCy * 0.5 + tradesCy * 0.5}
+            color={LIME}
+            label={t(lang, "apm.band.success")}
+          />
+
+          <BulgeRibbon xEdge={edgeR} y1={ySrc(-12)} y2={cy(1)} bulgeX={928} w={wTp} color={LIME} hot={f.tp > 0} />
+          <BulgeRibbon xEdge={edgeR} y1={ySrc(0)} y2={cy(2)} bulgeX={946} w={wSl} color={RED} hot={f.sl > 0} />
+          <BulgeRibbon xEdge={edgeR} y1={ySrc(12)} y2={cy(3)} bulgeX={964} w={wFlip} color={AMBER} />
+          <BandChip x={928} y={112} color={LIME} label={t(lang, "apm.band.success")} />
+          <BandChip x={946} y={171} color={RED} label={t(lang, "apm.band.error")} />
+          <BandChip x={964} y={230} color={AMBER} label={t(lang, "apm.band.normal")} />
+
           {nodes.map((n, i) => (
-            <FlowNode key={`${n.id}-${i}`} n={n} onClick={click} />
+            <FlowNode
+              key={`${n.id}-${n.x}-${n.y}-${i}`}
+              n={n}
+              onClick={click}
+              onSelectPosition={onSelectPosition}
+            />
           ))}
         </svg>
       </div>

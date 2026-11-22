@@ -36,7 +36,7 @@ import {
   comboMemoryOf,
   comboMemoryReason,
   flipDecision,
-  feeRoe,
+  feeRoi,
   levAdjSlTp,
   levNormScale,
   liquidationHit,
@@ -44,7 +44,7 @@ import {
   nearHit,
   passesChaseGuard,
   rankRows,
-  roeOf,
+  roiOf,
   rollingChampions,
   rowOf,
   scoreOf,
@@ -495,7 +495,7 @@ async function persistTrainResult(
  *  nạp lại vào lần duyệt lệnh sau của cùng cặp. exitKind "flip" = đóng vì
  *  AUTO-FLIP (model đảo chiều đủ tin cậy — xem tryFlip). "trail" = lệnh bị
  *  trailing/BE-stop đưa về (0.2.61 trailing · 0.3.3 runner-trail sau TP1).
- *  0.3.3 — COMBINE CLOSE: lệnh đã qua TP1 partial (p1Pct != null) thì ROE tổng
+ *  0.3.3 — COMBINE CLOSE: lệnh đã qua TP1 partial (p1Pct != null) thì ROI tổng
  *  = p1Share × p1Pct (phần banked tại TP1, SAU PHÍ riêng) + (1−p1Share) × phần
  *  còn lại (SAU PHÍ round-trip riêng) — một lệnh vẫn một dòng sổ, chuỗi vốn
  *  capitalBefore/After không phá vỡ. */
@@ -508,11 +508,11 @@ async function closeTradeDirect(
   if (!row || row.status !== "open") return null;
   const movePct =
     row.side === "SHORT" ? ((row.entryPrice - exitPrice) / row.entryPrice) * 100 : ((exitPrice - row.entryPrice) / row.entryPrice) * 100;
-  // ROE SAU PHÍ (0.2.77) — phí mỗi bên tính trên notional nên mức ăn vào ROE
+  // ROI SAU PHÍ (0.2.77) — phí mỗi bên tính trên notional nên mức ăn vào ROI
   // = FEE_PCT × lev mỗi bên; lệnh chốt trừ đúng round-trip 2 bên (entry đã
   // trả lúc mở + exit trả ngay lúc này). Thanh lý vẫn −100 (margin đã sạch —
-  // phí chẳng còn gì để trừ); phí cũng không kéo ROE xuống dưới đáy −100.
-  let remPnl = Math.round((movePct * row.leverage - feeRoe(row.leverage)) * 100) / 100;
+  // phí chẳng còn gì để trừ); phí cũng không kéo ROI xuống dưới đáy −100.
+  let remPnl = Math.round((movePct * row.leverage - feeRoi(row.leverage)) * 100) / 100;
   const adverse = row.side === "SHORT" ? -movePct : movePct;
   if (row.leverage > 1 && adverse <= -(100 / row.leverage)) remPnl = -100;
   else if (remPnl < -100) remPnl = -100;
@@ -1473,8 +1473,8 @@ async function cycleTick(): Promise<void> {
               : `${open.symbol} ${open.interval} SL chờ confirm (wick nông)`;
           continue; // trạng thái mới đã ghi — chu kỳ sau quản lý tiếp
         }
-        const roe = roeOf(open.side, open.entryPrice, price, open.leverage);
-        const base = `${open.symbol} ${open.interval} ${open.side} · ROE ${roe >= 0 ? "+" : ""}${roe.toFixed(2)}%`;
+        const roi = roiOf(open.side, open.entryPrice, price, open.leverage);
+        const base = `${open.symbol} ${open.interval} ${open.side} · ROI ${roi >= 0 ? "+" : ""}${roi.toFixed(2)}%`;
         // 1.5) AUTO-FLIP — thị trường luôn biến động, dự báo chỉ là dự báo:
         // scan (5 phút/lần) thấy tín hiệu NGƯỢC phía lệnh đủ tin cậy trên
         // CÙNG cặp/khung → đóng lệnh cũ + mở lệnh đảo chiều NGAY chu kỳ này
@@ -1500,7 +1500,7 @@ async function cycleTick(): Promise<void> {
           continue;
         }
         // có tín hiệu ngược chiều nhưng chưa đạt ngưỡng → hiện rõ LÝ DO chờ,
-        // không âm thầm; model đồng thuận/NEUTRAL → giữ status ROE như cũ
+        // không âm thầm; model đồng thuận/NEUTRAL → giữ status ROI như cũ
         v.lastCycleStatus =
           row && row.bias !== "NEUTRAL" && row.bias !== open.side ? `${base} · flip chờ: ${d.why}` : base;
       }
@@ -1537,7 +1537,7 @@ async function cycleTick(): Promise<void> {
     // then the chase guard rejects same-side re-entries until price has reversed
     // back through the level that stopped us ("SL xong vào lại giá cao hơn" → hết)
     const tickers = await getTickers().catch(() => ({}) as Record<string, Ticker>);
-    // COMBO MEMORY (0.2.86) — combo đang thua streak dài / net ROE cửa sổ gần
+    // COMBO MEMORY (0.2.86) — combo đang thua streak dài / net ROI cửa sổ gần
     // nhất quá âm bị tạm loại: AUC/ACC không đo được hiệu quả live, sổ dry-run
     // mới là sự thật. Knob MEM_* chỉnh runtime trên /ai (0 = tắt tầng đó).
     const memCfg = {
@@ -1630,7 +1630,7 @@ async function cycleTick(): Promise<void> {
 
     // 2.2) live DYNAMIC levels at entry (tpMode "dyn") — pair × time × volume:
     // ATR%(pair·khung) × heat(TR 5 nến gần vs ATR) × vol(20 vs 100 nến), đo
-    // tại THỜI ĐIỂM vào lệnh. ROE không còn là số cứng — mỗi coin, mỗi phút,
+    // tại THỜI ĐIỂM vào lệnh. ROI không còn là số cứng — mỗi coin, mỗi phút,
     // mỗi chế độ volume một bộ SL/TP riêng.
     const coef = best.atrCoef > 0 ? best.atrCoef : c.atrCoef;
     let live: { slPct: number; tpPct: number; atrPct: number; heatMul: number; volMul: number } | null = null;
@@ -1652,7 +1652,7 @@ async function cycleTick(): Promise<void> {
     const entrySl = c.tpMode === "manual" ? c.slPct : c.tpMode === "dyn" && live ? live.slPct : best.slPct;
     const entryTp = c.tpMode === "manual" ? c.tpPct : c.tpMode === "dyn" && live ? live.tpPct : best.tpPct;
     // 2.3) SL/TP × LEVERAGE (0.2.72) — khoảng cách chuẩn hoá theo đòn bẩy để
-    // ROE-at-SL không phình theo lev (lin: ref/lev, chỉ thu hẹp khi lev > ref)
+    // ROI-at-SL không phình theo lev (lin: ref/lev, chỉ thu hẹp khi lev > ref)
     // + mui an toàn thanh khoản (SL ≤ TP_LIQ_SAFE% đường tới liq — áp MỌI mode,
     // manual chỉ bỏ qua scale, không bỏ qua mui). R:R giữ nguyên.
     // B 0.3.4 — dynamic lev riêng cho lệnh này (không dùng p.leverage chung)
@@ -1690,7 +1690,7 @@ async function cycleTick(): Promise<void> {
     // ngưỡng đã walk-forward verify trên nến ngày crypto (07/11): LONG chỉ vào
     // khi có range tích luỹ hợp lệ + Spring/SOS ở nến ngày đã đóng + breadth
     // ≥ ngưỡng; Upthrust (thủng đỉnh rồi đóng lại dưới đỉnh) bị veto. SHORT
-    // không đụng — sổ B SHORT đang net +45% ROE, không phá cái đang chạy tốt.
+    // không đụng — sổ B SHORT đang net +45% ROI, không phá cái đang chạy tốt.
     // Data lỗi → fail-open (gate không được giết engine), lý do ghi rõ log.
     if (best.bias === "LONG") {
       const wyUniverse = [...new Set([...p.pairs, ...(v.scan?.rows ?? []).map((r) => r.symbol)])];
@@ -1713,7 +1713,7 @@ async function cycleTick(): Promise<void> {
     const closedN = st.stats.closed;
     const track =
       closedN > 0
-        ? `${st.stats.wins}W/${closedN - st.stats.wins}L · win rate ${st.stats.winRate.toFixed(2)}% · net ${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(2)}% ROE (${closedN} paper trades)`
+        ? `${st.stats.wins}W/${closedN - st.stats.wins}L · win rate ${st.stats.winRate.toFixed(2)}% · net ${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(2)}% ROI (${closedN} paper trades)`
         : undefined;
     const { verdict: lastVerdict, vetoed } = await llmGate(
       best,
@@ -1850,7 +1850,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
   const closed = await closeTradeDirect(open.id, price, "flip");
   if (!closed) return false; // lệnh đã đóng bởi watcher/luồng khác — bỏ qua
   console.log(
-    `[engine] FLIP ${open.symbol} ${open.interval} ${from}→${to} @ ${price} — đóng lệnh cũ ROE ${(closed.pnlPct ?? 0) >= 0 ? "+" : ""}${(closed.pnlPct ?? 0).toFixed(2)}%`,
+    `[engine] FLIP ${open.symbol} ${open.interval} ${from}→${to} @ ${price} — đóng lệnh cũ ROI ${(closed.pnlPct ?? 0) >= 0 ? "+" : ""}${(closed.pnlPct ?? 0).toFixed(2)}%`,
   );
   v.lastCycleStatus = `${open.symbol} ${open.interval} LẬT CHIỀU ${from}→${to}`;
   void notifyClosed(closed);
@@ -1884,7 +1884,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
   const st = await readAutoState();
   const track =
     st.stats.closed > 0
-      ? `${st.stats.wins}W/${st.stats.closed - st.stats.wins}L · win rate ${st.stats.winRate.toFixed(2)}% · net ${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(2)}% ROE (${st.stats.closed} paper trades)`
+      ? `${st.stats.wins}W/${st.stats.closed - st.stats.wins}L · win rate ${st.stats.winRate.toFixed(2)}% · net ${st.stats.netPnlPct >= 0 ? "+" : ""}${st.stats.netPnlPct.toFixed(2)}% ROI (${st.stats.closed} paper trades)`
       : undefined;
   const { verdict: lastVerdict, vetoed } = await llmGate(row, to, finalSl, finalTp, track, { isFlip: true });
   if (vetoed) {
@@ -2094,7 +2094,7 @@ async function updateTrail(
     tr.peak = peak;
     persistEngine();
   }
-  // Trail ROI (B): peakROI > 3% => stopROI = peakROI - 2% (đuổi theo, nhường 2% ROE)
+  // Trail ROI (B): peakROI > 3% => stopROI = peakROI - 2% (đuổi theo, nhường 2% ROI)
   const peakRoi = trailMovePct(open.side, open.entryPrice, peak) * open.leverage;
   const roiStop = trailRoiStopPrice(open.side, open.entryPrice, peakRoi, open.leverage);
   const stop = roiStop ?? trailStopPrice(open.side, open.entryPrice, peak, act, dist);
@@ -2179,14 +2179,14 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
     if (plan) {
       try {
         // p1Pct lưu SAU PHÍ round-trip riêng của phần banked (cùng settlement
-        // 0.2.77 với closeTradeDirect) — combine lúc đóng ra ROE tổng đúng.
-        const p1Net = Math.round((plan.p1Pct - feeRoe(open.leverage)) * 100) / 100;
+        // 0.2.77 với closeTradeDirect) — combine lúc đóng ra ROI tổng đúng.
+        const p1Net = Math.round((plan.p1Pct - feeRoi(open.leverage)) * 100) / 100;
         await db.autoTrade.update({
           where: { id: open.id },
           data: { p1Pct: p1Net, p1Share: plan.share, tp2Pct: plan.tp2Pct, trailPct: open.tpPct },
         });
         console.log(
-          `[engine] TP1 partial ${open.symbol} ${open.interval} — bank ${(plan.share * 100).toFixed(2)}% stake (+${p1Net.toFixed(2)}% ROE sau phí) · runner SL khoá tại giá TP1 (${open.tpPct.toFixed(2)}% giá) · để lời chạy theo trail`,
+          `[engine] TP1 partial ${open.symbol} ${open.interval} — bank ${(plan.share * 100).toFixed(2)}% stake (+${p1Net.toFixed(2)}% ROI sau phí) · runner SL khoá tại giá TP1 (${open.tpPct.toFixed(2)}% giá) · để lời chạy theo trail`,
         );
         Object.assign(warnedOf(open.id), { tp: false, sl: false });
         if ((p as any).trailById) delete (p as any).trailById[open.id];

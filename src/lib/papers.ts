@@ -29,7 +29,7 @@ const sideOf = (dir: "BUY" | "SELL"): Side => (dir === "BUY" ? "LONG" : "SHORT")
  *  - SL and TP are evaluated intrabar (SL-first on ambiguous candles).
  *  - With leverage > 1 the position is liquidated when the adverse move reaches
  *    ~100%/leverage (isolated-margin estimate): exitKind "sl" + `liquidated`,
- *    ROE = -100%.
+ *    ROI = -100%.
  *  - Signals on the still-forming last candle are ignored (they confirm at close).
  */
 export function papersFrom(
@@ -187,14 +187,14 @@ export interface KpiStats {
   flipCount: number;
   flipWins: number;
   flipLosses: number;
-  /** net ROE% summed over closed reversal trades only */
+  /** net ROI% summed over closed reversal trades only */
   flipNetPnl: number;
   netPnl: number;
 }
 
 /**
  * Win rate counts EVERY closed paper — TP, SL (incl. liquidations) and reversal
- * exits alike. A closed paper wins when its signed ROE is positive.
+ * exits alike. A closed paper wins when its signed ROI is positive.
  */
 export function kpiFrom(papers: Paper[]): KpiStats {
   const closedPapers = papers.filter((p) => p.status === "closed");

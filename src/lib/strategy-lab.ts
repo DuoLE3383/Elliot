@@ -3,7 +3,7 @@
 // Lịch sử: suggestFrom() cũ là greedy top-1 — mỗi tầng (ATR coef → UT
 // key×period → SMA gate) chỉ giữ 1 winner, ~21 ứng viên còn lại bị vứt im
 // lặng nên không có A/B thật. Lab này giữ LẠI mọi ứng viên, backtest TẤT CẢ
-// bằng đúng thuật toán engine (signalsFrom → papersFrom → kpiFrom, ROE tính
+// bằng đúng thuật toán engine (signalsFrom → papersFrom → kpiFrom, ROI tính
 // theo leverage như lệnh giấy thật) trên klines thật, rồi lưu CẢ THẮNG LẪN
 // THUA vào bảng StrategyVariant → bảng xếp hạng expectancy có so sánh được.
 //
@@ -44,9 +44,9 @@ export interface LabMetrics {
   /** số lệnh giấy đã đóng trong cửa sổ backtest */
   trades: number;
   wins: number;
-  /** %, kpiFrom — win = ROE > 0 (khớp định nghĩa mọi nơi) */
+  /** %, kpiFrom — win = ROI > 0 (khớp định nghĩa mọi nơi) */
   winRate: number;
-  /** tổng ROE% các lệnh đóng */
+  /** tổng ROI% các lệnh đóng */
   netPnl: number;
   /** netPnl / trades — tiêu chí xếp hạng chính */
   expectancy: number;
@@ -55,7 +55,7 @@ export interface LabMetrics {
   tpCount: number;
   slCount: number;
   flipCount: number;
-  /** drawdown sâu nhất trên đường ROE cộng dồn (≤ 0) */
+  /** drawdown sâu nhất trên đường ROI cộng dồn (≤ 0) */
   maxDd: number;
 }
 

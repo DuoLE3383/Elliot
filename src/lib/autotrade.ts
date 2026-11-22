@@ -26,22 +26,22 @@ import {
   REGRESS_EPS,
   SIBLING_DISCOUNT,
   SHORT_PROB_MIN,
-  SL_ROE_MAX,
+  SL_ROI_MAX,
   EV_GATE_MIN,
   TP_LEV_MODE,
   TP_LEV_REF,
   TP_LIQ_SAFE,
   clampStake,
-  feeRoe,
+  feeRoi,
   pval,
 } from "./params";
 import { agentGateTuple, agentIconOf, agentPresetOf } from "./agent-presets";
 
 // Knob sống ở ./params — MỘT nguồn config; re-export cho chỗ cũ không đổi path.
-// feeRoe định nghĩa ở ./params từ 0.2.78 (llm.ts cần chính công thức đó mà không
+// feeRoi định nghĩa ở ./params từ 0.2.78 (llm.ts cần chính công thức đó mà không
 // được import autotrade — autotrade đã import llm → vòng); re-export để
 // engine/tg-msgs/route giữ nguyên import cũ.
-export { CONF_W, NEAR_FRAC, REGRESS_EPS, feeRoe } from "./params";
+export { CONF_W, NEAR_FRAC, REGRESS_EPS, feeRoi } from "./params";
 import { fmtPrice } from "./i18n";
 
 // ─── Scan rows ────────────────────────────────────────────────────────────────
@@ -392,7 +392,7 @@ export interface GateBlocked {
   band: number;
   /** sàn SHORT: 1−prob < SHORT_PROB_MIN */
   shortMin: number;
-  /** EV gate: kỳ vọng ROE (prob·tp − (1−prob)·sl)·lev − phí < EV_GATE_MIN */
+  /** EV gate: kỳ vọng ROI (prob·tp − (1−prob)·sl)·lev − phí < EV_GATE_MIN */
   ev: number;
 }
 
@@ -421,7 +421,7 @@ export function bestTradeableAvoid(
   // chứng minh SHORT "vừa đủ gate" là phần thua lớn nhất — LONG giữ nguyên
   // noise band. Chỉ áp vào-lệnh-thường; flip có FLIP_PROB_MIN riêng đã chặt hơn.
   const shortMin = pval("SHORT_PROB_MIN", SHORT_PROB_MIN);
-  // 0.2.89 — EV GATE: kỳ vọng ROE của chính candidate (prob/tp/sl của nó ×
+  // 0.2.89 — EV GATE: kỳ vọng ROI của chính candidate (prob/tp/sl của nó ×
   // đòn bẩy cấu hình − phí round-trip) phải ≥ EV_GATE_MIN. Lệnh cấu trúc âm
   // chết ở cổng thay vì đợi sổ phán — audit 08/11: LONG payoff 0.48 với prob
   // "tự tin" 0.72–0.79 vẫn thua ⇒ prob không bảo vệ được lệnh EV âm. Lưu ý:
@@ -433,7 +433,7 @@ export function bestTradeableAvoid(
   // thắng với 1−prob — gate phải dùng xác suất thắng của chính phía lệnh.
   const evOf = (r: ScanRow, lev: number): number => {
     const pWin = r.bias === "SHORT" ? 1 - r.prob : r.prob;
-    return pWin * r.tpPct * lev - (1 - pWin) * r.slPct * lev - feeRoe(lev);
+    return pWin * r.tpPct * lev - (1 - pWin) * r.slPct * lev - feeRoi(lev);
   };
   // 0.3.1 — phân loại cổng trượt ĐẦU TIÊN của từng dòng (đúng thứ tự điều kiện
   // dưới) — tổng blocked = số dòng bị loại, đối chiếu 1-1 với bảng scan UI.
@@ -532,7 +532,7 @@ export function flipDecision(
   if (Math.abs(row.prob - 0.5) < pval("NOISE_BAND", NOISE_BAND)) return { ok: false, why: "signal inside the coin-flip noise band" };
   if (cfg.whaleFilter && row.whale?.tag === "whale") return { ok: false, why: "last candle is a whale bar — not flipping into a wick trap" };
   // ── FLIP BẤT ĐỐI XỨNG (0.2.72) — lật chiều phải chắc chắn HƠN mở lệnh ──
-  // Data: ~75 flip net −105% ROE trong khi TP:SL 16:6 dương — flip theo tín
+  // Data: ~75 flip net −105% ROI trong khi TP:SL 16:6 dương — flip theo tín
   // hiệu “vừa vượt sàn” là chảy máu. Một flip tốn exit + entry mới + reset
   // SL/TP nên ngưỡng PHẢI bất đối xứng với vào lệnh thường:
   //   (a) prob THEO PHÍA MỚI ≥ FLIP_PROB_MIN (vào lệnh chỉ cần vượt noise band)
@@ -611,8 +611,8 @@ export async function scanAll(opts: {
 
 // ─── Position math ────────────────────────────────────────────────────────────
 
-/** Signed ROE % of a position at `price` (leverage applied). */
-export function roeOf(side: string, entry: number, price: number, leverage: number): number {
+/** Signed ROI % of a position at `price` (leverage applied). */
+export function roiOf(side: string, entry: number, price: number, leverage: number): number {
   if (!entry || !price) return 0;
   const move = side === "SHORT" ? ((entry - price) / entry) * 100 : ((price - entry) / entry) * 100;
   return Math.round(move * leverage * 100) / 100;
@@ -621,9 +621,9 @@ export function roeOf(side: string, entry: number, price: number, leverage: numb
 /** "sl" | "tp" | null — has the LIVE price crossed the SL/TP of the position? */
 export function slTpHit(side: string, price: number, entry: number, slPct: number, tpPct: number): "sl" | "tp" | null {
   if (!entry || !price) return null;
-  const roe = roeOf(side, entry, price, 1); // price-move % (no leverage)
-  if (roe <= -Math.abs(slPct)) return "sl";
-  if (roe >= Math.abs(tpPct)) return "tp";
+  const roi = roiOf(side, entry, price, 1); // price-move % (no leverage)
+  if (roi <= -Math.abs(slPct)) return "sl";
+  if (roi >= Math.abs(tpPct)) return "tp";
   return null;
 }
 
@@ -634,14 +634,14 @@ export function liquidationHit(side: string, price: number, entry: number, lever
   return move <= -(100 / leverage);
 }
 
-// ─── SL/TP × LEVERAGE (0.2.72) — độc lập rủi ro ROE theo đòn bẩy ──────────────
+// ─── SL/TP × LEVERAGE (0.2.72) — độc lập rủi ro ROI theo đòn bẩy ──────────────
 
 /**
  * Hệ số chuẩn hoá khoảng cách SL/TP theo leverage (TP_LEV_MODE):
  *   off → 1 (legacy) · sqrt → √(ref/lev) · lin → ref/lev (độc lập hoàn toàn)
  * Chỉ THU HẸP khi lev > ref (min 1 với cả hai mode — lev ≤ ref giữ nguyên:
- * rủi ro ROE-at-SL chỉ NHỎ HƠN baseline, không bao giờ TO hơn). Giá trị lạ /
- * lev ≤ 0 → 1 (an toàn). ROE-at-SL = slPct × lev ≈ hằng số bằng baseline.
+ * rủi ro ROI-at-SL chỉ NHỎ HƠN baseline, không bao giờ TO hơn). Giá trị lạ /
+ * lev ≤ 0 → 1 (an toàn). ROI-at-SL = slPct × lev ≈ hằng số bằng baseline.
  */
 export function levNormScale(lev: number): number {
   const mode = String(pval("TP_LEV_MODE", TP_LEV_MODE) ?? "off").trim().toLowerCase();
@@ -660,7 +660,7 @@ export function levNormScale(lev: number): number {
  *     thanh lý (100/lev %) — áp MỌI mode, manual cũng không đặt SL ngoài liq;
  *  3. sàn 0.15% — scale không đẩy SL vào vùng spread-noise (khi mui cho phép);
  *  mọi lần co giãn đều kéo TP theo CÙNG hệ số → R:R giữ nguyên. SL làm tròn
- *  XUỐNG 2 chữ số (không bao giờ xa hơn tính toán — ROE-at-SL không vượt
+ *  XUỐNG 2 chữ số (không bao giờ xa hơn tính toán — ROI-at-SL không vượt
  *  baseline vì làm tròn); TP làm tròn thường (chỉ lạc ≤ 0.01% khoảng cách).
  */
 export function levAdjSlTp(sl: number, tp: number, scale: number, lev: number): { slPct: number; tpPct: number } {
@@ -678,14 +678,14 @@ export function levAdjSlTp(sl: number, tp: number, scale: number, lev: number): 
     s *= k;
     t *= k;
   }
-  // MUI TRẦN LỖ ROE (0.2.89) — audit sổ 08/11: OP −60 ROE ở ×20 là hợp lệ
-  // theo mui thanh khoản (SL 2.9% giá). TB thua −17.76 ROE trong khi TB thắng
-  // chỉ +8.49 — payoff 0.48 là nguồn chảy máu chính của LONG. Trần ROE-at-SL:
-  // s × lev không vượt SL_ROE_MAX, vượt thì co SL+TP cùng hệ số (R:R giữ
+  // MUI TRẦN LỖ ROI (0.2.89) — audit sổ 08/11: OP −60 ROI ở ×20 là hợp lệ
+  // theo mui thanh khoản (SL 2.9% giá). TB thua −17.76 ROI trong khi TB thắng
+  // chỉ +8.49 — payoff 0.48 là nguồn chảy máu chính của LONG. Trần ROI-at-SL:
+  // s × lev không vượt SL_ROI_MAX, vượt thì co SL+TP cùng hệ số (R:R giữ
   // nguyên, cùng kiểu mui liq phía trên). 0 = tắt.
-  const roeCap = pval("SL_ROE_MAX", SL_ROE_MAX);
-  if (roeCap > 0 && lev > 0 && s * lev > roeCap) {
-    const k = roeCap / (s * lev);
+  const roiCap = pval("SL_ROI_MAX", SL_ROI_MAX);
+  if (roiCap > 0 && lev > 0 && s * lev > roiCap) {
+    const k = roiCap / (s * lev);
     s *= k;
     t *= k;
   }
@@ -694,7 +694,7 @@ export function levAdjSlTp(sl: number, tp: number, scale: number, lev: number): 
     s *= k;
     t *= k;
   }
-  // Kẹp đầu ra — không bao giờ trả SL/TP <= 0 dù cap/roeCap có co tới đâu
+  // Kẹp đầu ra — không bao giờ trả SL/TP <= 0 dù cap/roiCap có co tới đâu
   if (!isFinite(s) || s <= 0) s = 0.15;
   if (!isFinite(t) || t <= 0) t = s * 1.5;
   return { slPct: Math.floor(s * 100) / 100, tpPct: Math.round(t * 100) / 100 };
@@ -706,11 +706,11 @@ export function levAdjSlTp(sl: number, tp: number, scale: number, lev: number): 
 /** "tp" | "sl" | null — giá đang NẰM TRONG dải sắp chạm TP/SL nhưng CHƯA vượt. */
 export function nearHit(side: string, price: number, entry: number, slPct: number, tpPct: number): "tp" | "sl" | null {
   if (!entry || !price) return null;
-  const roe = roeOf(side, entry, price, 1); // price-move % (no leverage)
+  const roi = roiOf(side, entry, price, 1); // price-move % (no leverage)
   const tp = Math.abs(tpPct);
   const sl = Math.abs(slPct);
-  if (roe >= tp * NEAR_FRAC && roe < tp) return "tp";
-  if (roe <= -sl * NEAR_FRAC && roe > -sl) return "sl";
+  if (roi >= tp * NEAR_FRAC && roi < tp) return "tp";
+  if (roi <= -sl * NEAR_FRAC && roi > -sl) return "sl";
   return null;
 }
 
@@ -725,7 +725,7 @@ export function trailNextPeak(side: string, prevPeak: number, price: number): nu
 }
 
 /** Lời hiện có của đỉnh so với entry — % DI CHUYỂN GIÁ (chưa nhân đòn bẩy,
- *  cùng đơn vị slPct/tpPct; ROE = số này × leverage). */
+ *  cùng đơn vị slPct/tpPct; ROI = số này × leverage). */
 export function trailMovePct(side: string, entry: number, peak: number): number {
   if (!entry || !peak) return 0;
   return side === "SHORT" ? ((entry - peak) / entry) * 100 : ((peak - entry) / entry) * 100;
@@ -759,7 +759,7 @@ export function trailStopPrice(side: string, entry: number, peak: number, actPct
  *    chính khung giao dịch của lệnh: cặp nóng (PEPE, DOGE…) hay khung lớn
  *    (4h/1d) có ATR% lớn → đề xuất rộng hơn; cặp êm/khung nhỏ → sát hơn.
  *  • đòn bẩy — levScale = √(10/leverage) kẹp [0.5, 2]: đòn cao hơn tham chiếu
- *    ×10 → siết khoá lời chặt hơn (bảo vệ ROE), đòn thấp → nới room cho giá chạy.
+ *    ×10 → siết khoá lời chặt hơn (bảo vệ ROI), đòn thấp → nới room cho giá chạy.
  *  • công thức: act = atrPct × 1.2 × levScale (đi được ~1.2 ATR mới coi là xu
  *    hướng có thịt để khoá), dist = atrPct × 0.9 × levScale (nhường ~0.9 ATR
  *    đường về; vừa armed stop ≈ hoà vốn/lãi nhẹ).
@@ -785,7 +785,7 @@ export interface ComboStat {
   wins: number;
   /** wins / closed, % (1 decimal) */
   winRate: number;
-  /** sum of ROE % over closed trades */
+  /** sum of ROI % over closed trades */
   netPnlPct: number;
   /** netPnlPct / closed */
   avgPnlPct: number;
@@ -817,14 +817,14 @@ export function comboStats(rows: Pick<AutoTradeRow, "symbol" | "interval" | "sta
 // sự thật. Hàm thuần (không IO) đọc danh sách lệnh NEWEST-FIRST (đúng thứ tự
 // AutoState.trades trả về) và trả về:
 //   • streak — số lệnh LỖ liên tiếp mới nhất của combo (0 = lệnh mới nhất thắng)
-//   • net / n — tổng ROE % và số lệnh trong cửa sổ `lookback` lệnh đóng gần nhất
+//   • net / n — tổng ROI % và số lệnh trong cửa sổ `lookback` lệnh đóng gần nhất
 // engine dùng comboMemoryReason() để tạm loại combo đang chảy máu khỏi vòng
 // chọn lệnh — tự học khép kín, không cần đợi ai train lại.
 
 export interface ComboMemory {
   /** consecutive newest-first losses (0 = newest closed trade won / none) */
   streak: number;
-  /** sum of ROE % over the last `lookback` closed trades of the combo */
+  /** sum of ROI % over the last `lookback` closed trades of the combo */
   net: number;
   /** how many closed trades fell inside the window */
   n: number;
@@ -959,7 +959,7 @@ export interface AutoTradeRow {
   /** entry-policy fingerprint for self-improve agent */
   methodId: string | null;
   // ── 0.3.3 · TP1 partial → runner (trade-mgmt.ts) ──
-  /** ROE % SAU PHÍ đã bank tại TP1 (null = lệnh thường chưa qua TP1) */
+  /** ROI % SAU PHÍ đã bank tại TP1 (null = lệnh thường chưa qua TP1) */
   p1Pct: number | null;
   /** phần stake đã bank tại TP1, 0..1 */
   p1Share: number | null;
@@ -994,7 +994,7 @@ export interface BookRecent {
 }
 
 export interface AutoAnalytics {
-  /** tổng % ROE trừ phí, trung bình trên lệnh đóng — điểm kỳ vọng mỗi lệnh */
+  /** tổng % ROI trừ phí, trung bình trên lệnh đóng — điểm kỳ vọng mỗi lệnh */
   expectancy: number;
   /** sum(pnl>0) / |sum(pnl<=0)| — ≥1 = hệ thống có lãi */
   profitFactor: number;
@@ -1155,7 +1155,7 @@ export interface AutoAuditResult {
   error?: string;
 }
 
-/** Rà lại toàn bộ sổ dry-run: repair=false → chỉ báo cáo; true → sửa ROE +
+/** Rà lại toàn bộ sổ dry-run: repair=false → chỉ báo cáo; true → sửa ROI +
  *  chạy lại chuỗi vốn (PATCH /api/autotrade action "audit"). */
 export async function auditAutoBook(repair: boolean): Promise<AutoAuditResult> {
   try {
@@ -1285,14 +1285,14 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
     .sort((a, b) => new Date(b.exitTime ?? b.entryTime).getTime() - new Date(a.exitTime ?? a.entryTime).getTime());
   const opened = st.trades.filter((x) => new Date(x.entryTime).getTime() >= sinceMs);
   const wins = recent.filter((x) => (x.pnlPct ?? 0) > 0).length;
-  const net = recent.reduce((a, x) => a + (x.pnlPct ?? 0), 0); // tong ROE-margin, KHONG phai Equity ROE
+  const net = recent.reduce((a, x) => a + (x.pnlPct ?? 0), 0); // tong ROI-margin, KHONG phai Equity ROI
   const wr = recent.length ? `${Math.round((wins / recent.length) * 100)}%` : "—";
   const oldest = recent[recent.length - 1] as any;
   const newest = recent[0] as any;
   const eqStart = Number(oldest?.capitalBefore ?? NaN);
   const eqEnd = Number(newest?.capitalAfter ?? st.capital ?? NaN);
   const eqDelta = Number.isFinite(eqStart) && eqStart > 0 && Number.isFinite(eqEnd) ? ((eqEnd - eqStart) / eqStart) * 100 : null;
-  const roe = recent.length ? `Margin ${net >= 0 ? "+" : ""}${net.toFixed(2)}%` : "—";
+  const roi = recent.length ? `Margin ${net >= 0 ? "+" : ""}${net.toFixed(2)}%` : "—";
   const eqTxt2 = eqDelta != null ? ` · Equity Δ ${eqDelta >= 0 ? "+" : ""}${eqDelta.toFixed(2)}%` : "";
   const capLabel = periodLabel.charAt(0).toUpperCase() + periodLabel.slice(1);
   const eq = st.capital != null ? st.capital.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
@@ -1307,7 +1307,7 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
     title,
     `${agentIcon} Agent: <b>${agentId}</b> · Risk ${ag[0]}% · Gate Score ${ag[1]} / AUC ${ag[2]} / ACC ${ag[3]}% · Runner ${runnerTxt}`,
     DIGEST_HR,
-    `📊 <b>${capLabel}</b>: ${opened.length} opened · ${recent.length} closed · WR <b>${wr}</b>${eqTxt2} · Margin ${roe}`,
+    `📊 <b>${capLabel}</b>: ${opened.length} opened · ${recent.length} closed · WR <b>${wr}</b>${eqTxt2} · Margin ${roi}`,
     `💰 Equity <b>${eq}</b> USDT · ${st.stats.closed} closed all-time${st.open ? " · 1 open" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(2)}%` : "—"}`,
   ];
   const best = (st.byCombo ?? []).filter((c) => c.closed >= 3).sort((a, b) => b.winRate - a.winRate)[0];
@@ -1496,7 +1496,7 @@ export interface AutoConfig {
 export const AUTO_DEFAULTS: AutoConfig = {
   on: false,
   capital: 1000,
-  // audit 04/11: 25% vốn/lệnh là nguyên nhân −40% net ROE hoá nhỏ thành
+  // audit 04/11: 25% vốn/lệnh là nguyên nhân −40% net ROI hoá nhỏ thành
   // swing vốn lớn; khuyến nghị 2-3%/lệnh — mặc định 3, trần RISK_MAX_STAKE
   // (params §4e) kẹp bất kể panel đặt gì. SET CỨNG [10,20,30,50] ở RISK_CHOICES.
   riskPct: 3,

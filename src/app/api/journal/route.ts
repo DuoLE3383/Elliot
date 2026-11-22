@@ -140,7 +140,7 @@ export async function GET(req: NextRequest) {
       flipNetPnl: sum((k) => k.flipNetPnl),
       netPnl: sum((k) => k.netPnl),
     };
-    // bảng con: nhiều lệnh đóng trước, rồi net ROE giảm dần
+    // bảng con: nhiều lệnh đóng trước, rồi net ROI giảm dần
     per.sort((a, b) => b.kpi.closed - a.kpi.closed || b.kpi.netPnl - a.kpi.netPnl);
     // 0.2.80 — bảng tương tác trên /stats: nối liền papers mọi cặp (mỗi paper tự
     // mang symbol); sort để bảng /stats và CSV ổn định bất kể thứ tự Promise.all

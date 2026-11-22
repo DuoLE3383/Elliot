@@ -4,7 +4,7 @@
 //
 // Thiết kế:
 //   • NGUỒN HỌC = bảng AutoTrade (sổ B Elliott) TOÀN BỘ lệnh đã đóng — mỗi lệnh
-//     đã lưu auc/acc/score LÚC VÀO LỆNH (engine ghi từ đời đầu) + pnlPct (ROE
+//     đã lưu auc/acc/score LÚC VÀO LỆNH (engine ghi từ đời đầu) + pnlPct (ROI
 //     đòn bẩy, đã trừ phí). Học từ KẾT QUẢ THẬT của chính session, không phải
 //     từ setpoint tay.
 //   • LUẬT (break-even bands, thuần số không LLM):
@@ -72,7 +72,7 @@ export interface DqfSession {
   n: number;
   wr: number;
   payoff: number;
-  /** expectancy % ROE / lệnh (TB pnlPct) — cùng công thức tune-2 */
+  /** expectancy % ROI / lệnh (TB pnlPct) — cùng công thức tune-2 */
   exp: number;
   net: number;
 }

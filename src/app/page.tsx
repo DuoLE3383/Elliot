@@ -487,7 +487,7 @@ export default function Home() {
   // (tính Ở SERVER cùng engine, cùng logic)
   const gateInfo = view?.gate ?? { long: true, short: true, sma: null as number | null };
 
-  // unrealized ROE % of the open position (price move × leverage)
+  // unrealized ROI % of the open position (price move × leverage)
   const openPnl = useMemo(() => {
     const p = view?.open;
     if (!p || !lastClose) return undefined;

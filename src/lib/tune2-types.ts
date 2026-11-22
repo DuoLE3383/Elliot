@@ -10,12 +10,12 @@ export const TUNE2_MIN_N = 5;
 
 export interface Tune2Stats {
   n: number;
-  wr: number; // % (roe > 0)
-  avgWin: number; // % ROE TB lệnh thắng
-  avgLoss: number; // % ROE TB lệnh thua (số ÂM)
+  wr: number; // % (roi > 0)
+  avgWin: number; // % ROI TB lệnh thắng
+  avgLoss: number; // % ROI TB lệnh thua (số ÂM)
   payoff: number; // |avgWin / avgLoss|
-  expectancy: number; // % ROE TB/lệnh = netRoe / n
-  netRoe: number; // % ROE cộng dồn
+  expectancy: number; // % ROI TB/lệnh = netRoi / n
+  netRoi: number; // % ROI cộng dồn
 }
 
 export interface Tune2Extra {

@@ -4,17 +4,17 @@
 // bucket by bucket (calibration)". Thư viện THUẦN (không DB, không fs) để test
 // đối chứng tay được; scripts/stats-tf.mts nạp DB thật rồi gọi.
 //
-// QUAN TRỌNG — ROE GROSS TÍNH LẠI TỪ GIÁ, không đọc pnlPct lưu trong DB:
+// QUAN TRỌNG — ROI GROSS TÍNH LẠI TỪ GIÁ, không đọc pnlPct lưu trong DB:
 // lệnh đóng TRƯỚC 0.2.77 lưu pnlPct GROSS (chưa trừ phí), từ 0.2.77 là NET —
 // trộn hai đời số trong một bảng là tự hoa mắt. Gross = biến động giá × lev
 // tính từ entryPrice/exitPrice/side (đồng nhất mọi phiên bản); phí =
-// feeRoe(lev, 2) — ĐÚNG công thức settlement engine đang chạy (FEE_PCT đọc
+// feeRoi(lev, 2) — ĐÚNG công thức settlement engine đang chạy (FEE_PCT đọc
 // runtime pval); net = max(−100, gross − fee) — thanh lý chốt −100 (margin
 // sạch, phí không còn gì để ăn). Funding CHƯA được mô hình hoá — output ghi
 // rõ, không giả vờ có số.
 
 import { INTERVALS } from "./types";
-import { feeRoe } from "./params";
+import { feeRoi } from "./params";
 
 /** Đầu vào tối giản của MỘT lệnh đã đóng — map thẳng từ AutoTrade DB row. */
 export interface TfTradeRow {
@@ -33,11 +33,11 @@ export interface TfTradeRow {
   exitTime: Date | null;
 }
 
-/** ROE phân rã của một lệnh: gross (giá) / fee (2 bên taker) / net. */
-export interface TfRowRoe {
-  /** biến động giá × leverage, % ROE (thanh lý kẹp −100) */
+/** ROI phân rã của một lệnh: gross (giá) / fee (2 bên taker) / net. */
+export interface TfRowRoi {
+  /** biến động giá × leverage, % ROI (thanh lý kẹp −100) */
   gross: number;
-  /** phí round-trip 2 bên, % ROE (dương — số bị trừ) */
+  /** phí round-trip 2 bên, % ROI (dương — số bị trừ) */
   fee: number;
   /** gross − fee, sàn −100 */
   net: number;
@@ -47,8 +47,8 @@ export interface TfRowRoe {
 
 const r2 = (x: number): number => Math.round(x * 100) / 100;
 
-/** Phân rã ROE một lệnh từ GIÁ (version-independent) — xem header file. */
-export function rowRoe(r: Pick<TfTradeRow, "side" | "entryPrice" | "exitPrice" | "leverage">): TfRowRoe {
+/** Phân rã ROI một lệnh từ GIÁ (version-independent) — xem header file. */
+export function rowRoi(r: Pick<TfTradeRow, "side" | "entryPrice" | "exitPrice" | "leverage">): TfRowRoi {
   const lev = r.leverage > 0 ? r.leverage : 1;
   if (!(r.entryPrice > 0) || r.exitPrice == null || !(r.exitPrice > 0)) {
     return { gross: 0, fee: 0, net: 0, isLiq: false }; // thiếu giá — không đoán mò
@@ -61,7 +61,7 @@ export function rowRoe(r: Pick<TfTradeRow, "side" | "entryPrice" | "exitPrice" |
   const adverse = -move;
   const isLiq = lev > 1 && adverse >= 100 / lev - 1e-9;
   const gross = isLiq ? -100 : move * lev;
-  const fee = feeRoe(lev, 2);
+  const fee = feeRoi(lev, 2);
   const net = Math.max(-100, gross - fee);
   return { gross: r2(gross), fee: r2(fee), net: r2(net), isLiq };
 }
@@ -74,13 +74,13 @@ export interface TfStat {
   /** số lệnh net > 0 (sau phí) */
   wins: number;
   winRate: number;
-  /** Σ gross ROE % */
-  grossRoe: number;
-  /** Σ phí ROE % (dương) */
-  feeRoe: number;
-  /** Σ net ROE % */
-  netRoe: number;
-  /** net ROE trung bình mỗi lệnh */
+  /** Σ gross ROI % */
+  grossRoi: number;
+  /** Σ phí ROI % (dương) */
+  feeRoi: number;
+  /** Σ net ROI % */
+  netRoi: number;
+  /** net ROI trung bình mỗi lệnh */
   avgNet: number;
   /** đòn bẩy trung bình */
   avgLev: number;
@@ -90,9 +90,9 @@ export interface TfStat {
   avgHoldMin: number | null;
   /** đếm theo exitKind (tp | sl | flip | trail | manual) */
   exits: Record<string, number>;
-  /** Σ net ROE riêng lệnh FLIP — theo dõi chỗ chảy máu */
+  /** Σ net ROI riêng lệnh FLIP — theo dõi chỗ chảy máu */
   flipNet: number;
-  /** equity chain (nếu muốn quy ROE → % vốn: mỗi lệnh × stakePct) */
+  /** equity chain (nếu muốn quy ROI → % vốn: mỗi lệnh × stakePct) */
   netEquityPct: number;
 }
 
@@ -111,11 +111,11 @@ function aggregate(interval: string, list: TfTradeRow[]): TfStat {
   let flipNet = 0;
   let equity = 0;
   for (const r of list) {
-    const roe = rowRoe(r);
-    gross += roe.gross;
-    fee += roe.fee;
-    net += roe.net;
-    if (roe.net > 0) wins++;
+    const roi = rowRoi(r);
+    gross += roi.gross;
+    fee += roi.fee;
+    net += roi.net;
+    if (roi.net > 0) wins++;
     levSum += r.leverage > 0 ? r.leverage : 1;
     if (r.stakePct != null) {
       stakeSum += r.stakePct;
@@ -130,8 +130,8 @@ function aggregate(interval: string, list: TfTradeRow[]): TfStat {
     }
     const k = r.exitKind ?? "other";
     exits[k] = (exits[k] ?? 0) + 1;
-    if (k === "flip") flipNet += roe.net;
-    equity += (roe.net * (r.stakePct ?? 0)) / 100;
+    if (k === "flip") flipNet += roi.net;
+    equity += (roi.net * (r.stakePct ?? 0)) / 100;
   }
   const n = list.length;
   return {
@@ -139,9 +139,9 @@ function aggregate(interval: string, list: TfTradeRow[]): TfStat {
     n,
     wins,
     winRate: Math.round((wins / n) * 1000) / 10,
-    grossRoe: r2(gross),
-    feeRoe: r2(fee),
-    netRoe: r2(net),
+    grossRoi: r2(gross),
+    feeRoi: r2(fee),
+    netRoi: r2(net),
     avgNet: r2(net / n),
     avgLev: r2(levSum / n),
     avgStake: stakeN > 0 ? r2(stakeSum / stakeN) : 0,
@@ -194,7 +194,7 @@ export const CAL_EDGES = [0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 1.01] as const;
 export function calibrationBuckets(rows: TfTradeRow[]): CalBucket[] {
   const pts = rows
     .filter((r) => r.prob != null && r.exitPrice != null)
-    .map((r) => ({ p: r.side === "SHORT" ? 1 - (r.prob as number) : (r.prob as number), win: rowRoe(r).net > 0 }))
+    .map((r) => ({ p: r.side === "SHORT" ? 1 - (r.prob as number) : (r.prob as number), win: rowRoi(r).net > 0 }))
     .filter((x) => x.p > 0.5); // dưới 0.5 = model tự nói ngược phía — không bucket
   const out: CalBucket[] = [];
   for (let i = 0; i < CAL_EDGES.length - 1; i++) {
@@ -225,9 +225,9 @@ export function tfTotal(rows: TfTradeRow[]): TfStat {
       n: 0,
       wins: 0,
       winRate: 0,
-      grossRoe: 0,
-      feeRoe: 0,
-      netRoe: 0,
+      grossRoi: 0,
+      feeRoi: 0,
+      netRoi: 0,
       avgNet: 0,
       avgLev: 0,
       avgStake: 0,

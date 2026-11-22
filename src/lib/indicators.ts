@@ -164,7 +164,7 @@ export function atrLevelsAtEntry(
 }
 
 // ─── SL/TP ĐỘNG — pair × time × volume (0.2.74) ──────────────────────────────
-// "ROE is dynamic and calculated by pair / time / volume .. not use hard
+// "ROI is dynamic and calculated by pair / time / volume .. not use hard
 // setting" — khoảng cách SL/TP không còn là số cứng hay ATR thuần: nó là hàm
 // của CHÍNH pair, THỜI ĐIỂM vào lệnh và VOLUME thật, đo trên klines đã đóng:
 //
@@ -186,7 +186,7 @@ export function atrLevelsAtEntry(
 // trường trung tính (heatMul = volMul = 1) công thức suy biến ĐÚNG bằng
 // atrLevelsAtEntry cũ — mode "atr" 0.2.73 là trường hợp riêng của "dyn".
 // Leverage KHÔNG nhân ở đây: levNormScale + mui thanh khoản (0.2.72) áp ở
-// engine sau calculator, giữ ROE-at-SL độc lập đòn bẩy. Pure function — engine
+// engine sau calculator, giữ ROI-at-SL độc lập đòn bẩy. Pure function — engine
 // (entry + flip) gọi tại thời điểm mở lệnh; fail-open trả null khi thiếu nến.
 export interface DynLevels {
   slPct: number;

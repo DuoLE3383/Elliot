@@ -4,6 +4,65 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AutoPositions } from "./auto-panel-positions";
+import { OpenPositionsModal, type OpenPositionItem } from "./open-positions-modal";
+
+// Launcher riêng cho modal Gemini — tự giữ state, không cần chèn useState vào AutoPanel
+function OpenPositionsModalLauncher(props: any) {
+  const { opens, tickers, capitalNow, roiOf, closeOpen, closeNow } = props;
+  const modalPositions: OpenPositionItem[] = (opens ?? []).map((o: any) => {
+    const tk: any = (tickers as any)?.[o.symbol] ?? (tickers as any)?.[String(o.symbol ?? "").replace("USDT", "")] ?? (tickers as any)?.[String(o.symbol ?? "").replace("USDT", "") + "USDT"];
+    const mark = Number(tk?.price ?? tk?.mark ?? tk?.last ?? tk?.close ?? tk?.markPrice ?? o.entryPrice ?? 0);
+    const entry = Number(o.entryPrice ?? 0);
+    const capital = Number(o.capitalBefore ?? capitalNow ?? 1000);
+    const margin = (capital * Number(o.stakePct ?? 10)) / 100;
+    const side = String(o.side ?? "").toUpperCase();
+    const slPct = Number(o.slPct ?? 0);
+    const tpPct = Number(o.tpPct ?? 0);
+    const slPriceV = side === "LONG" ? entry * (1 - slPct / 100) : entry * (1 + slPct / 100);
+    const tpPriceV = side === "LONG" ? entry * (1 + tpPct / 100) : entry * (1 - tpPct / 100);
+    let roi = 0;
+    try { roi = roiOf ? Number((roiOf as any)(o, mark) ?? 0) : 0; } catch { roi = 0; }
+    if (!roi && entry > 0) {
+      const mv = side === "LONG" ? (mark - entry) / entry : (entry - mark) / entry;
+      roi = mv * 100 * Number(o.leverage ?? 1);
+    }
+    return {
+      id: o.id,
+      symbol: o.symbol,
+      side: o.side,
+      timeframe: o.interval,
+      ageH: (Date.now() - new Date(o.openedAt ?? o.entryTime ?? Date.now()).getTime()) / 3600000,
+      entryPrice: entry,
+      markPrice: mark,
+      pnlUsd: (margin * roi) / 100,
+      roi: roi,
+      slPrice: slPriceV,
+      tpPrice: tpPriceV,
+      distSlPct: entry > 0 ? (Math.abs(slPriceV - mark) / entry) * 100 : 0,
+      distTpPct: entry > 0 ? (Math.abs(tpPriceV - mark) / entry) * 100 : 0,
+      marginUsd: margin,
+      sizeUsd: margin * Number(o.leverage ?? 1),
+      leverage: o.leverage,
+      liqPrice: o.liqPrice ?? null,
+      trailText: o.trailText ?? undefined,
+    };
+  });
+  return (
+    <OpenPositionsModal
+      inline
+      open={true}
+      positions={modalPositions}
+      onClose={() => {}}
+      onClosePosition={(pos) => {
+        try {
+          if (closeOpen) (closeOpen as any)(pos.id);
+          else if (closeNow) (closeNow as any)(pos.id);
+        } catch {}
+      }}
+    />
+  );
+}
+
 import { AutoHistory } from "./auto-panel-history";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -16,7 +75,7 @@ import {
   pushAutoStats,
   resetAutoCapital,
   RISK_CHOICES,
-  roeOf,
+  roiOf,
   RUNNER_SHARE_CHOICES,
   sendTelegram,
   SL_CONFIRM_CHOICES,
@@ -34,7 +93,7 @@ import {
 } from "@/lib/autotrade";
 import { fmtPrice, t, type Lang } from "@/lib/i18n";
 import { AGENT_META, AGENT_PRESETS } from "@/lib/agent-presets";
-import { EV_GATE_MIN, feeRoe, SHORT_PROB_MIN } from "@/lib/params";
+import { EV_GATE_MIN, feeRoi, SHORT_PROB_MIN } from "@/lib/params";
 import { MAX_LEVERAGE, type EngineSettings, type Ticker } from "@/lib/types";
 import { INTERVALS } from "@/lib/types";
 import type { UniverseRow } from "@/lib/universe";
@@ -565,7 +624,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   };
 
   /** RÀ SỔ DRY-RUN (0.2.87) — repair=false: chỉ báo cáo lệch; repair=true:
-   *  server tính lại ROE mọi lệnh closed theo công thức hiện hành + chạy lại
+   *  server tính lại ROI mọi lệnh closed theo công thức hiện hành + chạy lại
    *  chuỗi vốn. Xong → refreshAuto() để KPI/capital vẽ lại số đã sửa. */
   const doAudit = async (repair: boolean) => {
     if (auditBusy) return;
@@ -624,7 +683,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
       why.push(`SHORT ${(1 - r.prob).toFixed(2)}<${SHORT_PROB_MIN}`);
     if (leverage > 0 && EV_GATE_MIN > -100) {
       const pWin = r.bias === "SHORT" ? 1 - r.prob : r.prob;
-      const ev = pWin * r.tpPct * leverage - (1 - pWin) * r.slPct * leverage - feeRoe(leverage);
+      const ev = pWin * r.tpPct * leverage - (1 - pWin) * r.slPct * leverage - feeRoi(leverage);
       if (ev < EV_GATE_MIN) why.push(`EV ${ev.toFixed(2)}%<${EV_GATE_MIN}%`);
     }
     return why.length ? why.join(" · ") : null;
@@ -846,6 +905,76 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                     );
                   })}
                 </div>
+                {(() => {
+                  const tot = (opens ?? []).reduce((acc: any, o: any) => {
+                    const tk: any = (tickers as any)?.[o.symbol] ?? (tickers as any)?.[String(o.symbol ?? "").replace("USDT", "")] ?? (tickers as any)?.[String(o.symbol ?? "").replace("USDT", "") + "USDT"];
+                    const mark = Number(tk?.lastPrice ?? tk?.price ?? tk?.markPrice ?? tk?.mark ?? tk?.last ?? tk?.close ?? o.entryPrice ?? 0);
+                    // Peak: gia cao nhat (LONG) / thap nhat (SHORT) ke tu Entry - Runner trail tu day
+                    const peakRaw = (o as any).peakPrice ?? (o as any).peak ?? (o as any).maxPrice ?? (o as any).runnerPeak ?? mark;
+                    const peak = Number(peakRaw ?? mark);
+                    const peakRoi = o.entryPrice && peak ? (String(o.side ?? "").toUpperCase() === "SHORT" ? (o.entryPrice - peak) / o.entryPrice : (peak - o.entryPrice) / o.entryPrice) * 100 * Number((o as any).leverage ?? 1) : 0;
+                    const entry = Number(o.entryPrice ?? 0);
+                    const lev = Number(o.leverage ?? leverage ?? 1);
+                    const mv = entry > 0 ? (String(o.side ?? "").toUpperCase() === "LONG" ? (mark - entry) / entry : (entry - mark) / entry) : 0;
+                    const roi = mv * 100 * lev;
+                    const cap = Number(o.capitalBefore ?? capitalNow ?? 1000);
+                    const margin = (cap * Number(o.stakePct ?? 10)) / 100;
+                    const size = margin * lev;
+                    const pnl = (margin * roi) / 100;
+                    return { entry: acc.entry + margin, margin: acc.margin + margin, pnl: acc.pnl + pnl };
+                  }, { entry: 0, margin: 0, pnl: 0 });
+                  const pct = tot.margin > 0 ? (tot.pnl / tot.margin) * 100 : 0;
+                  const up = tot.pnl >= 0;
+                  return (
+                    <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-zinc-300">Total Open Positions ({(opens ?? []).length})</span>
+                        <span className="font-mono text-xs font-bold text-zinc-100">{up ? "+" : ""}${tot.pnl.toFixed(2)}</span>
+                      </div>
+                      {(() => {
+                          const by: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
+                          for (const o of (opens ?? [])) {
+                            const bk = String((o as any).book ?? (o as any).bookId ?? "B").toUpperCase().replace("BOOK", "").trim() || "B";
+                            const key = ["A","B","C","D"].includes(bk) ? bk : "B";
+                            const tk2: any = (tickers as any)?.[o.symbol] ?? (tickers as any)?.[String(o.symbol ?? "").replace("USDT", "")] ?? (tickers as any)?.[String(o.symbol ?? "").replace("USDT", "") + "USDT"];
+                            const mark2 = Number(tk2?.lastPrice ?? tk2?.price ?? tk2?.markPrice ?? tk2?.mark ?? tk2?.last ?? tk2?.close ?? tk2?.bidPrice ?? tk2?.askPrice ?? o.entryPrice ?? 0);
+                            const cap2 = Number((o as any).capitalBefore ?? (o as any).entryCapital ?? capitalNow ?? 1000);
+                            const margin2 = (cap2 * Number((o as any).stakePct ?? 10)) / 100;
+                            const roi2 = o.entryPrice && mark2 ? (String(o.side ?? "").toUpperCase() === "SHORT" ? (o.entryPrice - mark2) / o.entryPrice : (mark2 - o.entryPrice) / o.entryPrice) * 100 * Number((o as any).leverage ?? 1) : 0;
+                            by[key] += (margin2 * roi2) / 100;
+                          }
+                          const TOTAL_CAP = 2000;
+                          const totalPnl = (tot as any).pnl ?? 0;
+                          const fmt2 = (v: number) => `${v >= 0 ? "+" : ""}$${v.toFixed(2)}`;
+                          return (
+                            <div className="mt-2 space-y-1">
+                              <div className="flex items-center justify-between rounded-lg bg-zinc-900 px-2 py-1.5 text-xs">
+                                <span className="text-zinc-500">TOTAL (2 sổ)</span>
+                                <span className="font-mono font-bold text-white">{fmt2(TOTAL_CAP)} <span className="text-zinc-500">· Vốn sau {fmt2(TOTAL_CAP + totalPnl)}</span></span>
+                              </div>
+                              <div className="rounded-lg bg-zinc-900 px-2 py-1.5 text-center text-xs font-mono text-zinc-300">
+                                PNL {fmt2(totalPnl)} <span className="text-zinc-500">(</span>{fmt2(by.A)}A <span className="text-zinc-500">-</span> {fmt2(by.B)}B <span className="text-zinc-500">-</span> {fmt2(by.C)}C <span className="text-zinc-500">-</span> {fmt2(by.D)}D<span className="text-zinc-500">)</span>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                        <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                        <div className="rounded-lg bg-zinc-900 p-2">
+                          <div className="text-xs text-zinc-500">Total Entry (Equity)</div>
+                          <div className="font-mono text-sm font-bold text-white">${tot.entry.toFixed(2)}</div>
+                        </div>
+                        <div className="rounded-lg bg-zinc-900 p-2">
+                          <div className="text-xs text-zinc-500">% PNL</div>
+                          <div className={`font-mono text-sm font-bold ${up ? "text-emerald-400" : "text-rose-400"}`}>{up ? "+" : ""}{pct.toFixed(2)}%</div>
+                        </div>
+                        <div className="rounded-lg bg-zinc-900 p-2">
+                          <div className="text-xs text-zinc-500">$ PNL</div>
+                          <div className={`font-mono text-sm font-bold ${up ? "text-emerald-400" : "text-rose-400"}`}>{up ? "+" : ""}${tot.pnl.toFixed(2)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -880,7 +1009,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                     </button>
                   ))}
                 </div>
-                {/* Leverage — SL/TP là % GIÁ — đòn bẩy chỉ nhân ROE (levTip). */}
+                {/* Leverage — SL/TP là % GIÁ — đòn bẩy chỉ nhân ROI (levTip). */}
                 <label
                   className="flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-500"
                   title={t(lang, "auto.cfg.levTip")}
@@ -1447,7 +1576,8 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
 
           </CardContent>
         </Card>
-        <AutoPositions opens={opens} open={open} tickers={tickers} cfg={cfg} leverage={leverage} capitalNow={capitalNow} lang={lang} t={t} closeNow={closeNow} closeOpen={typeof closeOpen !== 'undefined' ? closeOpen : undefined} fmtPrice={fmtPrice} slPrice={slPrice} tpPrice={tpPrice} trailStopPrice={trailStopPrice} trailMovePct={trailMovePct} engineTrail={engineTrail} roeOf={typeof roeOf !== 'undefined' ? roeOf : undefined} rows={typeof rows !== 'undefined' ? rows : undefined} closedHist={closedHist} />
+        <OpenPositionsModalLauncher opens={opens} tickers={tickers} capitalNow={capitalNow} roiOf={typeof roiOf !== 'undefined' ? roiOf : undefined} closeOpen={typeof closeOpen !== 'undefined' ? closeOpen : undefined} closeNow={closeNow} />
+        {/* List cu da thay bang Open Positions modal — cho gon */}
       </div>
       <AutoHistory auto={auto} capitalNow={capitalNow} cfg={cfg} lang={lang} t={t} auditRes={auditRes} auditBusy={auditBusy} doAudit={doAudit} doResetCapital={doResetCapital} resetOpen={resetOpen} setResetOpen={setResetOpen} resetAmount={resetAmount} setResetAmount={setResetAmount} resetBusy={resetBusy} closedHist={closedHist} sideClass={sideClass} onPickPair={onPickPair} NOISE_BAND={NOISE_BAND} ConfluenceTable={typeof ConfluenceTable !== 'undefined' ? ConfluenceTable : undefined} best={typeof best !== 'undefined' ? best : undefined} flipped={typeof flipped !== 'undefined' ? flipped : undefined} rows={typeof rows !== 'undefined' ? rows : undefined} confluenceMap={typeof confluenceMap !== 'undefined' ? confluenceMap : undefined} TOP_N={typeof TOP_N !== 'undefined' ? TOP_N : undefined} ef={typeof ef !== 'undefined' ? ef : undefined} blockedWhy={typeof blockedWhy !== 'undefined' ? blockedWhy : undefined} probShown={typeof probShown !== 'undefined' ? probShown : undefined} scanning={typeof scanning !== 'undefined' ? scanning : undefined} trainHist={typeof trainHist !== 'undefined' ? trainHist : undefined} bcastSnap={typeof bcastSnap !== 'undefined' ? bcastSnap : undefined} ListChecks={typeof ListChecks !== 'undefined' ? ListChecks : undefined} />
     </>

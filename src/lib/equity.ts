@@ -1,6 +1,6 @@
 // ─── Equity curve (Đường cong vốn) ───────────────────────────────────────────
 //
-// Cumulative ROE over CLOSED papers in exit order. The curve starts at 0
+// Cumulative ROI over CLOSED papers in exit order. The curve starts at 0
 // before the first trade, so "đỉnh/đáy" (peak/trough) always include the flat
 // start — matching how a paper-account equity line behaves.
 
@@ -9,7 +9,7 @@ import type { Paper } from "./types";
 export interface EquityPoint {
   /** open time (ms) of the candle that closed the trade */
   time: number;
-  /** cumulative ROE % after this trade */
+  /** cumulative ROI % after this trade */
   cum: number;
   /** this trade was a winner */
   win: boolean;
@@ -19,11 +19,11 @@ export interface EquityPoint {
 
 export interface EquityResult {
   points: EquityPoint[];
-  /** max cumulative ROE (≥ 0 — curve starts flat) */
+  /** max cumulative ROI (≥ 0 — curve starts flat) */
   peak: number;
-  /** min cumulative ROE (≤ 0) */
+  /** min cumulative ROI (≤ 0) */
   trough: number;
-  /** final cumulative ROE (0 when no closed trades) */
+  /** final cumulative ROI (0 when no closed trades) */
   last: number;
   /** closed trades plotted */
   count: number;

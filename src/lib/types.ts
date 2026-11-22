@@ -56,7 +56,7 @@ export interface Paper {
   leverage: number;
   /** signed % PRICE move: LONG (exit-entry)/entry, SHORT (entry-exit)/entry */
   pricePnlPct?: number;
-  /** signed % ROE = price move × leverage; liquidation = -100 */
+  /** signed % ROI = price move × leverage; liquidation = -100 */
   pnlPct?: number;
   /** true when the position was liquidated (~100%/leverage adverse move) */
   liquidated?: boolean;
@@ -79,7 +79,7 @@ export interface EngineSettings {
   atrPeriod: number;
   /** SMA gate period */
   smaPeriod: number;
-  /** leverage multiplier (1 = spot); ROE = price move × leverage */
+  /** leverage multiplier (1 = spot); ROI = price move × leverage */
   leverage: number;
   /** SMA trend gate — off = every confirmed signal trades immediately */
   smaFilter: boolean;

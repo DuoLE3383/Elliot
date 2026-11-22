@@ -38,7 +38,7 @@ export function AutoHistory(props: any) {
             <p className="whitespace-normal leading-snug text-[9px] text-zinc-600">{t(lang, "auto.capital.start", { n: auto?.walletCapital ?? cfg.capital })}</p>
           </div>
           <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
-            <p className="whitespace-normal leading-snug text-[10px] uppercase tracking-wide text-zinc-500">Net ROE</p>
+            <p className="whitespace-normal leading-snug text-[10px] uppercase tracking-wide text-zinc-500">Net ROI</p>
             <p className={`mt-0.5 whitespace-normal leading-snug font-mono text-[16px] font-bold ${(auto?.stats.netPnlPct ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
               {(auto?.stats.netPnlPct ?? 0) >= 0 ? "+" : ""}
               {(auto?.stats.netPnlPct ?? 0).toFixed(2)}%
@@ -248,8 +248,8 @@ export function AutoHistory(props: any) {
         <p className="border-t border-zinc-800 pt-2 text-[10px] leading-snug text-zinc-600">{t(lang, "auto.noiseBand", { band: NOISE_BAND })}</p>
 
         {/* RÀ SỔ + WIN RATE THEO PHÍA (0.2.87) — lịch sử dry-run trộn nhiều phiên
-            bản công thức (trước 0.2.77 gross ROE, DCA ghi entry trung bình cộng
-            sai) → WR phía SHORT/LONG có thể sai. Nút "Rà sổ" tính lại ROE mọi
+            bản công thức (trước 0.2.77 gross ROI, DCA ghi entry trung bình cộng
+            sai) → WR phía SHORT/LONG có thể sai. Nút "Rà sổ" tính lại ROI mọi
             lệnh closed theo công thức hiện hành, thống kê LONG/SHORT tách biệt
             trước/sau; "Sửa sổ" ghi số đúng + chạy lại chuỗi vốn. */}
         <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">

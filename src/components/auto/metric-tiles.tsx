@@ -1,10 +1,10 @@
 "use client";
 
 // ─── MetricTiles (v0.3.12) — dải 4 chỉ số đầu trang /auto redesign ────────────
-// Theo mockup: Total Equity · Net ROE (Realized) · Win Rate (Closed) ·
+// Theo mockup: Total Equity · Net ROI (Realized) · Win Rate (Closed) ·
 // Total Trades — mỗi ô icon màu + số lớn + sparkline SVG.
 // Số THẬT: LIVE bật → sổ live (/api/arena live.*); không → gộp cả 4 sổ
-// dry-run A+B+C (ROE = (final-start)/start tren tong von, WR = theo tong lenh dong).
+// dry-run A+B+C+D (ROI = (final-start)/start tren tong von, WR = theo tong lenh dong).
 // Sparkline: đường vốn sổ tương ứng (bEquity / aEquity / cEquity), đủ 2 điểm
 // mới vẽ — thiếu thì vẽ đường nền phẳng cho đúng khung mockup.
 
@@ -112,11 +112,11 @@ export function MetricTiles({ data, lang }: { data: TilesData; lang: "vi" | "en"
     ? Math.round(((live?.wr ?? 0) / 100) * (live?.nClosed ?? 0))
     : (books?.reduce((s, x) => s + x.wins, 0) ?? 0);
   const wr = nClosed > 0 ? (wins / nClosed) * 100 : 0;
-  const roeStart = liveOn ? (live?.balanceBefore ?? 0) : (books?.reduce((sum, x) => sum + (x.startCapital ?? 0), 0) ?? 0);
-  const roeFinal = liveOn ? (live?.balanceAfter ?? 0) : (books?.reduce((sum, x) => sum + (x.finalCapital ?? x.startCapital ?? 0), 0) ?? 0);
-  const netRoe = roeStart > 0 && roeFinal > 0 ? ((roeFinal - roeStart) / roeStart) * 100 : 0;
+  const roiStart = liveOn ? (live?.balanceBefore ?? 0) : (books?.reduce((sum, x) => sum + (x.startCapital ?? 0), 0) ?? 0);
+  const roiFinal = liveOn ? (live?.balanceAfter ?? 0) : (books?.reduce((sum, x) => sum + (x.finalCapital ?? x.startCapital ?? 0), 0) ?? 0);
+  const netRoi = roiStart > 0 && roiFinal > 0 ? ((roiFinal - roiStart) / roiStart) * 100 : 0;
 
-  const roeClass = netRoe > 0 ? "text-emerald-400" : netRoe < 0 ? "text-rose-400" : "text-white";
+  const roiClass = netRoi > 0 ? "text-emerald-400" : netRoi < 0 ? "text-rose-400" : "text-white";
   const totalStart = liveOn ? (live?.balanceBefore ?? 0) : (books?.reduce((sum, x) => sum + (x.startCapital ?? 0), 0) ?? 0);
   const totalFinal = liveOn ? (live?.balanceAfter ?? 0) : (books?.reduce((sum, x) => sum + (x.finalCapital ?? x.startCapital ?? 0), 0) ?? 0);
   const totalPnl = totalStart > 0 && totalFinal > 0 ? totalFinal - totalStart : 0;
@@ -148,9 +148,9 @@ export function MetricTiles({ data, lang }: { data: TilesData; lang: "vi" | "en"
         sub={equitySub}
       />
       <Tile
-        label="Net ROE (Realized)"
-        value={nClosed + nOpen > 0 ? `${netRoe >= 0 ? "+" : ""}${netRoe.toFixed(2)}%` : "—"}
-        valueClass={roeClass}
+        label="Net ROI (Realized)"
+        value={nClosed + nOpen > 0 ? `${netRoi >= 0 ? "+" : ""}${netRoi.toFixed(2)}%` : "—"}
+        valueClass={roiClass}
         icon={
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
             <path d="M4 17 L9 11 L13 14 L20 6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
@@ -167,7 +167,7 @@ export function MetricTiles({ data, lang }: { data: TilesData; lang: "vi" | "en"
         icon="$"
         iconClass="border-amber-700/50 bg-amber-950/40 text-amber-300"
         spark={<Spark points={eqB.length >= 2 ? eqB.slice(-40) : []} stroke="#eab308" fill="#eab308" />}
-        sub={liveOn ? "live balance diff" : "sum(final - start) A+B+C"}
+        sub={liveOn ? "live balance diff" : "sum(final - start) A+B+C+D"}
       />
       <Tile
         label="Net PNL"

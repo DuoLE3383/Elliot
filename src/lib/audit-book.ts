@@ -1,7 +1,7 @@
-// ─── Audit-book — RÀ LẠI SỔ DRY-RUN, tính lại ROE từng lệnh đã đóng ───────────
+// ─── Audit-book — RÀ LẠI SỔ DRY-RUN, tính lại ROI từng lệnh đã đóng ───────────
 //
 // Bối cảnh (0.2.87): lịch sử dry-run là TÍCH của nhiều phiên bản công thức —
-// trước 0.2.77 ROE gross (không phí), thanh lý có lúc không ép −100, DCA ghi
+// trước 0.2.77 ROI gross (không phí), thanh lý có lúc không ép −100, DCA ghi
 // entry bằng trung bình cộng (sai — bù cùng notional phải là trung bình điều
 // hoà, sửa cùng bản này). Sổ vì thế trộn lẫn các lệnh tính theo "luật cũ" với
 // lệnh tính theo "luật mới": thống kê win rate — nhất là phía SHORT, vốn hay
@@ -12,13 +12,13 @@
 // (entryPrice, exitPrice, leverage, exitKind) ĐÃ LƯU của từng lệnh, rồi:
 //   • audit  — liệt kê mọi dòng lệch (stored ≠ recomputed) + thống kê
 //              LONG/SHORT tách biệt trước & sau khi chuẩn hoá;
-//   • repair — ghi ROE đúng + TÍNH LẠI CHUỖI VỐN (capitalBefore/After chạy
-//              lại theo thời gian, stake% × ROE) — sửa một dòng mà không
+//   • repair — ghi ROI đúng + TÍNH LẠI CHUỖI VỐN (capitalBefore/After chạy
+//              lại theo thời gian, stake% × ROI) — sửa một dòng mà không
 //              tái lập chuỗi vốn là sổ vẫn sai về equity.
 //
 // Thuần (không IO) — API route đọc DB rồi truyền vào; test chạy trực tiếp.
 
-import { feeRoe } from "./params";
+import { feeRoi } from "./params";
 import { combineClosePnl } from "./trade-mgmt";
 
 // ─── Kiểu đầu vào — struct tối thiểu, ăn khớp với AutoTradeRow ────────────────
@@ -69,16 +69,16 @@ export interface AuditReport {
   issues: AuditRowIssue[];
   /** thống kê theo phía — trước (sổ lưu) và sau (chuẩn hoá công thức hiện hành) */
   sides: { before: AuditSideStat[]; after: AuditSideStat[] };
-  /** tổng ROE toàn sổ: trước vs sau chuẩn hoá */
+  /** tổng ROI toàn sổ: trước vs sau chuẩn hoá */
   netBefore: number;
   netAfter: number;
 }
 
 // ─── Công thức chốt HIỆN HÀNH — một nguồn với closeTradeDirect / PATCH close ──
 // (entry/exit lấy TỪ DÒNG ĐÃ LƯU — audit không đoán lại giá vào/ra, chỉ tính
-// lại ROE đúng luật từ cùng cặp giá mà sổ ghi.)
+// lại ROI đúng luật từ cùng cặp giá mà sổ ghi.)
 
-/** ROE % kỳ vọng của một lệnh đã đóng theo công thức hiện hành (0.2.77+):
+/** ROI % kỳ vọng của một lệnh đã đóng theo công thức hiện hành (0.2.77+):
  *  move% × đòn bẩy − phí round-trip; thanh lý (di chuyển bất lợi chạm
  *  100/lev %) ép −100; không bao giờ dưới −100.
  *  0.2.88 — VÁ BUG ĐẢO DẤU: trước đây `adverse = -movePct` cho SHORT khiến
@@ -93,7 +93,7 @@ export function expectedPnlPctOf(row: Pick<AuditTradeRow, "side" | "entryPrice" 
   const lev = row.leverage;
   if (!entry || !exit || !(lev > 0)) return null;
   const movePct = row.side === "SHORT" ? ((entry - exit) / entry) * 100 : ((exit - entry) / entry) * 100;
-  let rem = Math.round((movePct * lev - feeRoe(lev)) * 100) / 100;
+  let rem = Math.round((movePct * lev - feeRoi(lev)) * 100) / 100;
   if (lev > 1 && movePct <= -(100 / lev)) rem = -100;
   else if (rem < -100) rem = -100;
   // FIX 0.3.x — lệnh Runner đã bank TP1: tổng = combine(p1, rem), không phải rem trần.
@@ -139,7 +139,7 @@ export function auditBook(trades: AuditTradeRow[]): AuditReport {
   };
 }
 
-/** Thống kê theo phía — `fixed` = false dùng ROE đang lưu, true dùng ROE chuẩn. */
+/** Thống kê theo phía — `fixed` = false dùng ROI đang lưu, true dùng ROI chuẩn. */
 function sideStats(trades: AuditTradeRow[], fixed: boolean): AuditSideStat[] {
   const out: AuditSideStat[] = [];
   for (const side of ["LONG", "SHORT"] as const) {
@@ -162,11 +162,11 @@ function sideStats(trades: AuditTradeRow[], fixed: boolean): AuditSideStat[] {
   return out;
 }
 
-// ─── Repair — sửa ROE + tái lập CHUỖI VỐN theo thời gian ─────────────────────
+// ─── Repair — sửa ROI + tái lập CHUỖI VỐN theo thời gian ─────────────────────
 
 export interface RepairUpdate {
   id: string;
-  /** ROE đã chuẩn hoá (chỉ xuất hiện khi khác số đang lưu) */
+  /** ROI đã chuẩn hoá (chỉ xuất hiện khi khác số đang lưu) */
   pnlPct?: number;
   capitalBefore?: number;
   capitalAfter?: number;
@@ -174,7 +174,7 @@ export interface RepairUpdate {
 
 export interface RepairPlan {
   updates: RepairUpdate[];
-  /** số dòng thực sự thay đổi ROE */
+  /** số dòng thực sự thay đổi ROI */
   pnlFixed: number;
   /** số dòng bị dán lại mốc vốn (chuỗi vốn chạy lại) */
   capitalRefixed: number;
@@ -183,9 +183,9 @@ export interface RepairPlan {
 }
 
 /**
- * Lập kế hoạch sửa toàn sổ: ROE closed → công thức hiện hành, rồi chuỗi vốn
+ * Lập kế hoạch sửa toàn sổ: ROI closed → công thức hiện hành, rồi chuỗi vốn
  * chạy lại theo createdAt tăng dần — capitalBefore kế thừa capitalAfter trước,
- * delta = capitalBefore × stake% × ROE% (đúng luật settlement), đáy 0.
+ * delta = capitalBefore × stake% × ROI% (đúng luật settlement), đáy 0.
  * Lệnh ĐANG MỞ giữ nguyên mọi thứ trừ capitalBefore (mốc vốn lúc mở = vốn
  * sau lệnh close liền trước). Lệnh đầu chuỗi dùng capitalBefore đang lưu làm
  * mốc neo (không đoán lại gốc).
@@ -223,7 +223,7 @@ export function repairBook(trades: AuditTradeRow[]): RepairPlan {
       capital = after;
       finalCapital = after;
     } else {
-      // lệnh mở (hoặc closed thiếu exitPrice — bỏ ROE, chỉ giữ chuỗi vốn)
+      // lệnh mở (hoặc closed thiếu exitPrice — bỏ ROI, chỉ giữ chuỗi vốn)
       if (capital != null && (t.capitalBefore == null || Math.abs((t.capitalBefore ?? 0) - capital) > 0.005)) {
         u.capitalBefore = round2(capital);
         capitalRefixed += 1;

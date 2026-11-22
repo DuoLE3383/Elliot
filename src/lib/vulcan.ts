@@ -1,8 +1,8 @@
 // vulcan.ts — CHIẾN LƯỢC A: port TypeScript của DonchianBreakout (VulcanTrader)
 // Nguồn: user_data/strategies/DonchianBreakout.py (thuonghoi3-stack/VulcanTrader)
 // Vai trò trong app: engine A chạy sổ dry-run riêng (bảng VulcanBook), đối trọng
-// với chiến lược Elliott hiện tại (sổ B, bảng AutoTrade). ROE/fee tính ĐỒNG
-// NHẤT theo công thức Elliot: roe = movePct × lev − FEE_PCT × lev × 2.
+// với chiến lược Elliott hiện tại (sổ B, bảng AutoTrade). ROI/fee tính ĐỒNG
+// NHẤT theo công thức Elliot: roi = movePct × lev − FEE_PCT × lev × 2.
 // Hai lớp chống ồn Thêm so với gốc (khai báo rõ, chỉnh được): cooldownBars
 // (nghỉ N nến sau MỌI lần thoát) và minHoldBars (tín hiệu thoát mid/rsi chỉ
 // áp dụng sau N nến — stop/ROI/trailing luôn active).
@@ -195,11 +195,11 @@ interface OpenPos {
   trailArmed: boolean;
 }
 
-function exitRoe(pos: OpenPos, exitPrice: number, p: VulcanParams): { movePct: number; roePct: number } {
+function exitRoi(pos: OpenPos, exitPrice: number, p: VulcanParams): { movePct: number; roePct: number } {
   const raw = pos.side === "LONG" ? (exitPrice - pos.entry) / pos.entry : (pos.entry - exitPrice) / pos.entry;
   const movePct = raw * 100;
-  const feeRoe = p.feePctSide * p.leverage * 2;
-  const roePct = Math.round((movePct * p.leverage - feeRoe) * 100) / 100;
+  const feeRoi = p.feePctSide * p.leverage * 2;
+  const roePct = Math.round((movePct * p.leverage - feeRoi) * 100) / 100;
   return { movePct: Math.round(movePct * 100) / 100, roePct };
 }
 
@@ -213,7 +213,7 @@ export function backtestDonchian(symbol: string, c: Candle[], params?: Partial<V
 
   const closePos = (i: number, price: number, reason: string) => {
     if (!pos) return;
-    const { movePct, roePct } = exitRoe(pos, price, p);
+    const { movePct, roePct } = exitRoi(pos, price, p);
     trades.push({
       symbol,
       side: pos.side,
@@ -297,14 +297,14 @@ export function summarize(trades: VulcanTrade[]): {
   avgWin: number;
   avgLoss: number;
   payoff: number;
-  netRoe: number;
+  netRoi: number;
   bySide: Array<{ side: string; n: number; wr: number; net: number }>;
 } {
   const wins = trades.filter((t) => t.roePct > 0);
   const losses = trades.filter((t) => t.roePct <= 0);
   const avgWin = wins.length ? wins.reduce((s, t) => s + t.roePct, 0) / wins.length : 0;
   const avgLoss = losses.length ? losses.reduce((s, t) => s + t.roePct, 0) / losses.length : 0;
-  const netRoe = trades.reduce((s, t) => s + t.roePct, 0);
+  const netRoi = trades.reduce((s, t) => s + t.roePct, 0);
   const bySide = (["LONG", "SHORT"] as const).map((side) => {
     const ts = trades.filter((t) => t.side === side);
     const w = ts.filter((t) => t.roePct > 0);
@@ -317,7 +317,7 @@ export function summarize(trades: VulcanTrade[]): {
     avgWin: Math.round(avgWin * 100) / 100,
     avgLoss: Math.round(avgLoss * 100) / 100,
     payoff: avgLoss !== 0 ? Math.abs(avgWin / avgLoss) : 0,
-    netRoe: Math.round(netRoe * 100) / 100,
+    netRoi: Math.round(netRoi * 100) / 100,
     bySide,
   };
 }

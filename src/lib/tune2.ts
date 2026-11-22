@@ -41,10 +41,10 @@ import {
   WYC_EXIT_SL_PCT,
   WYC_RPS120_MIN,
   WYC_RPS50_MIN,
-  feeRoe,
+  feeRoi,
   pval,
 } from "./params";
-import { statsFromRoes } from "./arena";
+import { statsFromRois } from "./arena";
 import type { BookId, Tune2Cur, Tune2Extra, Tune2File, Tune2Item, Tune2Stats } from "./tune2-types";
 
 // types + hằng dùng chung client ↔ server — MỘT nguồn ở tune2-types.ts
@@ -98,17 +98,17 @@ export function tune2CurrentWithEngine(): Record<BookId, Tune2Cur> {
   return cur;
 }
 
-// ── Đo từ DB — cùng nguồn số với /api/arena (statsFromRoes thuần) ────────────
+// ── Đo từ DB — cùng nguồn số với /api/arena (statsFromRois thuần) ────────────
 
-function toTune2Stats(s: ReturnType<typeof statsFromRoes>): Tune2Stats {
+function toTune2Stats(s: ReturnType<typeof statsFromRois>): Tune2Stats {
   return {
     n: s.nClosed,
     wr: s.wr,
     avgWin: s.avgWin,
     avgLoss: s.avgLoss,
     payoff: s.payoff,
-    expectancy: s.nClosed ? Math.round((s.netRoe / s.nClosed) * 100) / 100 : 0,
-    netRoe: s.netRoe,
+    expectancy: s.nClosed ? Math.round((s.netRoi / s.nClosed) * 100) / 100 : 0,
+    netRoi: s.netRoi,
   };
 }
 
@@ -128,15 +128,15 @@ export async function measureTune2Books(): Promise<{ books: Record<BookId, Tune2
   };
   out.a = await one(async () => {
     const rows = await db.vulcanBook.findMany({ where: { status: "closed" }, select: { side: true, roePct: true, capitalBefore: true, capitalAfter: true } });
-    return toTune2Stats(statsFromRoes(rows.map((r) => ({ side: r.side, roe: r.roePct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter }))));
+    return toTune2Stats(statsFromRois(rows.map((r) => ({ side: r.side, roi: r.roePct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter }))));
   });
   out.b = await one(async () => {
     const rows = await db.autoTrade.findMany({ where: { status: "closed" }, select: { side: true, pnlPct: true, capitalBefore: true, capitalAfter: true } });
-    return toTune2Stats(statsFromRoes(rows.map((r) => ({ side: r.side, roe: r.pnlPct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter }))));
+    return toTune2Stats(statsFromRois(rows.map((r) => ({ side: r.side, roi: r.pnlPct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter }))));
   });
   out.c = await one(async () => {
     const rows = await db.wyckoffBook.findMany({ where: { status: "closed" }, select: { side: true, pnlPct: true, capitalBefore: true, capitalAfter: true } });
-    return toTune2Stats(statsFromRoes(rows.map((r) => ({ side: r.side, roe: r.pnlPct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter }))));
+    return toTune2Stats(statsFromRois(rows.map((r) => ({ side: r.side, roi: r.pnlPct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter }))));
   });
   return { books: out, bLev };
 }
@@ -283,7 +283,7 @@ function argsOf(s: Tune2Stats, fee: number, from: number, to: number, extras: Tu
     aw: r2(s.avgWin),
     al: r2(Math.abs(s.avgLoss)),
     n: s.n,
-    net: r2(s.netRoe),
+    net: r2(s.netRoi),
     exp: r2(s.expectancy),
     fee: r2(fee),
     from,
@@ -299,7 +299,7 @@ function argsOf(s: Tune2Stats, fee: number, from: number, to: number, extras: Tu
 
 /**
  * Sinh đề xuất cho MỘT sổ theo ma trận luật — THUẦN (không DB/fs) để test.
- * fee = % ROE phí round-trip mỗi lệnh (feeRoe(lev)) — chỉ để trích vào lý do.
+ * fee = % ROI phí round-trip mỗi lệnh (feeRoi(lev)) — chỉ để trích vào lý do.
  */
 export function tune2ItemsForBook(book: BookId, s: Tune2Stats | null, cur: Tune2Cur, fee: number): Tune2Item[] {
   if (!s || s.n < TUNE2_MIN_N) return []; // chưa đủ dữ liệu → không phát ngôn
@@ -396,7 +396,7 @@ export function saveTune2File(f: Tune2File): void {
 export async function computeTune2File(): Promise<Tune2File> {
   const { books, bLev } = await measureTune2Books();
   const cur = tune2CurrentWithEngine();
-  const fee = (lev: number): number => r2(feeRoe(lev)); // % ROE round-trip
+  const fee = (lev: number): number => r2(feeRoi(lev)); // % ROI round-trip
   const fees: Record<BookId, number> = { a: fee(5), b: fee(bLev), c: fee(1), d: fee(3) }; // A lev5 · C lev1
   const items = ([ "a", "b", "c" ] as BookId[]).flatMap((book) => tune2ItemsForBook(book, books[book], cur[book], fees[book]));
   const file: Tune2File = { computedAt: new Date().toISOString(), books, items };

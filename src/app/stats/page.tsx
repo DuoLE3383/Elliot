@@ -364,6 +364,7 @@ export default function StatsPage() {
     flip: flow?.flip ?? 0,
     manual: flow?.manual ?? 0,
     open: flow?.open ?? null,
+    openPositions: (flow as any)?.openPositions ?? (flow?.open ? [flow.open] : []),
   };
 
   const stateBadge = (state: "ok" | "warn" | "na") =>
@@ -485,7 +486,7 @@ export default function StatsPage() {
       });
       ev.push(
         flow.open
-          ? { dot: "#f4525c", text: t(lang, "apm.ev.openpos", { sym: flow.open.symbol.replace("USDT", ""), side: flow.open.side, h: flow.open.ageH.toFixed(2) }), right: flow.open.roe != null ? `${flow.open.roe >= 0 ? "+" : ""}${flow.open.roe.toFixed(2)}%` : undefined }
+          ? { dot: "#f4525c", text: t(lang, "apm.ev.openpos", { sym: flow.open.symbol.replace("USDT", ""), side: flow.open.side, h: flow.open.ageH.toFixed(2) }), right: flow.open.roi != null ? `${flow.open.roi >= 0 ? "+" : ""}${flow.open.roi.toFixed(2)}%` : undefined }
           : { dot: "#8b8b94", text: t(lang, "apm.ev.flat"), dim: true },
       );
       ev.push({ dot: snap?.dqfOn ? LIME : "#8b8b94", text: snap?.dqfOn ? t(lang, "apm.ev.dqfOn") : t(lang, "apm.ev.dqfOff"), right: "DQF" });
@@ -621,20 +622,20 @@ export default function StatsPage() {
   );
   const netColumn = () => {
     const eq = flow?.equity ?? null;
-    const openRoe = flow?.open?.roe ?? null;
+    const openRoi = flow?.open?.roi ?? null;
     const wilson = flow?.wilson ?? 0;
     return (
       <div className="space-y-2">
         <NetCard label={t(lang, "apm.net.label")} value={eq != null ? `$${eq.toFixed(2)}` : "—"} sub={t(lang, "apm.net.startSub")} color={eq != null && eq >= 1000 ? LIME : "#e9e9ec"} />
-        <NetCard label={t(lang, "apm.net.netroe")} value={`${(flow?.netRoe ?? 0) >= 0 ? "+" : ""}${(flow?.netRoe ?? 0).toFixed(2)}%`} sub={`${fc.closedTrades} ${t(lang, "apm.net.closed").toLowerCase()}`} color={(flow?.netRoe ?? 0) >= 0 ? LIME : "#f4525c"} />
+        <NetCard label={t(lang, "apm.net.netroi")} value={`${(flow?.netRoi ?? 0) >= 0 ? "+" : ""}${(flow?.netRoi ?? 0).toFixed(2)}%`} sub={`${fc.closedTrades} ${t(lang, "apm.net.closed").toLowerCase()}`} color={(flow?.netRoi ?? 0) >= 0 ? LIME : "#f4525c"} />
         <NetCard label={t(lang, "apm.net.winrate")} value={`${(flow?.winRate ?? 0).toFixed(2)}%`} sub={t(lang, "apm.net.wilsonSub", { n: wilson.toFixed(2) })} />
         <NetCard label={t(lang, "apm.net.closed")} value={`${fc.closedTrades}`} sub={`${flow?.wins ?? 0} wins · ${fc.sl} SL`} />
-        <NetCard label={t(lang, "apm.net.avg")} value={`${(flow?.avgRoe ?? 0) >= 0 ? "+" : ""}${(flow?.avgRoe ?? 0).toFixed(2)}%`} color={(flow?.avgRoe ?? 0) >= 0 ? LIME : "#f4525c"} />
+        <NetCard label={t(lang, "apm.net.avg")} value={`${(flow?.avgRoi ?? 0) >= 0 ? "+" : ""}${(flow?.avgRoi ?? 0).toFixed(2)}%`} color={(flow?.avgRoi ?? 0) >= 0 ? LIME : "#f4525c"} />
         <NetCard
           label={t(lang, "apm.net.unreal")}
-          value={openRoe != null ? `${openRoe >= 0 ? "+" : ""}${openRoe.toFixed(2)}%` : "—"}
+          value={openRoi != null ? `${openRoi >= 0 ? "+" : ""}${openRoi.toFixed(2)}%` : "—"}
           sub={flow?.open ? t(lang, "apm.net.openSub", { sym: flow.open.symbol.replace("USDT", ""), side: flow.open.side, h: flow.open.ageH.toFixed(2) }) : t(lang, "apm.band.flat")}
-          color={openRoe != null ? (openRoe >= 0 ? LIME : "#f4525c") : "#8b8b94"}
+          color={openRoi != null ? (openRoi >= 0 ? LIME : "#f4525c") : "#8b8b94"}
         />
       </div>
     );
@@ -1056,11 +1057,11 @@ export default function StatsPage() {
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:hidden">
                   {[
                     { l: t(lang, "apm.net.equity"), v: flow?.equity != null ? `$${flow.equity.toFixed(2)}` : "—", c: flow?.equity != null && flow.equity >= 1000 ? LIME : undefined },
-                    { l: t(lang, "apm.net.netroe"), v: `${(flow?.netRoe ?? 0) >= 0 ? "+" : ""}${(flow?.netRoe ?? 0).toFixed(2)}%`, c: (flow?.netRoe ?? 0) >= 0 ? LIME : "#f4525c" },
+                    { l: t(lang, "apm.net.netroi"), v: `${(flow?.netRoi ?? 0) >= 0 ? "+" : ""}${(flow?.netRoi ?? 0).toFixed(2)}%`, c: (flow?.netRoi ?? 0) >= 0 ? LIME : "#f4525c" },
                     { l: t(lang, "apm.net.winrate"), v: `${(flow?.winRate ?? 0).toFixed(2)}%` },
                     { l: t(lang, "apm.net.closed"), v: `${fc.closedTrades}` },
-                    { l: t(lang, "apm.net.avg"), v: `${(flow?.avgRoe ?? 0) >= 0 ? "+" : ""}${(flow?.avgRoe ?? 0).toFixed(2)}%`, c: (flow?.avgRoe ?? 0) >= 0 ? LIME : "#f4525c" },
-                    { l: t(lang, "apm.net.unreal"), v: flow?.open?.roe != null ? `${flow.open.roe >= 0 ? "+" : ""}${flow.open.roe.toFixed(2)}%` : "—" },
+                    { l: t(lang, "apm.net.avg"), v: `${(flow?.avgRoi ?? 0) >= 0 ? "+" : ""}${(flow?.avgRoi ?? 0).toFixed(2)}%`, c: (flow?.avgRoi ?? 0) >= 0 ? LIME : "#f4525c" },
+                    { l: t(lang, "apm.net.unreal"), v: flow?.open?.roi != null ? `${flow.open.roi >= 0 ? "+" : ""}${flow.open.roi.toFixed(2)}%` : "—" },
                   ].map((x) => (
                     <div key={x.l} className="rounded-xl border border-[#232329] bg-[#101014]/95 px-3 py-2">
                       <p className="text-[9.5px] uppercase tracking-wide text-zinc-500">{x.l}</p>

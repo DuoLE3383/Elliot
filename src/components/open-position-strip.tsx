@@ -3,7 +3,7 @@
 // ─── OpenPositionStrip — lệnh auto dry-run đang mở, luôn hiện ở ĐẦU trang ────
 // "phần đầu của trang chủ thêm lệnh đang mở": poll NHẸ /api/autotrade?part=open
 // mỗi 5s (chỉ 1 hàng DB, không kéo 200 lệnh lịch sử như /api/autotrade đầy
-// đủ). ROE tạm tính tại chỗ từ giá 24h ticker mà trang đã có sẵn (prop
+// đủ). ROI tạm tính tại chỗ từ giá 24h ticker mà trang đã có sẵn (prop
 // tickers) — không thêm request giá nào. Bấm vào dải = chọn đúng cặp + khung
 // của lệnh trên đồ thị. Không có lệnh mở → component tự ẩn (không chiếm chỗ).
 
@@ -12,8 +12,8 @@ import { fmtPrice, t, type Lang } from "@/lib/i18n";
 import type { AutoTradeRow } from "@/lib/autotrade";
 import type { Ticker } from "@/lib/types";
 
-/** ROE tạm thời % — cùng công thức roeOf của engine (lệch đòn bẩy đã nhân). */
-function roeOf(side: string, entry: number, price: number, leverage: number): number {
+/** ROI tạm thời % — cùng công thức roiOf của engine (lệch đòn bẩy đã nhân). */
+function roiOf(side: string, entry: number, price: number, leverage: number): number {
   if (!entry || !price) return 0;
   const move = side === "SHORT" ? ((entry - price) / entry) * 100 : ((price - entry) / entry) * 100;
   return Math.round(move * leverage * 100) / 100;
@@ -60,7 +60,7 @@ export function OpenPositionStrip({
   if (!open) return null;
 
   const live = tickers[open.symbol]?.price ?? open.entryPrice;
-  const roe = roeOf(open.side, open.entryPrice, live, open.leverage);
+  const roi = roiOf(open.side, open.entryPrice, live, open.leverage);
   const sl = slPriceOf(open.side, open.entryPrice, open.slPct);
   const tp = tpPriceOf(open.side, open.entryPrice, open.tpPct);
   // vị trí giá live giữa SL (0%) và TP (100%) — vạch tiến độ rủi ro
@@ -96,12 +96,12 @@ export function OpenPositionStrip({
           {t(lang, "auto.pos.entry")} <span className="text-zinc-200">{fmtPrice(open.entryPrice)}</span>
         </span>
 
-        {/* ROE tạm thời — điểm chính của dải */}
+        {/* ROI tạm thời — điểm chính của dải */}
         <span className="font-mono text-xs font-bold">
-          <span className="text-zinc-500">{t(lang, "auto.pos.uroe")} </span>
-          <span className={roe >= 0 ? "text-emerald-400" : "text-rose-400"}>
-            {roe >= 0 ? "+" : ""}
-            {roe.toFixed(2)}%
+          <span className="text-zinc-500">{t(lang, "auto.pos.uroi")} </span>
+          <span className={roi >= 0 ? "text-emerald-400" : "text-rose-400"}>
+            {roi >= 0 ? "+" : ""}
+            {roi.toFixed(2)}%
           </span>
         </span>
 

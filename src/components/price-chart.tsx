@@ -466,7 +466,7 @@ export function PriceChart({
             </g>
           )}
 
-          {/* ── Equity pane (Đường cong vốn) — cumulative ROE of closed trades ── */}
+          {/* ── Equity pane (Đường cong vốn) — cumulative ROI of closed trades ── */}
           {eqOn && (
             <g pointerEvents="none">
               <defs>

@@ -115,7 +115,7 @@ export function SignalDock({
       ? ((lastClose - openPaper.entry) / openPaper.entry) * 100
       : ((openPaper.entry - lastClose) / openPaper.entry) * 100
     : undefined;
-  // unrealized ROE = price move × leverage
+  // unrealized ROI = price move × leverage
   const upnl = pricePnl != null ? pricePnl * leverage : undefined;
 
   const planRef = confirmed ?? latest;
@@ -281,7 +281,7 @@ export function SignalDock({
             )}
             {/* % khoảng cách giá từ entry → SL/TP (tính từ giá thật đã lưu trên
                 lệnh, không phải slPct/tpPct prop — props có thể đã đổi sau khi
-                lệnh mở). leverage > 1 → kèm ROE% (= price% × leverage) y hệt
+                lệnh mở). leverage > 1 → kèm ROI% (= price% × leverage) y hệt
                 khối "Entry plan" bên dưới cho nhất quán. */}
             {(() => {
               const slMovePct = openPaper.entry > 0 ? Math.abs((openPaper.sl - openPaper.entry) / openPaper.entry) * 100 : 0;
@@ -293,7 +293,7 @@ export function SignalDock({
                     value={
                       fmtPrice(openPaper.sl) +
                       ` · ${fmtPct(-slMovePct)}` +
-                      (leverage > 1 ? ` · ROE ${fmtPct(-slMovePct * leverage)}` : "")
+                      (leverage > 1 ? ` · ROI ${fmtPct(-slMovePct * leverage)}` : "")
                     }
                     className="text-rose-400"
                   />
@@ -302,7 +302,7 @@ export function SignalDock({
                     value={
                       fmtPrice(openPaper.tp) +
                       ` · ${fmtPct(tpMovePct)}` +
-                      (leverage > 1 ? ` · ROE ${fmtPct(tpMovePct * leverage)}` : "")
+                      (leverage > 1 ? ` · ROI ${fmtPct(tpMovePct * leverage)}` : "")
                     }
                     className="text-emerald-400"
                   />
@@ -317,7 +317,7 @@ export function SignalDock({
             />
             <Separator className="my-1.5 bg-zinc-800" />
             <Row
-              label={leverage > 1 ? `${t(lang, "dock.uPnl")} (ROE ×${leverage})` : t(lang, "dock.uPnl")}
+              label={leverage > 1 ? `${t(lang, "dock.uPnl")} (ROI ×${leverage})` : t(lang, "dock.uPnl")}
               value={`${fmtPct(upnl ?? 0)} @ ${fmtPrice(lastClose)}`}
               className={(upnl ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}
             />
@@ -376,7 +376,7 @@ export function SignalDock({
               label={t(lang, "dock.row.sl")}
               value={
                 fmtPrice(planRef.price * (1 - (planSide === "LONG" ? slPct : -slPct) / 100)) +
-                (leverage > 1 ? ` · ROE ${fmtPct(-slPct * leverage)}` : "")
+                (leverage > 1 ? ` · ROI ${fmtPct(-slPct * leverage)}` : "")
               }
               className="text-rose-400"
             />
@@ -384,7 +384,7 @@ export function SignalDock({
               label={t(lang, "dock.row.tp")}
               value={
                 fmtPrice(planRef.price * (1 + (planSide === "LONG" ? tpPct : -tpPct) / 100)) +
-                (leverage > 1 ? ` · ROE ${fmtPct(tpPct * leverage)}` : "")
+                (leverage > 1 ? ` · ROI ${fmtPct(tpPct * leverage)}` : "")
               }
               className="text-emerald-400"
             />

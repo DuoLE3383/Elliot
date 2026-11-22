@@ -26,8 +26,8 @@ function StatCard({ title, sub, s, accent }: { title: string; sub: string; s: Ar
         </span>
         <span className="text-white/50">Win rate</span>
         <span>{s.nClosed > 0 ? `${num(s.wr, 1)}%` : "—"}</span>
-        <span className="text-white/50">Net ROE</span>
-        <span className={s.nClosed > 0 ? (s.netRoe >= 0 ? "text-emerald-400" : "text-rose-400") : "text-white/40"}>{s.nClosed > 0 ? num(s.netRoe) : "—"}</span>
+        <span className="text-white/50">Net ROI</span>
+        <span className={s.nClosed > 0 ? (s.netRoi >= 0 ? "text-emerald-400" : "text-rose-400") : "text-white/40"}>{s.nClosed > 0 ? num(s.netRoi) : "—"}</span>
         <span className="text-white/50">TB thắng / TB thua</span>
         <span>
           {num(s.avgWin)} / {num(s.avgLoss)}
@@ -107,7 +107,7 @@ export default async function ArenaPage() {
         <h1 className="text-2xl font-bold">Arena A/B/C — Vulcan vs Elliott vs Wyckoff</h1>
         <p className="mt-1 text-sm text-white/50">
           Ba sổ dry-run song song, cùng vốn xuất phát từ ví reset. A = DonchianBreakout (15m, lev 5, ATR stop) ·
-          B = engine Elliott hiện tại · C = phễu Wyckoff gốc 5 lớp (nến ngày, lev 1, long-only, từ 0.2.97). ROE cùng
+          B = engine Elliott hiện tại · C = phễu Wyckoff gốc 5 lớp (nến ngày, lev 1, long-only, từ 0.2.97). ROI cùng
           công thức nên so trực tiếp. Live bên dưới là lớp khớp LỆNH THẬT của B khi LIVE bật.
         </p>
       </div>
@@ -170,8 +170,8 @@ export default async function ArenaPage() {
               </span>
               <span className="text-white/50">Win rate</span>
               <span>{num(snap.live.wr, 1)}%</span>
-              <span className="text-white/50">Net ROE</span>
-              <span className={snap.live.netRoe >= 0 ? "text-emerald-400" : "text-rose-400"}>{num(snap.live.netRoe)}</span>
+              <span className="text-white/50">Net ROI</span>
+              <span className={snap.live.netRoi >= 0 ? "text-emerald-400" : "text-rose-400"}>{num(snap.live.netRoi)}</span>
               <span className="text-white/50">Balance Binance</span>
               <span>
                 {num(snap.live.balanceBefore)} → {num(snap.live.balanceAfter)}

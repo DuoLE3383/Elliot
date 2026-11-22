@@ -17,7 +17,7 @@
 import { db } from "./db";
 import { tgSendMessage } from "./telegram-store";
 import { fetchKlinesDirect } from "./klines-direct";
-import { feeRoe, pval, VUL_ATR_STOP_MULT, VUL_VOL_FACTOR } from "./params";
+import { feeRoi, pval, VUL_ATR_STOP_MULT, VUL_VOL_FACTOR } from "./params";
 import { readWallet } from "./autostate";
 import { bookAOn } from "./books-flags";
 import {
@@ -186,7 +186,7 @@ async function vulcanSymbolTick(symbol: string, lastCandleT: Map<string, number>
     const raw =
       open.side === "LONG" ? (action.price - open.entry) / open.entry : (open.entry - action.price) / open.entry;
     const movePct = Math.round(raw * 100 * 100) / 100;
-    const roePct = Math.round((movePct * VULCAN_LEV - feeRoe(VULCAN_LEV)) * 100) / 100;
+    const roePct = Math.round((movePct * VULCAN_LEV - feeRoi(VULCAN_LEV)) * 100) / 100;
     const before = openRow.capitalBefore ?? (await vulcanChainHead());
     const delta = Math.round(before * (VULCAN_STAKE_PCT / 100) * (roePct / 100) * 100) / 100;
     const after = Math.max(0, Math.round((before + delta) * 100) / 100);
@@ -202,7 +202,7 @@ async function vulcanSymbolTick(symbol: string, lastCandleT: Map<string, number>
         capitalAfter: after,
       },
     });
-    console.log(`[vulcan] CLOSE ${open.side} ${symbol} @ ${action.price} (${action.exitKind}) move ${movePct}% ROE ${roePct}% vốn ${before}→${after}`);
+    console.log(`[vulcan] CLOSE ${open.side} ${symbol} @ ${action.price} (${action.exitKind}) move ${movePct}% ROI ${roePct}% vốn ${before}→${after}`);
     return;
   }
 

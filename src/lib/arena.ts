@@ -1,8 +1,8 @@
 // ─── ARENA (0.2.94 → 0.2.97 ba chiều + live) — sổ A (Vulcan/Donchian) vs sổ B
 // (Elliott) vs sổ C (Wyckoff gốc) + trạng thái sổ LIVE (mirror thật của B).
 // Một nguồn số liệu cho GET /api/arena và trang /arena. Sổ A = bảng
-// VulcanBook, sổ B = bảng AutoTrade, sổ C = bảng WyckoffBook (0.2.97). ROE
-// cả ba sổ cùng công thức (move×lev − feeRoe) nên so sánh trực tiếp được.
+// VulcanBook, sổ B = bảng AutoTrade, sổ C = bảng WyckoffBook (0.2.97). ROI
+// cả ba sổ cùng công thức (move×lev − feeRoi) nên so sánh trực tiếp được.
 
 import { existsSync, readFileSync } from "fs";
 import { db } from "./db";
@@ -13,7 +13,7 @@ export interface BookStats {
   nOpen: number;
   wins: number;
   wr: number; // %
-  netRoe: number;
+  netRoi: number;
   avgWin: number;
   avgLoss: number;
   payoff: number; // |avgWin / avgLoss|
@@ -45,7 +45,7 @@ export interface LiveStats {
   nOpen: number;
   wins: number;
   wr: number;
-  netRoe: number;
+  netRoi: number;
   balanceBefore: number | null;
   balanceAfter: number | null;
 }
@@ -67,22 +67,22 @@ export interface ArenaSnapshot {
   generatedAt: string;
 }
 
-/** Thống kê thuần từ danh sách (side, roe) của lệnh ĐÃ ĐÓNG — test được độc lập. */
-export function statsFromRoes(
-  rows: Array<{ side: string; roe: number | null; capitalBefore?: number | null; capitalAfter?: number | null }>,
+/** Thống kê thuần từ danh sách (side, roi) của lệnh ĐÃ ĐÓNG — test được độc lập. */
+export function statsFromRois(
+  rows: Array<{ side: string; roi: number | null; capitalBefore?: number | null; capitalAfter?: number | null }>,
 ): BookStats {
-  const roes = rows.map((r) => r.roe ?? 0);
-  const closed = roes.length;
-  const wins = roes.filter((x) => x > 0).length;
-  const winSum = roes.filter((x) => x > 0).reduce((s, x) => s + x, 0);
-  const lossSum = roes.filter((x) => x <= 0).reduce((s, x) => s + x, 0);
-  const nWin = roes.filter((x) => x > 0).length;
+  const rois = rows.map((r) => r.roi ?? 0);
+  const closed = rois.length;
+  const wins = rois.filter((x) => x > 0).length;
+  const winSum = rois.filter((x) => x > 0).reduce((s, x) => s + x, 0);
+  const lossSum = rois.filter((x) => x <= 0).reduce((s, x) => s + x, 0);
+  const nWin = rois.filter((x) => x > 0).length;
   const nLoss = closed - nWin;
   const avgWin = nWin ? Math.round((winSum / nWin) * 100) / 100 : 0;
   const avgLoss = nLoss ? Math.round((lossSum / nLoss) * 100) / 100 : 0;
   const bySide = (["LONG", "SHORT"] as const).map((side) => {
     const ts = rows.filter((r) => r.side === side);
-    const rs = ts.map((r) => r.roe ?? 0);
+    const rs = ts.map((r) => r.roi ?? 0);
     const w = rs.filter((x) => x > 0).length;
     return { side, n: rs.length, wr: rs.length ? Math.round((w / rs.length) * 1000) / 10 : 0, net: Math.round(rs.reduce((s, x) => s + x, 0) * 100) / 100 };
   });
@@ -93,7 +93,7 @@ export function statsFromRoes(
     nOpen: 0, // engine gọi đếm riêng (dưới đây)
     wins,
     wr: closed ? Math.round((wins / closed) * 1000) / 10 : 0,
-    netRoe: Math.round(roes.reduce((s, x) => s + x, 0) * 100) / 100,
+    netRoi: Math.round(rois.reduce((s, x) => s + x, 0) * 100) / 100,
     avgWin,
     avgLoss,
     payoff: avgLoss !== 0 ? Math.round(Math.abs(avgWin / avgLoss) * 100) / 100 : 0,
@@ -133,10 +133,10 @@ export async function arenaSnapshot(): Promise<ArenaSnapshot> {
     db.liveBook.count({ where: { status: "open" } }),
   ]);
 
-  const a = statsFromRoes(aRows.map((r) => ({ side: r.side, roe: r.roePct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter })));
-  const b = statsFromRoes(bRows.map((r) => ({ side: r.side, roe: r.pnlPct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter })));
-  const c = statsFromRoes(cRows.map((r) => ({ side: r.side, roe: r.pnlPct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter })));
-  const d = statsFromRoes(dRows.map((r) => ({ side: r.side, roe: r.pnlPct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter })));
+  const a = statsFromRois(aRows.map((r) => ({ side: r.side, roi: r.roePct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter })));
+  const b = statsFromRois(bRows.map((r) => ({ side: r.side, roi: r.pnlPct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter })));
+  const c = statsFromRois(cRows.map((r) => ({ side: r.side, roi: r.pnlPct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter })));
+  const d = statsFromRois(dRows.map((r) => ({ side: r.side, roi: r.pnlPct, capitalBefore: r.capitalBefore, capitalAfter: r.capitalAfter })));
   a.nOpen = aOpen;
   b.nOpen = bOpen;
   c.nOpen = cOpen;
@@ -161,15 +161,15 @@ export async function arenaSnapshot(): Promise<ArenaSnapshot> {
   const dEquity = equityFromRows(dRows);
   const cEquity = equityFromRows(cRows);
 
-  // sổ live — vốn là balance thật trước/sau, ROE như các sổ giấy
-  const lRoes = lRows.map((r) => r.roePct ?? 0);
+  // sổ live — vốn là balance thật trước/sau, ROI như các sổ giấy
+  const lRois = lRows.map((r) => r.roePct ?? 0);
   const live: LiveStats = {
     on: liveOnFlag(),
-    nClosed: lRoes.length,
+    nClosed: lRois.length,
     nOpen: lOpen,
-    wins: lRoes.filter((x) => x > 0).length,
-    wr: lRoes.length ? Math.round((lRoes.filter((x) => x > 0).length / lRoes.length) * 1000) / 10 : 0,
-    netRoe: Math.round(lRoes.reduce((s, x) => s + x, 0) * 100) / 100,
+    wins: lRois.filter((x) => x > 0).length,
+    wr: lRois.length ? Math.round((lRois.filter((x) => x > 0).length / lRois.length) * 1000) / 10 : 0,
+    netRoi: Math.round(lRois.reduce((s, x) => s + x, 0) * 100) / 100,
     balanceBefore: lRows.length ? lRows[0].balanceBefore : null,
     balanceAfter: lRows.length ? lRows[lRows.length - 1].balanceAfter : null,
   };

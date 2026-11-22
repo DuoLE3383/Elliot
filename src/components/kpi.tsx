@@ -22,7 +22,7 @@ interface Props {
   onPickAuto?: (sym: string, itv: string) => void;
 }
 
-function roeOf(side: string, entry: number, price: number, lev: number): number {
+function roiOf(side: string, entry: number, price: number, lev: number): number {
   if (!entry || !price) return 0;
   const move = side === "SHORT" ? ((entry - price) / entry) * 100 : ((price - entry) / entry) * 100;
   return Math.round(move * lev * 100) / 100;
@@ -110,7 +110,7 @@ export function KpiCards({
   let autoCard: ReactNode = null;
   if (autoOpen) {
     const live = tickers[autoOpen.symbol]?.price ?? autoOpen.entryPrice;
-    const roe = roeOf(autoOpen.side, autoOpen.entryPrice, live, autoOpen.leverage);
+    const roi = roiOf(autoOpen.side, autoOpen.entryPrice, live, autoOpen.leverage);
     const sl = slPriceOf(autoOpen.side, autoOpen.entryPrice, autoOpen.slPct);
     const tp = tpPriceOf(autoOpen.side, autoOpen.entryPrice, autoOpen.tpPct);
     const sideCls = autoOpen.side === "LONG" ? "text-emerald-400" : "text-rose-400";
@@ -139,9 +139,9 @@ export function KpiCards({
             {autoOpen.symbol.replace("USDT", "")}
             <span className="text-zinc-500"> · {autoOpen.interval}</span>
           </span>
-          <span className={`ml-auto font-mono text-base font-bold ${roe >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-            {roe >= 0 ? "+" : ""}
-            {roe.toFixed(2)}%
+          <span className={`ml-auto font-mono text-base font-bold ${roi >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+            {roi >= 0 ? "+" : ""}
+            {roi.toFixed(2)}%
           </span>
         </div>
 
@@ -161,7 +161,7 @@ export function KpiCards({
             </span>
           </span>
           <span className="text-zinc-500">
-            {t(lang, "auto.pos.uroe")} @ {fmtPrice(live)}
+            {t(lang, "auto.pos.uroi")} @ {fmtPrice(live)}
           </span>
         </div>
 

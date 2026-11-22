@@ -11,7 +11,7 @@
 //     START ALL / STOP ALL dời lên Topbar (một POST sync kèm cfg.on + books)
 //   · tickers = /api/ticker?symbols=... (30s) · lang = boot EN, toggle utp.lang
 //   · tiles = /api/arena (45s) + /api/autotrade (30s) — LIVE bật thì lấy sổ
-//     live, không thì gộp sổ dry-run A+B+C
+//     live, không thì gộp sổ dry-run A+B+C+D
 // onPickPair: ghi utp.symbol/utp.interval rồi đưa về dashboard mở đúng cặp.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -374,7 +374,7 @@ export default function AutoPage() {
             <BinanceApiCard lang={lang} />
           )}
 
-          {/* 4 chỉ số chính — Total Equity · Net ROE · Win Rate · Total Trades */}
+          {/* 4 chỉ số chính — Total Equity · Net ROI · Win Rate · Total Trades */}
           <MetricTiles data={tilesData} lang={lang} />
 
           {/* Strategy Control Center — 4 card A/B/C/D + Auto-Flip */}

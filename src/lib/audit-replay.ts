@@ -4,7 +4,7 @@
 // Mục đích: đo "nếu chốt bằng giá đóng thì lệnh này lãi bao nhiêu" —
 // để chứng minh chốt bằng râu / BE quá chặt làm mất bao nhiêu.
 // KHÔNG ghi đè DB, KHÔNG đổi logic live. Chỉ trả đề xuất để so sánh.
-import { feeRoe } from "./params";
+import { feeRoi } from "./params";
 import { atrLevelsAtEntry } from "./indicators";
 import {
   trailNextPeak, trailMovePct, trailRoiStopPrice, trailStopPrice, trailAutoLevels,
@@ -69,7 +69,7 @@ export function replayExit(
     if (roiStopP != null) {
       missedClosePrice = Math.round(roiStopP * 100000) / 100000;
       const mMove = movePct1x(trade.side, entry, roiStopP);
-      let mRem = Math.round((mMove * trade.leverage - feeRoe(trade.leverage)) * 100) / 100;
+      let mRem = Math.round((mMove * trade.leverage - feeRoi(trade.leverage)) * 100) / 100;
       if (trade.leverage > 1 && mMove <= -(100 / trade.leverage)) mRem = -100;
       missedPnlPct = mRem;
     }
@@ -119,7 +119,7 @@ export function replayExit(
     if (kind === "tp") {
       const plan = tp1Plan({ runnerOn: cfg.runnerOn, runnerSharePct: cfg.runnerSharePct, runnerTpMult: cfg.runnerTpMult }, trade.tpPct, trade.leverage, 0);
       if (plan) {
-        const p1Net = Math.round((plan.p1Pct - feeRoe(trade.leverage)) * 100) / 100;
+        const p1Net = Math.round((plan.p1Pct - feeRoi(trade.leverage)) * 100) / 100;
         p1Pct = p1Net; p1Share = plan.share; tp2Pct = plan.tp2Pct; trailPct = trade.tpPct; runner = true;
         notes.push(`TP1 partial @ nến ${new Date(sorted[i].t).toISOString()} — bank ${(plan.share * 100).toFixed(2)}%`);
         continue;
@@ -144,7 +144,7 @@ export function replayExit(
 
 function finish(price: number, t: number, kind: string, p1Pct: number | null, p1Share: number | null, trade: ReplayTrade, notes: string[], peakInfo?: { peakPrice: number | null; peakRoi: number | null; trailArmed: boolean; missedClosePrice: number | null; missedPnlPct: number | null }): ReplayResult {
   const move = movePct1x(trade.side, trade.entryPrice, price);
-  let remPnl = Math.round((move * trade.leverage - feeRoe(trade.leverage)) * 100) / 100;
+  let remPnl = Math.round((move * trade.leverage - feeRoi(trade.leverage)) * 100) / 100;
   if (trade.leverage > 1 && move <= -(100 / trade.leverage)) remPnl = -100;
   else if (remPnl < -100) remPnl = -100;
   const total = combineClosePnl(p1Pct, p1Share, remPnl);

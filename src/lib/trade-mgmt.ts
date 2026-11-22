@@ -14,11 +14,11 @@
 //        • trail khoá lợi nhuận: mỗi lần giá chạy thuận hơn, khoá
 //          move × runnerTrailLock (mặc định khoá 50% quãng đi), chỉ tăng dần.
 //      → "chốt sớm" hết vì một nửa vẫn chạy tiếp; muốn RR cao không cần siết
-//      cổng vào lệnh — runner chạy ra RR. Banked ROE nằm trên lệnh (p1Pct/
+//      cổng vào lệnh — runner chạy ra RR. Banked ROI nằm trên lệnh (p1Pct/
 //      p1Share) và hợp nhất lúc đóng (combineClosePnl) — một lệnh vẫn một dòng
 //      sổ, chuỗi vốn capitalBefore/After không phá vỡ.
 //
-//   3. COMBINE CLOSE — đóng giữa runner phase: ROE tổng = p1Share × p1Pct +
+//   3. COMBINE CLOSE — đóng giữa runner phase: ROI tổng = p1Share × p1Pct +
 //      (1−p1Share) × phần còn lại. DCA đã xong trước TP1 thì stakePct giữ
 //      nguyên trong runner phase (engine không DCA sau TP1) nên delta vốn tính
 //      trực tiếp trên stakePct như cũ.
@@ -33,9 +33,9 @@ export const TRAIL_KIND = "trail";
 /** Chạm SL phải vượt sâu ≥ 15% bề rộng stop mới đóng NGAY không chờ confirm. */
 export const SL_DEEP_FRAC = 0.15;
 
-/** Trail ROI (B) — arm: đỉnh ROE vượt mức này (%) mới bắt đầu dời trail. */
+/** Trail ROI (B) — arm: đỉnh ROI vượt mức này (%) mới bắt đầu dời trail. */
 export const TRAIL_ROI_ARM = 3;
-/** Trail ROI (B) — đuổi theo: stop bám đỉnh, nhường lại đúng số % ROE này
+/** Trail ROI (B) — đuổi theo: stop bám đỉnh, nhường lại đúng số % ROI này
  *  (spec user 0.3.40: "ROI > 3% dời trail tới 2% rồi đuổi theo ROI"). */
 export const TRAIL_ROI_GIVEBACK = 1;
 
@@ -123,7 +123,7 @@ export function runnerTp2(tpPct: number, tpMult: number): number {
 export interface Tp1Plan {
   /** phần CHỐT tại TP1, 0..1 (runnerSharePct/100) */
   share: number;
-  /** ROE% banked lúc TP1 (= tpPct × leverage) */
+  /** ROI% banked lúc TP1 (= tpPct × leverage) */
   p1Pct: number;
   /** TP mở rộng của runner (price move %) */
   tp2Pct: number;
@@ -146,13 +146,13 @@ export function tp1Plan(cfg: { runnerOn: boolean; runnerSharePct: number; runner
 // ─── 3 · Combine close — hợp nhất phần đã bank với phần runner khi đóng ──────
 
 /**
- * ROE tổng của lệnh có TP1 partial:
+ * ROI tổng của lệnh có TP1 partial:
  *   total = share × p1Pct + (1 − share) × remPnl
  * share/p1Pct null → trả nguyên remPnl (lệnh thường). Round 2 số lẻ.
  */
 export function combineClosePnl(p1Pct: number | null | undefined, p1Share: number | null | undefined, remPnl: number): number {
   if (p1Pct == null || p1Share == null || p1Share <= 0) return Math.round(remPnl * 100) / 100;
-  const share = Math.min(1, p1Share);
+  const share = p1Share > 1 ? Math.min(1, p1Share / 100) : Math.min(1, Math.max(0, p1Share)); // chuan hoa: DB 0..1, cu 0..100
   const total = share * p1Pct + (1 - share) * remPnl;
   return Math.round(total * 100) / 100;
 }

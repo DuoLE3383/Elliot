@@ -77,7 +77,7 @@ export function Journal({ lang, papers, symbol, interval, maxListClass = "max-h-
 
   const exportCsv = () => {
     const header =
-      "Symbol,Interval,Side,Leverage,Entry,Entry Time,Exit,Exit Time,Exit Kind,Liquidated,Price Move %,ROE %,Flipped From";
+      "Symbol,Interval,Side,Leverage,Entry,Entry Time,Exit,Exit Time,Exit Kind,Liquidated,Price Move %,ROI %,Flipped From";
     const lines = papers.map((p) =>
       [
         p.symbol,

@@ -131,7 +131,7 @@ export const TG_STREAK_ALERT = 4;
 export const TG_DD_ALERT = 5;
 
 // ── 4c · FLIP GATE + SL/TP LEVERAGE (0.2.72) ────────────────────────────────
-// Data 0.2.71: 97 lệnh đóng có ~75 flip net −105% ROE trong khi TP:SL là 16:6
+// Data 0.2.71: 97 lệnh đóng có ~75 flip net −105% ROI trong khi TP:SL là 16:6
 // (dương) → exit engine chảy máu, KHÔNG phải entry. Hai nút vít:
 
 /** FLIP BẤT ĐỐI XỨNG — lật chiều phải chắc chắn HƠN mở lệnh (một flip tốn
@@ -156,10 +156,10 @@ export const SHORT_PROB_MIN = 0.6;
 export const FLIP_SCORE_EXTRA = 10;
 
 /** SL/TP ĐỘC LẬP VỚI ĐÒN BẨY — khoảng cách SL/TP (theo % giá) nhân hệ số
- *  chuẩn hoá theo leverage để ROE-at-SL KHÔNG phình theo đòn bẩy:
- *   off  = 1 (legacy — cùng khoảng cách giá mọi leverage, ROE-at-SL ~ lev)
+ *  chuẩn hoá theo leverage để ROI-at-SL KHÔNG phình theo đòn bẩy:
+ *   off  = 1 (legacy — cùng khoảng cách giá mọi leverage, ROI-at-SL ~ lev)
  *   sqrt = √(ref/lev) — mềm, giống công thức trailing 0.2.63
- *   lin  = ref/lev — độc lập hoàn toàn: ROE-at-SL = baseline mọi leverage
+ *   lin  = ref/lev — độc lập hoàn toàn: ROI-at-SL = baseline mọi leverage
  *  Chỉ THU HẸP khi lev > ref; lev ≤ ref giữ nguyên (SL không nới ra ngoài
  *  cấu trúc ATR chỉ vì đòn bẩy thấp — rủi ro chỉ NHỎ HƠN baseline, không to
  *  hơn). tpMode "manual" không nhân hệ số (user tự đặt %), chỉ ăn cap liq. */
@@ -173,53 +173,53 @@ export const TP_LEV_REF = 10;
  *  giữ nguyên R:R. */
 export const TP_LIQ_SAFE = 60;
 
-// ── 4b2 · EV GATE + TRẦN LỖ ROE (0.2.89) — từ audit sổ 08/11 (33 lệnh sạch) ──
+// ── 4b2 · EV GATE + TRẦN LỖ ROI (0.2.89) — từ audit sổ 08/11 (33 lệnh sạch) ──
 // Sổ sạch (sau vá 0.2.88) cho thấy lỗ KHÔNG nằm ở toán nữa mà nằm ở cấu trúc:
-// • LONG payoff 0.48 — TB thắng +8.49 ROE vs TB thua −17.76: TP hẹp hơn SL
-//   ~2.2 lần với WR 47% là kỳ vọng âm chắc chắn mỗi lệnh ~−5.4 ROE;
-// • top 5 lỗ nặng nhất đều đòn ×20 — OP −60 ROE vẫn hợp lệ theo mui
+// • LONG payoff 0.48 — TB thắng +8.49 ROI vs TB thua −17.76: TP hẹp hơn SL
+//   ~2.2 lần với WR 47% là kỳ vọng âm chắc chắn mỗi lệnh ~−5.4 ROI;
+// • top 5 lỗ nặng nhất đều đòn ×20 — OP −60 ROI vẫn hợp lệ theo mui
 //   TP_LIQ_SAFE=60 (SL 2.9% giá × 20). RISK_MAX_STAKE đã chặn stake, nhưng
-//   ROE-at-SL thì chưa có trần riêng.
+//   ROI-at-SL thì chưa có trần riêng.
 // Hai knob đối xứng với tầng 4e — cả hai giữ nguyên R:R và chỉnh runtime:
-/** TRẦN LỖ ROE/LỆNH — ROE-at-SL (slPct × lev) không vượt trần; vượt thì co
+/** TRẦN LỖ ROI/LỆNH — ROI-at-SL (slPct × lev) không vượt trần; vượt thì co
  *  SL+TP cùng hệ số (giữ R:R, kiểu mui thanh khoản). 20 = lệnh ×20 không đặt
  *  SL ngoài 1% giá. 0 = tắt. */
-export const SL_ROE_MAX = 20;
-/** EV GATE — kỳ vọng ROE tối thiểu tại lối vào tính từ prob/tp/sl CỦA CHÍNH
+export const SL_ROI_MAX = 20;
+/** EV GATE — kỳ vọng ROI tối thiểu tại lối vào tính từ prob/tp/sl CỦA CHÍNH
  *  candidate: p×tp×lev − (1−p)×sl×lev − phí round-trip. Lệnh cấu trúc âm
  *  (TP mỏng + SL dày + prob không gánh nổi) chết ở cổng, không đợi sổ phán.
  *  ≤ −100 = tắt. */
 export const EV_GATE_MIN = 0;
 
-// ── 4c2 · PHÍ GIAO DỊCH TRONG ROE (0.2.77) ──────────────────────────────────
-// "add fees in trade for calculator ROE" — ROE của lệnh dry-run trước nay là
+// ── 4c2 · PHÍ GIAO DỊCH TRONG ROI (0.2.77) ──────────────────────────────────
+// "add fees in trade for calculator ROI" — ROI của lệnh dry-run trước nay là
 // GROSS (biến động giá × đòn bẩy) nên mọi thống kê tự hoa mắt: flip −1.4%/lệnh
 // nhìn như "gần hoà" nhưng thực tế mỗi lệnh còn ăn thêm phí round-trip. Binance
-// USDT-M thu phí trên NOTIONAL mỗi lần vào/thoát → mức ăn vào ROE mỗi bên
+// USDT-M thu phí trên NOTIONAL mỗi lần vào/thoát → mức ăn vào ROI mỗi bên
 // = FEE_PCT × leverage (margin = notional/lev). Data 0.2.71: ~75 flip @ ×10
-// tốn ~1% ROE phí MỖI lệnh chỉ để đi vòng.
+// tốn ~1% ROI phí MỖI lệnh chỉ để đi vòng.
 
 /** Phí giao dịch MỖI BÊN (% notional) — taker chuẩn Binance USDT-M 0.05%
  *  (maker 0.02%; trả phí bằng BNB −10%). Lệnh chốt (tp/sl/trail/flip/manual)
- *  trừ đúng round-trip 2 bên: ×10 → 2 × 0.05 × 10 = −1.0% ROE/lệnh kể cả khi
- *  giá đứng im. ROE realised, net ROE, WR, equity chain, autopsy R, bài học
+ *  trừ đúng round-trip 2 bên: ×10 → 2 × 0.05 × 10 = −1.0% ROI/lệnh kể cả khi
+ *  giá đứng im. ROI realised, net ROI, WR, equity chain, autopsy R, bài học
  *  xgb — tất cả thành số SAU PHÍ; prompt LLM Risk Officer cũng kèm mức phí
- *  (fee_check + ROE tại SL/TP sau phí, 0.2.78). 0 = tắt (về gross như trước
+ *  (fee_check + ROI tại SL/TP sau phí, 0.2.78). 0 = tắt (về gross như trước
  *  0.2.77). Chỉnh runtime nhóm Flip / SL-TP trên /ai. */
 export const FEE_PCT = 0.05;
 
-/** ROE % mà PHÍ GIAO DỊCH ăn vào (0.2.77) — sàn thu phí trên NOTIONAL mỗi lần
+/** ROI % mà PHÍ GIAO DỊCH ăn vào (0.2.77) — sàn thu phí trên NOTIONAL mỗi lần
  *  vào/thoát, margin = notional / leverage → mỗi bên tốn FEE_PCT% × lev (%
- *  ROE). sides: 1 = chỉ phí entry (đã trả lúc mở), 2 = round-trip entry+exit
+ *  ROI). sides: 1 = chỉ phí entry (đã trả lúc mở), 2 = round-trip entry+exit
  *  (đúng mức một lệnh CHỐT phải gánh). Ví dụ FEE_PCT 0.05 (taker USDT-M):
- *    ×10 → mỗi bên −0.5% ROE, round-trip −1.0% — kể cả khi giá đứng im.
+ *    ×10 → mỗi bên −0.5% ROI, round-trip −1.0% — kể cả khi giá đứng im.
  *  FEE_PCT đọc runtime (pval) nên chỉnh /ai ăn hiệu lực lệnh chốt kế tiếp;
  *  0 hoặc lev ≤ 0 → 0 (off). Pure theo (lev, sides) — không đụng giá/entry.
  *  Sống ở ./params từ 0.2.78 (trước đó định nghĩa trong autotrade.ts): llm.ts
  *  cần CHÍNH công thức này cho prompt fee_check mà không được import
  *  autotrade (autotrade đã import llm → vòng); autotrade re-export để
  *  engine/tg-msgs/route giữ nguyên import — vẫn "một thuật toán, một nguồn". */
-export function feeRoe(lev: number, sides = 2): number {
+export function feeRoi(lev: number, sides = 2): number {
   const f = Number(pval("FEE_PCT", FEE_PCT));
   return f > 0 && lev > 0 ? f * lev * sides : 0;
 }
@@ -227,7 +227,7 @@ export function feeRoe(lev: number, sides = 2): number {
 // ── 4e · RISK ENVELOPE — trần exposure tuyệt đối (0.2.79) ────────────────────
 // Audit 04/11: leverage ×10 + stake 10% + dcaMax 2 ⇒ 1 lệnh ~100% vốn notional,
 // DCA đầy ~300% — margin của vị thế bị quét chỉ sau ~3% giá ngược chiều, và
-// cứ 4% ngược chiều ở ×10 là −40% ROE: biên mỏng biến thành swing lớn. Hai tham
+// cứ 4% ngược chiều ở ×10 là −40% ROI: biên mỏng biến thành swing lớn. Hai tham
 // số dưới là LỚP VỎ BẢO HIỂM cấu hình (không phải mục tiêu giao dịch): engine
 // vốn ĐƠN VỊ THỂ — findFirst status "open" trước khi mở, không bao giờ chồng
 // vị thế chéo — nên exposure tổng = stake × (1 + số bù DCA) × leverage của
@@ -237,7 +237,7 @@ export function feeRoe(lev: number, sides = 2): number {
  *  Kẹp tại load engine.json + mỗi lần browser sync; vị thế ĐANG MỞ giữ nguyên
  *  leverage lúc mở (không đổi thân phận lệnh giữa chừng). 0 = tắt. Mặc định 5
  *  (audit khuyến nghị ×3-5: sống sót nhiễu bình thường, phí bớt nặng — ở ×10
- *  round-trip taker ăn ~1% ROE/lệnh chỉ để đi vòng). Chỉnh runtime nhóm
+ *  round-trip taker ăn ~1% ROI/lệnh chỉ để đi vòng). Chỉnh runtime nhóm
  *  Flip / SL-TP trên /ai. */
 export const RISK_MAX_LEV = 5;
 /** TRẦN STAKE TỔNG — % vốn tối đa MỘT vị thế được CAM (vào lệnh + mọi bù DCA
@@ -573,7 +573,7 @@ export const CONF_W = 15;
 // Ba vòng phản hồi làm "train/xgb TÁC DỤNG vào lệnh kế tiếp" và dừng chảy máu:
 //
 //  • COMBO MEMORY — metrics train (AUC/ACC) không đo được hiệu quả LIVE; sổ
-//    dry-run mới là sự thật. Combo thua streak dài / net ROE gần nhất quá âm
+//    dry-run mới là sự thật. Combo thua streak dài / net ROI gần nhất quá âm
 //    bị tạm loại khỏi vòng chọn lệnh (một dạng tự học khép kín).
 //  • CHAMP_WINDOW — champion cũ là best-ever SUỐT ĐỜI: một lần train "trúng
 //    số" (kể cả train tay difficulty cao, thang AUC khác) nâng thanh ngang vĩnh
@@ -587,7 +587,7 @@ export const CONF_W = 15;
 /** Streak lỗ liên tiếp của combo (theo sổ dry-run) bị TẠM LOẠI khỏi vòng chọn
  *  lệnh — combo đang "không hợp chế độ" thì đừng nhét lệnh mới vào. 0 = tắt. */
 export const MEM_LOSE_STREAK = 4;
-/** Net ROE (tổng %) của MEM_LOOKBACK lệnh đóng GẦN NHẤT cùng combo dưới mức
+/** Net ROI (tổng %) của MEM_LOOKBACK lệnh đóng GẦN NHẤT cùng combo dưới mức
  *  này cũng bị tạm loại — streak bắt được chuỗi thua đều, floor bắt được chuỗi
  *  lỗ to lẻ tẻ. 0 = tắt. */
 export const MEM_NET_FLOOR = -12;
