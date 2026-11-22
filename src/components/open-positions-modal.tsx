@@ -63,7 +63,7 @@ export function OpenPositionsModal({
       <div style={{ maxHeight: 620 }} className="flex h-full flex-col overflow-hidden rounded-2xl border border-[#26262c] bg-[#121216] text-[#e9e9ec] shadow-2xl">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#222228] bg-[#121216] px-4 py-3">
           <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-[#c8f542]" />
+            <span className="h-2 w-2 rounded-full bg-emerald-400" />
             <h3 className="text-sm font-semibold tracking-tight">Open Positions ({positions.length})</h3>
           </div>
         </div>
@@ -102,26 +102,26 @@ export function OpenPositionsModal({
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-sm font-bold text-white">{pos.symbol}</span>
-                      <span className={`rounded px-1.5 py-0.5 text-xs font-bold uppercase ${isLong ? "bg-[#c8f542]/15 text-[#c8f542]" : "bg-[#f4525c]/15 text-[#f4525c]"}`}>{pos.side}</span>
+                      <span className={`rounded px-1.5 py-0.5 text-xs font-bold uppercase ${isLong ? "bg-emerald-400/15 text-emerald-400" : "bg-rose-400/15 text-rose-400"}`}>{pos.side}</span>
                       {pos.timeframe && <span className="text-xs text-[#8b8b94]">{pos.timeframe}</span>}
                       <span className="text-xs text-[#71717a]">· {(pos.ageH ?? 0).toFixed(2)}h</span>
                     </div>
-                    <span className={`font-mono text-xs font-bold ${roiIsProfit ? "text-[#c8f542]" : "text-[#f4525c]"}`}>ROI {fmtPct(pos.roi ?? undefined, true)}</span>
+                    <span className={`font-mono text-xs font-bold ${roiIsProfit ? "text-emerald-400" : "text-rose-400"}`}>ROI {fmtPct(pos.roi ?? undefined, true)}</span>
                   </div>
                   <div className="grid grid-cols-3 gap-2 rounded-lg bg-[#111116] px-3 py-2 border border-[#202027]">
                     <div><div className="text-xs uppercase text-[#7c7c86]">Entry</div><div className="font-mono text-xs font-semibold">{fmtPrice(pos.entryPrice)}</div></div>
                     <div><div className="text-xs uppercase text-[#7c7c86]">Mark</div><div className="font-mono text-xs font-semibold">{fmtPrice(pos.markPrice)}</div></div>
-                    <div className="text-right"><div className="text-xs uppercase text-[#7c7c86]">PnL</div><div className={`font-mono text-xs font-bold ${isProfit ? "text-[#c8f542]" : "text-[#f4525c]"}`}>{fmtUsd(pos.pnlUsd, true)}</div></div>
+                    <div className="text-right"><div className="text-xs uppercase text-[#7c7c86]">PnL</div><div className={`font-mono text-xs font-bold ${isProfit ? "text-emerald-400" : "text-rose-400"}`}>{fmtUsd(pos.pnlUsd, true)}</div></div>
                   </div>
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between font-mono text-xs text-[#9aa0a6]">
-                      <span className="text-[#f4525c]">SL {fmtPrice(pos.slPrice)}</span>
+                      <span className="text-rose-400">SL {fmtPrice(pos.slPrice)}</span>
                       <span className="text-[#a1a1aa]">Entry {fmtPrice(pos.entryPrice)}</span>
-                      <span className="text-[#c8f542]">TP {fmtPrice(pos.tpPrice)}</span>
+                      <span className="text-[#a1a1aa]">TP {fmtPrice(pos.tpPrice)}</span>
                     </div>
                     <div className="relative h-2 w-full rounded-full bg-[#24242d]">
                       <span className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-3 w-0.5 bg-[#a1a1aa]" style={{ left: `${entryPos}%` }} />
-                      <span className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-3.5 w-1.5 rounded-sm ${isProfit ? "bg-[#c8f542]" : "bg-[#f4525c]"}`} style={{ left: `${markPos}%` }} />
+                      <span className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-3.5 w-1.5 rounded-sm ${isProfit ? "bg-emerald-400" : "bg-rose-400"}`} style={{ left: `${markPos}%` }} />
                     </div>
                     <div className="flex items-center justify-between text-xs text-[#8b8b94]">
       <div className="mt-1 flex items-center justify-between text- text-zinc-400"><span>Peak <span className="font-mono text-amber-300">{peak.toFixed(5)}</span></span><span className="font-mono text-amber-300">{peakRoi >= 0 ? "+" : ""}{peakRoi.toFixed(2)}% ROI</span></div>
@@ -133,10 +133,10 @@ export function OpenPositionsModal({
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono">
                       <span>Margin <b className="text-[#d4d4d8]">{fmtUsd(pos.marginUsd)}</b></span>
                       <span>Size <b className="text-[#d4d4d8]">{fmtUsd(pos.sizeUsd)}</b>{pos.leverage ? ` (${pos.leverage}x)` : ""}</span>
-                      {pos.liqPrice != null && <span>Liq <b className="text-[#f4525c]">{fmtPrice(pos.liqPrice)}</b></span>}
+                      {pos.liqPrice != null && <span>Liq <b className="text-rose-400">{fmtPrice(pos.liqPrice)}</b></span>}
                       {pos.trailText && <span className="text-[#93c5fd]">{pos.trailText}</span>}
                     </div>
-                    {onClosePosition && <button type="button" onClick={() => onClosePosition(pos)} className="rounded-lg border border-[#2e2e38] bg-[#1e1e26] px-3 py-1 text-xs font-medium hover:border-[#f4525c]/60 hover:text-[#f4525c]">Close</button>}
+                    {onClosePosition && <button type="button" onClick={() => onClosePosition(pos)} className="rounded-lg border border-[#2e2e38] bg-[#1e1e26] px-3 py-1 text-xs font-medium hover:border-rose-400/60 hover:text-rose-400">Close</button>}
                   </div>
                 </div>
               );
@@ -158,7 +158,7 @@ export function OpenPositionsModal({
       >
         <div className="flex items-center justify-between border-b border-[#222228] px-4 py-3">
           <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-[#c8f542]" />
+            <span className="h-2 w-2 rounded-full bg-emerald-400" />
             <h3 className="text-sm font-semibold tracking-tight">
               Open Positions ({positions.length})
             </h3>
@@ -213,8 +213,8 @@ export function OpenPositionsModal({
                       <span
                         className={`rounded px-1.5 py-0.5 text-xs font-bold uppercase ${
                           isLong
-                            ? "bg-[#c8f542]/15 text-[#c8f542]"
-                            : "bg-[#f4525c]/15 text-[#f4525c]"
+                            ? "bg-emerald-400/15 text-emerald-400"
+                            : "bg-rose-400/15 text-rose-400"
                         }`}
                       >
                         {pos.side}
@@ -229,7 +229,7 @@ export function OpenPositionsModal({
                     <div className="text-right">
                       <span
                         className={`font-mono text-xs font-bold ${
-                          roiIsProfit ? "text-[#c8f542]" : "text-[#f4525c]"
+                          roiIsProfit ? "text-emerald-400" : "text-rose-400"
                         }`}
                       >
                         ROI {fmtPct(pos.roi ?? undefined, true)}
@@ -254,7 +254,7 @@ export function OpenPositionsModal({
                       <div className="text-xs uppercase text-[#7c7c86]">PnL</div>
                       <div
                         className={`font-mono text-xs font-bold ${
-                          isProfit ? "text-[#c8f542]" : "text-[#f4525c]"
+                          isProfit ? "text-emerald-400" : "text-rose-400"
                         }`}
                       >
                         {fmtUsd(pos.pnlUsd, true)}
@@ -264,9 +264,9 @@ export function OpenPositionsModal({
 
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between font-mono text-xs text-[#9aa0a6]">
-                      <span className="text-[#f4525c]">SL {fmtPrice(pos.slPrice)}</span>
+                      <span className="text-rose-400">SL {fmtPrice(pos.slPrice)}</span>
                       <span className="text-[#a1a1aa]">Entry {fmtPrice(pos.entryPrice)}</span>
-                      <span className="text-[#c8f542]">TP {fmtPrice(pos.tpPrice)}</span>
+                      <span className="text-[#a1a1aa]">TP {fmtPrice(pos.tpPrice)}</span>
                     </div>
                     <div className="relative h-2 w-full rounded-full bg-[#24242d]">
                       <span
@@ -275,13 +275,13 @@ export function OpenPositionsModal({
                       />
                       <span
                         className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-3.5 w-1.5 rounded-sm ${
-                          isProfit ? "bg-[#c8f542]" : "bg-[#f4525c]"
+                          isProfit ? "bg-emerald-400" : "bg-rose-400"
                         }`}
                         style={{ left: `${markPos}%` }}
                       />
                     </div>
                     <div className="flex items-center justify-between text-xs text-[#8b8b94]">
-                      {hasTp1 ? (<span>TP1 <b className="text-[#c8f542]">+{bankedRoi.toFixed(2)}% ROI</b> · Banked <b>+${bankedPnl.toFixed(2)}</b> · Đã chốt {(p1ShareFrac*100).toFixed(0)}%</span>) : null}
+                      {hasTp1 ? (<span>TP1 <b className="text-emerald-400">+{bankedRoi.toFixed(2)}% ROI</b> · Banked <b>+${bankedPnl.toFixed(2)}</b> · Đã chốt {(p1ShareFrac*100).toFixed(0)}%</span>) : null}
                       <span>
                         Còn{" "}
                         <strong className="font-mono text-[#d4d4d8]">
@@ -303,7 +303,7 @@ export function OpenPositionsModal({
                       </span>
                       {pos.liqPrice != null && (
                         <span>
-                          Liq <b className="text-[#f4525c]">{fmtPrice(pos.liqPrice)}</b>
+                          Liq <b className="text-rose-400">{fmtPrice(pos.liqPrice)}</b>
                         </span>
                       )}
                       {pos.trailText && (
@@ -314,7 +314,7 @@ export function OpenPositionsModal({
                       <button
                         type="button"
                         onClick={() => onClosePosition(pos)}
-                        className="rounded-lg border border-[#2e2e38] bg-[#1e1e26] px-3 py-1 text-xs font-medium text-[#e9e9ec] hover:border-[#f4525c]/60 hover:text-[#f4525c] transition"
+                        className="rounded-lg border border-[#2e2e38] bg-[#1e1e26] px-3 py-1 text-xs font-medium text-[#e9e9ec] hover:border-rose-400/60 hover:text-rose-400 transition"
                       >
                         Close
                       </button>

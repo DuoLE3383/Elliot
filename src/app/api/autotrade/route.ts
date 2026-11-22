@@ -77,6 +77,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "position_open", open: serialize(existing) }, { status: 409 });
   }
 
+  const closedEq = await db.autoTrade.findMany({ where: { status: "closed" }, select: { capitalBefore: true, capitalAfter: true } });
+  const equityNow = 1000 + closedEq.reduce((s: number, r: any) => s + (Number(r.capitalAfter ?? 0) - Number(r.capitalBefore ?? 0)), 0);
   const row = await db.autoTrade.create({
     data: {
       symbol,
@@ -91,7 +93,7 @@ export async function POST(req: NextRequest) {
       acc: num(body.acc, 0, 100, 0),
       auc: num(body.auc, 0, 1, 0.5),
       score: num(body.score, -1000, 1000, 0),
-      capitalBefore: num(body.capitalBefore, 0, Infinity, 1000),
+      capitalBefore: Math.round(equityNow * 100) / 100,
       methodId: typeof body.methodId === "string" && body.methodId ? body.methodId.slice(0, 64) : null,
     },
   });

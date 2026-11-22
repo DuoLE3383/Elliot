@@ -107,7 +107,7 @@ const toneText = (tone?: StatTone): string => (tone ? TONE_TEXT[tone] : "text-zi
 const toneEdge = (tone?: StatTone): string => (tone ? TONE_EDGE[tone] : "border-l-zinc-800/80");
 
 // ── bảng màu APM khớp ảnh tham chiếu ──
-const LIME = "#c8f542";
+const LIME = "emerald-400";
 const GREY = "#9aa0a6";
 
 /** một dòng bảng con theo cặp của /api/journal?symbol=ALL */
@@ -369,7 +369,7 @@ export default function StatsPage() {
 
   const stateBadge = (state: "ok" | "warn" | "na") =>
     state === "ok" ? (
-      <Badge className="gap-1 border-0 bg-[#101a08] text-[#c8f542] hover:bg-[#101a08]">
+      <Badge className="gap-1 border-0 bg-[#101a08] text-emerald-400 hover:bg-[#101a08]">
         <CheckCircle2 className="h-3 w-3" /> {t(lang, "stats.ok")}
       </Badge>
     ) : state === "warn" ? (
@@ -486,7 +486,7 @@ export default function StatsPage() {
       });
       ev.push(
         flow.open
-          ? { dot: "#f4525c", text: t(lang, "apm.ev.openpos", { sym: flow.open.symbol.replace("USDT", ""), side: flow.open.side, h: flow.open.ageH.toFixed(2) }), right: flow.open.roi != null ? `${flow.open.roi >= 0 ? "+" : ""}${flow.open.roi.toFixed(2)}%` : undefined }
+          ? { dot: "rose-400", text: t(lang, "apm.ev.openpos", { sym: flow.open.symbol.replace("USDT", ""), side: flow.open.side, h: flow.open.ageH.toFixed(2) }), right: flow.open.roi != null ? `${flow.open.roi >= 0 ? "+" : ""}${flow.open.roi.toFixed(2)}%` : undefined }
           : { dot: "#8b8b94", text: t(lang, "apm.ev.flat"), dim: true },
       );
       ev.push({ dot: snap?.dqfOn ? LIME : "#8b8b94", text: snap?.dqfOn ? t(lang, "apm.ev.dqfOn") : t(lang, "apm.ev.dqfOff"), right: "DQF" });
@@ -512,7 +512,7 @@ export default function StatsPage() {
     // Trade Scorecard
     const sc = [
       { label: t(lang, "apm.score.tp"), n: fc.tp, color: LIME },
-      { label: t(lang, "apm.score.sl"), n: fc.sl, color: "#f4525c" },
+      { label: t(lang, "apm.score.sl"), n: fc.sl, color: "rose-400" },
       { label: t(lang, "apm.score.flip"), n: fc.flip, color: "#fbbf24" },
       { label: t(lang, "apm.score.manual"), n: fc.manual, color: "#8b8b94" },
     ];
@@ -586,7 +586,7 @@ export default function StatsPage() {
         <Panel>
           <PanelHead
             label={t(lang, "apm.rail.score")}
-            dot="#f4525c"
+            dot="rose-400"
             right={<span className="rounded-full bg-[#1a1a20] px-2 py-0.5 font-mono text-[10px] text-zinc-400">{t(lang, "apm.score.totalSub", { n: fc.closedTrades })}</span>}
           />
           <div className="divide-y divide-[#1a1a20]">
@@ -601,10 +601,10 @@ export default function StatsPage() {
             ))}
             <div className="flex items-center gap-2.5 px-4 py-2">
               <p className="w-24 shrink-0 whitespace-normal leading-snug text-[11px] text-zinc-300">{t(lang, "apm.score.open")}</p>
-              <span className="h-[6px] min-w-0 flex-1 overflow-hidden rounded-full bg-[#1c1c22] border border-transparent border-[#f4525c55]">
-                <span className="block h-full rounded-full" style={{ width: fc.open ? "100%" : "0%", background: "#f4525c" }} />
+              <span className="h-[6px] min-w-0 flex-1 overflow-hidden rounded-full bg-[#1c1c22] border border-transparent border-[rose-40055]">
+                <span className="block h-full rounded-full" style={{ width: fc.open ? "100%" : "0%", background: "rose-400" }} />
               </span>
-              <span className="w-8 shrink-0 text-right font-mono text-[11px] font-semibold text-[#f4525c]">{fc.open ? 1 : 0}</span>
+              <span className="w-8 shrink-0 text-right font-mono text-[11px] font-semibold text-rose-400">{fc.open ? 1 : 0}</span>
             </div>
           </div>
         </Panel>
@@ -627,15 +627,15 @@ export default function StatsPage() {
     return (
       <div className="space-y-2">
         <NetCard label={t(lang, "apm.net.label")} value={eq != null ? `$${eq.toFixed(2)}` : "—"} sub={t(lang, "apm.net.startSub")} color={eq != null && eq >= 1000 ? LIME : "#e9e9ec"} />
-        <NetCard label={t(lang, "apm.net.netroi")} value={`${(flow?.netRoi ?? 0) >= 0 ? "+" : ""}${(flow?.netRoi ?? 0).toFixed(2)}%`} sub={`${fc.closedTrades} ${t(lang, "apm.net.closed").toLowerCase()}`} color={(flow?.netRoi ?? 0) >= 0 ? LIME : "#f4525c"} />
+        <NetCard label={t(lang, "apm.net.netroi")} value={`${(flow?.netRoi ?? 0) >= 0 ? "+" : ""}${(flow?.netRoi ?? 0).toFixed(2)}%`} sub={`${fc.closedTrades} ${t(lang, "apm.net.closed").toLowerCase()}`} color={(flow?.netRoi ?? 0) >= 0 ? LIME : "rose-400"} />
         <NetCard label={t(lang, "apm.net.winrate")} value={`${(flow?.winRate ?? 0).toFixed(2)}%`} sub={t(lang, "apm.net.wilsonSub", { n: wilson.toFixed(2) })} />
         <NetCard label={t(lang, "apm.net.closed")} value={`${fc.closedTrades}`} sub={`${flow?.wins ?? 0} wins · ${fc.sl} SL`} />
-        <NetCard label={t(lang, "apm.net.avg")} value={`${(flow?.avgRoi ?? 0) >= 0 ? "+" : ""}${(flow?.avgRoi ?? 0).toFixed(2)}%`} color={(flow?.avgRoi ?? 0) >= 0 ? LIME : "#f4525c"} />
+        <NetCard label={t(lang, "apm.net.avg")} value={`${(flow?.avgRoi ?? 0) >= 0 ? "+" : ""}${(flow?.avgRoi ?? 0).toFixed(2)}%`} color={(flow?.avgRoi ?? 0) >= 0 ? LIME : "rose-400"} />
         <NetCard
           label={t(lang, "apm.net.unreal")}
           value={openRoi != null ? `${openRoi >= 0 ? "+" : ""}${openRoi.toFixed(2)}%` : "—"}
           sub={flow?.open ? t(lang, "apm.net.openSub", { sym: flow.open.symbol.replace("USDT", ""), side: flow.open.side, h: flow.open.ageH.toFixed(2) }) : t(lang, "apm.band.flat")}
-          color={openRoi != null ? (openRoi >= 0 ? LIME : "#f4525c") : "#8b8b94"}
+          color={openRoi != null ? (openRoi >= 0 ? LIME : "rose-400") : "#8b8b94"}
         />
       </div>
     );
@@ -658,7 +658,7 @@ export default function StatsPage() {
               { v: "wr", label: t(lang, "apm.tab.wr") },
               { v: "exits", label: t(lang, "apm.tab.exits") },
             ].map((tb) => (
-              <TabsTrigger key={tb.v} value={tb.v} className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-[#1c1c22] data-[state=active]:text-[#c8f542]">
+              <TabsTrigger key={tb.v} value={tb.v} className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-[#1c1c22] data-[state=active]:text-white">
                 {tb.label}
               </TabsTrigger>
             ))}
@@ -800,7 +800,7 @@ export default function StatsPage() {
                   { v: "lab", label: t(lang, "tabs.lab") },
                   { v: "analysis", label: t(lang, "tabs.analysis") },
                 ].map((tb) => (
-                  <TabsTrigger key={tb.v} value={tb.v} className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-[#1c1c22] data-[state=active]:text-[#c8f542]">
+                  <TabsTrigger key={tb.v} value={tb.v} className="h-7 shrink-0 rounded-md px-3 text-xs data-[state=active]:bg-[#1c1c22] data-[state=active]:text-white">
                     {tb.label}
                   </TabsTrigger>
                 ))}
@@ -917,7 +917,7 @@ export default function StatsPage() {
                 type="button"
                 onClick={() => go(n.id)}
                 className={`shrink-0 rounded-lg px-2.5 py-1 text-[11px] transition-colors ${
-                  view === n.id ? "bg-[#1c1c22] text-[#c8f542]" : "text-zinc-400 hover:bg-[#1c1c22] hover:text-zinc-200"
+                  view === n.id ? "bg-[#1c1c22] text-emerald-400" : "text-zinc-400 hover:bg-[#1c1c22] hover:text-zinc-200"
                 }`}
               >
                 {t(lang, n.key)}
@@ -976,7 +976,7 @@ export default function StatsPage() {
                     active ? "bg-[#1c1c22] font-semibold text-zinc-50" : "text-zinc-400 hover:bg-[#16161b] hover:text-zinc-200"
                   }`}
                 >
-                  <Icon className={`h-3.5 w-3.5 shrink-0 ${active ? "text-[#c8f542]" : "text-zinc-500"}`} />
+                  <Icon className={`h-3.5 w-3.5 shrink-0 ${active ? "text-emerald-400" : "text-zinc-500"}`} />
                   <span className="min-w-0 flex-1 whitespace-normal leading-snug">{t(lang, n.key)}</span>
                   {dot && <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dot }} />}
                   {active && <span className="h-4 w-0.5 rounded-full" style={{ background: LIME }} />}
@@ -1027,9 +1027,9 @@ export default function StatsPage() {
                         {/* legend tình trạng — y các chip Normal/Success/Error/Pending ảnh ref */}
                         {[
                           { c: LIME, l: t(lang, "apm.band.success") },
-                          { c: "#f4525c", l: t(lang, "apm.band.error") },
+                          { c: "rose-400", l: t(lang, "apm.band.error") },
                           { c: "#9aa0a6", l: t(lang, "apm.band.normal") },
-                          { c: "#f4525c", l: t(lang, "apm.band.pending"), dash: true },
+                          { c: "rose-400", l: t(lang, "apm.band.pending"), dash: true },
                         ].map((x) => (
                           <span key={x.l} className="hidden items-center gap-1 text-[9.5px] text-zinc-500 sm:flex">
                             <span className="h-1.5 w-1.5 rounded-full" style={{ background: x.c, opacity: x.dash ? 0.6 : 1 }} />
@@ -1057,10 +1057,10 @@ export default function StatsPage() {
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:hidden">
                   {[
                     { l: t(lang, "apm.net.equity"), v: flow?.equity != null ? `$${flow.equity.toFixed(2)}` : "—", c: flow?.equity != null && flow.equity >= 1000 ? LIME : undefined },
-                    { l: t(lang, "apm.net.netroi"), v: `${(flow?.netRoi ?? 0) >= 0 ? "+" : ""}${(flow?.netRoi ?? 0).toFixed(2)}%`, c: (flow?.netRoi ?? 0) >= 0 ? LIME : "#f4525c" },
+                    { l: t(lang, "apm.net.netroi"), v: `${(flow?.netRoi ?? 0) >= 0 ? "+" : ""}${(flow?.netRoi ?? 0).toFixed(2)}%`, c: (flow?.netRoi ?? 0) >= 0 ? LIME : "rose-400" },
                     { l: t(lang, "apm.net.winrate"), v: `${(flow?.winRate ?? 0).toFixed(2)}%` },
                     { l: t(lang, "apm.net.closed"), v: `${fc.closedTrades}` },
-                    { l: t(lang, "apm.net.avg"), v: `${(flow?.avgRoi ?? 0) >= 0 ? "+" : ""}${(flow?.avgRoi ?? 0).toFixed(2)}%`, c: (flow?.avgRoi ?? 0) >= 0 ? LIME : "#f4525c" },
+                    { l: t(lang, "apm.net.avg"), v: `${(flow?.avgRoi ?? 0) >= 0 ? "+" : ""}${(flow?.avgRoi ?? 0).toFixed(2)}%`, c: (flow?.avgRoi ?? 0) >= 0 ? LIME : "rose-400" },
                     { l: t(lang, "apm.net.unreal"), v: flow?.open?.roi != null ? `${flow.open.roi >= 0 ? "+" : ""}${flow.open.roi.toFixed(2)}%` : "—" },
                   ].map((x) => (
                     <div key={x.l} className="rounded-xl border border-[#232329] bg-[#101014]/95 px-3 py-2">
