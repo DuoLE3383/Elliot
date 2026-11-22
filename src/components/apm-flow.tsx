@@ -309,7 +309,7 @@ export function ApmFlowMap({
     },
     {
       x: COL_A_X, y: leftY(3), id: "st-dock", title: t(lang, "apm.node.gate"), value: `${f.gatePass}`,
-      sub: t(lang, "apm.node.gate"), dot: LIME, valColor: f.gatePass > 0 ? LIME : SUB,
+      sub: "last 24h", dot: LIME, valColor: f.gatePass > 0 ? LIME : SUB,
       stroke: f.gatePass > 0 ? "rgba(200,245,66,0.45)" : undefined, glow: f.gatePass > 0,
     },
     { x: COL_A_X, y: leftY(4), id: "st-dock", title: t(lang, "apm.node.skipped"), value: `${f.neutral}`, sub: "NEUTRAL / noise", dot: GREY, valColor: SUB },

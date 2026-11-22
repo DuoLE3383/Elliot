@@ -133,7 +133,7 @@ export interface StatsFlow {
   universeAgeMin: number | null;
   scanCombos: number; // combo quét lần scan gần nhất
   scanAgeMin: number | null;
-  gatePass: number; // ứng viên qua đủ cổng (isTradeable + regress + noise)
+  gatePass: number; // "GATE PASSED (RECENT)" — combo đang pass gate (BcastVerdict) chấm trong 24h gần nhất
   directional: number; // combo có phía LONG/SHORT
   neutral: number; // combo NEUTRAL (bỏ qua)
   bcastPass: number;
@@ -924,12 +924,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       }
       const pnls = closedRows.map((r) => r.pnlPct ?? 0);
       const sumPnl = pnls.reduce((a, b) => a + b, 0);
-      // đúng bộ lọc ứng viên của auto-cycle (cùng công thức với section dock)
       const scanRows: ScanRow[] = eng.scan?.rows ?? [];
-      const nb = pval("NOISE_BAND", NOISE_BAND);
-      const cands = scanRows.filter(
-        (r) => isTradeable(r, cfg.minAuc, cfg.minAcc, cfg.minScore) && !r.regressed && Math.abs(r.prob - 0.5) >= nb,
-      );
       const bcast = await db.bcastVerdict.findMany();
       const uRows = eng.universe?.rows ?? [];
       const o = st0?.open ?? null;
@@ -1068,7 +1063,11 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         universeAgeMin: eng.universe ? min(now - eng.universe.at) : null,
         scanCombos: scanRows.length,
         scanAgeMin: eng.scan ? min(now - eng.scan.at) : null,
-        gatePass: cands.length,
+        // "GATE PASSED (RECENT)" — đếm từ bảng BcastVerdict (gate DUY NHẤT panel + Telegram
+        // dùng, engine upsert mỗi tick 5p): combo verdict "pass" và được chấm trong 24h gần nhất.
+        // Không còn phụ thuộc snapshot RAM eng.scan — số sống qua restart, thị trường yên tĩnh
+        // vẫn giữ nguyên combo đã pass lần chấm gần nhất trong ngày thay vì rớt về 0.
+        gatePass: bcast.filter((b) => b.verdict === "pass" && now - new Date(b.at).getTime() < 24 * 3_600_000).length,
         directional: scanRows.filter((r) => r.bias !== "NEUTRAL").length,
         neutral: scanRows.filter((r) => r.bias === "NEUTRAL").length,
         bcastPass: bcast.filter((b) => b.verdict === "pass").length,

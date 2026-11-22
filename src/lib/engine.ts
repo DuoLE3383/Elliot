@@ -1142,6 +1142,7 @@ async function broadcastTick(): Promise<void> {
           acc: vd.acc,
           verdict: vd.verdict,
           reason: vd.reason,
+          at: new Date(), // refresh mốc thời gian mỗi lần chấm gate — không thì `at` mãi giữ lần đầu ghi, lọc "recent" sẽ sai
         },
       });
     }
@@ -1210,6 +1211,7 @@ async function scanDigestTick(): Promise<void> {
           acc: vd.acc,
           verdict: vd.verdict,
           reason: vd.reason,
+          at: new Date(), // refresh mốc thời gian mỗi lần chấm gate — không thì `at` mãi giữ lần đầu ghi, lọc "recent" sẽ sai
         },
       });
     }
