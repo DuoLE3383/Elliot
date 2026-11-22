@@ -239,7 +239,7 @@ export function feeRoi(lev: number, sides = 2): number {
  *  (audit khuyến nghị ×3-5: sống sót nhiễu bình thường, phí bớt nặng — ở ×10
  *  round-trip taker ăn ~1% ROI/lệnh chỉ để đi vòng). Chỉnh runtime nhóm
  *  Flip / SL-TP trên /ai. */
-export const RISK_MAX_LEV = 5;
+export const RISK_MAX_LEV = 25; // 2% stake x25 = 50% notional = 10% x5, cho phep lev bu khi stake nho
 /** TRẦN STAKE TỔNG — % vốn tối đa MỘT vị thế được CAM (vào lệnh + mọi bù DCA
  *  cộng dồn): entry bị kẹp xuống trần, lệnh DCA làm tổng vượt trần bị TỪ CHỐI
  *  (SL làm việc — bù averaging-down ở stake đầy là martingale). 0 = tắt.

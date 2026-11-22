@@ -1434,6 +1434,12 @@ export function dynLeverage(score: number, minScore: number, atrPct: number): nu
   return Math.min(20, Math.max(5, lev));
 }
 
+// stake nho -> lev lon bu notional: stake 10% => x1, stake 2% => x5, cap 25
+function stakeCompLev(baseLev: number, stakePct: number): number {
+  const comp = 10 / Math.max(1, stakePct);
+  return Math.min(25, Math.max(5, Math.round(baseLev * comp)));
+}
+
 export function ledgerCapitalNow(closed: any[], anchor = 1000) { return anchor + closed.reduce((s: number, r: any) => s + (Number(r.capitalAfter ?? 0) - Number(r.capitalBefore ?? 0)), 0); }
 
 async function cycleTick(): Promise<void> {
@@ -1659,10 +1665,10 @@ async function cycleTick(): Promise<void> {
     // + mui an toàn thanh khoản (SL ≤ TP_LIQ_SAFE% đường tới liq — áp MỌI mode,
     // manual chỉ bỏ qua scale, không bỏ qua mui). R:R giữ nguyên.
     // B 0.3.4 — dynamic lev riêng cho lệnh này (không dùng p.leverage chung)
-    const tradeLev = clampLev(dynLeverage(best.score, c.minScore, live?.atrPct ?? entrySl));
+    let tradeLev = clampLev(dynLeverage(best.score, c.minScore, live?.atrPct ?? entrySl));
     console.log(`[engine] B 0.3.4 dynLev @ ${best.symbol} ${best.interval}: score ${best.score.toFixed(2)} · ATR ${(live?.atrPct ?? entrySl).toFixed(2)}% -> x${tradeLev}`);
-    const levScale = c.tpMode === "manual" ? 1 : levNormScale(tradeLev);
-    const adj = levAdjSlTp(entrySl, entryTp, levScale, tradeLev);
+    let levScale = c.tpMode === "manual" ? 1 : levNormScale(tradeLev);
+    let adj = levAdjSlTp(entrySl, entryTp, levScale, tradeLev);
     let finalSl = adj.slPct;
     let finalTp = adj.tpPct;
     // B 0.3.4 — SL-noise guard: SL phải >= 0.8x ATR, nếu không skip
@@ -1746,6 +1752,12 @@ async function cycleTick(): Promise<void> {
     const strong = tierExtra <= 0 || best.score >= c.minScore + tierExtra;
     const stakeWanted = strong ? c.riskPct : Math.min(c.riskPct, Math.max(0.5, tierMin));
     const stakeUsed = clampStake(stakeWanted);
+    tradeLev = clampLev(stakeCompLev(tradeLev, stakeUsed));
+  // tinh lai SL/TP theo lev moi - lev cu x5 tinh SL/TP sai ROI-at-SL
+  levScale = c.tpMode === "manual" ? 1 : levNormScale(tradeLev);
+  adj = levAdjSlTp(entrySl, entryTp, levScale, tradeLev);
+  finalSl = adj.slPct; finalTp = adj.tpPct; // bu lev khi stake nho
+    console.log(`[engine] lev bu stake @ stake ${stakeUsed}% -> x${tradeLev}`);
     // multi: het von thi dung - margin lenh moi = capitalNow * stakeUsed%
     const needMargin = (capitalNow * stakeUsed) / 100;
     if (usedMargin + needMargin > capitalNow) {
@@ -1875,8 +1887,8 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
   // (manual bỏ qua) + mui thanh khoản, R:R giữ nguyên.
   const levScale = c.tpMode === "manual" ? 1 : levNormScale(p.leverage);
   const adj = levAdjSlTp(slPct, tpPct, levScale, p.leverage);
-  const finalSl = adj.slPct;
-  const finalTp = adj.tpPct;
+  let finalSl = adj.slPct;
+  let finalTp = adj.tpPct;
   if (finalSl !== slPct || finalTp !== tpPct) {
     console.log(
       `[engine] SL/TP lev-adjust (flip) @ ×${p.leverage}: ${slPct}/${tpPct}% → ${finalSl}/${finalTp}% (scale ${levScale.toFixed(2)})`,
