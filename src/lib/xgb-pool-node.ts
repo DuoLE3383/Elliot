@@ -191,8 +191,9 @@ export class XgbPoolNode {
   /** Sequential fallback — no worker bundle (dev mode). Same math, one core. */
   private async runInline(req: XgbTrainRequest, onProgress?: (p: number) => void): Promise<TrainOutcome> {
     try {
-      const klines = req.klines ?? (await fetchKlinesDirect(req.sym, req.itv));
+      const klines = req.klines ?? (await fetchKlinesDirect(req.sym, req.itv, 1500)); // train co lessons: 500 nen qua ngan -> outside
       const lv = req.difficulty ?? 0;
+      if (req.trades?.length && klines.length) console.log(`[xgb] klines ${req.sym} ${req.itv} n=${klines.length} from=${new Date(klines[0].t).toISOString()} to=${new Date(klines[klines.length-1].t).toISOString()} oldestTrade=${new Date(Math.min(...req.trades.map((x:any)=>x.t))).toISOString()}`);
       const res = await runXgb(klines, req.settings, `${req.sym}-${req.itv}`, req.itv, onProgress ? (p) => onProgress(p) : undefined, lv, req.trades);
       const entryPrice = klines.length >= 2 ? klines[klines.length - 2].c : 0;
       return { ok: true, res, entryPrice };
