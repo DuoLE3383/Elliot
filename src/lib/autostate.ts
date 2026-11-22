@@ -297,12 +297,16 @@ export async function readAutoState(): Promise<AutoState> {
   const trades = rows.map(serialize);
   const opens = trades.filter((t) => t.status === "open");
   const open = opens[0] ?? null;
-  const closed = trades.filter((t) => t.status === "closed");
-  // equity = last settled capital; while a position is open and nothing has
-  // settled yet, the entry-time capital is the best known equity — never "?"
-  // 0.2.86: sổ TRỐNG (vừa Reset vốn) → rơi về ví DryRunState, không còn "?"
-    const capital = 1000 + closed.reduce((s: number, r: any) => s + (Number(r.capitalAfter ?? 0) - Number(r.capitalBefore ?? 0)), 0);
-  const wins = closed.filter((t) => (t.pnlPct ?? 0) > 0).length;
+  // equity = vốn gốc ví (sau Reset vốn gần nhất — 0.2.86) + Σ delta MỌI lệnh
+  // đã đóng trong lịch sử (không trần 200). Base hardcode 1000 đã bị BỎ: nó
+  // làm reset_capital thành cosmetic — TG báo "vốn đặt về X" nhưng engine mở
+  // lệnh kế với capitalBefore=1000. Σ delta phải lấy từ closedAsc (TOÀN BỘ
+  // lịch sử) chứ không phải `closed` (take 200) — sổ >200 lệnh thì thiếu.
+  const capital = (wallet.capital ?? 1000) + closedAsc.reduce(
+    (s, r) => s + (r.capitalAfter != null && r.capitalBefore != null ? r.capitalAfter - r.capitalBefore : 0),
+    0,
+  );
+  const wins = closedAsc.filter((r) => (r.pnlPct ?? 0) > 0).length;
   return {
     trades,
     open,
@@ -315,10 +319,13 @@ export async function readAutoState(): Promise<AutoState> {
     analyticsByBook: byBook,
     recentByBook,
     stats: {
-      closed: closed.length,
+      // TOÀN BỘ lịch sử đóng (closedAsc) — trước đây `closed` cắt ở take 200
+      // khiến "Track record" trên Telegram trần 200 lệnh trong khi website đếm
+      // take 2000 (lệch dần khi sổ dài). closedAsc đầy đủ + có capital cb/ca.
+      closed: closedAsc.length,
       wins,
-      winRate: closed.length ? (wins / closed.length) * 100 : 0,
-      netPnlPct: (() => { const usdt = closed.reduce((sum, t) => sum + ((t.capitalAfter != null && t.capitalBefore != null) ? (t.capitalAfter - t.capitalBefore) : 0), 0); const start = wallet.capital ?? closed[closed.length - 1]?.capitalBefore ?? null; return start != null && start > 0 ? Math.round((usdt / start) * 100 * 100) / 100 : 0; })(),
+      winRate: closedAsc.length ? (wins / closedAsc.length) * 100 : 0,
+      netPnlPct: (() => { const usdt = closedAsc.reduce((sum, r) => sum + ((r.capitalAfter != null && r.capitalBefore != null) ? (r.capitalAfter - r.capitalBefore) : 0), 0); const start = wallet.capital ?? closedAsc[0]?.capitalBefore ?? null; return start != null && start > 0 ? Math.round((usdt / start) * 100 * 100) / 100 : 0; })(),
     },
   };
 }

@@ -1442,7 +1442,9 @@ function stakeCompLev(baseLev: number, stakePct: number): number {
   return Math.min(25, Math.max(5, Math.round(baseLev * comp)));
 }
 
-export function ledgerCapitalNow(closed: any[], anchor = 1000) { return anchor + closed.reduce((s: number, r: any) => s + (Number(r.capitalAfter ?? 0) - Number(r.capitalBefore ?? 0)), 0); }
+// (ledgerCapitalNow đã xoá — dead code: công thức vốn duy nhất sống trong
+// readAutoState (autostate.ts: wallet.capital ?? 1000 + ΣΔ full history) và
+// mirror ở POST /api/autotrade open; không ai gọi hàm này nữa.)
 
 async function cycleTick(): Promise<void> {
   const { p, v } = eng();
