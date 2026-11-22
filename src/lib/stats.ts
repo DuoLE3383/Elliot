@@ -957,12 +957,13 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       const cnt = { ok: 0, warn: 0, na: 0 };
       for (const s of [market, combo, universe, auto, dqfSec, dock, openPos, hist, sg]) cnt[s.state] += 1;
       // LEDGER DUY NHAT - moi card (TOTAL EQUITY / TOTAL PNL / NET ROI / WIN RATE / TOTAL TRADES / Flow / Recent Trades) deu xai cai nay
-      // A=autoTrade (base 1000), B=vulcanBook (base 1000), C=wyckoffBook (base 0), D=liquidBook (base 0), E=liveBook (base 0)
+      // NHÃN A/B KHỚP autostate.ts + reset endpoint (route.ts "B: AutoTrade, A: VulcanBook"):
+      // A=VulcanBook (base 1000), B=AutoTrade (base 1000), C=WyckoffBook (base 0), D=LiquidBook (base 0), E=LiveBook (base 0)
       // TOTAL START = 2000. TOTAL EQUITY = 2000 + PNL closed (chuoi von) + PNL open (net, da tru phi)
       const ledger = await (async () => {
         const books = [
-          { name: "A", model: "autoTrade", start: 1000 },
-          { name: "B", model: "vulcanBook", start: 1000 },
+          { name: "A", model: "vulcanBook", start: 1000 },
+          { name: "B", model: "autoTrade", start: 1000 },
           { name: "C", model: "wyckoffBook", start: 0 },
           { name: "D", model: "liquidBook", start: 0 },
           { name: "E", model: "liveBook", start: 0 },
@@ -996,7 +997,6 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
           const base = Number(r.capitalBefore ?? r.balanceBefore ?? r.capital ?? NaN);
           if (Number.isFinite(base) && base > 0) return base * (stake / 100);
           return 1000 * (stake / 100);
-          return 0;
         };
         for (const x of allOpens as any[]) {
           const px = priceMap[x.symbol] ?? Number((x as any).markPrice ?? (x as any).lastPrice ?? NaN);
@@ -1041,7 +1041,6 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
           const base = Number(r.capitalBefore ?? r.balanceBefore ?? r.capital ?? NaN);
           if (Number.isFinite(base) && base > 0) return base * (stake / 100);
           return 1000 * (stake / 100);
-          return 0;
         };
         for (const x of allOpens as any[]) {
           const px = priceMap[x.symbol] ?? Number((x as any).markPrice ?? (x as any).lastPrice ?? NaN);
