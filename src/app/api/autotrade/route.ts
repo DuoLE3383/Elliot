@@ -78,7 +78,11 @@ export async function POST(req: NextRequest) {
   }
 
   const closedEq = await db.autoTrade.findMany({ where: { status: "closed" }, select: { capitalBefore: true, capitalAfter: true } });
-  const equityNow = 1000 + closedEq.reduce((s: number, r: any) => s + (Number(r.capitalAfter ?? 0) - Number(r.capitalBefore ?? 0)), 0);
+  // CÙNG MỘT nguồn với readAutoState: vốn gốc ví (sau Reset gần nhất — 0.2.86)
+  // + Σ delta toàn bộ lệnh đóng. Trước đây hardcode 1000 → lệnh mở tay ghi
+  // capitalBefore lệch mốc với engine sau khi reset_capital ≠ 1000.
+  const wallet = await readWallet();
+  const equityNow = (wallet.capital ?? 1000) + closedEq.reduce((s: number, r: any) => s + (Number(r.capitalAfter ?? 0) - Number(r.capitalBefore ?? 0)), 0);
   const row = await db.autoTrade.create({
     data: {
       symbol,
@@ -180,6 +184,7 @@ export async function PATCH(req: NextRequest) {
         pnlFixed: plan.pnlFixed,
         capitalRefixed: plan.capitalRefixed,
         finalCapital: plan.finalCapital,
+        opensSkipped: plan.opensSkipped,
         report: reportAfter,
         reportBefore: report,
       });
