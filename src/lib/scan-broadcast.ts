@@ -452,8 +452,13 @@ export async function buildTopCoinsMessage(
     `Data: ${CANDIDATE_POOL} best combos out of ${rows.length} scanned combos`,
   ];
   for (const c of picked) out.push(...coinBlock(c), "");
+  // PHẢN QUYẾT ĐẦY ĐỦ cả khi có tin — trước đây trả `verdicts: []` khiến
+  // broadcastTick (tick 5 phút) không persist được pass verdict vào bảng
+  // BcastVerdict: Telegram đăng "PASSED THE GATE" nhưng panel web đếm thiếu,
+  // `at` của pass không được refresh. Coherence-reject đã mutate trong mảng
+  // ở trên nên mảng này luôn là phán quyết cuối cùng của tick.
   out.push(HEAVY_LINE, `📊 Total: ${picked.length} coins passed the criteria`, `⏱ Next scan in 5 minutes`);
-  return { text: out.join("\n"), picked: picked.map((c) => c.row), verdicts: [] };
+  return { text: out.join("\n"), picked: picked.map((c) => c.row), verdicts };
 }
 
 // ─── Scan digest — tin "QUÉT LỆNH" 8 giờ/lần (0.2.35, khoét gọn 0.2.45) ─────
