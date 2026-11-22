@@ -124,11 +124,12 @@ function LineChart({ chart }: { chart: Extract<StatChart, { kind: "line" }> }) {
   return (
     <div className="relative">
       <svg viewBox={`0 0 ${W} ${H}`} className="h-32 w-full" preserveAspectRatio="xMidYMid meet" role="img">
-        {/* lưới min/max mờ + nhãn giá trị */}
+        {/* lưới min/max mờ + nhãn giá trị — nhãn min/max nằm TRÁI để khỏi đè
+            nhãn giá trị hiện tại ở góc phải (dính chùm khi curve kết thúc gần đỉnh) */}
         <line x1={padX} y1={y(vmin)} x2={W - padX} y2={y(vmin)} stroke="#3f3f46" strokeDasharray="3 4" strokeWidth="1" />
         <line x1={padX} y1={y(vmax)} x2={W - padX} y2={y(vmax)} stroke="#3f3f46" strokeDasharray="3 4" strokeWidth="1" />
-        <text x={W - padX} y={y(vmax) - 3} textAnchor="end" fontSize="9" fill="#a1a1aa">${vmax.toFixed(2)}</text>
-        <text x={W - padX} y={y(vmin) + 9} textAnchor="end" fontSize="9" fill="#a1a1aa">${vmin.toFixed(2)}</text>
+        <text x={padX} y={y(vmax) - 3} fontSize="9" fill="#a1a1aa">${vmax.toFixed(2)}</text>
+        <text x={padX} y={y(vmin) + 9} fontSize="9" fill="#a1a1aa">${vmin.toFixed(2)}</text>
         <path d={path} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" />
         {pts.map((p, i) => (
           <circle key={i} cx={x(p.t)} cy={y(p.v)} r={i === pts.length - 1 ? 3.5 : 2} fill={color} opacity={i === pts.length - 1 ? 1 : 0.75} />
@@ -147,7 +148,15 @@ function LineChart({ chart }: { chart: Extract<StatChart, { kind: "line" }> }) {
         ))}
         <text x={padX} y={H - 4} fontSize="8" fill="#71717a">{fmtT(t0)}</text>
         <text x={W - padX} y={H - 4} textAnchor="end" fontSize="8" fill="#71717a">{fmtT(t1)}</text>
-        <text x={x(last.t)} y={y(last.v) - 7} textAnchor="middle" fontSize="10" fontWeight="700" fill={color}>
+        {/* giá trị hiện tại — kẹp trong khung, lệch trái 26px khi chạm mép phải */}
+        <text
+          x={Math.min(x(last.t), W - padX - 26)}
+          y={y(last.v) - 7}
+          textAnchor="middle"
+          fontSize="10"
+          fontWeight="700"
+          fill={color}
+        >
           ${last.v.toFixed(2)}
         </text>
       </svg>
