@@ -72,14 +72,14 @@ const EDGE = "#26262c";
 const TXT = "#e9e9ec";
 const SUB = "#8b8b94";
 
-const NW = 196;
-const NH = 76;
-const ROW_GAP = 18;
+const NW = 172;
+const NH = 64;
+const ROW_GAP = 12;
 const COL_A_X = 30;
-const COL_M_X = 365;
-const COL_B_X = 695;
+const COL_M_X = 322;
+const COL_B_X = 614;
 const ROW_Y = [20, 150, 280, 410, 540];
-const BASE_W = 1040;
+const BASE_W = 900;
 const BASE_H = 648;
 
 const cy = (row: number): number => ROW_Y[row] + NH / 2;
@@ -288,7 +288,7 @@ export function ApmFlowMap({
 
   const midBottomY = midStartY + midItems.length * (NH + ROW_GAP);
   const rightBottomY = ROW_Y[3] + NH;
-  const H = Math.max(BASE_H, midStartY + midTotalH + 72);
+  const H = Math.max(BASE_H, midStartY + midTotalH + 124);
 
   const tradesCy = cy(0);
   const ySrc = (dy: number): number => tradesCy + dy;
@@ -348,7 +348,16 @@ export function ApmFlowMap({
     { x: COL_B_X, y: rightY(3), id: "st-hist", title: t(lang, "apm.node.flip"), value: `${f.flip + f.manual}`, sub: `flip ${f.flip} · manual ${f.manual}`, dot: AMBER, valColor: AMBER },
   ];
 
-  const nodes: NodeSpec[] = [...leftNodes, ...middleNodes, ...rightNodes];
+  const bottomY = midStartY + midTotalH + 20;
+  const bottomGap = ((COL_B_X + NW - COL_A_X) - 4 * NW) / 3;
+  const bottomX = (i: number) => COL_A_X + i * (NW + bottomGap);
+  const bottomNodes: NodeSpec[] = [
+    { x: bottomX(0), y: bottomY, id: "st-hist", title: "Trade autopsy", value: "84", sub: "thang / thua - queue 60s", dot: RED, valColor: TXT },
+    { x: bottomX(1), y: bottomY, id: "st-universe", title: "Strategy self-evolution", value: "+-20%", sub: "proposal-only - duyet moi ap", dot: "#38bdf8", valColor: TXT },
+    { x: bottomX(2), y: bottomY, id: "st-universe", title: "param_values", value: "↻", sub: "doc lai tick sau - het hardcode", dot: "#22d3ee", valColor: TXT },
+    { x: bottomX(3), y: bottomY, id: "st-dock", title: "Root-cause monitor", value: "5m", sub: "chi quet & ghi - khong sua", dot: "#a78bfa", valColor: TXT },
+  ];
+  const nodes: NodeSpec[] = [...leftNodes, ...middleNodes, ...rightNodes, ...bottomNodes];
   const gateCy = leftY(3) + NH / 2;
   const firstMidCy = midCy(0);
 
@@ -419,12 +428,12 @@ export function ApmFlowMap({
             />
 
             {/* Trades → TP / SL / Flip (bulge phải, mảnh đứt) */}
-            <BulgeWire xEdge={edgeR} y1={ySrc(-12)} y2={rightY(1) + NH / 2} bulgeX={926} color={LIME} hot={f.tp > 0} />
-            <BulgeWire xEdge={edgeR} y1={ySrc(0)} y2={rightY(2) + NH / 2} bulgeX={944} color={RED} hot={f.sl > 0} />
-            <BulgeWire xEdge={edgeR} y1={ySrc(12)} y2={rightY(3) + NH / 2} bulgeX={962} color={AMBER} hot={f.flip + f.manual > 0} />
-            <BandChip x={926} y={rightY(1) + NH / 2 - 16} color={LIME} label={t(lang, "apm.band.success")} />
-            <BandChip x={944} y={rightY(2) + NH / 2 - 16} color={RED} label={t(lang, "apm.band.error")} />
-            <BandChip x={962} y={rightY(3) + NH / 2 - 16} color={AMBER} label={t(lang, "apm.band.normal")} />
+            <BulgeWire xEdge={edgeR} y1={ySrc(-12)} y2={rightY(1) + NH / 2} bulgeX={821} color={LIME} hot={f.tp > 0} />
+            <BulgeWire xEdge={edgeR} y1={ySrc(0)} y2={rightY(2) + NH / 2} bulgeX={839} color={RED} hot={f.sl > 0} />
+            <BulgeWire xEdge={edgeR} y1={ySrc(12)} y2={rightY(3) + NH / 2} bulgeX={857} color={AMBER} hot={f.flip + f.manual > 0} />
+            <BandChip x={821} y={rightY(1) + NH / 2 - 16} color={LIME} label={t(lang, "apm.band.success")} />
+            <BandChip x={839} y={rightY(2) + NH / 2 - 16} color={RED} label={t(lang, "apm.band.error")} />
+            <BandChip x={857} y={rightY(3) + NH / 2 - 16} color={AMBER} label={t(lang, "apm.band.normal")} />
 
             {nodes.map((n, i) => (
               <FlowNode

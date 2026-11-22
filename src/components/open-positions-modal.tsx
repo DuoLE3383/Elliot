@@ -84,7 +84,7 @@ export function OpenPositionsModal({
     const p1ShareFrac = p1ShareRaw > 1 ? Math.min(1, p1ShareRaw / 100) : Math.min(1, Math.max(0, p1ShareRaw));
     const hasTp1 = (pos as any)?.p1Pct != null && p1ShareFrac > 0;
     const bankedRoi = Number((pos as any)?.p1Pct ?? 0); // p1Pct = ROI % cua phan banked, da tru phi
-    const marginFull = Number((pos as any)?.margin ?? (pos as any)?.entryCapital ?? 0);
+    const marginFull = Number((pos as any)?.margin ?? (pos as any)?.marginUsd ?? (pos as any)?.entryCapital ?? ((pos as any)?.sizeUsd != null && (pos as any)?.leverage ? (pos as any).sizeUsd / (pos as any).leverage : 0));
     const remainFrac = hasTp1 ? (1 - p1ShareFrac) : 1;
     const bankedPnl = hasTp1 ? marginFull * p1ShareFrac * (bankedRoi / 100) : 0;
     const marginRemain = marginFull * remainFrac;
@@ -189,7 +189,7 @@ export function OpenPositionsModal({
               const p1ShareFrac = p1ShareRaw > 1 ? Math.min(1, p1ShareRaw / 100) : Math.min(1, Math.max(0, p1ShareRaw));
               const hasTp1 = (pos as any)?.p1Pct != null && p1ShareFrac > 0;
               const bankedRoi = Number((pos as any)?.p1Pct ?? 0);
-              const marginFull = Number((pos as any)?.margin ?? (pos as any)?.entryCapital ?? 0);
+              const marginFull = Number((pos as any)?.margin ?? (pos as any)?.marginUsd ?? (pos as any)?.entryCapital ?? ((pos as any)?.sizeUsd != null && (pos as any)?.leverage ? (pos as any).sizeUsd / (pos as any).leverage : 0));
               const bankedPnl = hasTp1 ? marginFull * p1ShareFrac * (bankedRoi / 100) : 0;
               const roiVal = Number((pos as any)?.roi ?? (pos as any)?.roePct ?? 0); const marginRemain = hasTp1 ? marginFull * (1 - p1ShareFrac) : marginFull; const pnlTotal = hasTp1 ? bankedPnl + marginRemain * (roiVal / 100) : marginFull * (roiVal / 100); const isProfit = pnlTotal >= 0;
               const roiIsProfit = roiVal >= 0; // ROI am -> do, khong lay mau theo pnlTotal
