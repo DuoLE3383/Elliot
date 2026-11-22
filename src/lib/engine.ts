@@ -1433,6 +1433,8 @@ export function dynLeverage(score: number, minScore: number, atrPct: number): nu
   return Math.min(20, Math.max(5, lev));
 }
 
+export function ledgerCapitalNow(closed: any[], anchor = 1000) { return anchor + closed.reduce((s: number, r: any) => s + (Number(r.capitalAfter ?? 0) - Number(r.capitalBefore ?? 0)), 0); }
+
 async function cycleTick(): Promise<void> {
   const { p, v } = eng();
   const c = p.cfg;
@@ -1656,7 +1658,7 @@ async function cycleTick(): Promise<void> {
     // + mui an toàn thanh khoản (SL ≤ TP_LIQ_SAFE% đường tới liq — áp MỌI mode,
     // manual chỉ bỏ qua scale, không bỏ qua mui). R:R giữ nguyên.
     // B 0.3.4 — dynamic lev riêng cho lệnh này (không dùng p.leverage chung)
-    const tradeLev = dynLeverage(best.score, c.minScore, live?.atrPct ?? entrySl);
+    const tradeLev = clampLev(dynLeverage(best.score, c.minScore, live?.atrPct ?? entrySl));
     console.log(`[engine] B 0.3.4 dynLev @ ${best.symbol} ${best.interval}: score ${best.score.toFixed(2)} · ATR ${(live?.atrPct ?? entrySl).toFixed(2)}% -> x${tradeLev}`);
     const levScale = c.tpMode === "manual" ? 1 : levNormScale(tradeLev);
     const adj = levAdjSlTp(entrySl, entryTp, levScale, tradeLev);
@@ -2143,7 +2145,8 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
     // hết position"). tp2Pct chỉ còn là số tham chiếu hiển thị.
     const trail = Math.max(0, open.trailPct ?? 0);
     if (trailHit(open.side, price, open.entryPrice, trail)) {
-      return { closed: await closeTradeDirect(open.id, price, TRAIL_KIND), kind: TRAIL_KIND };
+      const stopPrice = open.side === "LONG" ? open.entryPrice * (1 + trail / 100) : open.entryPrice * (1 - trail / 100);
+      return { closed: await closeTradeDirect(open.id, stopPrice, TRAIL_KIND), kind: TRAIL_KIND };
     }
     // ratchet khoá lời — CHỈ TĂNG, state nằm trên ROW (restart an toàn)
     const lock = trailRatchet(trail, Math.max(0, move1x), c.runnerTrailLock);
@@ -2264,10 +2267,10 @@ async function watcherTick(): Promise<void> {
     if (wickLow > 0 && wickHigh > 0) {
       const tpP = open.side === "SHORT" ? open.entryPrice * (1 - Math.abs(open.tpPct) / 100) : open.entryPrice * (1 + Math.abs(open.tpPct) / 100);
       const slP = open.side === "SHORT" ? open.entryPrice * (1 + Math.abs(open.slPct) / 100) : open.entryPrice * (1 - Math.abs(open.slPct) / 100);
-      if (open.side === "SHORT" && wickLow <= tpP) price = wickLow;
-      else if (open.side === "LONG" && wickHigh >= tpP) price = wickHigh;
-      else if (open.side === "SHORT" && wickHigh >= slP) price = wickHigh;
+      if (open.side === "SHORT" && wickHigh >= slP) price = wickHigh;
       else if (open.side === "LONG" && wickLow <= slP) price = wickLow;
+      else if (open.side === "SHORT" && wickLow <= tpP) price = wickLow;
+      else if (open.side === "LONG" && wickHigh >= tpP) price = wickHigh;
       else if (open.side === "SHORT") price = Math.min(tickerPrice || wickLow, wickLow); // cap nhat peak trail bang low
       else price = Math.max(tickerPrice || wickHigh, wickHigh);
     }

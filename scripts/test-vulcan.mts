@@ -51,9 +51,9 @@ async function main() {
     const { trades } = backtestDonchian(sym, candles);
     const s = summarize(trades);
     const days = ((candles[candles.length - 1].t - candles[0].t) / 86400000).toFixed(1);
-    console.log(`== ${sym} | ${candles.length} nến (~${days} ngày) | ${trades.length} lệnh | WR ${s.wr.toFixed(1)}% | net ROE ${s.netRoe} | TB thắng ${s.avgWin} | TB thua ${s.avgLoss} | payoff ${s.payoff.toFixed(2)}`);
+    console.log(`== ${sym} | ${candles.length} nến (~${days} ngày) | ${trades.length} lệnh | WR ${s.wr.toFixed(1)}% | net ROI ${s.netRoe} | TB thắng ${s.avgWin} | TB thua ${s.avgLoss} | payoff ${s.payoff.toFixed(2)}`);
     for (const t of trades) {
-      console.log(`   ${fmtDate(t.entryT)} ${t.side.padEnd(5)} ${String(t.entry.toPrecision(6)).padEnd(10)} → ${String(t.exit.toPrecision(6)).padEnd(10)} move ${String(t.movePct).padStart(6)}% ROE ${String(t.roePct).padStart(7)}% ${t.reason} (${t.bars} nến)`);
+      console.log(`   ${fmtDate(t.entryT)} ${t.side.padEnd(5)} ${String(t.entry.toPrecision(6)).padEnd(10)} → ${String(t.exit.toPrecision(6)).padEnd(10)} move ${String(t.movePct).padStart(6)}% ROI ${String(t.roiPct).padStart(7)}% ${t.reason} (${t.bars} nến)`);
     }
     for (const bs of s.bySide) {
       if (bs.n > 0) console.log(`   → ${bs.side}: ${bs.n} lệnh WR ${bs.wr.toFixed(0)}% net ${Math.round(bs.net * 100) / 100}`);
@@ -61,7 +61,7 @@ async function main() {
     totalTrades += trades.length;
     allRoe += s.netRoe;
   }
-  console.log(`\nTỔNG: ${totalTrades} lệnh, net ROE cộng dồn ${Math.round(allRoe * 100) / 100} (chưa nhân stake, lev 5, fee 0.05%/bên)`);
+  console.log(`\nTỔNG: ${totalTrades} lệnh, net ROI cộng dồn ${Math.round(allRoe * 100) / 100} (chưa nhân stake, lev 5, fee 0.05%/bên)`);
 }
 
 main().catch((e) => {

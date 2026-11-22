@@ -92,9 +92,9 @@ export function decideVulcanLive(candles: Candle[], open: VulcanOpenState | null
     const state: VulcanLiveState = { stopPrice: open.stopPrice, peak: open.peak, trailArmed: open.trailArmed };
     // 1) stop theo giá (stop đã được trailing siết từ các tick trước)
     if (open.side === "LONG" && bar.l <= state.stopPrice)
-      return { action: { kind: "close", price: Math.min(bar.o, state.stopPrice), exitKind: "sl" }, state };
+      { const isTrailL = state.stopPrice > (open?.entry ?? 0); return { action: { kind: "close", price: Math.min(bar.o, state.stopPrice), exitKind: isTrailL ? "trail" : "sl" }, state }; }
     if (open.side === "SHORT" && bar.h >= state.stopPrice)
-      return { action: { kind: "close", price: Math.max(bar.o, state.stopPrice), exitKind: "sl" }, state };
+      { const isTrailS = state.stopPrice < (open?.entry ?? 0); return { action: { kind: "close", price: Math.max(bar.o, state.stopPrice), exitKind: isTrailS ? "trail" : "sl" }, state }; }
 
     const movePct = open.side === "LONG" ? ((bar.c - open.entry) / open.entry) * 100 : ((open.entry - bar.c) / open.entry) * 100;
     const heldMin = (bar.t - open.entryTime) / 60000;

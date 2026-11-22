@@ -2,7 +2,7 @@
 //   1. expectedPnlPctOf — công thức chốt hiện hành (phí round-trip, thanh lý
 //      −100) tính ĐÚNG cho cả SHORT lẫn LONG (một nguồn với closeTradeDirect).
 //   2. auditBook — phát hiện dòng lệch + thống kê LONG/SHORT trước/sau chuẩn hoá.
-//   3. repairBook — ROE đúng + CHUỖI VỐN chạy lại (capitalBefore/After).
+//   3. repairBook — ROI đúng + CHUỖI VỐN chạy lại (capitalBefore/After).
 //   4. bestTradeableAvoid — SHORT mới cần 1−prob ≥ SHORT_PROB_MIN (0.6);
 //      LONG giữ nguyên noise band; knob ≤ 0.5 tắt (đối xứng cũ).
 import {
@@ -26,10 +26,10 @@ const check = (name: string, cond: boolean, extra = "") => {
 };
 
 // ─── 1 · expectedPnlPctOf — SHORT/LONG đối xứng phép toán, lệch dấu ──────────
-check("SHORT thắng: entry 100 → exit 97 @×10 = +29% ROE (30 − 1 phí)", expectedPnlPctOf({ side: "SHORT", entryPrice: 100, exitPrice: 97, leverage: 10, exitKind: "tp" }) === 29);
-check("LONG thắng: entry 100 → exit 103 @×10 = +29% ROE", expectedPnlPctOf({ side: "LONG", entryPrice: 100, exitPrice: 103, leverage: 10, exitKind: "tp" }) === 29);
-check("SHORT thua: entry 100 → exit 103 @×10 = −31% ROE (−30 − 1 phí)", expectedPnlPctOf({ side: "SHORT", entryPrice: 100, exitPrice: 103, leverage: 10, exitKind: "sl" }) === -31);
-check("LONG thua: entry 100 → exit 97 @×10 = −31% ROE", expectedPnlPctOf({ side: "LONG", entryPrice: 100, exitPrice: 97, leverage: 10, exitKind: "sl" }) === -31);
+check("SHORT thắng: entry 100 → exit 97 @×10 = +29% ROI (30 − 1 phí)", expectedPnlPctOf({ side: "SHORT", entryPrice: 100, exitPrice: 97, leverage: 10, exitKind: "tp" }) === 29);
+check("LONG thắng: entry 100 → exit 103 @×10 = +29% ROI", expectedPnlPctOf({ side: "LONG", entryPrice: 100, exitPrice: 103, leverage: 10, exitKind: "tp" }) === 29);
+check("SHORT thua: entry 100 → exit 103 @×10 = −31% ROI (−30 − 1 phí)", expectedPnlPctOf({ side: "SHORT", entryPrice: 100, exitPrice: 103, leverage: 10, exitKind: "sl" }) === -31);
+check("LONG thua: entry 100 → exit 97 @×10 = −31% ROI", expectedPnlPctOf({ side: "LONG", entryPrice: 100, exitPrice: 97, leverage: 10, exitKind: "sl" }) === -31);
 check("SHORT thanh lý: entry 100 → exit 111 @×10 (−11% ≥ 10%) → −100", expectedPnlPctOf({ side: "SHORT", entryPrice: 100, exitPrice: 111, leverage: 10, exitKind: "sl" }) === -100);
 check("LONG thanh lý: entry 100 → exit 89 @×10 → −100", expectedPnlPctOf({ side: "LONG", entryPrice: 100, exitPrice: 89, leverage: 10, exitKind: "sl" }) === -100);
 check("×1 đứng im: −0.1% (phí round-trip)", expectedPnlPctOf({ side: "SHORT", entryPrice: 100, exitPrice: 100, leverage: 1, exitKind: "manual" }) === -0.1);
@@ -41,7 +41,7 @@ check("thiếu exit → null (không đoán)", expectedPnlPctOf({ side: "SHORT",
 // thay vì lệnh thua — SHORT ×5 thắng 20% giá bị ghi −100 liều mạng.
 check("[0.2.88] SHORT thắng 20% giá ×5 (100→80) = +99.5, KHÔNG phải −100", expectedPnlPctOf({ side: "SHORT", entryPrice: 100, exitPrice: 80, leverage: 5, exitKind: "tp" }) === 99.5);
 check("[0.2.88] SHORT thắng 10% giá ×10 (100→90) = +99, KHÔNG phải −100", expectedPnlPctOf({ side: "SHORT", entryPrice: 100, exitPrice: 90, leverage: 10, exitKind: "tp" }) === 99);
-check("[0.2.88] SHORT thắng 25% giá ×5 = +124.5 (thắng quá 100% ROE là hợp lệ)", expectedPnlPctOf({ side: "SHORT", entryPrice: 100, exitPrice: 75, leverage: 5, exitKind: "tp" }) === 124.5);
+check("[0.2.88] SHORT thắng 25% giá ×5 = +124.5 (thắng quá 100% ROI là hợp lệ)", expectedPnlPctOf({ side: "SHORT", entryPrice: 100, exitPrice: 75, leverage: 5, exitKind: "tp" }) === 124.5);
 check("[0.2.88] LONG thắng 20% giá ×5 = +99.5 (đối xứng giữ nguyên)", expectedPnlPctOf({ side: "LONG", entryPrice: 100, exitPrice: 120, leverage: 5, exitKind: "tp" }) === 99.5);
 check("[0.2.88] SHORT thua 20% giá ×5 (100→120) → −100 (đúng ranh giới thanh lý)", expectedPnlPctOf({ side: "SHORT", entryPrice: 100, exitPrice: 120, leverage: 5, exitKind: "liq" }) === -100);
 check("[0.2.88] LONG thua 20% giá ×5 (100→80) → −100 (đúng ranh giới thanh lý)", expectedPnlPctOf({ side: "LONG", entryPrice: 100, exitPrice: 80, leverage: 5, exitKind: "liq" }) === -100);
@@ -66,11 +66,11 @@ check("audit: sau chuẩn hoá SHORT WR 50%", rep.sides.after.find((s) => s.side
 check("audit: SHORT mismatched = 2", rep.sides.after.find((s) => s.side === "SHORT")?.mismatched === 2);
 check("audit: LONG mismatched = 0", rep.sides.after.find((s) => s.side === "LONG")?.mismatched === 0);
 
-// ─── 3 · repairBook — ROE đúng + chuỗi vốn chạy lại ───────────────────────────
+// ─── 3 · repairBook — ROI đúng + chuỗi vốn chạy lại ───────────────────────────
 const plan = repairBook(rows);
 const byId = Object.fromEntries(plan.updates.map((u) => [u.id, u]));
-check("repair: s1 ROE 30 → 29", byId.s1?.pnlPct === 29);
-check("repair: s2 ROE −110 → −100 (thanh lý)", byId.s2?.pnlPct === -100);
+check("repair: s1 ROI 30 → 29", byId.s1?.pnlPct === 29);
+check("repair: s2 ROI −110 → −100 (thanh lý)", byId.s2?.pnlPct === -100);
 check("repair: pnlFixed = 2", plan.pnlFixed === 2);
 // chuỗi vốn: l1 1000→1290 (giữ nguyên), s1 1290→1580.1 (1290+29%), s2 1580.1→0
 check("repair: s1 capitalAfter 1664.1 (1290 + 29% × 1290)", byId.s1?.capitalAfter === 1664.1, `got ${byId.s1?.capitalAfter}`);

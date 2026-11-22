@@ -301,7 +301,7 @@ export async function readAutoState(): Promise<AutoState> {
   // equity = last settled capital; while a position is open and nothing has
   // settled yet, the entry-time capital is the best known equity — never "?"
   // 0.2.86: sổ TRỐNG (vừa Reset vốn) → rơi về ví DryRunState, không còn "?"
-  const capital = closed[0]?.capitalAfter ?? open?.capitalBefore ?? wallet.capital ?? null;
+    const capital = 1000 + closed.reduce((s: number, r: any) => s + (Number(r.capitalAfter ?? 0) - Number(r.capitalBefore ?? 0)), 0);
   const wins = closed.filter((t) => (t.pnlPct ?? 0) > 0).length;
   return {
     trades,

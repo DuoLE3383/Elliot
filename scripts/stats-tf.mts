@@ -16,7 +16,7 @@
 // thư mục schema (prisma/) chứ không phải cwd — hãy dùng đường dẫn TUYỆT ĐỐI.
 //
 // GROSS/NET tính lại từ GIÁ (đồng nhất mọi phiên bản — lệnh trước 0.2.77 lưu
-// pnlPct gross, sau đó net; DB Σ chỉ in làm đối chiếu chéo). Phí = feeRoe
+// pnlPct gross, sau đó net; DB Σ chỉ in làm đối chiếu chéo). Phí = feeRoi
 // (FEE_PCT runtime — hydrate từ db/params-override.json như engine). Funding
 // KHÔNG có trong dry-run → in ƯỚC TÍNH riêng @ 0.01%/8h (baseline Binance),
 // không trộn vào cột phí.
@@ -106,7 +106,7 @@ console.log("-".repeat(head.length));
 const line = (s: (typeof per)[number]): string => {
   const ex = s.exits;
   const exStr = `${ex.tp ?? 0}/${ex.sl ?? 0}/${ex.flip ?? 0}/${ex.trail ?? 0}/${ex.manual ?? 0}`;
-  return [s.interval, String(s.n), s.winRate.toFixed(1), fmt(s.grossRoe), `-${s.feeRoe.toFixed(2)}`, fmt(s.netRoe), fmt(s.avgNet), hold(s.avgHoldMin), exStr.padEnd(30), fmt(s.flipNet), fmt(s.netEquityPct)]
+  return [s.interval, String(s.n), s.winRate.toFixed(1), fmt(s.grossRoe), `-${s.feeRoi.toFixed(2)}`, fmt(s.netRoe), fmt(s.avgNet), hold(s.avgHoldMin), exStr.padEnd(30), fmt(s.flipNet), fmt(s.netEquityPct)]
     .map((c, i) => (i === 8 ? c : c.padStart(W)))
     .join(" ");
 };
@@ -128,7 +128,7 @@ ${per
         0.01 *
         s.avgLev *
         s.n
-      ).toFixed(2)}% ROE cộng dồn cả khung`,
+      ).toFixed(2)}% ROI cộng dồn cả khung`,
   )
   .join("\n")}`);
 
@@ -148,9 +148,9 @@ console.log(`
   kiểm tra walk-forward + Platt calibration §6c). gap ≈ 0 mọi bucket = lành.`);
 
 console.log("\n════════ COPY-PASTE (gửi audit) ════════");
-console.log(`closed=${stat.n} wr=${stat.winRate.toFixed(1)}% gross=${fmt(stat.grossRoe)}% fees=-${stat.feeRoe.toFixed(2)}% net=${fmt(stat.netRoe)}% equity=${fmt(stat.netEquityPct)}%`);
+console.log(`closed=${stat.n} wr=${stat.winRate.toFixed(1)}% gross=${fmt(stat.grossRoe)}% fees=-${stat.feeRoi.toFixed(2)}% net=${fmt(stat.netRoe)}% equity=${fmt(stat.netEquityPct)}%`);
 for (const s of per) {
-  console.log(`${s.interval}: n=${s.n} wr=${s.winRate.toFixed(1)}% gross=${fmt(s.grossRoe)}% fee=-${s.feeRoe.toFixed(2)}% net=${fmt(s.netRoe)}% avg=${fmt(s.avgNet)} flip=${fmt(s.flipNet)}`);
+  console.log(`${s.interval}: n=${s.n} wr=${s.winRate.toFixed(1)}% gross=${fmt(s.grossRoe)}% fee=-${s.feeRoi.toFixed(2)}% net=${fmt(s.netRoe)}% avg=${fmt(s.avgNet)} flip=${fmt(s.flipNet)}`);
 }
 
 await db.$disconnect();

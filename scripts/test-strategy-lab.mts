@@ -91,7 +91,7 @@ console.log(`  ${scored.length} ứng viên chấm xong trong ${labMs}ms — top
 for (const s of scored.slice(0, 5)) {
   const m = s.metrics;
   console.log(
-    `    ${s.candidate.baseline ? "[MỐC] " : "      "}${s.candidate.name.padEnd(22)} trades ${String(m.trades).padStart(3)} · win ${m.winRate.toFixed(0).padStart(3)}% · ROE/lệnh ${m.expectancy >= 0 ? "+" : ""}${m.expectancy.toFixed(2)} · net ${m.netPnl.toFixed(1)}% · DD ${m.maxDd.toFixed(1)}%`,
+    `    ${s.candidate.baseline ? "[MỐC] " : "      "}${s.candidate.name.padEnd(22)} trades ${String(m.trades).padStart(3)} · win ${m.winRate.toFixed(0).padStart(3)}% · ROI/lệnh ${m.expectancy >= 0 ? "+" : ""}${m.expectancy.toFixed(2)} · net ${m.netPnl.toFixed(1)}% · DD ${m.maxDd.toFixed(1)}%`,
   );
 }
 

@@ -3,7 +3,7 @@
 // Bối cảnh: methodId = hash của TOÀN BỘ chuỗi chính sách → mỗi lần đổi knob
 // (user chỉnh tay, agent tự +2 minScore, đổi tpMode 0.2.74) đúc methodId MỚI,
 // bộ đếm mẫu của method active về 0 và decidePatch trả "skip" — agent 6h ngủ
-// đúng lúc vốn đang chảy máu (data live: 28 lệnh đóng 46% WR −40.30% net ROE
+// đúng lúc vốn đang chảy máu (data live: 28 lệnh đóng 46% WR −40.30% net ROI
 // mà gates vẫn 60/70/25). LLM stats-dive phải "đề xuất thủ công" chính việc
 // agent sinh ra để làm.
 //

@@ -1,8 +1,8 @@
-// 0.2.89 — EV GATE + TRẦN LỖ ROE: hai mui mới lấy từ audit sổ 08/11 (33 lệnh
+// 0.2.89 — EV GATE + TRẦN LỖ ROI: hai mui mới lấy từ audit sổ 08/11 (33 lệnh
 // sạch, LONG payoff 0.48, top lỗ đều ×20):
-//   1. levAdjSlTp — mui SL_ROE_MAX: ROE-at-SL (slPct × lev) không vượt trần,
-//      vượt thì co SL+TP cùng hệ số (giữ R:R) — OP −60 ROE kiểu đó hết đường.
-//   2. bestTradeableAvoid — EV_GATE_MIN: kỳ vọng ROE của chính candidate
+//   1. levAdjSlTp — mui SL_ROI_MAX: ROI-at-SL (slPct × lev) không vượt trần,
+//      vượt thì co SL+TP cùng hệ số (giữ R:R) — OP −60 ROI kiểu đó hết đường.
+//   2. bestTradeableAvoid — EV_GATE_MIN: kỳ vọng ROI của chính candidate
 //      (pWin × tp − (1−pWin) × sl − phí round-trip, × lev) phải ≥ ngưỡng.
 //      prob ScanRow là P_UP → pWin LONG = prob, pWin SHORT = 1 − prob.
 //      lev ≤ 0 (test cũ) hoặc EV_GATE_MIN ≤ −100 → tắt.
@@ -22,24 +22,24 @@ const check = (name: string, cond: boolean, extra = "") => {
 
 const eq = (a: number, b: number, eps = 1e-9) => Math.abs(a - b) < eps;
 
-// ─── 1 · mui SL_ROE_MAX trong levAdjSlTp ─────────────────────────────────────
+// ─── 1 · mui SL_ROI_MAX trong levAdjSlTp ─────────────────────────────────────
 {
-  // OP-style: SL 3% giá ở ×20 = ROE-at-SL 60 → co về ≤ 20 (k = 20/60), TP theo
+  // OP-style: SL 3% giá ở ×20 = ROI-at-SL 60 → co về ≤ 20 (k = 20/60), TP theo
   // cùng hệ số → R:R 1.5 giữ nguyên: 3/4.5 → 1/1.5
   const adj = levAdjSlTp(3, 4.5, 1, 20);
-  check("mui ROE: SL 3% ×20 → 1% giá (ROE-at-SL 60 → 20)", eq(adj.slPct, 1), `got ${adj.slPct}`);
-  check("mui ROE: TP đi theo cùng hệ số 4.5% → 1.5% (R:R 1.5 giữ nguyên)", eq(adj.tpPct, 1.5), `got ${adj.tpPct}`);
+  check("mui ROI: SL 3% ×20 → 1% giá (ROI-at-SL 60 → 20)", eq(adj.slPct, 1), `got ${adj.slPct}`);
+  check("mui ROI: TP đi theo cùng hệ số 4.5% → 1.5% (R:R 1.5 giữ nguyên)", eq(adj.tpPct, 1.5), `got ${adj.tpPct}`);
   // dưới trần → không đụng
   const under = levAdjSlTp(0.5, 0.75, 1, 20);
-  check("mui ROE: SL 0.5% ×20 (ROE-at-SL 10 ≤ 20) giữ nguyên", eq(under.slPct, 0.5) && eq(under.tpPct, 0.75), `got ${under.slPct}/${under.tpPct}`);
-  // lev 0 (config hỏng) → mui ROE không bắn, giữ hành vi cũ
+  check("mui ROI: SL 0.5% ×20 (ROI-at-SL 10 ≤ 20) giữ nguyên", eq(under.slPct, 0.5) && eq(under.tpPct, 0.75), `got ${under.slPct}/${under.tpPct}`);
+  // lev 0 (config hỏng) → mui ROI không bắn, giữ hành vi cũ
   const legacy = levAdjSlTp(3, 4.5, 1, 0);
-  check("mui ROE: lev 0 → không co (legacy)", eq(legacy.slPct, 3) && eq(legacy.tpPct, 4.5), `got ${legacy.slPct}/${legacy.tpPct}`);
+  check("mui ROI: lev 0 → không co (legacy)", eq(legacy.slPct, 3) && eq(legacy.tpPct, 4.5), `got ${legacy.slPct}/${legacy.tpPct}`);
   // mui liq vẫn ăn trước/đồng thời: SL 10% ở ×10 (liq-cap 6% giá) → liq co trước,
-  // rồi ROE cap: 6% × 10 = 60 > 20 → co tiếp → SL = 2% giá, ROE-at-SL = 20
+  // rồi ROI cap: 6% × 10 = 60 > 20 → co tiếp → SL = 2% giá, ROI-at-SL = 20
   const both = levAdjSlTp(10, 15, 1, 10);
-  check("mui ROE: liq-cap + ROE-cap xếp lớp (SL 10% ×10 → 2% giá)", eq(both.slPct, 2), `got ${both.slPct}`);
-  check("mui ROE: TP tương ứng 15% → 3% giá (R:R giữ)", eq(both.tpPct, 3), `got ${both.tpPct}`);
+  check("mui ROI: liq-cap + ROI-cap xếp lớp (SL 10% ×10 → 2% giá)", eq(both.slPct, 2), `got ${both.slPct}`);
+  check("mui ROI: TP tương ứng 15% → 3% giá (R:R giữ)", eq(both.tpPct, 3), `got ${both.tpPct}`);
 }
 
 // ─── 2 · EV gate trong bestTradeableAvoid ────────────────────────────────────

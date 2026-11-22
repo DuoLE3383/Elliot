@@ -65,7 +65,7 @@ check("non-bare giữ nguyên Card wrapper (hồi quy)", /<Card className="borde
 check("showSymbol: cột header dùng key journal.col.symbol", /\{showSymbol && <th className="px-3 py-2 font-medium">\{t\(lang, "journal\.col\.symbol"\)\}<\/th>\}/.test(journal));
 check("showSymbol: cell symbol (p.symbol.replace USDT)", /\{showSymbol && \(\s*\n\s*<td className="whitespace-nowrap px-3 py-2 font-mono text-zinc-400">\{p\.symbol\.replace\("USDT", ""\)\}<\/td>/.test(journal));
 check("mobile cards cũng có symbol khi showSymbol", /showSymbol && \(\s*\n\s*<span className="font-mono text-\[11px\] font-semibold text-zinc-400">\{p\.symbol\.replace\("USDT", ""\)\}<\/span>/.test(journal));
-check("CSV vẫn có cột Symbol (không đổi)", journal.includes('"Symbol,Interval,Side,Leverage,Entry,Entry Time,Exit,Exit Time,Exit Kind,Liquidated,Price Move %,ROE %,Flipped From"'));
+check("CSV vẫn có cột Symbol (không đổi)", journal.includes('"Symbol,Interval,Side,Leverage,Entry,Entry Time,Exit,Exit Time,Exit Kind,Liquidated,Price Move %,ROI %,Flipped From"'));
 
 console.log("── 3. /stats: Journal nhập vào card Trade journal ──");
 check("import Journal component", /import \{ Journal \} from "@\/components\/journal";/.test(stats));

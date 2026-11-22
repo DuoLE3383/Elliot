@@ -253,13 +253,7 @@ export function clampLev(lev: number): number {
   return cap > 0 && lev > cap ? cap : lev;
 }
 /** Stake hiệu dụng MỘT lần vào/lật = clamp(pct, 10, RISK_MAX_STAKE). SET CỨNG min 10% / max 50%. */
-export function clampStake(pct: number): number {
-  const cap = pval("RISK_MAX_STAKE", RISK_MAX_STAKE);
-  // SET CỨNG [10, 50] — mọi đường vào (Auto / Force / Flip) đều qua đây
-  const v = Number.isFinite(pct) ? pct : 10;
-  const floored = v < 10 ? 10 : v;
-  return cap > 0 && floored > cap ? cap : floored;
-}
+export function clampStake(riskPct: number) { const floor = Math.min(riskPct, 10); const v = Math.max(floor, Math.min(50, riskPct)); if (v !== riskPct) console.warn(`[risk] clampStake ${riskPct}% -> ${v}% (floor=min(cfg,10), cap=50)`); return v; }
 /** Bù DCA có được phép không — tổng stake (đã cam + bù mới) phải nằm trong
  *  trần RISK_MAX_STAKE. eps chống sai số dấu phẩy động khi tổng == trần. */
 export function allowDcaAdd(curStake: number, addStake: number): boolean {

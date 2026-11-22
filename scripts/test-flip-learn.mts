@@ -47,17 +47,17 @@ console.log("\n═══ 1. flipLessons — block riêng trong prompt ═══"
 
   const flip = setupPrompt({
     ...baseSetup,
-    lessons: ["[1h LONG tp +2.1% ROE · tag=good_entry] hold trend until EMA50 reclaim"],
+    lessons: ["[1h LONG tp +2.1% ROI · tag=good_entry] hold trend until EMA50 reclaim"],
     flipLessons: [
-      "[1h LONG FLIP -3.4% ROE · tag=whipsaw] do not flip when noise > 0.6×sl on 1h BTC",
-      "[1h SHORT FLIP -1.8% ROE · tag=late_signal] wait for candle close confirmation before flipping",
+      "[1h LONG FLIP -3.4% ROI · tag=whipsaw] do not flip when noise > 0.6×sl on 1h BTC",
+      "[1h SHORT FLIP -1.8% ROI · tag=late_signal] wait for candle close confirmation before flipping",
     ],
   });
   check("review flip CÓ flip_lessons block", flip.includes("flip_lessons"));
   check("flip_lessons tách khỏi recent_lessons", flip.includes("recent_lessons") && flip.includes("flip_lessons"));
   check("flip block nêu rõ đây là FLIP exits", flip.includes("THIS PAIR's own FLIP exits"));
-  check("mỗi flip lesson nằm trên một dòng", flip.includes("- [1h LONG FLIP -3.4% ROE"));
-  check("entry lesson vẫn còn trong flip review", flip.includes("[1h LONG tp +2.1% ROE"));
+  check("mỗi flip lesson nằm trên một dòng", flip.includes("- [1h LONG FLIP -3.4% ROI"));
+  check("entry lesson vẫn còn trong flip review", flip.includes("[1h LONG tp +2.1% ROI"));
 }
 
 console.log("\n═══ 2. flipCooldownLeft — anti-churn ═══");

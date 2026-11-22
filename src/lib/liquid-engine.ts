@@ -76,8 +76,8 @@ export async function startLiquidEngine(symbols: string[]) {
         if (mark <= o.tpPrice) exitKind = "tp";
         else if (mark >= o.stopPrice) exitKind = "sl";
         if (exitKind) {
-          const pnlPct = -movePct * 3; // lev 3, SHORT: gia giam -> pnl duong
-          await db.liquidBook.update({ where: { id: o.id }, data: { status: "closed", exitPrice: mark, exitTime: new Date(), exitKind, exitReason: exitKind === "tp" ? "TP RR 1.4" : "SL", movePct, pnlPct } });
+          const pnlPct = -movePct * 3 - (0.05 * 3 * 2) // feeRoi(3) = 0.05*lev*2, giong B/C; // lev 3, SHORT: gia giam -> pnl duong
+          const capBeforeD = Number((o as any).capitalBefore ?? 1000); const marginD = capBeforeD * 0.10; const capAfterD = capBeforeD + marginD * (pnlPct / 100); await db.liquidBook.update({ where: { id: o.id }, data: { status: "closed", exitPrice: mark, exitTime: new Date(), exitKind, exitReason: exitKind === "tp" ? "TP RR 1.4" : "SL", movePct, pnlPct, capitalAfter: Math.round(capAfterD * 100) / 100 } });
           console.log(`[liquid] CLOSE ${exitKind.toUpperCase()} ${o.symbol} @ ${mark} · pnl ${pnlPct.toFixed(2)}%`);
         }
       }
@@ -102,7 +102,7 @@ export async function startLiquidEngine(symbols: string[]) {
             if (!existing) {
               const stopPrice = entry * (1 + dec.stopPct / 100);
               const tpPrice = entry * (1 - (dec.stopPct * 1.4) / 100);
-              await db.liquidBook.create({ data: { symbol: sym, side: "SHORT", trigger: ("[" + tf + "] " + dec.reason).slice(0, 80), score: 0, breadth, entryPrice: entry, status: "open", stopPrice, tpPrice } });
+              const closedD: any[] = await db.liquidBook.findMany({ where: { status: "closed" } }); const equityD = 1000 + closedD.reduce((s: number, r: any) => s + (Number(r.capitalAfter ?? 0) - Number(r.capitalBefore ?? 0)), 0); await db.liquidBook.create({ data: { symbol: sym, side: "SHORT", capitalBefore: Math.round(equityD * 100) / 100, trigger: ("[" + tf + "] " + dec.reason).slice(0, 80), score: 0, breadth, entryPrice: entry, status: "open", stopPrice, tpPrice } });
               console.log(`[liquid] OPEN SHORT ${sym} [${tf}] @ ${entry} · SL ${stopPrice.toFixed(2)} · TP ${tpPrice.toFixed(2)} · ${dec.reason}`);
     void tgSendMessage(
       [

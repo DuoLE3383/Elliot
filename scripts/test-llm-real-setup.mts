@@ -59,7 +59,7 @@ const srv = http.createServer((req, res) => {
 });
 await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
 const port = (srv.address() as { port: number }).port;
-const withTrack: LlmSetup = { ...(gated?.setup as LlmSetup), track: "31W/19L · win rate 62% · net +12.4% ROE (50 paper trades)" };
+const withTrack: LlmSetup = { ...(gated?.setup as LlmSetup), track: "31W/19L · win rate 62% · net +12.4% ROI (50 paper trades)" };
 await llmReviewDebug(`http://127.0.0.1:${port}`, "m", withTrack, 3000);
 srv.close();
 

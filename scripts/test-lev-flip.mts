@@ -83,16 +83,16 @@ check("R:R 1.4 giữ nguyên sau scale (0.45/0.63, sai số làm tròn 2dp)", ne
 a = levAdjSlTp(5, 7, 1, 20);
 check("R:R giữ nguyên sau mui (3/4.2)", near(a.tpPct / a.slPct, 7 / 5, 0.03));
 
-console.log("6. độc lập ROE-at-SL — lin ref 10, SL gốc 1.8% (baseline 18% ROE)");
-const roeAt = (lev: number): number => levAdjSlTp(1.8, 2.52, levNormScale(lev), lev).slPct * lev;
+console.log("6. độc lập ROI-at-SL — lin ref 10, SL gốc 1.8% (baseline 18% ROI)");
+const roiAt = (lev: number): number => levAdjSlTp(1.8, 2.52, levNormScale(lev), lev).slPct * lev;
 for (const lev of [10, 20, 40, 100]) {
-  check(`lev ×${lev} → ROE-at-SL ≈ 18% (được ${roeAt(lev).toFixed(2)}%)`, near(roeAt(lev), 18, 0.06));
+  check(`lev ×${lev} → ROI-at-SL ≈ 18% (được ${roiAt(lev).toFixed(2)}%)`, near(roiAt(lev), 18, 0.06));
 }
 // lev 80: SL 0.225 làm tròn XUỐNG 0.22 → 17.6% — làm tròn chỉ đi về phía
-// AN TOÀN (ROE-at-SL không bao giờ VƯỢT baseline vì rounding)
-check("lev ×80 → 17.6% (floor 0.225→0.22, chỉ đi về phía an toàn)", near(roeAt(80), 17.6, 0.01) && roeAt(80) <= 18.01);
+// AN TOÀN (ROI-at-SL không bao giờ VƯỢT baseline vì rounding)
+check("lev ×80 → 17.6% (floor 0.225→0.22, chỉ đi về phía an toàn)", near(roiAt(80), 17.6, 0.01) && roiAt(80) <= 18.01);
 for (const lev of [1, 5]) {
-  check(`lev ×${lev} (dưới ref) → ROE-at-SL ≤ 18% (được ${roeAt(lev).toFixed(2)}%)`, roeAt(lev) <= 18.01);
+  check(`lev ×${lev} (dưới ref) → ROI-at-SL ≤ 18% (được ${roiAt(lev).toFixed(2)}%)`, roiAt(lev) <= 18.01);
 }
 
 // ── D · wiring ───────────────────────────────────────────────────────────────

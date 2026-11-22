@@ -14,18 +14,18 @@ function check(name: string, cond: boolean): void {
 }
 
 const rows = [
-  { side: "LONG", roe: 10, capitalBefore: 1000, capitalAfter: 1010 },
-  { side: "LONG", roe: -20, capitalBefore: 1010, capitalAfter: 990 },
-  { side: "SHORT", roe: 5, capitalBefore: 990, capitalAfter: 995 },
-  { side: "SHORT", roe: -10, capitalBefore: 995, capitalAfter: 985 },
-  { side: "LONG", roe: 30, capitalBefore: 985, capitalAfter: 1015 },
+  { side: "LONG", roi: 10, capitalBefore: 1000, capitalAfter: 1010 },
+  { side: "LONG", roi: -20, capitalBefore: 1010, capitalAfter: 990 },
+  { side: "SHORT", roi: 5, capitalBefore: 990, capitalAfter: 995 },
+  { side: "SHORT", roi: -10, capitalBefore: 995, capitalAfter: 985 },
+  { side: "LONG", roi: 30, capitalBefore: 985, capitalAfter: 1015 },
 ];
 
 const s = statsFromRoes(rows);
 console.log("== statsFromRoes ==");
 check("5 lệnh đóng", s.nClosed === 5);
 check("3 thắng → WR 60%", s.wins === 3 && s.wr === 60);
-check("net ROE = 15", s.netRoe === 15);
+check("net ROI = 15", s.netRoe === 15);
 check("avgWin = (10+5+30)/3 = 15", s.avgWin === 15);
 check("avgLoss = −15", s.avgLoss === -15);
 check("payoff = 1.0", s.payoff === 1);

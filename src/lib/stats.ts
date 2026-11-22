@@ -119,7 +119,11 @@ export interface StatSection {
  *  Sankey + rail phải Events/Health/Scorecard + cột Net result). Tách khỏi
  *  metrics dạng chữ để client không phải parse string — mọi số đây là số
  *  nguyên/thật từ cùng nguồn DB + engine với các section. */
+
+export type LedgerBook = { start: number; pnlClosed: number; closed: number; wins: number };
+export type Ledger = { perBook: Record<string, LedgerBook>; totalStart: number; pnlClosed: number; pnlOpen: number; totalPnl: number; totalEquity: number; wins: number; closed: number; open: number; winRate: number; netRoiClosed: number };
 export interface StatsFlow {
+  ledger: Ledger;
   totalEquity?: number;
   totalStartCapital?: number;
   // ── phễu quét (trái sơ đồ) ──
@@ -1003,7 +1007,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
           const px = priceMap[x.symbol] ?? Number((x as any).markPrice ?? (x as any).lastPrice ?? NaN);
           const lev = Number(x.leverage ?? 1);
           const gross = Number.isFinite(px) && x.entryPrice ? (x.side === "SHORT" ? (x.entryPrice - px) / x.entryPrice : (px - x.entryPrice) / x.entryPrice) * 100 * lev : 0;
-          const fee = 0.06 * lev;
+          const fee = 0.05 * lev * 2 // feeRoi = 0.05*lev*2, khop settlement engine.ts;
           const sr = Number(x.p1Share ?? 0);
           const share = sr > 1 ? Math.min(1, sr/100) : Math.min(1, Math.max(0, sr));
           const hasTp1 = (x as any).p1Pct != null && share > 0;
@@ -1016,7 +1020,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       })();
       // SO CAI CHUAN: PNL$ = sum(capitalAfter - capitalBefore) cua closed (da tru phi, da gom TP1)
       // + sum(open unrealized NET). Khong dung margin*ROI gross (thieu phi, thieu so).
-      // Open: ROI net = share*p1Pct + (1-share)*(gross - 0.06*lev) neu co TP1, else gross - 0.06*lev
+      // Open: ROI net = share*p1Pct + (1-share)*(gross - 0.05*lev*2) neu co TP1, else gross - 0.05*lev*2
       const totalPnlAllBooks = await (async () => {
         let s = 0;
         // Closed: chuoi von cua ca 5 so - lay capitalAfter-before, khong tinh lai tu ROI
@@ -1048,7 +1052,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
           const px = priceMap[x.symbol] ?? Number((x as any).markPrice ?? (x as any).lastPrice ?? NaN);
           const lev = Number(x.leverage ?? 1);
           const gross = Number.isFinite(px) && x.entryPrice ? (x.side === "SHORT" ? (x.entryPrice - px) / x.entryPrice : (px - x.entryPrice) / x.entryPrice) * 100 * lev : 0;
-          const fee = 0.06 * lev;
+          const fee = 0.05 * lev * 2 // feeRoi = 0.05*lev*2, khop settlement engine.ts;
           const shareRaw = Number(x.p1Share ?? 0);
           const share = shareRaw > 1 ? Math.min(1, shareRaw / 100) : Math.min(1, Math.max(0, shareRaw));
           const hasTp1 = (x as any).p1Pct != null && share > 0;

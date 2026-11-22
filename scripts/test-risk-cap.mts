@@ -16,8 +16,8 @@
 //  D. params-store — RISK_MAX_LEV/RISK_MAX_STAKE thuộc nhóm Flip / SL-TP (không
 //     thêm nhóm mới — test 02-59 fail cũ giữ nguyên byte), clamp biên, set/
 //     reset roundtrip.
-//  E. tf-stats — rowRoe tính gross từ GIÁ (đồng nhất pre/post 0.2.77), phí =
-//     feeRoe 2 bên, net sàn −100, thanh lý = −100; tfBreakdown gộp đúng theo
+//  E. tf-stats — rowRoi tính gross từ GIÁ (đồng nhất pre/post 0.2.77), phí =
+//     feeRoi 2 bên, net sàn −100, thanh lý = −100; tfBreakdown gộp đúng theo
 //     khung (n/WR/gross/fee/net/hold/exits/flipNet/equity), thứ tự INTERVALS;
 //     calibrationBuckets bucket pWin theo phía (SHORT = 1−prob), gap = real−pred.
 //  F. Script stats-tf.mts — tồn tại, nạp .env (DATABASE_URL đúng DB app),
@@ -31,7 +31,7 @@ import {
   FEE_PCT,
 } from "../src/lib/params.ts";
 import { AUTO_DEFAULTS, RISK_CHOICES, DCA_CHOICES } from "../src/lib/autotrade.ts";
-import { calibrationBuckets, rowRoe, tfBreakdown, tfTotal, type TfTradeRow } from "../src/lib/tf-stats.ts";
+import { calibrationBuckets, rowRoi, tfBreakdown, tfTotal, type TfTradeRow } from "../src/lib/tf-stats.ts";
 import { setOverride, paramCatalog } from "../src/lib/params-store.ts";
 import { readFileSync } from "fs";
 
@@ -149,23 +149,23 @@ console.log("5. tf-stats — gross từ GIÁ, phí, net, calibration");
     exitTime: new Date("2026-11-04T10:25:00Z"),
     ...o,
   });
-  // rowRoe
-  const a = rowRoe(t({}));
-  check("rowRoe LONG 100→101 ×10: gross +10", near(a.gross, 10));
-  check(`rowRoe phí round-trip ×10 = ${2 * FEE_PCT * 10} (feeRoe cùng công thức settlement)`, near(a.fee, 2 * FEE_PCT * 10));
-  check("rowRoe net = gross − fee = +9", near(a.net, 9));
-  check("rowRoe không liq", a.isLiq === false);
-  const b = rowRoe(t({ side: "SHORT", exitPrice: 99 }));
-  check("rowRoe SHORT 100→99 ×10: gross +10 (chiều SHORT ăn khi giảm)", near(b.gross, 10));
-  const c = rowRoe(t({ side: "SHORT", exitPrice: 110 }));
-  check("rowRoe SHORT 100→110 ×10: adverse 10% = 100/lev → liq, gross −100", c.isLiq && near(c.gross, -100));
-  check("rowRoe liq: net = −100 (phí không kéo dưới đáy)", near(c.net, -100));
-  const d = rowRoe(t({ leverage: 1, exitPrice: 100.5 }));
-  check("rowRoe ×1: fee = 2×0.05 = 0.1", near(d.fee, 0.1));
-  const e = rowRoe(t({ exitPrice: null }));
-  check("rowRoe thiếu exitPrice → 0 (không đoán mò)", e.gross === 0 && e.net === 0 && e.fee === 0);
+  // rowRoi
+  const a = rowRoi(t({}));
+  check("rowRoi LONG 100→101 ×10: gross +10", near(a.gross, 10));
+  check(`rowRoi phí round-trip ×10 = ${2 * FEE_PCT * 10} (feeRoi cùng công thức settlement)`, near(a.fee, 2 * FEE_PCT * 10));
+  check("rowRoi net = gross − fee = +9", near(a.net, 9));
+  check("rowRoi không liq", a.isLiq === false);
+  const b = rowRoi(t({ side: "SHORT", exitPrice: 99 }));
+  check("rowRoi SHORT 100→99 ×10: gross +10 (chiều SHORT ăn khi giảm)", near(b.gross, 10));
+  const c = rowRoi(t({ side: "SHORT", exitPrice: 110 }));
+  check("rowRoi SHORT 100→110 ×10: adverse 10% = 100/lev → liq, gross −100", c.isLiq && near(c.gross, -100));
+  check("rowRoi liq: net = −100 (phí không kéo dưới đáy)", near(c.net, -100));
+  const d = rowRoi(t({ leverage: 1, exitPrice: 100.5 }));
+  check("rowRoi ×1: fee = 2×0.05 = 0.1", near(d.fee, 0.1));
+  const e = rowRoi(t({ exitPrice: null }));
+  check("rowRoi thiếu exitPrice → 0 (không đoán mò)", e.gross === 0 && e.net === 0 && e.fee === 0);
   setParams({ FEE_PCT: 0 });
-  const f = rowRoe(t({}));
+  const f = rowRoi(t({}));
   check("FEE_PCT = 0 → net = gross (off sạch)", near(f.fee, 0) && near(f.net, f.gross));
   setParams(undefined);
 
@@ -182,12 +182,12 @@ console.log("5. tf-stats — gross từ GIÁ, phí, net, calibration");
   const m5 = per[0];
   check("5m n=3, wins=1 (chỉ lệnh net>0)", m5.n === 3 && m5.wins === 1);
   check("5m WR = 33.3%", near(m5.winRate, 33.3));
-  check(`5m gross = ${rowRoe(rows[1]).gross - rowRoe(rows[2]).gross + 10}`, near(m5.grossRoe, 10 + rowRoe(rows[1]).gross + rowRoe(rows[2]).gross));
-  check("5m fee = 3 × 1.0 = 3.0", near(m5.feeRoe, 3));
+  check(`5m gross = ${rowRoi(rows[1]).gross - rowRoi(rows[2]).gross + 10}`, near(m5.grossRoe, 10 + rowRoi(rows[1]).gross + rowRoi(rows[2]).gross));
+  check("5m fee = 3 × 1.0 = 3.0", near(m5.feeRoi, 3));
   check("5m net = 9 − 1.5 − 3 = 4.5", near(m5.netRoe, 4.5, 0.011));
   check("5m avgNet = 1.5", near(m5.avgNet, 1.5, 0.005));
   check("5m exits tp1/sl1/flip1", m5.exits.tp === 1 && m5.exits.sl === 1 && m5.exits.flip === 1);
-  check(`5m flipNet = ${rowRoe(rows[1]).net} (chỉ lệnh flip)`, near(m5.flipNet, rowRoe(rows[1]).net));
+  check(`5m flipNet = ${rowRoi(rows[1]).net} (chỉ lệnh flip)`, near(m5.flipNet, rowRoi(rows[1]).net));
   check("5m avgHoldMin = (25+10+25)/3 = 20", m5.avgHoldMin === 20);
   check("5m netEquityPct = Σ net×3% = 4.5×0.03 = 0.14", near(m5.netEquityPct, 0.14, 0.001));
   const h1 = per[1];

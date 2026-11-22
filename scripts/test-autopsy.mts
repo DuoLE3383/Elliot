@@ -95,7 +95,7 @@ ok(user.includes("pair=LINKUSDT tf=15m side=LONG"), "user prompt có pair/tf/sid
 ok(user.includes("risk_officer: verdict=go"), "risk_officer verdict=go có trong prompt");
 ok(user.includes("path (computed by code from candles — ground truth"), "khối path tuyên bố ground truth");
 ok(user.includes("DID reach the TP zone"), "MFE ≥ tp → DID reach");
-ok(user.includes("pnl_roe=+35.00%"), "outcome có pnl_roe");
+ok(user.includes("pnl_roi=+35.00%"), "outcome có pnl_roi");
 ok(system.includes("never contradict it, never invent numbers absent from it"), "system cấm bịa số");
 ok(system.includes('"tag":"...","why":["..."],"lesson":"..."'), "system bắt JSON đúng hình");
 // case THUA + dữ liệu thiếu
@@ -144,9 +144,9 @@ const base: LlmSetup = {
   score: 66.5,
   gatePassed: true,
 };
-const withLessons = setupPrompt({ ...base, lessons: ["[15m SHORT sl -24.0% ROE · tag=sl_too_tight] widen SL beyond 1.5x avg candle noise", "[15m SHORT tp +45.0% ROE · tag=good_entry] keep entering this pullback shape"] });
+const withLessons = setupPrompt({ ...base, lessons: ["[15m SHORT sl -24.0% ROI · tag=sl_too_tight] widen SL beyond 1.5x avg candle noise", "[15m SHORT tp +45.0% ROI · tag=good_entry] keep entering this pullback shape"] });
 ok(withLessons.includes("recent_lessons (post-mortems"), "prompt duyệt có khối recent_lessons");
-ok(withLessons.includes("- [15m SHORT sl -24.0% ROE · tag=sl_too_tight]"), "bài học nguyên dạng có mặt");
+ok(withLessons.includes("- [15m SHORT sl -24.0% ROI · tag=sl_too_tight]"), "bài học nguyên dạng có mặt");
 ok(!setupPrompt(base).includes("recent_lessons"), "không có lessons → không chèn khối rỗng");
 
 console.log("── integration — mock llama-server ──");

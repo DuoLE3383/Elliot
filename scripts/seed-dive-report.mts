@@ -11,7 +11,7 @@ if (count === 0) {
       model: "local-7b",
       ok: true,
       ms: 113976,
-      text: "### Đối chiếu cơ sở logic\n- **sg**: chấm lại toàn bộ outcome bằng outcomeOf — khớp 100%.\n- **combo**: win-rate 42% chưa bù nổi rủi ro, net ROE cộng -46.62%.\n- **universe**: snapshot mới hơn chu kỳ re-rank 8h — đúng.\n\n### Hành động cụ thể\n1. Tăng mẫu backtest tối thiểu 500.\n2. Siết gate theo phía bias.",
+      text: "### Đối chiếu cơ sở logic\n- **sg**: chấm lại toàn bộ outcome bằng outcomeOf — khớp 100%.\n- **combo**: win-rate 42% chưa bù nổi rủi ro, net ROI cộng -46.62%.\n- **universe**: snapshot mới hơn chu kỳ re-rank 8h — đúng.\n\n### Hành động cụ thể\n1. Tăng mẫu backtest tối thiểu 500.\n2. Siết gate theo phía bias.",
       detail: null,
     },
   });

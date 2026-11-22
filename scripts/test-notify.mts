@@ -109,7 +109,7 @@ check("peak tính cả capitalBefore (đỉnh giữa 2 lần chốt)", !!x2 && x
 console.log("6. msgLossStreak / msgDrawdown — nội dung tin báo động");
 const m1 = msgLossStreak(4, [tL3, tL2, tL1, closed(6, { pnl: -3, sym: "DOGEUSDT" })], 77_368.51);
 check("streak: tiêu đề số + HTML bold", m1.includes("LOSS STREAK — 4 losses in a row") && m1.includes("<b>"));
-check("streak: chuỗi lệnh mới nhất trước + ROE chuỗi", m1.includes("#XRPUSDT 15m -0.5%") && m1.includes("chain ROE"));
+check("streak: chuỗi lệnh mới nhất trước + ROI chuỗi", m1.includes("#XRPUSDT 15m -0.5%") && m1.includes("chain ROI"));
 check("streak: equity định dạng EN", m1.includes("77,368.51"));
 const long8 = Array.from({ length: 8 }, (_, i) => closed(20 + i, { pnl: -1, sym: `S${i}USDT`, at: NOW - (8 - i) * MIN }));
 const m2 = msgLossStreak(8, long8, 75_000);
