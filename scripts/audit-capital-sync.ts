@@ -84,9 +84,15 @@ async function main(): Promise<void> {
   console.log("AUDIT CAPITAL CHAIN + TG↔PANEL SYNC — dữ liệu thật của máy này");
   console.log(line);
 
+  // ── 0. Ví DryRunState — base của sổ AutoTrade (fix capital-aware đã merge) ─
+  const wallet = await (db as any).dryRunState.findUnique({ where: { id: "wallet" } }).catch(() => null);
+  const bBase = wallet?.capital != null && wallet.capital > 0 ? Number(wallet.capital) : 1000;
+  console.log(`\n${line}\n👛 DryRunState "wallet" — base sổ AutoTrade = ${bBase}`);
+  console.log(`  capital=${wallet?.capital ?? "—"} resetAt=${wallet?.resetAt?.toISOString?.() ?? "—"} note=${wallet?.note ?? "—"}`);
+
   // ── 1. Từng sổ — cùng công thức engine/autostate/stats ────────────────────
   const bt = await db.autoTrade.findMany({ orderBy: { createdAt: "asc" } });
-  chainCheck("AutoTrade (B — sổ engine tự trade, TG AUTO STATS)", bt as unknown as Row[], 1000);
+  chainCheck("AutoTrade (B — sổ engine tự trade, TG AUTO STATS)", bt as unknown as Row[], bBase);
 
   const vb = await (db as any).vulcanBook.findMany({ orderBy: { createdAt: "asc" } });
   chainCheck("VulcanBook (A — Donchian)", vb as unknown as Row[], 1000);
@@ -100,18 +106,7 @@ async function main(): Promise<void> {
   const lvb = await (db as any).liveBook.findMany({ orderBy: { createdAt: "asc" } }).catch(() => []);
   chainCheck("LiveBook (E — mirror sàn thật)", lvb as unknown as Row[], 0);
 
-  // ── 2. Ví DryRunState — bị bỏ qua bởi base hardcode 1000 ─────────────────
-  const wallet = await (db as any).dryRunState.findUnique({ where: { id: "wallet" } }).catch(() => null);
-  console.log(`\n${line}\n👛 DryRunState "wallet" (reset_capital ghi vào đây)`);
-  console.log(`  capital=${wallet?.capital ?? "—"} resetAt=${wallet?.resetAt?.toISOString?.() ?? "—"} note=${wallet?.note ?? "—"}`);
-  if (wallet?.capital != null && Math.abs(wallet.capital - 1000) > 0.01) {
-    console.log(`  🔴 ví ≠ 1000 nhưng engine/autostate/stats đều dùng base 1000 hardcode →`);
-    console.log(`     số vốn sau Reset KHÔNG có hiệu lực thật (TG báo "${wallet.capital}" nhưng lệnh kế mở với 1000).`);
-  } else {
-    console.log(`  ✅ ví = 1000 (hoặc chưa từng reset) — khớp base hardcode, chưa lộ bug.`);
-  }
-
-  // ── 3. BcastVerdict — nguồn gate CHUNG panel (web) + engine broadcast ─────
+  // ── 2. BcastVerdict — nguồn gate CHUNG panel (web) + engine broadcast ─────
   const bv = await db.bcastVerdict.findMany();
   const pass = bv.filter((b) => b.verdict === "pass");
   const rej = bv.filter((b) => b.verdict === "reject");
@@ -128,14 +123,14 @@ async function main(): Promise<void> {
   if (stale.length > 0) console.log(`  ⚠️ ${stale.length} dòng cứng cũ >7 ngày (không được chấm lại): ${stale.slice(0, 8).map((s) => `${s.symbol}/${s.interval.slice(0, 3)}`).join(", ")}`);
   if (pass.length > 0) console.log(`  pass gần nhất: ${pass.slice(-8).map((p) => `${p.symbol} ${p.interval}`).join(" · ")}`);
 
-  // ── 4. Tổng hợp theo cách stats.ts tính (so telegram nếu cần) ─────────────
+  // ── 3. Tổng hợp theo cách stats.ts tính (so telegram nếu cần) ─────────────
   const sumOf = (rows: Row[]): number =>
     r2(rows.filter((r) => r.status === "closed" || r.exitPrice != null)
       .reduce((s, r) => s + (r.capitalAfter != null && r.capitalBefore != null ? r.capitalAfter - r.capitalBefore : 0), 0));
   const closedAll = sumOf(bt as unknown as Row[]) + sumOf(vb as unknown as Row[]) + sumOf(wb as unknown as Row[]) + sumOf(lb as unknown as Row[]) + sumOf(lvb as unknown as Row[]);
   console.log(`\n${line}\n🧮 LEDGER WEBSITE (stats.ts): totalStart=2000`);
   console.log(`  Σ closed tất cả sổ = ${closedAll} → totalEquity (chưa tính open unrealized) = ${r2(2000 + closedAll)}`);
-  console.log(`  Equity card & TG AUTO STATS cùng đọc st0.capital = ${r2(1000 + sumOf(bt as unknown as Row[]))} (chỉ sổ B)`);
+  console.log(`  Equity card & TG AUTO STATS cùng đọc st0.capital = ${r2(bBase + sumOf(bt as unknown as Row[]))} (chỉ sổ B, base = ví ${bBase})`);
   console.log(`\n${line}\nXONG — chỉ đọc, không ghi gì. Đối chiếu với tin Telegram gần nhất để thấy sync.`);
 }
 

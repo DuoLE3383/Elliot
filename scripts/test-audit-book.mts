@@ -77,6 +77,22 @@ check("repair: s1 capitalAfter 1664.1 (1290 + 29% × 1290)", byId.s1?.capitalAft
 check("repair: s2 capitalBefore dán lại 1664.1", byId.s2?.capitalBefore === 1664.1, `got ${byId.s2?.capitalBefore}`);
 check("repair: lệnh mở o1 dán lại capitalBefore = vốn sau close cuối (0)", byId.o1?.capitalBefore === 0, `got ${byId.o1?.capitalBefore}`);
 check("repair: vốn cuối = 0", plan.finalCapital === 0);
+check("repair: ≤1 lệnh mở → opensSkipped = 0", plan.opensSkipped === 0, `got ${plan.opensSkipped}`);
+
+// ─── 3b · Guard V3 — ≥2 lệnh mở: lệnh MỞ không được dán lại mốc ──────────────
+// Hai lệnh mở kẹp giữa hai lần close: mốc neo không xác định cho từng lệnh →
+// repair chỉ sửa ROI + chuỗi của lệnh closed, giữ nguyên capitalBefore lệnh mở.
+const multiRows: AuditTradeRow[] = [
+  { id: "c1", side: "LONG", status: "closed", entryPrice: 100, exitPrice: 103, leverage: 10, stakePct: 100, exitKind: "tp", pnlPct: 29, capitalBefore: 1000, capitalAfter: 1290, createdAt: "2026-01-01T00:00:00Z" },
+  { id: "o1", side: "LONG", status: "open", entryPrice: 100, exitPrice: null, leverage: 10, stakePct: 100, exitKind: null, pnlPct: null, capitalBefore: 999, capitalAfter: null, createdAt: "2026-01-02T00:00:00Z" },
+  { id: "o2", side: "SHORT", status: "open", entryPrice: 50, exitPrice: null, leverage: 5, stakePct: 100, exitKind: null, pnlPct: null, capitalBefore: 888, capitalAfter: null, createdAt: "2026-01-03T00:00:00Z" },
+];
+const planMulti = repairBook(multiRows);
+const byIdMulti = Object.fromEntries(planMulti.updates.map((u) => [u.id, u]));
+check("guard V3: 2 lệnh mở → opensSkipped = 2", planMulti.opensSkipped === 2, `got ${planMulti.opensSkipped}`);
+check("guard V3: lệnh mở o1 KHÔNG bị dán lại mốc", byIdMulti.o1?.capitalBefore === undefined, `got ${byIdMulti.o1?.capitalBefore}`);
+check("guard V3: lệnh mở o2 KHÔNG bị dán lại mốc", byIdMulti.o2?.capitalBefore === undefined, `got ${byIdMulti.o2?.capitalBefore}`);
+check("guard V3: lệnh closed vẫn nằm trong plan", byIdMulti.c1 === undefined || byIdMulti.c1.pnlPct === undefined); // c1 đúng luật sẵn — không sửa gì
 
 // ─── 4 · gate SHORT chọn lọc trong bestTradeableAvoid ────────────────────────
 const mkRow = (o: Partial<ScanRow>): ScanRow => ({

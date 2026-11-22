@@ -180,6 +180,11 @@ export interface RepairPlan {
   capitalRefixed: number;
   /** vốn cuối chuỗi sau repair */
   finalCapital: number | null;
+  /** sổ có >1 lệnh mở — lệnh MỞ bị bỏ qua (không dán lại capitalBefore):
+   *  chuỗi vốn chỉ biết mốc tại thời điểm createdAt, ≥2 lệnh mở cùng kẹp
+   *  giữa hai lần close thì không có cách gán đúng cho cả hai — re-anchor
+   *  loại này sẽ làm méo margin/stake% đang chạy (guard V3). */
+  opensSkipped: number;
 }
 
 /**
@@ -187,10 +192,12 @@ export interface RepairPlan {
  * chạy lại theo createdAt tăng dần — capitalBefore kế thừa capitalAfter trước,
  * delta = capitalBefore × stake% × ROI% (đúng luật settlement), đáy 0.
  * Lệnh ĐANG MỞ giữ nguyên mọi thứ trừ capitalBefore (mốc vốn lúc mở = vốn
- * sau lệnh close liền trước). Lệnh đầu chuỗi dùng capitalBefore đang lưu làm
- * mốc neo (không đoán lại gốc).
+ * sau lệnh close liền trước) — và CHỈ khi sổ có ≤1 lệnh mở; ≥2 lệnh mở thì
+ * bỏ qua hết (opensSkipped>0) vì mốc neo không xác định được cho từng lệnh.
+ * Lệnh đầu chuỗi dùng capitalBefore đang lưu làm mốc neo (không đoán lại gốc).
  */
 export function repairBook(trades: AuditTradeRow[]): RepairPlan {
+  const openCount = trades.filter((t) => t.status !== "closed").length;
   const chron = [...trades].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
   );
@@ -223,13 +230,22 @@ export function repairBook(trades: AuditTradeRow[]): RepairPlan {
       capital = after;
       finalCapital = after;
     } else {
-      // lệnh mở (hoặc closed thiếu exitPrice — bỏ ROI, chỉ giữ chuỗi vốn)
-      if (capital != null && (t.capitalBefore == null || Math.abs((t.capitalBefore ?? 0) - capital) > 0.005)) {
+      // lệnh mở (hoặc closed thiếu exitPrice — bỏ ROI, chỉ giữ chuỗi vốn).
+      // Guard V3: chỉ SKIP lệnh status=open khi ≥2 lệnh mở (mốc neo không xác
+      // định cho từng lệnh khi nhiều lệnh kẹp giữa hai lần close) — giữ nguyên
+      // mốc đang chạy để margin/stake% không bị méo giữa phiên. Lệnh closed
+      // thiếu exitPrice vẫn được dán lại mốc (nó là mắt xích chuỗi vốn).
+      const isOpen = t.status !== "closed";
+      if (
+        (!isOpen || openCount <= 1) &&
+        capital != null &&
+        (t.capitalBefore == null || Math.abs((t.capitalBefore ?? 0) - capital) > 0.005)
+      ) {
         u.capitalBefore = round2(capital);
         capitalRefixed += 1;
       }
     }
     if (Object.keys(u).length > 1) updates.set(t.id, u);
   }
-  return { updates: [...updates.values()], pnlFixed, capitalRefixed, finalCapital };
+  return { updates: [...updates.values()], pnlFixed, capitalRefixed, finalCapital, opensSkipped: openCount > 1 ? openCount : 0 };
 }
