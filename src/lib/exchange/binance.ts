@@ -1,20 +1,23 @@
 // ─── Binance adapter (một phần) ─────────────────────────────────────────────
-// Đã nối: balance (liveBalance), price (ticker công khai).
-// Chưa nối: stepSize / open / close — cần đọc SymbolFilter và MarketOrderResult
-// trong binance-live.ts trước. Engine vẫn gọi liveOpen/liveClose trực tiếp.
+// Đã nối: balance (fail loud khi lỗi), price (ticker công khai), stepSize (exchangeInfo).
+// Chưa nối: open / close — cần export hàm đặt đòn bẩy trong binance-live.ts.
+// Engine vẫn gọi liveOpen/liveClose trực tiếp cho đến khi nối xong.
 
 import type { ExchangeAccount, ExchangeAdapter, OrderFill } from "./adapter";
 import { toNativeSymbol } from "./adapter";
-import { liveBalance } from "../binance-live";
+import { liveBalance, symbolFilter } from "../binance-live";
 
-const NOT_WIRED = "binance adapter: chưa nối — engine vẫn dùng liveOpen/liveClose trực tiếp";
+const NOT_WIRED = "binance adapter: open/close chưa nối — engine vẫn dùng liveOpen/liveClose";
 
 export const binanceAdapter: ExchangeAdapter = {
   id: "binance",
 
   async balance(_acc: ExchangeAccount): Promise<number> {
     const b = await liveBalance();
-    return Number(b.balance);
+    if (!b.ok || b.balance == null) {
+      throw new Error(b.note ?? "binance: không đọc được số dư ví");
+    }
+    return b.balance;
   },
 
   async price(_acc: ExchangeAccount, symbol: string): Promise<number | null> {
@@ -29,8 +32,10 @@ export const binanceAdapter: ExchangeAdapter = {
     }
   },
 
-  async stepSize(): Promise<number> {
-    throw new Error(NOT_WIRED);
+  async stepSize(_acc: ExchangeAccount, symbol: string): Promise<number> {
+    const f = await symbolFilter(toNativeSymbol("binance", symbol));
+    if (!f) throw new Error(`binance: không có symbol ${symbol} trên exchangeInfo`);
+    return f.stepSize;
   },
 
   async open(): Promise<OrderFill> {
