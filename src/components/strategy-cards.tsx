@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Play, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { t, type Lang } from "@/lib/i18n";
+import { useCapital } from "@/components/auto/metric-tiles";
 import type { BookStats, EquityPoint } from "@/lib/arena";
 
 interface ArenaLite {
@@ -117,6 +118,7 @@ interface CardSpec {
 export function StrategyCards({ lang, cfgOn, onCfgPatch, onCfgToggle, books, onToggleBooks, onPushToast }: Props) {
   const [arena, setArena] = useState<ArenaLite | null>(null);
   const [eng, setEng] = useState<EngineLite | null>(null);
+  const cap = useCapital(arena?.live?.on ? "live" : "dry");
   const aliveRef = useRef(true);
   const toastRef = useRef(onPushToast);
   useEffect(() => {
@@ -280,7 +282,7 @@ export function StrategyCards({ lang, cfgOn, onCfgPatch, onCfgToggle, books, onT
           </span>
           <div>
             <h2 className="text-[15px] font-bold leading-tight text-white">
-              {lang === "vi" ? "Trung tâm điều khiển chiến lược" : "Strategy Control Center"}
+              {lang === "vi" ? "Trạng thái chiến lược" : "Strategy Status"}
             </h2>
             <p className="text-[11px] leading-tight text-zinc-500">
               {lang === "vi" ? "Bốn chiến lược — một engine thông minh" : "Four strategies — one intelligent engine"}
@@ -317,8 +319,7 @@ export function StrategyCards({ lang, cfgOn, onCfgPatch, onCfgToggle, books, onT
         {SPECS.map((spec) => {
           const st = statsOf(spec.id);
           const on = isOn(spec.id);
-          const hasData = st != null && st.nClosed > 0;
-          const netRoi = st?.netRoi ?? 0;
+          const bk = cap?.books?.[spec.id.toUpperCase() as "A" | "B" | "C" | "D"];
           const adv = adviceMap.get(spec.id as "a" | "b" | "c");
           return (
             <article
@@ -359,12 +360,12 @@ export function StrategyCards({ lang, cfgOn, onCfgPatch, onCfgToggle, books, onT
 
               {/* metric rows */}
               <dl className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 font-mono text-[11px]">
-                <dt className="text-zinc-500">Net ROI</dt>
-                <dd className={`text-right font-bold ${hasData ? (netRoi >= 0 ? "text-emerald-400" : "text-rose-400") : "text-zinc-500"}`}>
-                  {hasData ? `${netRoi >= 0 ? "+" : ""}${num(netRoi)}%` : "—"}
+                <dt className="text-zinc-500">PnL</dt>
+                <dd className={`text-right font-bold ${bk?.pnlUsd == null ? "text-zinc-500" : bk.pnlUsd >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                  {bk?.pnlUsd == null ? "—" : `${bk.pnlUsd >= 0 ? "+" : "−"}$${Math.abs(bk.pnlUsd).toFixed(2)}`}
                 </dd>
                 <dt className="text-zinc-500">WR (Closed)</dt>
-                <dd className="text-right font-bold text-zinc-200">{hasData ? `${num(st!.wr)}%` : "—"}</dd>
+                <dd className="text-right font-bold text-zinc-200">{bk?.wr != null ? `${num(bk.wr)}%` : "—"}</dd>
                 <dt className="text-zinc-500">Closed / Open</dt>
                 <dd className="text-right font-bold text-zinc-200">{st ? `${st.nClosed} / ${st.nOpen}` : "0 / 0"}</dd>
               </dl>
