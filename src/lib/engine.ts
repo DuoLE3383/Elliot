@@ -50,7 +50,6 @@ import {
   scoreOf,
   sanitizeTpMode,
   slCooldownLeft,
-  pairReentryLeft,
   flipCooldownLeft,
   slTpHit,
   trailNextPeak,
@@ -1590,7 +1589,7 @@ async function cycleTick(): Promise<void> {
       if (openKeys.has(`${cand.symbol}|${cand.interval}`)) continue; // multi: combo nay da co lenh
       const px = tickers[cand.symbol]?.price ?? 0;
       if (px <= 0) continue;
-      if (pairReentryLeft(st.trades, cand.symbol, cand.interval) !== 0 || slCooldownLeft(st.trades, cand.symbol, cand.interval, c.cooldownMin) !== 0) continue;
+      if (slCooldownLeft(st.trades, cand.symbol, cand.interval, c.cooldownMin) !== 0) continue;
       if (!passesChaseGuard(st.trades, cand.symbol, cand.interval, cand.bias, px)) {
         guardBlocked++;
         continue;
