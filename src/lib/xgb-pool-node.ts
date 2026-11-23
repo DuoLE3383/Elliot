@@ -15,6 +15,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { runXgb, type TradeLesson, type XgbResult } from "./xgb";
 import { fetchKlinesDirect } from "./klines-direct";
+import { INTERVAL_MS } from "./history";
 import type { EngineSettings } from "./types";
 import type { XgbTrainRequest, XgbWorkerMsg } from "./xgb-worker-protocol";
 
@@ -191,7 +192,21 @@ export class XgbPoolNode {
   /** Sequential fallback — no worker bundle (dev mode). Same math, one core. */
   private async runInline(req: XgbTrainRequest, onProgress?: (p: number) => void): Promise<TrainOutcome> {
     try {
-      const klines = req.klines ?? (await fetchKlinesDirect(req.sym, req.itv, 1500)); // train co lessons: 500 nen qua ngan -> outside
+      let klines = req.klines ?? (await fetchKlinesDirect(req.sym, req.itv, 1500)); // train co lessons: 500 nen qua ngan -> outside
+      // Page nguoc ve oldestTrade - WARMUP*interval: 1500 nen gan nhat chua du cho trade cu
+      if (req.trades?.length && klines.length) {
+        const oldest = Math.min(...req.trades.map((x: any) => x.t));
+        const needStart = oldest - 110 * (INTERVAL_MS[req.itv] ?? 300_000);
+        let pages = 0;
+        while (klines[0].t > needStart && pages < 4) {
+          const page = await fetchKlinesDirect(req.sym, req.itv, 1500, { endTime: klines[0].t - 1 });
+          if (!page.length) break;
+          const fresh = page.filter((k: any) => k.t < klines[0].t);
+          if (!fresh.length) break;
+          klines = [...fresh, ...klines];
+          pages++;
+        }
+      }
       const lv = req.difficulty ?? 0;
       if (req.trades?.length && klines.length) console.log(`[xgb] klines ${req.sym} ${req.itv} n=${klines.length} from=${new Date(klines[0].t).toISOString()} to=${new Date(klines[klines.length-1].t).toISOString()} oldestTrade=${new Date(Math.min(...req.trades.map((x:any)=>x.t))).toISOString()}`);
       const res = await runXgb(klines, req.settings, `${req.sym}-${req.itv}`, req.itv, onProgress ? (p) => onProgress(p) : undefined, lv, req.trades);

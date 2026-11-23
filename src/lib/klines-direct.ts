@@ -95,11 +95,11 @@ export async function fetchKlinesDirect(
   symbol: string,
   interval: string,
   limit: number = KLINE_LIMIT,
-  opts?: { revalidate?: number },
+  opts?: { revalidate?: number; endTime?: number },
 ): Promise<Kline[]> {
   const sym = symbol.toUpperCase();
   if (!/^[A-Z0-9]{5,20}$/.test(sym)) throw new Error("invalid symbol");
-  const lim = Math.min(Math.max(1, Math.floor(limit) || KLINE_LIMIT), 1000);
+  const lim = Math.min(Math.max(1, Math.floor(limit) || KLINE_LIMIT), 1500);
 
   // Legacy/spot names (PEPEUSDT, SHIBUSDT…) don't exist on the perp board —
   // transparently retry their USDT-M listing so stale watchlist entries keep
@@ -131,7 +131,7 @@ export async function fetchKlinesDirect(
     }
     for (const h of hostList) {
       try {
-        const url = `${h.label}${h.url || "/fapi/v1/klines"}?symbol=${cand}&interval=${interval}&limit=${lim}`;
+        const url = `${h.label}${h.url || "/fapi/v1/klines"}?symbol=${cand}&interval=${interval}&limit=${lim}${opts?.endTime ? `&endTime=${opts.endTime}` : ""}`;
         const res = await fetch(url, {
           ...(opts?.revalidate != null ? { next: { revalidate: opts.revalidate } } : {}),
           signal: AbortSignal.timeout(9000),
@@ -170,7 +170,7 @@ export async function fetchKlinesDirectResolved(
   symbol: string,
   interval: string,
   limit: number = KLINE_LIMIT,
-  opts?: { revalidate?: number },
+  opts?: { revalidate?: number; endTime?: number },
 ): Promise<{ symbol: string; klines: Kline[] }> {
   const sym = symbol.toUpperCase();
   const candidates = [sym];
