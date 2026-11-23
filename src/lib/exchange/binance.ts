@@ -1,13 +1,40 @@
-// ─── Binance adapter (một phần) ─────────────────────────────────────────────
-// Đã nối: balance (fail loud khi lỗi), price (ticker công khai), stepSize (exchangeInfo).
-// Chưa nối: open / close — cần export hàm đặt đòn bẩy trong binance-live.ts.
-// Engine vẫn gọi liveOpen/liveClose trực tiếp cho đến khi nối xong.
+// ─── Binance adapter ────────────────────────────────────────────────────────
+// Bọc các hàm có sẵn trong binance-live.ts (không viết lại logic ký lệnh).
+// Dùng chung một tài khoản Binance (khoá toàn cục). acc.id chưa được dùng
+// để chọn khoá — nhiều tài khoản Binance cần tách khoá theo accountId trước.
+// Chưa được engine gọi: engine vẫn đi qua liveOpen/liveClose.
 
-import type { ExchangeAccount, ExchangeAdapter, OrderFill } from "./adapter";
+import type { ExchangeAccount, ExchangeAdapter, OrderFill, Side } from "./adapter";
 import { toNativeSymbol } from "./adapter";
-import { liveBalance, symbolFilter } from "../binance-live";
+import {
+  ensureLeverage,
+  liveBalance,
+  marketOrder,
+  roundQty,
+  symbolFilter,
+  type MarketOrderResult,
+} from "../binance-live";
 
-const NOT_WIRED = "binance adapter: open/close chưa nối — engine vẫn dùng liveOpen/liveClose";
+/** LONG mở = BUY, LONG đóng = SELL; SHORT mở = SELL, SHORT đóng = BUY. */
+const orderSide = (side: Side, closing: boolean): "BUY" | "SELL" => {
+  const buy = side === "LONG" ? !closing : closing;
+  return buy ? "BUY" : "SELL";
+};
+
+/** Phí ước tính theo biểu phí của tài khoản (takerFeePct tính bằng %).
+ *  marketOrder không trả phí thực từ sàn nên đây là ước lượng, không phải số đối soát. */
+function toFill(r: MarketOrderResult, acc: ExchangeAccount, symbol: string, action: string): OrderFill {
+  if (!r.ok || !r.orderId || !r.avgPrice || !r.executedQty) {
+    throw new Error(`binance ${action} ${symbol} thất bại: ${r.note ?? "không có fill"}`);
+  }
+  const notional = r.avgPrice * r.executedQty;
+  return {
+    orderId: r.orderId,
+    avgPrice: r.avgPrice,
+    qty: r.executedQty,
+    feeUsd: Math.round(notional * (acc.takerFeePct / 100) * 100) / 100,
+  };
+}
 
 export const binanceAdapter: ExchangeAdapter = {
   id: "binance",
@@ -38,11 +65,24 @@ export const binanceAdapter: ExchangeAdapter = {
     return f.stepSize;
   },
 
-  async open(): Promise<OrderFill> {
-    throw new Error(NOT_WIRED);
+  async open(acc: ExchangeAccount, req) {
+    const sym = toNativeSymbol("binance", req.symbol);
+    const f = await symbolFilter(sym);
+    if (!f) throw new Error(`binance: không có symbol ${req.symbol}`);
+    const qty = roundQty(req.qty, f.stepSize);
+    if (!(qty > 0)) throw new Error(`binance open ${req.symbol}: qty ${req.qty} nhỏ hơn stepSize ${f.stepSize}`);
+    await ensureLeverage(sym, req.leverage);
+    const r = await marketOrder(sym, orderSide(req.side, false), qty);
+    return toFill(r, acc, req.symbol, "open");
   },
 
-  async close(): Promise<OrderFill> {
-    throw new Error(NOT_WIRED);
+  async close(acc: ExchangeAccount, symbol: string, side: Side, qty: number): Promise<OrderFill> {
+    const sym = toNativeSymbol("binance", symbol);
+    const f = await symbolFilter(sym);
+    if (!f) throw new Error(`binance: không có symbol ${symbol}`);
+    const q = roundQty(qty, f.stepSize);
+    if (!(q > 0)) throw new Error(`binance close ${symbol}: qty ${qty} nhỏ hơn stepSize ${f.stepSize}`);
+    const r = await marketOrder(sym, orderSide(side, true), q, { reduceOnly: true });
+    return toFill(r, acc, symbol, "close");
   },
 };

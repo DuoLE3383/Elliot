@@ -125,7 +125,7 @@ export async function liveBalance(): Promise<BinanceBalance> {
 
 /** Đặt leverage cho symbol (one-way). Lỗi kệ — market order vẫn chạy với lev
  *  hiện có trên sàn. */
-async function ensureLeverage(symbol: string, leverage: number): Promise<void> {
+export async function ensureLeverage(symbol: string, leverage: number): Promise<void> {
   try {
     await signed("POST", "/fapi/v1/leverage", { symbol, leverage: String(Math.max(1, Math.min(125, Math.round(leverage)))) });
   } catch {
