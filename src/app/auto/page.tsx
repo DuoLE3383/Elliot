@@ -19,7 +19,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeftRight, Bot, BrainCircuit, Landmark } from "lucide-react";
 import { AutoSidebar } from "@/components/auto/sidebar";
 import { AutoTopbar } from "@/components/auto/topbar";
-import { MetricTiles, type TilesData } from "@/components/auto/metric-tiles";
+import { MetricTiles } from "@/components/auto/metric-tiles";
 import { AutoAnalytics } from "@/components/auto-analytics";
 import { AutoPanel } from "@/components/auto-panel";
 import { BinanceApiCard } from "@/components/binance-api-card";
@@ -308,16 +308,6 @@ export default function AutoPage() {
     };
   }, []);
 
-  const tilesData: TilesData = {
-    a: arena?.a ?? null,
-    b: arena?.b ?? null,
-    c: arena?.c ?? null,
-    live: arena?.live ?? null,
-    capital: auto?.capital ?? cfg.capital,
-    aEquity: arena?.aEquity ?? [],
-    bEquity: arena?.bEquity ?? [],
-    cEquity: arena?.cEquity ?? [],
-  };
 
   // ── thẻ cấu hình Binance API — mở/đóng từ pill ở Topbar ────────────────────
   const [apiCardOpen, setApiCardOpen] = useState(false);
@@ -375,7 +365,7 @@ export default function AutoPage() {
           )}
 
           {/* 4 chỉ số chính — Total Equity · Net ROI · Win Rate · Total Trades */}
-          <MetricTiles data={tilesData} lang={lang} />
+          <MetricTiles liveOn={arena?.live?.on ?? false} />
 
           {/* Strategy Control Center — 4 card A/B/C/D + Auto-Flip */}
           <StrategyCards
