@@ -1,13 +1,12 @@
-// ─── /api/capital — NGUỒN DUY NHẤT cho Balance · PnL · ROI · Win rate ─────────
-// mode=dry  → pool giấy ABCD: Balance = vốn ví (DryRunState "wallet") + PnL (ledger).
-// mode=live → Binance Futures thật: Balance = totalWalletBalance. PnL/ROI tính từ
-//             số dư lúc bấm START (DryRunState "live", resetAt = thời điểm START).
-//             PnL gồm cả nạp/rút nếu có — ghi chú này hiển thị trên UI.
-// POST {action:"reset-live"} → ghi lại mốc START live = số dư hiện tại.
+// ─── /api/capital — nguồn duy nhất cho Balance · PnL · ROI · Win rate ─────────
+// dry  → pool giấy ABCD (DryRunState "wallet" + ledger nội bộ).
+// live → Binance Futures: TẤT CẢ số liệu lấy từ sàn (xem liveAccount/liveIncomeSince).
+//        Mốc START (DryRunState "live"): wallet + unrealized lúc bấm START, lưu trong note (JSON).
+// POST {action:"reset-live"} → đặt lại mốc START.
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { buildStatsSnapshot } from "@/lib/stats";
-import { liveBalance } from "@/lib/binance-live";
+import { liveAccount, liveIncomeSince } from "@/lib/binance-live";
 
 export const dynamic = "force-dynamic";
 
@@ -26,16 +25,14 @@ type Body = {
 
 const r2 = (x: number): number => Math.round(x * 100) / 100;
 const EMPTY: Book = { pnlUsd: null, closed: 0, wr: null };
+const NONE = { A: EMPTY, B: EMPTY, C: EMPTY, D: EMPTY };
 
 async function dryStats(): Promise<Body> {
   const wallet = await db.dryRunState.findUnique({ where: { id: "wallet" } });
   const start = wallet?.capital ?? 1000;
   const snap = await buildStatsSnapshot();
   const L = snap.flow?.ledger;
-  const none = { A: EMPTY, B: EMPTY, C: EMPTY, D: EMPTY };
-  if (!L) {
-    return { mode: "dry", equity: null, startEquity: start, pnlUsd: null, roiPct: null, winRate: null, closed: 0, books: none, note: "stats chưa sẵn sàng" };
-  }
+  if (!L) return { mode: "dry", equity: null, startEquity: start, pnlUsd: null, roiPct: null, winRate: null, closed: 0, books: NONE, note: "stats chưa sẵn sàng" };
   const book = (k: "A" | "B" | "C" | "D"): Book => {
     const b = L.perBook[k];
     if (!b) return EMPTY;
@@ -54,52 +51,68 @@ async function dryStats(): Promise<Body> {
   };
 }
 
+type LiveMeta = { u: number | null; src: string };
+const parseMeta = (note: string): LiveMeta => {
+  try {
+    const m = JSON.parse(note) as { u?: unknown; src?: unknown };
+    return { u: typeof m.u === "number" ? m.u : null, src: String(m.src ?? "") };
+  } catch {
+    return { u: null, src: note };
+  }
+};
+
 async function liveStats(reset: boolean): Promise<Body> {
-  const bal = await liveBalance();
-  const balance = bal.ok && bal.balance != null ? bal.balance : null;
+  const acc = await liveAccount();
+  if (!acc.ok || acc.walletBalance == null || acc.marginBalance == null) {
+    return { mode: "live", equity: null, startEquity: null, pnlUsd: null, roiPct: null, winRate: null, closed: 0, books: NONE, note: acc.note ?? "không đọc được tài khoản Binance" };
+  }
 
   let base = await db.dryRunState.findUnique({ where: { id: "live" } });
-  if (balance != null && (reset || !base)) {
-    const note = reset ? "start" : "auto";
+  if (reset || !base) {
+    const note = JSON.stringify({ u: acc.unrealizedPnl, src: reset ? "start" : "auto" });
     base = await db.dryRunState.upsert({
       where: { id: "live" },
-      create: { id: "live", capital: balance, resetAt: new Date(), note },
-      update: { capital: balance, resetAt: new Date(), note },
+      create: { id: "live", capital: acc.walletBalance, resetAt: new Date(), note },
+      update: { capital: acc.walletBalance, resetAt: new Date(), note },
     });
   }
-  const start = base?.capital ?? null;
-  const since = base?.resetAt ?? new Date(0);
+  const meta = parseMeta(base.note);
+  const inc = await liveIncomeSince(base.resetAt.getTime());
+  if (!inc.ok) {
+    return { mode: "live", equity: r2(acc.marginBalance), startEquity: r2(base.capital), pnlUsd: null, roiPct: null, winRate: null, closed: 0, books: NONE, note: inc.note };
+  }
 
-  const rows = await db.liveBook.findMany({
-    where: { status: "closed", exitTime: { gte: since } },
-    select: { roePct: true, balanceBefore: true, balanceAfter: true },
-  });
-  const closed = rows.length;
-  const wins = rows.filter((r) => (r.roePct ?? 0) > 0).length;
-  const bPnl = rows.length
-    ? r2(rows.reduce((a, r) => a + ((r.balanceAfter ?? 0) - (r.balanceBefore ?? 0)), 0))
-    : null;
-  const pnl = balance != null && start != null ? r2(balance - start) : null;
-  const wr = closed ? (wins / closed) * 100 : null;
+  const dUnreal = acc.unrealizedPnl != null && meta.u != null ? acc.unrealizedPnl - meta.u : 0;
+  const pnl = r2(inc.realized + inc.commission + inc.funding + dUnreal);
+  const denom = base.capital + inc.transfer;
+  const wr = inc.fills ? (inc.wins / inc.fills) * 100 : null;
 
   return {
     mode: "live",
-    equity: balance,
-    startEquity: start,
+    equity: r2(acc.marginBalance),
+    startEquity: r2(base.capital),
     pnlUsd: pnl,
-    roiPct: pnl != null && start ? (pnl / start) * 100 : null,
+    roiPct: denom > 0 ? (pnl / denom) * 100 : null,
     winRate: wr,
-    closed,
-    // Live hiện chỉ mirror sổ B, nên chỉ B có PnL riêng; A/C/D để trống
-    books: { A: EMPTY, B: { pnlUsd: bPnl, closed, wr }, C: EMPTY, D: EMPTY },
-    note: bal.ok ? undefined : (bal.note ?? "không đọc được số dư Binance"),
+    closed: inc.fills,
+    // Live hiện chỉ mirror sổ B: toàn bộ PnL sàn gán cho B; A/C/D để trống
+    books: { A: EMPTY, B: { pnlUsd: pnl, closed: inc.fills, wr }, C: EMPTY, D: EMPTY },
+    note: meta.src === "start" ? "PnL từ lúc START (sàn)" : "PnL từ mốc tự động (sàn)",
   };
 }
+
+// Cache 30 giây cho live: tránh gọi income nhiều lần khi nhiều tab cùng mở (tránh vượt weight)
+let liveCache: { at: number; body: Body } | null = null;
+const LIVE_TTL = 30_000;
 
 export async function GET(req: Request) {
   const live = new URL(req.url).searchParams.get("mode") === "live";
   try {
-    return NextResponse.json(live ? await liveStats(false) : await dryStats());
+    if (!live) return NextResponse.json(await dryStats());
+    if (liveCache && Date.now() - liveCache.at < LIVE_TTL) return NextResponse.json(liveCache.body);
+    const body = await liveStats(false);
+    liveCache = { at: Date.now(), body };
+    return NextResponse.json(body);
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "error" }, { status: 500 });
   }
@@ -107,11 +120,10 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as { action?: string };
-  if (body.action !== "reset-live") {
-    return NextResponse.json({ error: "unknown action" }, { status: 400 });
-  }
+  if (body.action !== "reset-live") return NextResponse.json({ error: "unknown action" }, { status: 400 });
   try {
     const s = await liveStats(true);
+    liveCache = { at: Date.now(), body: s };
     return NextResponse.json({ ok: true, startEquity: s.startEquity, note: s.note ?? null });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "error" }, { status: 500 });

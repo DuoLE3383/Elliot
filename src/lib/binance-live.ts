@@ -270,3 +270,83 @@ export async function liveOpenCount(): Promise<number> {
     return 0;
   }
 }
+
+// ─── Đọc trạng thái từ Binance Futures (CHỈ ĐỌC) ─────────────────────────────
+// Mọi số PnL/ROI live lấy từ sàn: REALIZED_PNL + COMMISSION + FUNDING_FEE + Δunrealized.
+// TRANSFER (nạp/rút) đọc riêng để không bị tính thành lãi.
+
+export interface LiveAccount {
+  ok: boolean;
+  walletBalance: number | null; // totalWalletBalance: tiền ký quỹ
+  marginBalance: number | null; // totalMarginBalance: wallet + unrealized
+  unrealizedPnl: number | null; // totalUnrealizedProfit
+  note?: string;
+}
+
+const numOrNull = (x: unknown): number | null => (x == null || x === "" ? null : Number(x));
+
+export async function liveAccount(): Promise<LiveAccount> {
+  try {
+    const r = await signed("GET", "/fapi/v2/account");
+    if (!r.ok) return { ok: false, walletBalance: null, marginBalance: null, unrealizedPnl: null, note: `account HTTP ${r.status}` };
+    const a = r.body as { totalWalletBalance?: string; totalMarginBalance?: string; totalUnrealizedProfit?: string };
+    return {
+      ok: true,
+      walletBalance: numOrNull(a.totalWalletBalance),
+      marginBalance: numOrNull(a.totalMarginBalance),
+      unrealizedPnl: numOrNull(a.totalUnrealizedProfit),
+    };
+  } catch (e) {
+    return { ok: false, walletBalance: null, marginBalance: null, unrealizedPnl: null, note: e instanceof Error ? e.message : "error" };
+  }
+}
+
+export interface LiveIncome {
+  ok: boolean;
+  realized: number;
+  commission: number;
+  funding: number;
+  transfer: number;
+  fills: number; // số fill có realized ≠ 0
+  wins: number;  // số fill có realized > 0
+  note?: string;
+}
+
+/** Lật toàn bộ income của một incomeType từ mốc sinceMs. Trang 1000 dòng; con trỏ = time cuối + 1. */
+async function pageIncome(incomeType: string, sinceMs: number): Promise<Array<{ income: string; time: number }>> {
+  const out: Array<{ income: string; time: number }> = [];
+  let cursor = sinceMs;
+  for (let page = 0; page < 100; page++) {
+    const r = await signed("GET", "/fapi/v1/income", { incomeType, startTime: String(cursor), limit: "1000" });
+    if (!r.ok) throw new Error(`income ${incomeType} HTTP ${r.status}`);
+    const list = (r.body ?? []) as Array<{ income: string; time: number }>;
+    out.push(...list);
+    if (list.length < 1000) break;
+    cursor = list[list.length - 1].time + 1;
+  }
+  return out;
+}
+
+export async function liveIncomeSince(sinceMs: number): Promise<LiveIncome> {
+  try {
+    const [rp, cm, fd, tr] = await Promise.all([
+      pageIncome("REALIZED_PNL", sinceMs),
+      pageIncome("COMMISSION", sinceMs),
+      pageIncome("FUNDING_FEE", sinceMs),
+      pageIncome("TRANSFER", sinceMs),
+    ]);
+    const sum = (rows: Array<{ income: string }>) => rows.reduce((a, x) => a + Number(x.income), 0);
+    const nz = rp.filter((x) => Number(x.income) !== 0);
+    return {
+      ok: true,
+      realized: sum(rp),
+      commission: sum(cm),
+      funding: sum(fd),
+      transfer: sum(tr),
+      fills: nz.length,
+      wins: nz.filter((x) => Number(x.income) > 0).length,
+    };
+  } catch (e) {
+    return { ok: false, realized: 0, commission: 0, funding: 0, transfer: 0, fills: 0, wins: 0, note: e instanceof Error ? e.message : "error" };
+  }
+}
