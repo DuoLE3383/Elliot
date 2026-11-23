@@ -929,7 +929,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                     <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-semibold text-zinc-300">Total Open Positions ({(opens ?? []).length})</span>
-                        <span className="font-mono text-xs font-bold text-zinc-100">{up ? "+" : ""}${tot.pnl.toFixed(2)}</span>
+                        <span className={`font-mono text-xs font-bold ${up ? "text-emerald-400" : "text-rose-400"}`}>{up ? "+" : ""}${tot.pnl.toFixed(2)}</span>
                       </div>
                       {(() => {
                           const by: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };

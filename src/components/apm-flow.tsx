@@ -102,6 +102,7 @@ function Line({
   dashed = false,
   flow = false,
   op = 1,
+  neon = false,
 }: {
   d: string;
   color: string;
@@ -109,6 +110,7 @@ function Line({
   dashed?: boolean;
   flow?: boolean;
   op?: number;
+  neon?: boolean;
 }) {
   return (
     <path
@@ -121,7 +123,37 @@ function Line({
       strokeLinejoin="round"
       strokeDasharray={dashed ? "5 5" : undefined}
       className={flow ? "apm-flow" : undefined}
+      filter={neon ? "url(#apmNeonLine)" : undefined}
     />
+  );
+}
+
+/** <defs> chung cho hiệu ứng neon — đặt 1 lần trong <svg> (định nghĩa lại mỗi
+ *  render là rẻ, id phải duy nhất trong trang vì chỉ 1 flow map mỗi view). */
+function NeonDefs() {
+  return (
+    <defs>
+      {/* viền node phát sáng: halo blur + giữ nét gốc trên cùng */}
+      <filter id="apmNeon" x="-45%" y="-45%" width="190%" height="190%">
+        <feGaussianBlur stdDeviation="3.2" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
+      {/* dây tín hiệu phát sáng nhẹ — dùng cho dây có dòng chảy (flow) */}
+      <filter id="apmNeonLine" x="-30%" y="-30%" width="160%" height="160%">
+        <feGaussianBlur stdDeviation="1.8" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
+      {/* quầng mềm phía sau card (neon tube) — chỉ blur, lớp dưới cùng */}
+      <filter id="apmHalo" x="-60%" y="-60%" width="220%" height="220%">
+        <feGaussianBlur stdDeviation="9" />
+      </filter>
+    </defs>
   );
 }
 
@@ -148,6 +180,7 @@ function Node({
   color,
   valColor,
   dashed = false,
+  neon = false,
   onClick,
 }: {
   x: number;
@@ -160,11 +193,24 @@ function Node({
   color: string;
   valColor: string;
   dashed?: boolean;
+  neon?: boolean;
   onClick?: () => void;
 }) {
   return (
     <g onClick={onClick} style={{ cursor: onClick ? "pointer" : "default" }}>
       <title>{`${title} — ${value} · ${sub}`}</title>
+      {neon && (
+        <rect
+          x={x}
+          y={y}
+          width={w}
+          height={h}
+          rx={10}
+          fill={color}
+          opacity={0.24}
+          filter="url(#apmHalo)"
+        />
+      )}
       <rect
         x={x}
         y={y}
@@ -172,9 +218,10 @@ function Node({
         height={h}
         rx={10}
         fill={C.card}
-        stroke={dashed ? color : C.edge}
-        strokeOpacity={dashed ? 0.6 : 1}
+        stroke={neon ? color : dashed ? color : C.edge}
+        strokeOpacity={neon ? 0.95 : dashed ? 0.6 : 1}
         strokeDasharray={dashed ? "4 3" : undefined}
+        filter={neon ? "url(#apmNeon)" : undefined}
       />
       <circle cx={x + 12} cy={y + 14} r={3} fill={color} />
       <text x={x + 22} y={y + 17} fontSize={10.5} fill="#9aa3b5">
@@ -294,6 +341,7 @@ export function ApmFlowMap({
 
       <div className="overflow-x-auto rounded-xl border border-white/5 bg-[#0b0e14]">
         <svg viewBox={`0 0 ${W} ${H}`} className="block w-full min-w-[720px]" role="img" aria-label="Trading flow map">
+          <NeonDefs />
           {/* Cột A: chuỗi quét, gate, skipped nhánh nhạt */}
           {[0, 1, 2].map((i) => (
             <Line key={`a${i}`} d={`M ${COL_A + NW / 2} ${aY(i) + NH} V ${aY(i + 1)}`} color={C.grey} w={strokeW(f.scanCombos, true)} flow />
@@ -311,6 +359,7 @@ export function ApmFlowMap({
               dashed={!gateOn}
               flow={gateOn}
               op={gateOn ? 0.95 : 0.45}
+              neon={gateOn}
             />
           ))}
           <Pill x={(COL_A + NW + COL_B) / 2} y={(gateMid + pMid(0)) / 2} text={`gate ${f.gatePass}`} color={gateOn ? C.cyan : C.grey} />
@@ -325,6 +374,7 @@ export function ApmFlowMap({
               dashed={!tradesOn}
               flow={tradesOn}
               op={tradesOn ? 0.9 : 0.4}
+              neon={tradesOn}
             />
           ))}
           <Pill x={(COL_B + NW + COL_C) / 2} y={(pMid(0) + tradeMid) / 2} text={`opened ${f.tradesTotal}`} color={tradesOn ? C.lime : C.grey} />
@@ -339,6 +389,7 @@ export function ApmFlowMap({
               w={strokeW(outN[i - 1], outOn[i - 1])}
               flow={outOn[i - 1]}
               op={outOn[i - 1] ? 0.9 : 0.4}
+              neon={outOn[i - 1]}
               dashed={!outOn[i - 1]}
             />
           ))}
@@ -350,6 +401,7 @@ export function ApmFlowMap({
             w={1.6}
             flow
             op={0.7}
+            neon
           />
           <Pill x={450} y={AI_Y - 26} text="kết quả → vòng AI" color={C.cyan} />
 
@@ -361,6 +413,7 @@ export function ApmFlowMap({
               color={C.cyan}
               w={2}
               flow
+              neon
             />
           ))}
 
@@ -371,6 +424,7 @@ export function ApmFlowMap({
             w={1.6}
             flow
             op={0.8}
+            neon
           />
           <Pill x={450} y={H - 14} text="phản hồi → gate" color={C.cyan} />
 
@@ -386,6 +440,7 @@ export function ApmFlowMap({
               color={n.color}
               valColor={n.valColor ?? C.text}
               dashed={n.dashed}
+              neon={i === 3 && gateOn}
               onClick={() => onNodeClick?.(n.id)}
             />
           ))}
@@ -397,7 +452,9 @@ export function ApmFlowMap({
               return (
                 <g key={`pos${p.id ?? p.symbol}${j}`} onClick={() => onSelectPosition?.(j)} style={{ cursor: "pointer" }}>
                   <title>{`${p.symbol} ${p.side} · ROI ${p.roi == null ? "—" : `${p.roi.toFixed(2)}%`} · ${p.ageH.toFixed(1)}h`}</title>
-                  <rect x={COL_B} y={pY(j)} width={NW} height={PH} rx={10} fill={C.card} stroke={color} strokeOpacity={0.45} strokeDasharray="4 3" />
+                  {/* quầng neon theo side: long xanh, short đỏ */}
+                  <rect x={COL_B} y={pY(j)} width={NW} height={PH} rx={10} fill={color} opacity={0.16} filter="url(#apmHalo)" />
+                  <rect x={COL_B} y={pY(j)} width={NW} height={PH} rx={10} fill={C.card} stroke={color} strokeOpacity={0.55} strokeDasharray="4 3" filter="url(#apmNeon)" />
                   <circle cx={COL_B + 12} cy={pY(j) + 14} r={3} fill={color} />
                   <text x={COL_B + 22} y={pY(j) + 17} fontSize={10.5} fill={C.text}>
                     {p.symbol.replace(/USDT$/, "")} · {p.side}
@@ -440,6 +497,7 @@ export function ApmFlowMap({
               sub={n.sub}
               color={n.color}
               valColor={n.valColor ?? C.text}
+              neon={i === 0 && tradesOn}
               onClick={() => onNodeClick?.(n.id)}
             />
           ))}
@@ -455,6 +513,7 @@ export function ApmFlowMap({
               sub={n.sub}
               color={n.color}
               valColor={C.text}
+              neon
               onClick={() => onNodeClick?.(n.id)}
             />
           ))}

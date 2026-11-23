@@ -63,6 +63,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 
 // ─── hình dạng snapshot (khớp src/lib/stats.ts — khai tại chỗ để trang client
 // không kéo db/engine vào bundle trình duyệt) ─────────────────────────────────
@@ -174,6 +175,7 @@ export default function StatsPage() {
   const [err, setErr] = useState("");
   // trạm đang xem — mặc định Flow Overview (màn hình chính của ảnh tham chiếu)
   const [view, setView] = useState<ViewId>("flow");
+  const router = useRouter();
   const [navOpen, setNavOpen] = useState(false); // drawer mobile
 
   // combo picker cho 2 trạm client-side
@@ -340,13 +342,26 @@ export default function StatsPage() {
   for (const s of snap?.sections ?? []) byKey[s.key] = s;
 
   const flow = snap?.flow ?? null;
-  // bấm node trên sơ đồ → mở trạm chi tiết tương ứng
+  // bấm node trên sơ đồ → mở trạm chi tiết tương ứng (st-root → /ai, dive LLM)
   const nodeToView = (id: string): ViewId =>
-    id === "st-universe" ? "universe" : id === "st-dock" ? "dock" : id === "st-open" ? "open" : "hist";
-  const onFlowNode = useCallback((id: string) => {
-    setView(nodeToView(id));
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
+    id === "st-universe" ? "universe"
+    : id === "st-dock" ? "dock"
+    : id === "st-open" ? "open"
+    : id === "st-autopsy" ? "journal"
+    : id === "st-evo" ? "sg"
+    : id === "st-param" ? "lab"
+    : "hist";
+  const onFlowNode = useCallback(
+    (id: string) => {
+      if (id === "st-root") {
+        router.push("/ai");
+        return;
+      }
+      setView(nodeToView(id));
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+    [router],
+  );
 
   // ── số liệu thô cho sơ đồ (flow null → khung số 0, trang vẫn sống) ──
   const fc: ApmFlowCounts = {
