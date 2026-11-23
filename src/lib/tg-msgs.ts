@@ -54,23 +54,37 @@ export const tpPrice = (side: string, entry: number, tpPct: number): number =>
   side === "SHORT" ? entry * (1 - Math.abs(tpPct) / 100) : entry * (1 + Math.abs(tpPct) / 100);
 
 export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string): string => {
+  const x = r as any;
+  const forced = x.methodId === "force";
+  const noModel = (r.auc ?? 0) <= 0.5 && (r.acc ?? 0) <= 0;
   const stake = (equity * (r.stakePct ?? 100)) / 100;
   const notional = stake * r.leverage;
   const rr = r.slPct > 0 ? r.tpPct / r.slPct : 0;
   const feeRt = feeRoi(r.leverage, 2);
   const slNow = slPrice(r.side, r.entryPrice, r.slPct);
   const tpNow = tpPrice(r.side, r.entryPrice, r.tpPct);
+  const llm = forced
+    ? "LLM Risk Officer: not reviewed (forced entry)"
+    : x.llmVerdict
+      ? `LLM Risk Officer: ${x.llmVerdict}${x.llmReason ? ` — ${escHtml(String(x.llmReason))}` : ""}`
+      : "LLM Risk Officer: not reviewed";
   const lines = [
-    ...buildTradeHeader("🟢", "OPEN", r),
+    ...buildTradeHeader("🟢", forced ? "OPEN · FORCE" : "OPEN", r),
     `Entry <b>${fmtPrice(r.entryPrice)}</b>`,
     `SL <b>${fmtPrice(slNow)}</b> (−${r.slPct.toFixed(2)}% price · ROI ${(-(r.slPct * r.leverage)).toFixed(2)}%)`,
     `TP <b>${fmtPrice(tpNow)}</b> (+${r.tpPct.toFixed(2)}% price · ROI +${(r.tpPct * r.leverage).toFixed(2)}%)`,
     `Lev ${levTxt(r.leverage)} · Stake ${r.stakePct ?? 100}% · R:R 1:${rr.toFixed(2)}`,
     `Margin <b>${stake.toFixed(2)}</b> USDT · Size ${notional.toFixed(2)} USDT`,
   ];
+  if (forced) lines.push("Gate: bypassed (forced start from BEST)");
   if (feeRt > 0) lines.push(`Fees round-trip −${feeRt.toFixed(2)}% ROI (net in realized ROI)`);
   if (atrNote) lines.push(atrNote);
-  lines.push(`${probTxt(r.side, r.prob ?? 0)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}% · Score ${(r.score ?? 0).toFixed(2)}`);
+  lines.push(llm);
+  lines.push(
+    noModel
+      ? "Model: pending (no score yet)"
+      : `${probTxt(r.side, r.prob ?? 0)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}% · Score ${(r.score ?? 0).toFixed(2)}`,
+  );
   return lines.join("\n");
 };
 

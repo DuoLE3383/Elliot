@@ -1279,7 +1279,7 @@ const baseSym = (s: string): string => s.replace(/USDT$/, "");
  * Vẫn đếm OPENS trong cửa sổ (báo "0 lệnh" ngay sau khi vừa mở lệnh đọc như
  * hỏng) và hiện "—" thay vì 0% win-rate giả khi chưa có lệnh nào chốt.
  */
-export function statLines(st: AutoState, sinceMs: number, title: string, periodLabel: string): string[] {
+export function statLines(st: AutoState, sinceMs: number, title: string, periodLabel: string, floor?: { minScore: number; minAuc: number; minAcc: number; src: string }): string[] {
   const recent = st.trades
     .filter((x) => x.status === "closed" && x.exitTime && new Date(x.exitTime).getTime() >= sinceMs)
     .sort((a, b) => new Date(b.exitTime ?? b.entryTime).getTime() - new Date(a.exitTime ?? a.entryTime).getTime());
@@ -1292,8 +1292,8 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
   const eqStart = Number(oldest?.capitalBefore ?? NaN);
   const eqEnd = Number(newest?.capitalAfter ?? st.capital ?? NaN);
   const eqDelta = Number.isFinite(eqStart) && eqStart > 0 && Number.isFinite(eqEnd) ? ((eqEnd - eqStart) / eqStart) * 100 : null;
-  const roi = recent.length ? `Margin ${net >= 0 ? "+" : ""}${net.toFixed(2)}%` : "—";
-  const eqTxt2 = eqDelta != null ? ` · Equity Δ ${eqDelta >= 0 ? "+" : ""}${eqDelta.toFixed(2)}%` : "";
+  const roi = recent.length ? `ΣROI ${net >= 0 ? "+" : ""}${net.toFixed(2)}%` : "—";
+  const eqTxt2 = eqDelta != null ? ` · Balance Δ ${eqDelta >= 0 ? "+" : ""}${eqDelta.toFixed(2)}%` : "";
   const capLabel = periodLabel.charAt(0).toUpperCase() + periodLabel.slice(1);
   const eq = st.capital != null ? st.capital.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
   // TG UPGRADE — Agent header: lấy agent từ state nếu có, fallback HEDGE
@@ -1305,10 +1305,10 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
   const runnerTxt = `${rp.runnerSharePct}/${rp.runnerTpMult}/${rp.runnerTrailLock}`;
   const lines = [
     title,
-    `${agentIcon} Agent: <b>${agentId}</b> · Risk ${ag[0]}% · Gate Score ${ag[1]} / AUC ${ag[2]} / ACC ${ag[3]}% · Runner ${runnerTxt}`,
+    `${agentIcon} Agent: <b>${agentId}</b> · Risk ${ag[0]}% · ${floor ? `Gate ${floor.src}: Score ${floor.minScore} / AUC ${floor.minAuc.toFixed(2)} / ACC ${floor.minAcc}%` : "Gate: see /ai"} · Runner ${runnerTxt}`,
     DIGEST_HR,
-    `📊 <b>${capLabel}</b>: ${opened.length} opened · ${recent.length} closed · WR <b>${wr}</b>${eqTxt2} · Margin ${roi}`,
-    `💰 Book B equity <b>${eq}</b> USDT · ${st.stats.closed} closed all-time${st.open ? " · 1 open" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(2)}%` : "—"}`,
+    `📊 <b>${capLabel}</b>: ${opened.length} opened · ${recent.length} closed · WR <b>${wr}</b>${eqTxt2} · ${roi}`,
+    `💰 Book B balance <b>${eq}</b> USDT · ${st.stats.closed} closed all-time${st.open ? " · 1 open" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(2)}%` : "—"}`,
   ];
   const best = (st.byCombo ?? []).filter((c) => c.closed >= 3).sort((a, b) => b.winRate - a.winRate)[0];
   if (best && recent.length > 0) lines.push(`🏆 Best: <b>#${baseSym(best.symbol)}</b> ${best.interval} · WR ${best.winRate.toFixed(2)}% (${best.closed} trades)`);
