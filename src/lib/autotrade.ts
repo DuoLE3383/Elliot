@@ -667,7 +667,7 @@ export function levAdjSlTp(sl: number, tp: number, scale: number, lev: number): 
   const safe = pval("TP_LIQ_SAFE", TP_LIQ_SAFE);
   // Kẹp đầu vào — SL/TP âm / 0 / NaN không bao giờ được vào lệnh (XLM cũ sl -0.32% là từ đây)
   // Fallback an toàn: SL 0.8% / TP 1.2% (đúng floor 5m), giữ R:R 1.5
-  if (!isFinite(sl) || sl <= 0) sl = 0.8;
+  if (!isFinite(sl) || sl <= 0) sl = lev > 0 ? Math.max(0.2, 4 / lev) : 0.8;
   if (!isFinite(tp) || tp <= 0) tp = sl * 1.5;
   if (!isFinite(scale) || scale <= 0) scale = 1;
   let s = sl * scale;

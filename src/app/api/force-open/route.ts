@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
   let slPct = Number(body.slPct ?? dyn?.slPct ?? 1.0);
   let tpPct = Number(body.tpPct ?? dyn?.tpPct ?? slPct * 1.5);
   if (interval === "5m") {
-    const slFloor = Math.max(atrPct * 1.5, 0.8);
+    const slFloor = Math.max(atrPct * 1.5, Math.max(0.2, 4 / tradeLev));
     if (slPct < slFloor) {
       const k = slFloor / slPct;
       slPct = slFloor;
