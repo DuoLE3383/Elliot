@@ -29,6 +29,7 @@ import { combineClosePnl } from "@/lib/trade-mgmt";
 import { autopsyClosedTrade } from "@/lib/autopsy";
 import { auditBook, repairBook } from "@/lib/audit-book";
 import { tgSendMessage } from "@/lib/telegram-store";
+import { msgOpen } from "@/lib/tg-msgs";
 
 export const dynamic = "force-dynamic";
 
@@ -101,7 +102,18 @@ export async function POST(req: NextRequest) {
       methodId: typeof body.methodId === "string" && body.methodId ? body.methodId.slice(0, 64) : null,
     },
   });
-  return NextResponse.json({ trade: serialize(row) }, { status: 201 });
+  const trade = serialize(row);
+  // Send Telegram OPEN for every position opened via this API, including force-open.
+  // Previously this route created the row and returned 201 without any Telegram call,
+  // so force-open positions were silent even though the Telegram test send works.
+  // Telegram failure must not fail the open: log it and still return 201.
+  try {
+    const tg = await tgSendMessage(msgOpen(trade, equityNow), "HTML", { dedupeKey: `open:${row.id}` });
+    if (!tg.ok) console.error(`[autotrade] Telegram OPEN failed for ${row.symbol}: ${tg.detail ?? "unknown"}`);
+  } catch (e) {
+    console.error(`[autotrade] Telegram OPEN error for ${row.symbol}: ${e instanceof Error ? e.message : "unknown"}`);
+  }
+  return NextResponse.json({ trade }, { status: 201 });
 }
 
 export async function PATCH(req: NextRequest) {
