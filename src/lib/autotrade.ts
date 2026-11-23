@@ -1308,7 +1308,7 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
     `${agentIcon} Agent: <b>${agentId}</b> · Risk ${ag[0]}% · Gate Score ${ag[1]} / AUC ${ag[2]} / ACC ${ag[3]}% · Runner ${runnerTxt}`,
     DIGEST_HR,
     `📊 <b>${capLabel}</b>: ${opened.length} opened · ${recent.length} closed · WR <b>${wr}</b>${eqTxt2} · Margin ${roi}`,
-    `💰 Equity <b>${eq}</b> USDT · ${st.stats.closed} closed all-time${st.open ? " · 1 open" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(2)}%` : "—"}`,
+    `💰 Book B equity <b>${eq}</b> USDT · ${st.stats.closed} closed all-time${st.open ? " · 1 open" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(2)}%` : "—"}`,
   ];
   const best = (st.byCombo ?? []).filter((c) => c.closed >= 3).sort((a, b) => b.winRate - a.winRate)[0];
   if (best && recent.length > 0) lines.push(`🏆 Best: <b>#${baseSym(best.symbol)}</b> ${best.interval} · WR ${best.winRate.toFixed(2)}% (${best.closed} trades)`);

@@ -943,14 +943,14 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                             const roi2 = o.entryPrice && mark2 ? (String(o.side ?? "").toUpperCase() === "SHORT" ? (o.entryPrice - mark2) / o.entryPrice : (mark2 - o.entryPrice) / o.entryPrice) * 100 * Number((o as any).leverage ?? 1) : 0;
                             by[key] += (margin2 * roi2) / 100;
                           }
-                          const TOTAL_CAP = 2000;
+                          const TOTAL_CAP = 1000; // wallet start (DryRunState), same base as stats ledger
                           const totalPnl = (tot as any).pnl ?? 0;
                           const fmt2 = (v: number) => `${v >= 0 ? "+" : ""}$${v.toFixed(2)}`;
                           return (
                             <div className="mt-2 space-y-1">
                               <div className="flex items-center justify-between rounded-lg bg-zinc-900 px-2 py-1.5 text-xs">
-                                <span className="text-zinc-500">TOTAL (2 sổ)</span>
-                                <span className="font-mono font-bold text-white">{fmt2(TOTAL_CAP)} <span className="text-zinc-500">· Vốn sau {fmt2(TOTAL_CAP + totalPnl)}</span></span>
+                                <span className="text-zinc-500">WALLET</span>
+                                <span className="font-mono font-bold text-white">${(TOTAL_CAP + totalPnl).toFixed(2)} <span className="text-zinc-500">· start ${TOTAL_CAP.toFixed(2)}</span></span>
                               </div>
                               <div className="rounded-lg bg-zinc-900 px-2 py-1.5 text-center text-xs font-mono text-zinc-300">
                                 PNL {fmt2(totalPnl)} <span className="text-zinc-500">(</span>{fmt2(by.A)}A <span className="text-zinc-500">-</span> {fmt2(by.B)}B <span className="text-zinc-500">-</span> {fmt2(by.C)}C <span className="text-zinc-500">-</span> {fmt2(by.D)}D<span className="text-zinc-500">)</span>
@@ -960,7 +960,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                         })()}
                         <div className="mt-2 grid grid-cols-3 gap-2 text-center">
                         <div className="rounded-lg bg-zinc-900 p-2">
-                          <div className="text-xs text-zinc-500">Total Entry (Equity)</div>
+                          <div className="text-xs text-zinc-500">Open Margin</div>
                           <div className="font-mono text-sm font-bold text-white">${tot.entry.toFixed(2)}</div>
                         </div>
                         <div className="rounded-lg bg-zinc-900 p-2">

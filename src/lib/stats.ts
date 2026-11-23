@@ -959,7 +959,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       // LEDGER DUY NHAT - moi card (TOTAL EQUITY / TOTAL PNL / NET ROI / WIN RATE / TOTAL TRADES / Flow / Recent Trades) deu xai cai nay
       // NHÃN A/B KHỚP autostate.ts + reset endpoint (route.ts "B: AutoTrade, A: VulcanBook"):
       // A=VulcanBook (base 1000), B=AutoTrade (base 1000), C=WyckoffBook (base 0), D=LiquidBook (base 0), E=LiveBook (base 0)
-      // TOTAL START = 2000. TOTAL EQUITY = 2000 + PNL closed (chuoi von) + PNL open (net, da tru phi)
+      // TOTAL START = wallet start. TOTAL EQUITY = start + realized + open net PnL (single source)
       const ledger = await (async () => {
         const books = [
           { name: "A", model: "vulcanBook", start: 1000 },
@@ -1010,7 +1010,9 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
           pnlOpen += marginOfL(x) * (net/100);
         }
         pnlClosed = Math.round(pnlClosed*100)/100; pnlOpen = Math.round(pnlOpen*100)/100;
-        const totalStart = 2000;
+        // Wallet start from DryRunState "wallet": one paper wallet across A-D, not a hard-coded 2000.
+        const walletRow = await db.dryRunState.findUnique({ where: { id: "wallet" } }).catch(() => null);
+        const totalStart = walletRow?.capital ?? 1000;
         return { perBook, totalStart, pnlClosed, pnlOpen, totalPnl: Math.round((pnlClosed+pnlOpen)*100)/100, totalEquity: Math.round((totalStart+pnlClosed+pnlOpen)*100)/100, wins, closed, open: (allOpens as any[]).length, winRate: closed ? wins/closed*100 : 0, netRoiClosed: totalStart ? pnlClosed/totalStart*100 : 0 };
       })();
       // SO CAI CHUAN: PNL$ = sum(capitalAfter - capitalBefore) cua closed (da tru phi, da gom TP1)
@@ -1095,9 +1097,9 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         last7d: closedRows.filter((r) => r.exitTime && now - new Date(r.exitTime).getTime() < 7 * 86_400_000).length,
         autoOn: cfg.on,
         equity: st0?.capital ?? null,
-        totalStartCapital: 2000, // 2 so x 1000
-        totalEquity: ledger.totalEquity, // 2000 + closed (chuoi von) + open (net, da tru phi) - 1 nguon duy nhat
-        ledger, // Sổ cái duy nhất: perBook A/B/C/D, pnlClosed, pnlOpen, totalPnl, winRate, closed, open
+        totalStartCapital: ledger.totalStart,
+        totalEquity: ledger.totalEquity, // wallet start + realized + open net PnL (single source)
+        ledger, // single ledger: perBook A/B/C/D, pnlClosed, pnlOpen, totalPnl, winRate, closed, open
         open: o ? { symbol: o.symbol, side: o.side, roi, ageH } : null,
         openPositions,
         activeSessions: active.map((s) => SESSION_VI[s]),
