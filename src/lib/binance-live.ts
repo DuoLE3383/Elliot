@@ -350,3 +350,19 @@ export async function liveIncomeSince(sinceMs: number): Promise<LiveIncome> {
     return { ok: false, realized: 0, commission: 0, funding: 0, transfer: 0, fills: 0, wins: 0, note: e instanceof Error ? e.message : "error" };
   }
 }
+
+// ─── Mốc START live (một chỗ duy nhất tạo mốc) ──────────────────────────────
+// Gọi sau khi liveStart thành công, và từ POST /api/capital {action:"reset-live"}.
+export async function resetLiveBaseline(): Promise<{ ok: boolean; startWallet: number | null; note?: string }> {
+  const acc = await liveAccount();
+  if (!acc.ok || acc.walletBalance == null) {
+    return { ok: false, startWallet: null, note: acc.note ?? "không đọc được số dư khi đặt mốc START" };
+  }
+  const note = JSON.stringify({ u: acc.unrealizedPnl, src: "start" });
+  await db.dryRunState.upsert({
+    where: { id: "live" },
+    create: { id: "live", capital: acc.walletBalance, resetAt: new Date(), note },
+    update: { capital: acc.walletBalance, resetAt: new Date(), note },
+  });
+  return { ok: true, startWallet: acc.walletBalance };
+}

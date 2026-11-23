@@ -6,7 +6,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { buildStatsSnapshot } from "@/lib/stats";
-import { liveAccount, liveIncomeSince } from "@/lib/binance-live";
+import { liveAccount, liveIncomeSince, resetLiveBaseline } from "@/lib/binance-live";
 
 export const dynamic = "force-dynamic";
 
@@ -61,24 +61,15 @@ const parseMeta = (note: string): LiveMeta => {
   }
 };
 
-async function liveStats(reset: boolean): Promise<Body> {
+async function liveStats(): Promise<Body> {
   const acc = await liveAccount();
   if (!acc.ok || acc.walletBalance == null || acc.marginBalance == null) {
     return { mode: "live", equity: null, startEquity: null, pnlUsd: null, roiPct: null, winRate: null, closed: 0, books: NONE, note: acc.note ?? "không đọc được tài khoản Binance" };
   }
 
-  let base = await db.dryRunState.findUnique({ where: { id: "live" } });
-  // Không tự đặt mốc khi chỉ mở trang: chỉ START thật (reset) mới tạo mốc.
-  if (!reset && !base) {
+  const base = await db.dryRunState.findUnique({ where: { id: "live" } });
+  if (!base) {
     return { mode: "live", equity: r2(acc.marginBalance), startEquity: null, pnlUsd: null, roiPct: null, winRate: null, closed: 0, books: NONE, note: "Chưa START live — PnL tính từ lúc bấm START" };
-  }
-  if (reset || !base) {
-    const note = JSON.stringify({ u: acc.unrealizedPnl, src: reset ? "start" : "auto" });
-    base = await db.dryRunState.upsert({
-      where: { id: "live" },
-      create: { id: "live", capital: acc.walletBalance, resetAt: new Date(), note },
-      update: { capital: acc.walletBalance, resetAt: new Date(), note },
-    });
   }
   const meta = parseMeta(base.note);
   const inc = await liveIncomeSince(base.resetAt.getTime());
@@ -114,7 +105,7 @@ export async function GET(req: Request) {
   try {
     if (!live) return NextResponse.json(await dryStats());
     if (liveCache && Date.now() - liveCache.at < LIVE_TTL) return NextResponse.json(liveCache.body);
-    const body = await liveStats(false);
+    const body = await liveStats();
     liveCache = { at: Date.now(), body };
     return NextResponse.json(body);
   } catch (e) {
@@ -126,9 +117,10 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as { action?: string };
   if (body.action !== "reset-live") return NextResponse.json({ error: "unknown action" }, { status: 400 });
   try {
-    const s = await liveStats(true);
-    liveCache = { at: Date.now(), body: s };
-    return NextResponse.json({ ok: true, startEquity: s.startEquity, note: s.note ?? null });
+    const b = await resetLiveBaseline();
+    liveCache = null;
+    if (!b.ok) return NextResponse.json({ ok: false, note: b.note }, { status: 502 });
+    return NextResponse.json({ ok: true, startEquity: b.startWallet });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "error" }, { status: 500 });
   }

@@ -23,6 +23,7 @@ import {
   engineLiveStop,
 } from "@/lib/engine";
 import type { AutoConfig } from "@/lib/autotrade";
+import { resetLiveBaseline } from "@/lib/binance-live";
 import type { EngineSettings } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -93,6 +94,10 @@ export async function POST(req: NextRequest) {
       // đổi thêm, ai gọi được endpoint là chủ app.
       case "liveStart": {
         const r = await engineLiveStart();
+        if (r.ok) {
+          const b = await resetLiveBaseline().catch((e) => ({ ok: false, startWallet: null, note: e instanceof Error ? e.message : "error" }));
+          if (!b.ok) return NextResponse.json({ ...r, warn: `LIVE đã bật nhưng chưa lưu mốc START: ${b.note}` }, { status: 200 });
+        }
         return NextResponse.json(r, { status: r.ok ? 200 : 400 });
       }
       case "liveStop": {
