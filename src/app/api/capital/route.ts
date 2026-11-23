@@ -68,6 +68,10 @@ async function liveStats(reset: boolean): Promise<Body> {
   }
 
   let base = await db.dryRunState.findUnique({ where: { id: "live" } });
+  // Không tự đặt mốc khi chỉ mở trang: chỉ START thật (reset) mới tạo mốc.
+  if (!reset && !base) {
+    return { mode: "live", equity: r2(acc.marginBalance), startEquity: null, pnlUsd: null, roiPct: null, winRate: null, closed: 0, books: NONE, note: "Chưa START live — PnL tính từ lúc bấm START" };
+  }
   if (reset || !base) {
     const note = JSON.stringify({ u: acc.unrealizedPnl, src: reset ? "start" : "auto" });
     base = await db.dryRunState.upsert({
