@@ -233,7 +233,7 @@ export async function PATCH(req: NextRequest) {
   const adverse = row.side === "SHORT" ? -movePct : movePct;
   if (row.leverage > 1 && adverse <= -(100 / row.leverage)) remPnl = -100;
   else if (remPnl < -100) remPnl = -100;
-  // 0.3.3 — COMBINE CLOSE: lệnh đã qua TP1 partial → ROI tổng = share×p1 + (1−share)×rem
+  // 0.3.3 — COMBINE CLOSE: lệnh đã qua TP1 partial → total ROI = share×p1 + (1−share)×rem
   const pnlPct = combineClosePnl(row.p1Pct, row.p1Share, remPnl);
 
   const capitalBefore = row.capitalBefore ?? 1000;

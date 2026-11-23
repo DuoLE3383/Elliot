@@ -137,9 +137,7 @@ export const msgNear = (r: AutoTradeRow, price: number, kind: "tp" | "sl"): stri
   const awayPct = price > 0 ? Math.abs((target - price) / price) * 100 : 0;
   const roi = roiOf(r.side, r.entryPrice, price, r.leverage);
   return [
-    kind === "tp" ? "⚠️ <b>NEAR TAKE PROFIT — READY TO LOCK GAINS</b>" : "⚠️ <b>NEAR STOP LOSS — RISK WATCH</b>",
-    `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
-    HR,
+    ...buildTradeHeader("⚠", kind === "tp" ? "NEAR TAKE PROFIT — READY TO LOCK GAINS" : "NEAR STOP LOSS — RISK WATCH", r),
     `${kind === "tp" ? "🏁" : "🛑"} ${kind === "tp" ? "Take Profit" : "Stop Loss"} ${fmtPrice(target)} · <b>${awayPct.toFixed(2)}%</b> away`,
     `📊 SL ${r.slPct.toFixed(2)}% · TP ${r.tpPct.toFixed(2)}% · Lev ${levTxt(r.leverage)} · Score ${(r.score ?? 0).toFixed(2)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}%
 📈 Price ${fmtPrice(price)} · ROI <b>${roi >= 0 ? "+" : ""}${roi.toFixed(2)}%</b> · Lev ${levTxt(r.leverage)}`,
