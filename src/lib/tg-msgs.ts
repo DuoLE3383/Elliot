@@ -57,7 +57,10 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string): stri
   const x = r as any;
   const forced = x.methodId === "force";
   const noModel = (r.auc ?? 0) <= 0.5 && (r.acc ?? 0) <= 0;
-  const stake = (equity * (r.stakePct ?? 100)) / 100;
+  // MARGIN BASE: the stake was sized from the trade's own capitalBefore, so show that,
+  // not the caller's equity snapshot (which can differ from the balance used at entry).
+  const base = r.capitalBefore && r.capitalBefore > 0 ? r.capitalBefore : equity;
+  const stake = (base * (r.stakePct ?? 100)) / 100;
   const notional = stake * r.leverage;
   const rr = r.slPct > 0 ? r.tpPct / r.slPct : 0;
   const feeRt = feeRoi(r.leverage, 2);
