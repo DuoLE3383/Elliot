@@ -2025,6 +2025,9 @@ async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "c
   const c = p.cfg;
   if (c.dcaMax <= 0) return false;
   const dcaSt = dcaOf(open.id, open.stakePct ?? c.riskPct, open.entryPrice);
+  // DCA-BUSY GUARD: một lần DCA đang chạy (đang await DB) thì nhịp watcher/cycle khác bỏ qua,
+  // và bộ đếm được tăng TRƯỚC await để không ai đọc giá trị cũ.
+  if ((dcaSt as any).busy) return false;
   if (dcaSt.count >= c.dcaMax) return false;
   // RISK ENVELOPE (0.2.79) — tổng stake (đã cam + bù) không vượt trần: bù
   // averaging-down khi stake đã đầy là martingale, SL phải được làm việc.
@@ -2064,13 +2067,14 @@ async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "c
   const avgEntry =
     Math.round((all.reduce((a, x) => a + (x > 0 ? 1 / x : 0), 0) > 0 ? nAll / all.reduce((a, x) => a + (x > 0 ? 1 / x : 0), 0) : 0) * 1e8) / 1e8;
   const newStakePct = Math.round(((open.stakePct ?? c.riskPct) + stake0) * 100) / 100;
+  (dcaSt as any).busy = true;
+  dcaSt.count = count + 1; dcaSt.stake0 = stake0; dcaSt.prices = [...tranchePrices, price];
   try {
     const updated = await db.autoTrade.update({
       where: { id: open.id },
       data: { entryPrice: avgEntry, stakePct: newStakePct },
     });
     const trade = serialize(updated);
-    dcaSt.count = count + 1; dcaSt.stake0 = stake0; dcaSt.prices = [...tranchePrices, price];
     Object.assign(warnedOf(open.id), { tp: false, sl: false }); // new levels → fresh warns
     persistEngine();
     v.lastCycleStatus = `${open.symbol} ${open.interval} DCA #${count + 1}/${c.dcaMax} @ ${price}`;
@@ -2085,8 +2089,11 @@ async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "c
     );
     return true;
   } catch (e) {
+    dcaSt.count = count; // DB lỗi → hoàn tác, để lần sau thử lại đúng số
     console.error(`[engine] DCA failed: ${e instanceof Error ? e.message : e}`);
     return false;
+  } finally {
+    (dcaSt as any).busy = false;
   }
 }
 
