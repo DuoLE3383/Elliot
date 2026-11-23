@@ -38,6 +38,10 @@ export interface AuditTradeRow {
   capitalBefore: number | null;
   capitalAfter: number | null;
   createdAt: string | Date;
+  /** engine ghi lúc MỞ lệnh (0.3.55) — thiếu thì fallback createdAt */
+  entryTime?: string | Date | null;
+  /** engine ghi lúc ĐÓNG lệnh (0.3.55) — thiếu thì fallback createdAt */
+  exitTime?: string | Date | null;
 }
 
 export interface AuditRowIssue {
@@ -188,60 +192,98 @@ export interface RepairPlan {
 }
 
 /**
- * Lập kế hoạch sửa toàn sổ: ROI closed → công thức hiện hành, rồi chuỗi vốn
- * chạy lại theo createdAt tăng dần — capitalBefore kế thừa capitalAfter trước,
- * delta = capitalBefore × stake% × ROI% (đúng luật settlement), đáy 0.
- * Lệnh ĐANG MỞ giữ nguyên mọi thứ trừ capitalBefore (mốc vốn lúc mở = vốn
- * sau lệnh close liền trước) — và CHỈ khi sổ có ≤1 lệnh mở; ≥2 lệnh mở thì
- * bỏ qua hết (opensSkipped>0) vì mốc neo không xác định được cho từng lệnh.
- * Lệnh đầu chuỗi dùng capitalBefore đang lưu làm mốc neo (không đoán lại gốc).
+ * Lập kế hoạch sửa toàn sổ — 0.3.55 RE-ANCHOR theo bất biến CAPITAL-AT-OPEN.
+ *
+ * Bản ≤0.3.54 nối chuỗi TUẦN TỰ theo createdAt (cb kế thừa ca lệnh trước) —
+ * đúng cho sổ tuần tự thuần, nhưng SAI bản chất cho sổ chồng vị thế (nhiều
+ * lệnh chạy song song): cb của một lệnh là VỐN TẠI THỜI ĐIỂM MỞ (= base + Σ
+ * pnl đã chốt trước lúc mở), không phải ca của lệnh close liền trước trong
+ * thứ tự createdAt. Chạy repair cũ trên sổ chồng vị thế là dán sai cb cả hai
+ * chiều + ghi lại delta sai — equity vẫn tự hợp lệ (ΣΔ không mất) nhưng từng mốc
+ * vốn méo, audit báo "đứt" ồ ạt (46 dòng trên sổ B thật).
+ *
+ * Luật 0.3.55 (một nguồn với detector audit-capital-sync + engine ghi cb):
+ *   • settle = lệnh đóng đủ dữ liệu, sắp theo thời điểm ĐÓNG (exitTime);
+ *   • mốc neo = base ví (wallet-aware) > capitalBefore settle sớm nhất > 1000;
+ *   • quét theo thời điểm MỞ tăng dần: cb = anchor + Σ delta các settle đã
+ *     chốt với exitTime ≤ entryTime +2s (cửa sổ cùng tick đóng→mở);
+ *   • delta = cb × stake% × ROI% (ROI chuẩn hiện hành), ca = cb + delta, đáy 0;
+ *   • lệnh MỞ: chỉ dán cb khi sổ có ≤1 lệnh mở — ≥2 lệnh mở thì bỏ qua hết
+ *     (guard V3, opensSkipped>0) để không méo margin/stake% đang chạy.
+ * Chạy hai lần liền cho ra cùng kết quả (idempotent) — lần hai 0 cập nhật.
  */
-export function repairBook(trades: AuditTradeRow[]): RepairPlan {
+export function repairBook(trades: AuditTradeRow[], base?: number): RepairPlan {
   const openCount = trades.filter((t) => t.status !== "closed").length;
-  const chron = [...trades].sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-  );
+  const isSettle = (t: AuditTradeRow): boolean =>
+    t.status === "closed" && t.exitPrice != null && t.entryPrice > 0;
+  const tEn = (t: AuditTradeRow): number => +(new Date(t.entryTime ?? t.createdAt));
+  const tEx = (t: AuditTradeRow): number => +(new Date(t.exitTime ?? t.createdAt));
+  const storedDelta = (t: AuditTradeRow): number | null =>
+    t.capitalAfter != null && t.capitalBefore != null ? round2(t.capitalAfter - t.capitalBefore) : null;
+
+  // settle: mọi lệnh đóng đủ dữ liệu, sắp theo thời điểm ĐÓNG — trật tự tiền
+  // thật vào ví, KHÔNG phải createdAt (lệnh mở trước có thể đóng sau).
+  const settle = trades.filter(isSettle).sort((a, b) => tEx(a) - tEx(b));
+  // mốc neo: base ví (wallet-aware) > capitalBefore của settle sớm nhất > 1000
+  const anchor =
+    base != null && base > 0
+      ? base
+      : settle.length > 0
+        ? settle[0].capitalBefore ?? 1000
+        : 1000;
+
+  // ROI chuẩn hiện hành của từng settle — cũng là ROI sẽ được ghi nếu lệch
+  const pnlOf = new Map<string, number>();
+  for (const s of settle) pnlOf.set(s.id, expectedPnlPctOf(s) ?? s.pnlPct ?? 0);
+
+  const deltaAt = new Map<string, number>(); // delta chuẩn của settle đã quét
   const updates = new Map<string, RepairUpdate>();
-  let capital: number | null = null; // mốc neo — null = chưa gặp lệnh close nào
+  let sweep = 0;
+  let banked = 0;
   let pnlFixed = 0;
   let capitalRefixed = 0;
   let finalCapital: number | null = null;
 
+  const chron = [...trades].sort((a, b) => tEn(a) - tEn(b));
   for (const t of chron) {
+    // nạp mọi settle đã CHỐT trước lúc MỞ lệnh này (+2s cho đóng/mở cùng tick)
+    while (sweep < settle.length && tEx(settle[sweep]) <= tEn(t) + 2_000) {
+      const s = settle[sweep];
+      if (s.id === t.id) break; // lệnh không tự chốt vào vốn lúc MỞ chính nó
+      banked += deltaAt.get(s.id) ?? storedDelta(s) ?? 0;
+      sweep += 1;
+    }
     const u: RepairUpdate = { id: t.id };
-    if (t.status === "closed" && t.exitPrice != null && t.entryPrice > 0) {
-      const expected = expectedPnlPctOf(t);
-      if (expected != null && Math.abs((t.pnlPct ?? 0) - expected) > 0.005) {
-        u.pnlPct = expected;
-        pnlFixed += 1;
-      }
-      const before = capital ?? t.capitalBefore ?? 1000;
-      if (t.capitalBefore == null || Math.abs((t.capitalBefore ?? 0) - before) > 0.005) {
-        u.capitalBefore = round2(before);
+    if (isSettle(t)) {
+      const cb = round2(anchor + banked);
+      if (t.capitalBefore == null || Math.abs((t.capitalBefore ?? 0) - cb) > 0.005) {
+        u.capitalBefore = cb;
         capitalRefixed += 1;
       }
-      const stake = t.stakePct ?? 100;
-      const pnl = u.pnlPct ?? t.pnlPct ?? 0;
-      const delta = round2(before * (stake / 100) * (pnl / 100));
-      const after = Math.max(0, round2(before + delta));
-      if (t.capitalAfter == null || Math.abs((t.capitalAfter ?? 0) - after) > 0.005) {
-        u.capitalAfter = after;
+      const pnl = pnlOf.get(t.id) ?? t.pnlPct ?? 0;
+      if (Math.abs((t.pnlPct ?? 0) - pnl) > 0.005) {
+        u.pnlPct = pnl;
+        pnlFixed += 1;
       }
-      capital = after;
-      finalCapital = after;
+      const stake = t.stakePct ?? 100;
+      const delta = round2(cb * (stake / 100) * (pnl / 100));
+      deltaAt.set(t.id, delta);
+      const ca = Math.max(0, round2(cb + delta));
+      if (t.capitalAfter == null || Math.abs((t.capitalAfter ?? 0) - ca) > 0.005) {
+        u.capitalAfter = ca;
+      }
+      finalCapital = ca;
     } else {
-      // lệnh mở (hoặc closed thiếu exitPrice — bỏ ROI, chỉ giữ chuỗi vốn).
-      // Guard V3: chỉ SKIP lệnh status=open khi ≥2 lệnh mở (mốc neo không xác
-      // định cho từng lệnh khi nhiều lệnh kẹp giữa hai lần close) — giữ nguyên
-      // mốc đang chạy để margin/stake% không bị méo giữa phiên. Lệnh closed
-      // thiếu exitPrice vẫn được dán lại mốc (nó là mắt xích chuỗi vốn).
+      // lệnh MỞ (hoặc closed thiếu exitPrice — mắt xích chuỗi, không delta riêng).
+      // Guard V3: ≥2 lệnh mở → bỏ qua hết (opensSkipped>0): mốc neo tại một thời
+      // điểm không xác định được cho từng lệnh khi nhiều lệnh kẹp giữa hai lần
+      // close — giữ nguyên mốc đang chạy để margin/stake% không bị méo. Lệnh
+      // closed thiếu exitPrice vẫn được dán lại (nó là mắt xích chuỗi vốn).
       const isOpen = t.status !== "closed";
-      if (
-        (!isOpen || openCount <= 1) &&
-        capital != null &&
-        (t.capitalBefore == null || Math.abs((t.capitalBefore ?? 0) - capital) > 0.005)
-      ) {
-        u.capitalBefore = round2(capital);
+      if (isOpen && openCount > 1) continue;
+      const cb = round2(anchor + banked);
+      if (t.capitalBefore == null || Math.abs((t.capitalBefore ?? 0) - cb) > 0.005) {
+        u.capitalBefore = cb;
         capitalRefixed += 1;
       }
     }

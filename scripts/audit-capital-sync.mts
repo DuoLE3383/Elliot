@@ -1,9 +1,9 @@
 // ─── audit-capital-sync — soi chuỗi vốn + sync Telegram↔panel ở tầng DỮ LIỆU ─
 // Chạy trên máy có custom.db (VPS hoặc local):
 //
-//     node scripts/audit-capital-sync.ts          (hoặc: bun run scripts/audit-capital-sync.ts)
+//     node scripts/audit-capital-sync.mts         (hoặc: bun run scripts/audit-capital-sync.mts)
 //     npm run audit:capital
-//     node scripts/audit-capital-sync.ts --selftest   (tự kiểm detector — không cần DB)
+//     node scripts/audit-capital-sync.mts --selftest   (tự kiểm detector — không cần DB)
 //
 // Chỉ ĐỌC — không ghi gì vào DB. Kiểm tra đúng các công thức mà engine
 // (closeTradeDirect), autostate (readAutoState) và stats.ts (ledger) đang dùng,
@@ -19,6 +19,14 @@
 //   (2) ca = cb + cb×stake%×pnl% đúng công thức closeTradeDirect từng lệnh
 //   (3) lệnh mở khớp vốn-lúc-mở (không so với equity hiện tại)
 //   (4) BcastVerdict + ví DryRunState (base wallet-aware từ 0.2.86 + fix ledger)
+//
+// 0.3.55 — PHÂN LOẠI 3 LỚP khi cb lệch vốn-lúc-mở:
+//   ✅ khớp capital-at-open (sạch)
+//   🩹 khớp mô hình repair cũ ≤0.3.54 (nối TUẦN TỰ theo createdAt — cb kế thừa
+//      ca trước): dấu tích repairBook cũ chạm vào sổ chồng vị thế. Equity vẫn
+//      tự hợp lệ (ΣΔ không mất) — chỉ là từng mốc vốn bị dán theo chuỗi tuần
+//      tự. Chạy một lần Repair (bản 0.3.55) là về đúng mốc.
+//   🔴 không khớp mô hình nào → ĐỨT THẬT (mất pnl / sửa tay sai số).
 
 import { PrismaClient } from "@prisma/client";
 
@@ -29,6 +37,7 @@ type Row = {
   id: string; symbol: string; side: string; status: string;
   entryPrice: number; exitPrice: number | null;
   entryTime: Date; exitTime: Date | null;
+  createdAt?: Date;
   pnlPct: number | null; roePct?: number | null;
   capitalBefore: number | null; capitalAfter: number | null;
   stakePct?: number | null; exitKind?: string | null;
@@ -44,8 +53,10 @@ export type ChainReport = {
   missing: number;
   overlapRows: number;
   realBreaks: string[];
+  /** dấu tích repairBook ≤0.3.54 (nối tuần tự) — không phải đứt, repair 0.3.55 tự về đúng */
+  reanchored: string[];
   integrityBad: string[];
-  openRows: Array<{ symbol: string; side: string; stakePct: number | null; cb: number | null; expect: number; banked: number; ok: boolean }>;
+  openRows: Array<{ symbol: string; side: string; stakePct: number | null; cb: number | null; expect: number; banked: number; ok: boolean; seqOk?: boolean }>;
   lastCa: number | null;
   lastCaIsEquity: boolean;
 };
@@ -59,6 +70,36 @@ function capAtEntry(
 ): number {
   const t = +entry + slackMs;
   return r2(base + closed.reduce((s, c) => s + (c.delta != null && +(c.exitTime ?? c.entryTime) <= t ? c.delta : 0), 0));
+}
+
+// ── 0.3.55 — mô phỏng repairBook cũ (≤0.3.54): nối TUẦN TỰ theo createdAt ────
+// cb kế thừa ca của settlement liền trước trong thứ tự createdAt (settlement
+// đầu giữ cb đang lưu làm mốc), delta = cb×stake%×pnl% (ROI đã lưu — repair
+// cũ cũng chuẩn ROI trước rồi mới tính delta), đáy 0; lệnh MỞ chỉ được dán cb
+// khi sổ có ≤1 lệnh mở (guard V3 của chính bản cũ) và không đẩy cap tiến.
+// Map id → cb mà bản cũ WOULD ghi — dùng để nhận diện dấu tích của nó.
+function seqCbMap(rows: Row[], openCount: number): Map<string, number> {
+  const byCreated = [...rows].sort((a, b) =>
+    +(a.createdAt ?? a.entryTime) - +(b.createdAt ?? b.entryTime),
+  );
+  const map = new Map<string, number>();
+  let cap: number | null = null;
+  for (const t of byCreated) {
+    const settled = (t.status === "closed" || t.exitPrice != null) && t.entryPrice > 0 && t.exitPrice != null;
+    if (settled) {
+      const cb = r2(cap ?? t.capitalBefore ?? 1000);
+      map.set(t.id, cb);
+      const stake = t.stakePct ?? 100;
+      const pnl = t.pnlPct ?? 0;
+      const delta = r2(cb * (stake / 100) * (pnl / 100));
+      cap = Math.max(0, r2(cb + delta));
+    } else if (t.status !== "closed" && openCount > 1) {
+      continue; // bản cũ: ≥2 lệnh mở → bỏ qua lệnh mở (guard V3)
+    } else if (cap != null) {
+      map.set(t.id, r2(cap)); // lệnh mở (≤1 mở) / closed thiếu exitPrice — dán mốc running
+    }
+  }
+  return map;
 }
 
 export function analyzeChain(rows: Row[], base: number): ChainReport {
@@ -85,6 +126,7 @@ export function analyzeChain(rows: Row[], base: number): ChainReport {
     missing,
     overlapRows: 0,
     realBreaks: [],
+    reanchored: [],
     integrityBad: [],
     openRows: [],
     lastCa: closed.length > 0 ? closed[closed.length - 1].capitalAfter ?? null : null,
@@ -92,8 +134,11 @@ export function analyzeChain(rows: Row[], base: number): ChainReport {
   };
 
   const closedLite = closed.map((r) => ({ exitTime: r.exitTime, entryTime: r.entryTime, delta: deltas.get(r.id) ?? null }));
+  const seqCb = seqCbMap(rows, open.length);
 
-  // (1) cb mỗi lệnh (đã đóng + đang mở) ≈ vốn tại lúc MỞ lệnh
+  // (1) cb mỗi lệnh (đã đóng + đang mở) ≈ vốn tại lúc MỞ lệnh — lệch thì phân
+  // loại 3 lớp: khớp mô hình repair cũ (≤0.3.54) → 🩹 reanchored; không khớp
+  // mô hình nào → 🔴 đứt thật.
   for (const r of [...closed, ...open]) {
     if (r.capitalBefore == null) continue;
     const isClosed = r.status === "closed" || r.exitPrice != null;
@@ -104,8 +149,17 @@ export function analyzeChain(rows: Row[], base: number): ChainReport {
       const alt = capAtEntry(closedLite, r.entryTime, base, 2_000); // đóng/mở cùng tick
       if (Math.abs(r.capitalBefore - alt) <= 0.01) { ok = true; expect = alt; }
     }
-    if (!ok) rep.realBreaks.push(`${r.symbol} ${r.side} [${isClosed ? "closed" : "open"}] entry=${r.entryTime.toISOString().slice(0, 16)} cb=${r.capitalBefore} ≠ vốn-lúc-mở ${expect}`);
-    if (!isClosed) rep.openRows.push({ symbol: r.symbol, side: r.side, stakePct: r.stakePct ?? null, cb: r.capitalBefore, expect, banked: r2(equity - r.capitalBefore), ok });
+    let seqOk = false;
+    if (!ok) {
+      const seq = seqCb.get(r.id);
+      if (seq != null && Math.abs(r.capitalBefore - seq) <= 0.011) {
+        seqOk = true;
+        rep.reanchored.push(`${r.symbol} ${r.side} [${isClosed ? "closed" : "open"}] entry=${r.entryTime.toISOString().slice(0, 16)} cb=${r.capitalBefore} = mốc-repair-cũ ${seq} (vốn-lúc-mở đúng phải là ${expect})`);
+      } else {
+        rep.realBreaks.push(`${r.symbol} ${r.side} [${isClosed ? "closed" : "open"}] entry=${r.entryTime.toISOString().slice(0, 16)} cb=${r.capitalBefore} ≠ vốn-lúc-mở ${expect}`);
+      }
+    }
+    if (!isClosed) rep.openRows.push({ symbol: r.symbol, side: r.side, stakePct: r.stakePct ?? null, cb: r.capitalBefore, expect, banked: r2(equity - r.capitalBefore), ok, seqOk });
   }
 
   // (2) toàn vẹn từng lệnh đã đóng: ca = cb + cb×stake%×pnl% (đúng công thức closeTradeDirect:523)
@@ -119,8 +173,8 @@ export function analyzeChain(rows: Row[], base: number): ChainReport {
     }
   }
 
-  // ca cuối chỉ = equity khi sổ tuần tự thuần (không chồng, không thiếu, không đứt)
-  rep.lastCaIsEquity = closed.length > 0 && rep.overlapRows === 0 && rep.realBreaks.length === 0 && missing === 0;
+  // ca cuối chỉ = equity khi sổ tuần tự thuần (không chồng, không thiếu, không đứt, không dấu tích repair cũ)
+  rep.lastCaIsEquity = closed.length > 0 && rep.overlapRows === 0 && rep.realBreaks.length === 0 && rep.reanchored.length === 0 && missing === 0;
   return rep;
 }
 
@@ -137,10 +191,17 @@ function chainCheck(book: string, rows: Row[], base: number): void {
   console.log(rep.realBreaks.length === 0 ? "  ✅ chuỗi vốn theo capital-lúc-mở: liền mạch" : `  🔴 ${rep.realBreaks.length} lệnh cb lệch vốn-lúc-mở (đứt thật):`);
   for (const b of rep.realBreaks.slice(0, 12)) console.log(`     • ${b}`);
   if (rep.realBreaks.length > 12) console.log(`     … +${rep.realBreaks.length - 12} nữa`);
+  if (rep.reanchored.length > 0) {
+    console.log(`  🩹 ${rep.reanchored.length} lệnh mang dấu tích repair cũ (≤0.3.54 nối tuần tự theo createdAt — cb kế thừa ca trước):`);
+    for (const b of rep.reanchored.slice(0, 12)) console.log(`     • ${b}`);
+    if (rep.reanchored.length > 12) console.log(`     … +${rep.reanchored.length - 12} nữa`);
+    console.log("     ℹ️ equity vẫn hợp lệ (ΣΔ không mất tiền) — panel chạy một lần Repair (bản 0.3.55) là mọi mốc về đúng vốn-lúc-mở.");
+  }
   console.log(rep.integrityBad.length === 0 ? "  ✅ công thức từng lệnh (ca = cb + cb×stake%×pnl%): đúng toàn bộ" : `  🔴 ${rep.integrityBad.length} lệnh ca ≠ cb+stake%×pnl% (sai số gốc):`);
   for (const b of rep.integrityBad.slice(0, 8)) console.log(`     • ${b}`);
   for (const o of rep.openRows) {
-    console.log(`  ${o.ok ? "✅" : "🔴"} open ${o.symbol} ${o.side} cb=${o.cb ?? "?"} stake=${o.stakePct ?? "?"}%${o.ok ? ` = vốn lúc mở ${o.expect} (sau đó sổ đã chốt thêm ${o.banked >= 0 ? "+" : ""}${o.banked} → equity ${rep.equity})` : ` ≠ vốn lúc mở ${o.expect}`}`);
+    const mark = o.ok ? "✅" : o.seqOk ? "🩹" : "🔴";
+    console.log(`  ${mark} open ${o.symbol} ${o.side} cb=${o.cb ?? "?"} stake=${o.stakePct ?? "?"}%${o.ok ? ` = vốn lúc mở ${o.expect} (sau đó sổ đã chốt thêm ${o.banked >= 0 ? "+" : ""}${o.banked} → equity ${rep.equity})` : o.seqOk ? ` = mốc repair cũ (đúng phải ${o.expect})` : ` ≠ vốn lúc mở ${o.expect}`}`);
   }
 }
 
@@ -279,6 +340,32 @@ function runSelftest(): void {
   s6.push(mk("o", "OOPUSDT", "LONG", 4, 8, 1010, 1004.95, -5));
   const r6 = analyzeChain(s6, 1000);
   check("S6 cùng tick (+1s) — 0 đứt", r6.realBreaks.length === 0, JSON.stringify(r6.realBreaks));
+
+  // S7 — dấu tích repair cũ (≤0.3.54) trên sổ chồng vị thế: repair cũ nối
+  // TUẦN TỰ theo createdAt nên dán cb(b)=ca(a)=1010 (vốn-lúc-mở thật 1000 —
+  // b mở lúc T1, a chưa chốt) và cb(c)=ca(b)=1020.1 (thật 1010 — chỉ a chốt
+  // trước lúc T5). Detector phải xếp b, c vào 🩹 reanchored, KHÔNG 🔴 đứt.
+  const s7 = [
+    mk("a", "AAAUSDT", "LONG", 0, 4, 1000, 1010, 10),
+    mk("b", "BBBUSDT", "LONG", 1, 6, 1010, 1020.1, 5, 20),
+    mk("c", "CCCUSDT", "SHORT", 5, 8, 1020.1, 1015, -5),
+  ];
+  const r7 = analyzeChain(s7, 1000);
+  check("S7 dấu tích repair cũ — 0 đứt thật", r7.realBreaks.length === 0, JSON.stringify(r7.realBreaks));
+  check("S7 — 2 lệnh reanchored (b, c)", r7.reanchored.length === 2, JSON.stringify(r7.reanchored));
+  check("S7 — công thức từng lệnh vẫn đúng (repair cũ giữ ca=cb+Δ)", r7.integrityBad.length === 0, JSON.stringify(r7.integrityBad));
+  check("S7 — equity = base+ΣΔ = 1015 (không mất tiền)", r7.equity === 1015, `got ${r7.equity}`);
+
+  // S8 — sổ lẫn cả hai loại: b mang dấu tích repair cũ (🩹), c lệch CẢ hai mô
+  // hình (không phải vốn-lúc-mở, cũng không phải chuỗi tuần tự) → 🔴 đứt thật.
+  const s8 = [
+    mk("a", "AAAUSDT", "LONG", 0, 4, 1000, 1010, 10),
+    mk("b", "BBBUSDT", "LONG", 1, 6, 1010, 1020.1, 5, 20),
+    mk("c", "CCCUSDT", "SHORT", 7, 9, 1100, 1094.5, -5),
+  ];
+  const r8 = analyzeChain(s8, 1000);
+  check("S8 hỗn hợp — 1 đứt thật (c)", r8.realBreaks.length === 1, JSON.stringify(r8.realBreaks));
+  check("S8 hỗn hợp — 1 lệnh reanchored (b)", r8.reanchored.length === 1, JSON.stringify(r8.reanchored));
 
   console.log(fails === 0 ? `\n${line}\nSELFTEST: tất cả PASS` : `\n${line}\nSELFTEST: ${fails} FAIL`);
   if (fails > 0) process.exitCode = 1;

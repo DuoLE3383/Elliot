@@ -15,7 +15,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
-    "audit:capital": "node scripts/audit-capital-sync.ts",
+    "audit:capital": "node scripts/audit-capital-sync.mts",
     "prepush": "npm version patch --no-git-tag-version && git add package.json && git commit -m \"chore: bump version\" --no-verify"
   },
   "engines": {

@@ -162,7 +162,9 @@ export async function PATCH(req: NextRequest) {
     const rows = await db.autoTrade.findMany({ orderBy: { createdAt: "asc" } });
     const report = auditBook(rows);
     if (body.repair === true) {
-      const plan = repairBook(rows);
+      // 0.3.55 — repair re-anchor theo vốn-lúc-mở, mốc neo = base ví thật
+      const wallet = await readWallet();
+      const plan = repairBook(rows as any, wallet.capital != null && wallet.capital > 0 ? wallet.capital : undefined);
       for (const u of plan.updates) {
         await db.autoTrade.update({
           where: { id: u.id },

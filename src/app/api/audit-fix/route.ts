@@ -4,6 +4,7 @@ import { engineSnapshot } from "@/lib/engine";
 import { binanceHosts } from "@/lib/klines-direct";
 import { replayExit, type ReplayKline } from "@/lib/audit-replay";
 import { repairBook } from "@/lib/audit-book";
+import { readWallet } from "@/lib/autostate";
 
 async function fetchRange(symbol: string, interval: string, startMs: number, endMs: number): Promise<ReplayKline[]> {
   const out: ReplayKline[] = [];
@@ -78,14 +79,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    let repair: { pnlFixed: number; capitalRefixed: number; finalCapital: number | null } | null = null;
+    let repair: { pnlFixed: number; capitalRefixed: number; finalCapital: number | null; opensSkipped: number } | null = null;
     if (apply && diffs.length > 0) {
       const fresh = await db.autoTrade.findMany({ orderBy: { createdAt: "asc" } });
-      const plan = repairBook(fresh as any);
+      // 0.3.55 — repair re-anchor theo vốn-lúc-mở, mốc neo = base ví thật
+      const wallet = await readWallet();
+      const plan = repairBook(fresh as any, wallet.capital != null && wallet.capital > 0 ? wallet.capital : undefined);
       for (const u of plan.updates) {
         await db.autoTrade.update({ where: { id: u.id }, data: { ...(u.pnlPct !== undefined ? { pnlPct: u.pnlPct } : {}), ...(u.capitalBefore !== undefined ? { capitalBefore: u.capitalBefore } : {}), ...(u.capitalAfter !== undefined ? { capitalAfter: u.capitalAfter } : {}) } });
       }
-      repair = { pnlFixed: plan.pnlFixed, capitalRefixed: plan.capitalRefixed, finalCapital: plan.finalCapital };
+      repair = { pnlFixed: plan.pnlFixed, capitalRefixed: plan.capitalRefixed, finalCapital: plan.finalCapital, opensSkipped: plan.opensSkipped };
     }
 
     return NextResponse.json({ ok: true, applied: apply, total: rows.length, skipped, diffs: diffs.length, samples: diffs.slice(0, 20), repair });

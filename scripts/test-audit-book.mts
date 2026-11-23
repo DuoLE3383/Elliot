@@ -50,36 +50,70 @@ check("[0.2.88] LONG thua 20% giá ×5 (100→80) → −100 (đúng ranh giới
 // Sổ mô phỏng lịch sử thật: LONG mới sau 0.2.77 (đúng), SHORT cũ gross (sai —
 // thiếu phí), 1 lệnh SHORT thanh lý chưa ép −100 (sai), 1 lệnh mở.
 const rows: AuditTradeRow[] = [
-  { id: "l1", side: "LONG", status: "closed", entryPrice: 100, exitPrice: 103, leverage: 10, stakePct: 100, exitKind: "tp", pnlPct: 29, capitalBefore: 1000, capitalAfter: 1290, createdAt: "2026-01-01T00:00:00Z" },
-  { id: "s1", side: "SHORT", status: "closed", entryPrice: 100, exitPrice: 97, leverage: 10, stakePct: 100, exitKind: "tp", pnlPct: 30, capitalBefore: 1290, capitalAfter: 1590, createdAt: "2026-01-02T00:00:00Z" }, // gross cũ — thiếu phí
-  { id: "s2", side: "SHORT", status: "closed", entryPrice: 100, exitPrice: 111, leverage: 10, stakePct: 100, exitKind: "sl", pnlPct: -110, capitalBefore: 1590, capitalAfter: 0, createdAt: "2026-01-03T00:00:00Z" }, // thanh lý không ép −100
-  { id: "o1", side: "LONG", status: "open", entryPrice: 100, exitPrice: null, leverage: 10, stakePct: 100, exitKind: null, pnlPct: null, capitalBefore: 999, capitalAfter: null, createdAt: "2026-01-04T00:00:00Z" }, // mốc vốn cũ — phải được dán lại
+  { id: "l1", side: "LONG", status: "closed", entryPrice: 100, exitPrice: 103, leverage: 10, stakePct: 100, exitKind: "tp", pnlPct: 29, capitalBefore: 1000, capitalAfter: 1290, createdAt: "2026-01-01T00:00:00Z", entryTime: "2026-01-01T00:00:00Z", exitTime: "2026-01-01T04:00:00Z" },
+  { id: "s1", side: "SHORT", status: "closed", entryPrice: 100, exitPrice: 97, leverage: 10, stakePct: 100, exitKind: "tp", pnlPct: 30, capitalBefore: 1290, capitalAfter: 1590, createdAt: "2026-01-02T00:00:00Z", entryTime: "2026-01-02T00:00:00Z", exitTime: "2026-01-02T04:00:00Z" }, // gross cũ — thiếu phí
+  { id: "s2", side: "SHORT", status: "closed", entryPrice: 100, exitPrice: 111, leverage: 10, stakePct: 10, exitKind: "sl", pnlPct: -110, capitalBefore: 1590, capitalAfter: 0, createdAt: "2026-01-03T00:00:00Z", entryTime: "2026-01-03T00:00:00Z", exitTime: "2026-01-03T04:00:00Z" }, // thanh lý không ép −100
+  { id: "o1", side: "LONG", status: "open", entryPrice: 100, exitPrice: null, leverage: 10, stakePct: 100, exitKind: null, pnlPct: null, capitalBefore: 999, capitalAfter: null, createdAt: "2026-01-04T00:00:00Z", entryTime: "2026-01-04T00:00:00Z" }, // mốc vốn cũ — phải được dán lại
 ];
 const rep = auditBook(rows);
 check("audit: 2 dòng lệch / 3 lệnh closed", rep.issues.length === 2 && rep.closed === 3, JSON.stringify(rep.issues));
 check("audit: 1 lệnh sạch (l1)", rep.ok === 1);
 check("audit: cả 2 lệch thuộc SHORT", rep.issues.every((x) => x.side === "SHORT"));
 check("audit: net trước −51 (29+30−110)", rep.netBefore === -51, `got ${rep.netBefore}`);
-check("audit: net sau +27 (29+29−100)", rep.netAfter === -42, `got ${rep.netAfter}`);
+check("audit: net sau −42 (29+29−100)", rep.netAfter === -42, `got ${rep.netAfter}`);
 check("audit: trước chuẩn hoá SHORT WR 100% (sổ sai)", rep.sides.before.find((s) => s.side === "SHORT")?.winRate === 50);
 check("audit: sau chuẩn hoá SHORT WR 50%", rep.sides.after.find((s) => s.side === "SHORT")?.winRate === 50);
 check("audit: SHORT mismatched = 2", rep.sides.after.find((s) => s.side === "SHORT")?.mismatched === 2);
 check("audit: LONG mismatched = 0", rep.sides.after.find((s) => s.side === "LONG")?.mismatched === 0);
 
-// ─── 3 · repairBook — ROI đúng + chuỗi vốn chạy lại ───────────────────────────
+// ─── 3 · repairBook 0.3.55 — re-anchor chuỗi vốn theo VỐN-LÚC-MỞ ─────────────
+// Sổ tuần tự: mỗi lệnh mở sau khi lệnh trước chốt → cb = anchor + Σ delta đã
+// chốt trước lúc mở. s2 stake 10% thanh lý −100% → Δ = 1664.1×0.1×(−1) =
+// −166.41 → ca 1497.69 (không phải 0 như stake 100%); o1 mở sau đó → cb 1497.69.
 const plan = repairBook(rows);
 const byId = Object.fromEntries(plan.updates.map((u) => [u.id, u]));
 check("repair: s1 ROI 30 → 29", byId.s1?.pnlPct === 29);
 check("repair: s2 ROI −110 → −100 (thanh lý)", byId.s2?.pnlPct === -100);
 check("repair: pnlFixed = 2", plan.pnlFixed === 2);
-// chuỗi vốn: l1 1000→1290 (giữ nguyên), s1 1290→1580.1 (1290+29%), s2 1580.1→0
+// chuỗi vốn: l1 1000→1290 (giữ nguyên), s1 mở sau l1 chốt: cb 1290 → ca 1664.1 (1290+29%),
+// s2 mở sau s1 chốt: cb 1664.1, stake 10% thanh lý −100% → Δ −166.41 → ca 1497.69
 check("repair: s1 capitalAfter 1664.1 (1290 + 29% × 1290)", byId.s1?.capitalAfter === 1664.1, `got ${byId.s1?.capitalAfter}`);
 check("repair: s2 capitalBefore dán lại 1664.1", byId.s2?.capitalBefore === 1664.1, `got ${byId.s2?.capitalBefore}`);
-check("repair: lệnh mở o1 dán lại capitalBefore = vốn sau close cuối (0)", byId.o1?.capitalBefore === 0, `got ${byId.o1?.capitalBefore}`);
-check("repair: vốn cuối = 0", plan.finalCapital === 0);
+check("repair: s2 capitalAfter 1497.69 (stake 10% × −100%)", byId.s2?.capitalAfter === 1497.69, `got ${byId.s2?.capitalAfter}`);
+check("repair: lệnh mở o1 dán lại capitalBefore = vốn lúc mở 1497.69", byId.o1?.capitalBefore === 1497.69, `got ${byId.o1?.capitalBefore}`);
+check("repair: vốn cuối = 1497.69", plan.finalCapital === 1497.69, `got ${plan.finalCapital}`);
 check("repair: ≤1 lệnh mở → opensSkipped = 0", plan.opensSkipped === 0, `got ${plan.opensSkipped}`);
 
-// ─── 3b · Guard V3 — ≥2 lệnh mở: lệnh MỞ không được dán lại mốc ──────────────
+// ─── 3b · IDEMPOTENT — chạy repair hai lần: lần hai phải 0 cập nhật ──────────
+const repaired = rows.map((r) => {
+  const u = byId[r.id];
+  return u ? { ...r, pnlPct: u.pnlPct ?? r.pnlPct, capitalBefore: u.capitalBefore ?? r.capitalBefore, capitalAfter: u.capitalAfter ?? r.capitalAfter } : r;
+});
+const plan2 = repairBook(repaired);
+check("idempotent: lần 2 — 0 cập nhật", plan2.updates.length === 0, JSON.stringify(plan2.updates));
+check("idempotent: lần 2 — 0 ROI sửa, 0 mốc dán lại", plan2.pnlFixed === 0 && plan2.capitalRefixed === 0);
+check("idempotent: lần 2 — vốn cuối giữ 1497.69", plan2.finalCapital === 1497.69, `got ${plan2.finalCapital}`);
+check("idempotent: lần 2 — opensSkipped = 0", plan2.opensSkipped === 0, `got ${plan2.opensSkipped}`);
+
+// ─── 3c · SỔ CHỒNG VỊ THẾ ĐÚNG LUẬT — repair 0.3.55 phải KHÔNG đụng tới ─────
+// ob mở lúc T1 khi oa chưa chốt (exit T4) → cb thật 1000, KHÔNG phải ca(oa)=1010
+// như repair cũ dán; oc mở T5 (chỉ oa chốt) → cb 1010; od mở T7 (oa+ob chốt,
+// oc exit T8 chưa kịp) → cb 1020, Δ = −10.2 → ca 1009.8. Bản cũ nối tuần tự
+// sẽ dán sai ob (1010) và od (1004.95).
+const Th = (h: number): string => `2026-02-01T0${h}:00:00Z`;
+const overlap: AuditTradeRow[] = [
+  { id: "oa", side: "LONG", status: "closed", entryPrice: 100, exitPrice: 101.1, leverage: 10, stakePct: 10, exitKind: "tp", pnlPct: 10, capitalBefore: 1000, capitalAfter: 1010, createdAt: Th(0), entryTime: Th(0), exitTime: Th(4) },
+  { id: "ob", side: "LONG", status: "closed", entryPrice: 100, exitPrice: 100.6, leverage: 10, stakePct: 20, exitKind: "tp", pnlPct: 5, capitalBefore: 1000, capitalAfter: 1010, createdAt: Th(1), entryTime: Th(1), exitTime: Th(6) },
+  { id: "oc", side: "SHORT", status: "closed", entryPrice: 100, exitPrice: 100.4, leverage: 10, stakePct: 10, exitKind: "sl", pnlPct: -5, capitalBefore: 1010, capitalAfter: 1004.95, createdAt: Th(5), entryTime: Th(5), exitTime: Th(8) },
+  { id: "od", side: "LONG", status: "closed", entryPrice: 100, exitPrice: 99.6, leverage: 10, stakePct: 20, exitKind: "sl", pnlPct: -5, capitalBefore: 1020, capitalAfter: 1009.8, createdAt: Th(7), entryTime: Th(7), exitTime: Th(9) },
+];
+const planOv = repairBook(overlap);
+check("overlap đúng luật: 0 cập nhật (bản cũ dán sai ob + od)", planOv.updates.length === 0, JSON.stringify(planOv.updates));
+check("overlap đúng luật: ROI giữ nguyên (giá ↔ ROI khớp công thức)", planOv.pnlFixed === 0);
+check("overlap đúng luật: vốn cuối = ca(od) = 1009.8", planOv.finalCapital === 1009.8, `got ${planOv.finalCapital}`);
+check("overlap đúng luật: opensSkipped = 0 (không có lệnh mở)", planOv.opensSkipped === 0, `got ${planOv.opensSkipped}`);
+
+// ─── 3d · Guard V3 — ≥2 lệnh mở: lệnh MỞ không được dán lại mốc ──────────────
 // Hai lệnh mở kẹp giữa hai lần close: mốc neo không xác định cho từng lệnh →
 // repair chỉ sửa ROI + chuỗi của lệnh closed, giữ nguyên capitalBefore lệnh mở.
 const multiRows: AuditTradeRow[] = [
@@ -93,6 +127,7 @@ check("guard V3: 2 lệnh mở → opensSkipped = 2", planMulti.opensSkipped ===
 check("guard V3: lệnh mở o1 KHÔNG bị dán lại mốc", byIdMulti.o1?.capitalBefore === undefined, `got ${byIdMulti.o1?.capitalBefore}`);
 check("guard V3: lệnh mở o2 KHÔNG bị dán lại mốc", byIdMulti.o2?.capitalBefore === undefined, `got ${byIdMulti.o2?.capitalBefore}`);
 check("guard V3: lệnh closed vẫn nằm trong plan", byIdMulti.c1 === undefined || byIdMulti.c1.pnlPct === undefined); // c1 đúng luật sẵn — không sửa gì
+check("guard V3: plan rỗng (không có gì phải sửa)", planMulti.updates.length === 0, JSON.stringify(planMulti.updates));
 
 // ─── 4 · gate SHORT chọn lọc trong bestTradeableAvoid ────────────────────────
 const mkRow = (o: Partial<ScanRow>): ScanRow => ({
