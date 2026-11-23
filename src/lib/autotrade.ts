@@ -1292,7 +1292,7 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
   const eqStart = Number(oldest?.capitalBefore ?? NaN);
   const eqEnd = Number(newest?.capitalAfter ?? st.capital ?? NaN);
   const eqDelta = Number.isFinite(eqStart) && eqStart > 0 && Number.isFinite(eqEnd) ? ((eqEnd - eqStart) / eqStart) * 100 : null;
-  const roi = recent.length ? `Margin ${net >= 0 ? "+" : ""}${net.toFixed(2)}%` : "—";
+  const roi = recent.length ? `ΣROI(margin) ${net >= 0 ? "+" : ""}${net.toFixed(2)}%` : "—";
   const eqTxt2 = eqDelta != null ? ` · Equity Δ ${eqDelta >= 0 ? "+" : ""}${eqDelta.toFixed(2)}%` : "";
   const capLabel = periodLabel.charAt(0).toUpperCase() + periodLabel.slice(1);
   const eq = st.capital != null ? st.capital.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
@@ -1307,7 +1307,7 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
     title,
     `${agentIcon} Agent: <b>${agentId}</b> · Risk ${ag[0]}% · Gate Score ${ag[1]} / AUC ${ag[2]} / ACC ${ag[3]}% · Runner ${runnerTxt}`,
     DIGEST_HR,
-    `📊 <b>${capLabel}</b>: ${opened.length} opened · ${recent.length} closed · WR <b>${wr}</b>${eqTxt2} · Margin ${roi}`,
+    `📊 <b>${capLabel}</b>: ${opened.length} opened · ${recent.length} closed · WR <b>${wr}</b>${eqTxt2} · ${roi}`,
     `💰 Equity <b>${eq}</b> USDT · ${st.stats.closed} closed all-time${st.open ? " · 1 open" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(2)}%` : "—"}`,
   ];
   const best = (st.byCombo ?? []).filter((c) => c.closed >= 3).sort((a, b) => b.winRate - a.winRate)[0];

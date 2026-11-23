@@ -960,7 +960,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                         })()}
                         <div className="mt-2 grid grid-cols-3 gap-2 text-center">
                         <div className="rounded-lg bg-zinc-900 p-2">
-                          <div className="text-xs text-zinc-500">Total Entry (Equity)</div>
+                          <div className="text-xs text-zinc-500">Open Margin</div>
                           <div className="font-mono text-sm font-bold text-white">${tot.entry.toFixed(2)}</div>
                         </div>
                         <div className="rounded-lg bg-zinc-900 p-2">
