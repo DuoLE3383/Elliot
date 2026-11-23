@@ -1010,7 +1010,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
           pnlOpen += marginOfL(x) * (net/100);
         }
         pnlClosed = Math.round(pnlClosed*100)/100; pnlOpen = Math.round(pnlOpen*100)/100;
-        const totalStart = 2000;
+        const totalStart = st0?.capital ?? 1000; // pool chung ABCD = ví DryRunState
         return { perBook, totalStart, pnlClosed, pnlOpen, totalPnl: Math.round((pnlClosed+pnlOpen)*100)/100, totalEquity: Math.round((totalStart+pnlClosed+pnlOpen)*100)/100, wins, closed, open: (allOpens as any[]).length, winRate: closed ? wins/closed*100 : 0, netRoiClosed: totalStart ? pnlClosed/totalStart*100 : 0 };
       })();
       // SO CAI CHUAN: PNL$ = sum(capitalAfter - capitalBefore) cua closed (da tru phi, da gom TP1)
@@ -1095,7 +1095,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         last7d: closedRows.filter((r) => r.exitTime && now - new Date(r.exitTime).getTime() < 7 * 86_400_000).length,
         autoOn: cfg.on,
         equity: st0?.capital ?? null,
-        totalStartCapital: 2000, // 2 so x 1000
+        totalStartCapital: ledger.totalStart, // 2 so x 1000
         totalEquity: ledger.totalEquity, // 2000 + closed (chuoi von) + open (net, da tru phi) - 1 nguon duy nhat
         ledger, // Sổ cái duy nhất: perBook A/B/C/D, pnlClosed, pnlOpen, totalPnl, winRate, closed, open
         open: o ? { symbol: o.symbol, side: o.side, roi, ageH } : null,
