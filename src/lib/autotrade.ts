@@ -303,6 +303,24 @@ export function slCooldownLeft(
   return Math.max(0, Math.ceil((end - now) / 60_000));
 }
 
+/** PAIR RE-ENTRY GUARD: không mở lệnh mới trên cùng symbol + interval trong
+ *  PAIR_REENTRY_MIN phút sau lần đóng gần nhất, bất kể kiểu thoát
+ *  (sl / trail / tp / manual). trades phải sắp mới nhất trước. */
+export const PAIR_REENTRY_MIN = 5;
+export function pairReentryLeft(
+  trades: AutoTradeRow[],
+  symbol: string,
+  interval: string,
+  now = Date.now(),
+): number {
+  const last = trades.find(
+    (t) => t.status === "closed" && !!t.exitTime && t.symbol === symbol && t.interval === interval,
+  );
+  if (!last?.exitTime) return 0;
+  const end = new Date(last.exitTime).getTime() + PAIR_REENTRY_MIN * 60_000;
+  return Math.max(0, Math.ceil((end - now) / 60_000));
+}
+
 /** The newest SL-closed trade of a combo (newest-first trades), if any. */
 export function lastSlExit(
   trades: AutoTradeRow[],
