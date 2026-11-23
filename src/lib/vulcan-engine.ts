@@ -16,6 +16,7 @@
 
 import { db } from "./db";
 import { tgSendMessage } from "./telegram-store";
+import { readUnifiedSettled } from "./unified-balance";
 import { fetchKlinesDirect } from "./klines-direct";
 import { feeRoi, pval, VUL_ATR_STOP_MULT, VUL_VOL_FACTOR } from "./params";
 import { readWallet } from "./autostate";
@@ -224,13 +225,16 @@ async function vulcanSymbolTick(symbol: string, lastCandleT: Map<string, number>
       },
     });
     console.log(`[vulcan] OPEN ${action.side} ${symbol} @ ${action.entry} stop ${action.stopPrice.toFixed(2)} (ATR×${vulcanLiveParams().atrStopMult}) vốn ${head} id=${created.id}`);
+    const unifiedBalA = await readUnifiedSettled().then((u) => u.balance).catch(() => undefined);
     void tgSendMessage(
       [
-      `🤖 AUTO OPEN · Sổ A Vulcan`,
-      `📌 #${symbol} · 15m · ${action.side}`,
-      `🎯 Entry ${action.entry} - Vao ${new Date(now).toLocaleTimeString("vi-VN", { hour12: false })} - So A Vulcan`,
-      `📐 SL ${action.stopPrice.toFixed(2)} · Trail Donchian`,
-      `💰 Von truoc ${head} - Lev x5 - Stake 10%`,
+      `🟢 <b>OPEN</b>`,
+      `🟧 <b>#${symbol}</b> · A · 15m · ${action.side === "LONG" ? "LONG 🟢" : "SHORT 🔴"}`,
+      `━━━━━━━━━━━━━━━━━━`,
+      `🎯 Entry <b>${action.entry}</b>`,
+      `📐 SL <b>${action.stopPrice.toFixed(2)}</b> · Trail Donchian`,
+      `Lev ×5 · Stake 10%`,
+      ...(unifiedBalA != null ? [`💰 Balance <b>${unifiedBalA.toFixed(2)}</b> USDT`] : []),
       ].join(String.fromCharCode(10)),
       "HTML",
       { dedupeKey: `open:A:${created.id}` },

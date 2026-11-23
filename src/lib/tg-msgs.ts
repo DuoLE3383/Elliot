@@ -53,7 +53,7 @@ export const slPrice = (side: string, entry: number, slPct: number): number =>
 export const tpPrice = (side: string, entry: number, tpPct: number): number =>
   side === "SHORT" ? entry * (1 - Math.abs(tpPct) / 100) : entry * (1 + Math.abs(tpPct) / 100);
 
-export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string): string => {
+export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string, displayBalance?: number): string => {
   const x = r as any;
   const forced = x.methodId === "force";
   const noModel = (r.auc ?? 0) <= 0.5 && (r.acc ?? 0) <= 0;
@@ -78,6 +78,7 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string): stri
     `TP <b>${fmtPrice(tpNow)}</b> (+${r.tpPct.toFixed(2)}% price · ROI +${(r.tpPct * r.leverage).toFixed(2)}%)`,
     `Lev ${levTxt(r.leverage)} · Stake ${r.stakePct ?? 100}% · R:R 1:${rr.toFixed(2)}`,
     `Margin <b>${stake.toFixed(2)}</b> USDT · Size ${notional.toFixed(2)} USDT`,
+    `💰 Balance <b>${(displayBalance ?? base).toFixed(2)}</b> USDT`,
   ];
   if (forced) lines.push("Gate: bypassed (forced start from BEST)");
   if (feeRt > 0) lines.push(`Fees round-trip −${feeRt.toFixed(2)}% ROI (net in realized ROI)`);
@@ -102,7 +103,7 @@ const kindTag = (k: string | null): string =>
           ? "FLIP 🔄"
           : "MANUAL CLOSE ✋";
 
-export const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPnlPct: number): string => {
+export const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPnlPct: number, balanceAfter?: number): string => {
   // pnlPct từ settlement đã SAU PHÍ (0.2.77) — dòng phụ cho thấy phí đã trừ
   // bao nhiêu để đọc msg không thắc mắc "ROI thấp hơn bảng SL/TP".
   const feeRt = feeRoi(r.leverage, 2);
@@ -113,18 +114,21 @@ export const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPn
   const exP = r.exitPrice ?? 0;
   const slip = exP > 0 ? (r.side === "SHORT" ? ((exP - slP) / r.entryPrice) * 100 : ((slP - exP) / r.entryPrice) * 100) : 0;
   const deltaUsdt = (r.capitalAfter ?? 0) - (r.capitalBefore ?? 0);
+  // Unified dry-run Balance AFTER this close (caller passes readUnifiedSettled).
+  // Balance before = after - this trade's own delta, so the chain stays correct
+  // with concurrent opens. Fallback = per-trade capitalAfter (legacy).
+  const balAfter = balanceAfter ?? (r.capitalAfter ?? 0);
+  const balBefore = balAfter - deltaUsdt;
   return [
-    `🤖 <b>AUTO CLOSE · ${kindTag(r.exitKind)}</b>`,
-    `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
-    HR,
+    ...buildTradeHeader("🤖", `AUTO CLOSE · ${kindTag(r.exitKind)}`, r),
     `🎯 Entry ${fmtPrice(r.entryPrice)} → 🚪 Exit <b>${fmtPrice(r.exitPrice ?? 0)}</b>`,
     `📐 SL ${r.slPct.toFixed(2)}% · TP ${r.tpPct.toFixed(2)}% · Lev ${levTxt(r.leverage)} · Score ${(r.score ?? 0).toFixed(2)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}%`,
     banked != null && runner != null
-      ? `💵 PnL: Banked ${banked >= 0 ? "+" : ""}${banked.toFixed(2)}% × ${(share * 100).toFixed(2)}% + Runner ${runner >= 0 ? "+" : ""}${runner.toFixed(2)}% × ${((1 - share) * 100).toFixed(2)}% = <b>${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}% ROI tổng</b>`
+      ? `💵 PnL: Banked ${banked >= 0 ? "+" : ""}${banked.toFixed(2)}% × ${(share * 100).toFixed(2)}% + Runner ${runner >= 0 ? "+" : ""}${runner.toFixed(2)}% × ${((1 - share) * 100).toFixed(2)}% = <b>${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}% total ROI</b>`
       : `💵 PnL (ROI): <b>${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}%</b>${feeRt > 0 ? ` · fees −${feeRt.toFixed(2)}%` : ""}`,
-    `💰 Equity: ${(r.capitalBefore ?? 0).toFixed(2)} → <b>${(r.capitalAfter ?? 0).toFixed(2)}</b> USDT (${deltaUsdt >= 0 ? "+" : ""}${deltaUsdt.toFixed(2)})`,
-    ...(slip > 0 ? [`⚠️ Slippage +${slip.toFixed(2)}% giá (exit ${fmtPrice(exP)} vượt SL ${fmtPrice(slP)})`] : []),
-    `📈 Track record: ${closed} trades · Win rate ${winRate.toFixed(2)}% · Net vốn ${netPnlPct >= 0 ? "+" : ""}${netPnlPct.toFixed(2)}%`,
+    `💰 ${balanceLine(balBefore, balAfter)}`,
+    ...(slip > 0 ? [`⚠️ Slippage +${slip.toFixed(2)}% price (exit ${fmtPrice(exP)} past SL ${fmtPrice(slP)})`] : []),
+    `📈 Track record (all books): ${closed} trades · Win rate ${winRate.toFixed(2)}% · Net ROI ${netPnlPct >= 0 ? "+" : ""}${netPnlPct.toFixed(2)}%`,
   ].join("\n");
 }
 
@@ -137,7 +141,7 @@ export const msgNear = (r: AutoTradeRow, price: number, kind: "tp" | "sl"): stri
     `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
     HR,
     `${kind === "tp" ? "🏁" : "🛑"} ${kind === "tp" ? "Take Profit" : "Stop Loss"} ${fmtPrice(target)} · <b>${awayPct.toFixed(2)}%</b> away`,
-    `📊 SL ${r.slPct.toFixed(2)}% · TP ${r.tpPct.toFixed(2)}% · Lev ${levTxt(r.leverage)} · Score ${(r.score ?? 0).toFixed(2)} · AUC ${(r.auc ?? 0).toFixed(2)}
+    `📊 SL ${r.slPct.toFixed(2)}% · TP ${r.tpPct.toFixed(2)}% · Lev ${levTxt(r.leverage)} · Score ${(r.score ?? 0).toFixed(2)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}%
 📈 Price ${fmtPrice(price)} · ROI <b>${roi >= 0 ? "+" : ""}${roi.toFixed(2)}%</b> · Lev ${levTxt(r.leverage)}`,
   ].join("\n");
 };
@@ -164,14 +168,12 @@ export const msgDca = (
   const roi = roiOf(r.side, r.entryPrice, dcaPrice, r.leverage);
   const movedPct = prevEntry > 0 ? Math.abs((dcaPrice - prevEntry) / prevEntry) * 100 : 0;
   return [
-    `🤖 <b>AUTO DCA (dry-run) · add ${add}/${max}${trigger === "cross" ? " · at SL" : ""}</b>`,
-    `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
-    HR,
+    ...buildTradeHeader("🤖", `AUTO DCA (dry-run) · add ${add}/${max}${trigger === "cross" ? " · at SL" : ""}`, r),
     `🎯 Entry ${fmtPrice(prevEntry)} → add <b>${fmtPrice(dcaPrice)}</b> (${movedPct.toFixed(2)}% price)`,
     `📊 New average entry: <b>${fmtPrice(r.entryPrice)}</b>`,
     `🛑 New SL: <b>${fmtPrice(slPrice(r.side, r.entryPrice, r.slPct))}</b> · −${r.slPct.toFixed(2)}% from avg`,
     `🏁 New TP: <b>${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(2)}% from avg`,
-    `📦 Margin: <b>${stake.toFixed(2)}</b> USDT · ${r.stakePct ?? 100}% equity · Kích thước ${notional.toFixed(2)} USDT · PnL SL -${((r.slPct ?? 0) * r.leverage * stake / 100).toFixed(2)} / TP +${((r.tpPct ?? 0) * r.leverage * stake / 100).toFixed(2)} USDT`,
+    `📦 Margin: <b>${stake.toFixed(2)}</b> USDT · ${r.stakePct ?? 100}% of Balance · Size ${notional.toFixed(2)} USDT · PnL SL -${((r.slPct ?? 0) * r.leverage * stake / 100).toFixed(2)} / TP +${((r.tpPct ?? 0) * r.leverage * stake / 100).toFixed(2)} USDT`,
     `📈 ROI at DCA price: ${roi >= 0 ? "+" : ""}${roi.toFixed(2)}% @ ${levTxt(r.leverage)}`,
     `🧠 Model still confirms · ${probTxt(r.side, confirm.prob)} · AUC ${confirm.auc.toFixed(2)} · ACC ${confirm.acc.toFixed(2)}%`,
   ].join("\n");
@@ -180,9 +182,7 @@ export const msgDca = (
 /** LLM veto notice — the pending entry was reviewed and rejected by the local model */
 export const msgLlmVeto = (r: ScanRow, v: LlmVerdict): string =>
   [
-    `🛑 <b>LLM VETO — setup blocked before entry</b>`,
-    `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.bias)}`,
-    HR,
+    ...buildTradeHeader("🛑", "LLM VETO — setup blocked before entry", { symbol: r.symbol, interval: r.interval, side: r.bias, book: (r as any).book ?? "B" }),
     `🧠 ${probTxt(r.bias, r.prob)} · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(2)}% · Score ${r.score.toFixed(2)}`,
     `💬 ${escHtml(v.reasons.slice(0, 3).join(" · ")) || "—"}`,
   ].join("\n");
@@ -202,15 +202,13 @@ export const msgTp1 = (
   const roi = roiOf(r.side, r.entryPrice, price, r.leverage);
   const bank = bankRoi ?? Math.round((r.tpPct * r.leverage - feeRoi(r.leverage)) * 100) / 100;
   return [
-    `🪙 <b>TP1 PARTIAL — RUNNER ARMED</b>`,
-    `📌 <b>#${r.symbol}</b> · ${r.interval} · ${sideTxt(r.side)}`,
-    HR,
-    `✅ Banked <b>${(share * 100).toFixed(2)}%</b> stake ${src === "trail" ? "(TRAIL)" : "(TP1)"} (+${bank.toFixed(2)}% ROI phần banked, sau phí)` ,
+    ...buildTradeHeader("🪙", "TP1 PARTIAL — RUNNER ARMED", { symbol: r.symbol, interval: r.interval, side: r.side, book: (r as any).book ?? "B" }),
+    `✅ Banked <b>${(share * 100).toFixed(2)}%</b> stake ${src === "trail" ? "(TRAIL)" : "(TP1)"} (+${bank.toFixed(2)}% ROI on banked stake, after fees)` ,
     src === "trail"
-      ? `🛡 Runner: SL dời lên <b>giá trail</b> — khóa lời đã bank`
-      : `🛡 Runner: SL khoá tại <b>giá TP1</b> — lời runner có sàn`,
-    `🏁 Runner: để lời chạy — trail đuổi theo (khoá 50% quãng đi) tới khi hết position, không chốt cứng TP2`,
-    `📈 Price ${fmtPrice(price)} · ROI ${roi >= 0 ? "+" : ""}${roi.toFixed(2)}% · SL floor ${r.tpPct.toFixed(2)}% giá (TP1)`,
+      ? `🛡 Runner: SL moved up to <b>trail price</b> — banked profit locked`
+      : `🛡 Runner: SL moved to <b>TP1 price</b> — runner profit has a floor`,
+    `🏁 Runner: let profit run — trail follows (locks 50% of the move) until position ends, no hard TP2 close`,
+    `📈 Price ${fmtPrice(price)} · ROI ${roi >= 0 ? "+" : ""}${roi.toFixed(2)}% · SL floor ${r.tpPct.toFixed(2)}% price (TP1)`,
   ].join("\n");
 };
 
@@ -224,9 +222,7 @@ export const msgAutopsy = (
   a: { outcome: string; tag: string; why: string[]; lesson: string; ev?: { rMultiple?: number; durMin?: number; mfePct?: number; maePct?: number }; ms?: number; model?: string },
 ): string =>
   [
-    `🔬 <b>TRADE AUTOPSY · ${a.outcome === "win" ? "WIN ✅" : "LOSS 🔻"}</b>`,
-    `📌 <b>#${t.symbol}</b> · ${t.interval} · ${sideTxt(t.side)} · ${kindTag(t.exitKind ?? null)}`,
-    HR,
+    ...buildTradeHeader("🔬", `TRADE AUTOPSY · ${a.outcome === "win" ? "WIN ✅" : "LOSS 🔻"} · ${kindTag(t.exitKind ?? null)}`, { symbol: t.symbol, interval: t.interval, side: t.side, book: (t as any).book ?? "B" }),
     `💵 Result: <b>${(t.pnlPct ?? 0) >= 0 ? "+" : ""}${(t.pnlPct ?? 0).toFixed(2)}% ROI</b>${a.ev?.rMultiple != null ? ` · R ${a.ev.rMultiple >= 0 ? "+" : ""}${a.ev.rMultiple.toFixed(2)}x` : ""}${a.ev?.durMin != null ? ` · held ${a.ev.durMin.toFixed(2)}m` : ""}`,
     `🏷️ tag: <b>${escHtml(a.tag)}</b>`,
     ...(a.why.length > 0 ? [`📝 ${a.why.map((w) => escHtml(w)).join("<br/>• ")}`] : []),
@@ -255,7 +251,7 @@ export const msgLossStreak = (
     `🔴 <b>ALERT · LOSS STREAK — ${streak} losses in a row</b>`,
     HR,
     `📉 Chain (newest first): ${shown.join(" · ")}`,
-    `💰 Equity: <b>${equity != null ? eqTxt(equity) : "—"}</b> USDT · chain ROI <b>${net >= 0 ? "+" : ""}${net.toFixed(2)}%</b>`,
+    `💰 Balance: <b>${equity != null ? eqTxt(equity) : "—"}</b> USDT · chain ROI <b>${net >= 0 ? "+" : ""}${net.toFixed(2)}%</b>`,
     `🧠 Regime mismatch? Check /ai — entry gates, flip cooldown, or pause auto.`,
   ].join("\n");
 };
@@ -270,9 +266,9 @@ export const msgDrawdown = (
   crossedOn: { symbol: string; interval: string; pnlPct?: number | null },
 ): string =>
   [
-    `🔴 <b>ALERT · DRAWDOWN — equity ${x.ddPct.toFixed(2)}% under the 24h peak</b>`,
+    `🔴 <b>ALERT · DRAWDOWN — Balance ${x.ddPct.toFixed(2)}% under the 24h peak</b>`,
     HR,
-    `💰 Equity <b>${eqTxt(x.nowEq)}</b> USDT · 24h peak ${eqTxt(x.peak)} → alert level ${eqTxt(x.level)}`,
+    `💰 Balance <b>${eqTxt(x.nowEq)}</b> USDT · 24h peak ${eqTxt(x.peak)} → alert level ${eqTxt(x.level)}`,
     `🚪 Crossed on: <b>#${crossedOn.symbol}</b> ${crossedOn.interval} closed ${(crossedOn.pnlPct ?? 0) >= 0 ? "+" : ""}${(crossedOn.pnlPct ?? 0).toFixed(2)}%`,
     `🧠 Risk check: consecutive losses + DCA usage on /ai — consider pausing auto.`,
   ].join("\n");

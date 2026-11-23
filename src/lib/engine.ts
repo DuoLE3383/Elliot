@@ -102,6 +102,7 @@ import { loadScanState, saveScanState } from "./scan-state";
 import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store";
 import { pushAutoDigests } from "./autodigest";
 import { msgDca, msgLlmVeto, msgNear, msgOpen, msgTp1 } from "./tg-msgs";
+import { readUnifiedSettled } from "./unified-balance";
 import { notifyClosed, tgMuted } from "./tg-alerts";
 import { enqueueJob, jobViews } from "./engine-jobs";
 import { directionalPnl, outcomeOf } from "./history";
@@ -1851,11 +1852,7 @@ async function cycleTick(): Promise<void> {
             : "";
       const note = [baseNote, capNote].filter(Boolean).join(" · ") || undefined;
       void tgSendMessage(
-        msgOpen(
-          trade,
-          capitalNow,
-          note,
-        ),
+        msgOpen(trade, capitalNow, note, await readUnifiedSettled().then((u) => u.balance).catch(() => undefined)),
         "HTML",
       );
     }
@@ -1991,11 +1988,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
           : "";
     const note = [baseNote, capNote].filter(Boolean).join(" · ") || undefined;
     void tgSendMessage(
-      msgOpen(
-        trade,
-        capitalNow,
-        note,
-      ),
+      msgOpen(trade, capitalNow, note, await readUnifiedSettled().then((u) => u.balance).catch(() => undefined)),
       "HTML",
     );
   }

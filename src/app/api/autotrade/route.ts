@@ -9,7 +9,7 @@
 //         → opens ONE position; rejected while another is open
 // PATCH { action: "close", id, exitPrice, exitKind } → settles ROI + capital
 // PATCH { action: "reset" }                          → wipe the whole book
-// PATCH { action: "reset_capital", capital?, note? }  → LỆNH RESET VỐN (0.2.86):
+// PATCH { action: "reset_capital", capital?, note? }  → LỆNH CAPITAL RESET (0.2.86):
 //         xoá sạch sổ lệnh + ghi vốn mới vào ví DryRunState (một dòng id
 //         "wallet"). capital thiếu → giữ vốn ví hiện có (lần reset trước) hoặc
 //         1000. readAutoState rơi về ví khi sổ trống → UI thấy tiền NGAY, và
@@ -30,6 +30,7 @@ import { autopsyClosedTrade } from "@/lib/autopsy";
 import { auditBook, repairBook } from "@/lib/audit-book";
 import { tgSendMessage } from "@/lib/telegram-store";
 import { msgOpen } from "@/lib/tg-msgs";
+import { readUnifiedSettled } from "@/lib/unified-balance";
 
 export const dynamic = "force-dynamic";
 
@@ -108,7 +109,7 @@ export async function POST(req: NextRequest) {
   // so force-open positions were silent even though the Telegram test send works.
   // Telegram failure must not fail the open: log it and still return 201.
   try {
-    const tg = await tgSendMessage(msgOpen(trade, equityNow), "HTML", { dedupeKey: `open:${row.id}` });
+    const tg = await tgSendMessage(msgOpen(trade, equityNow, undefined, (await readUnifiedSettled().catch(() => null))?.balance), "HTML", { dedupeKey: `open:${row.id}` });
     if (!tg.ok) console.error(`[autotrade] Telegram OPEN failed for ${row.symbol}: ${tg.detail ?? "unknown"}`);
   } catch (e) {
     console.error(`[autotrade] Telegram OPEN error for ${row.symbol}: ${e instanceof Error ? e.message : "unknown"}`);
@@ -134,7 +135,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  // ─── RESET VỐN DRY-RUN (0.2.86) — lệnh người dùng yêu cầu riêng ───
+  // ─── CAPITAL RESET DRY-RUN (0.2.86) — lệnh người dùng yêu cầu riêng ───
   // Xoá sạch sổ + đặt lại vốn về con số mong muốn (mặc định giữ vốn ví/lần
   // trước hoặc 1000). Vốn sống trong bảng DryRunState nên sau reset UI hiện
   // ngay, pm2 restart không mất, và lệnh kế mở với capitalBefore đúng.
@@ -161,7 +162,7 @@ export async function PATCH(req: NextRequest) {
     console.log(`[autotrade] reset_capital — sổ đã xoá sạch, vốn đặt về ${cap} USDT (${note})`);
     const oldCap = wallet.capital ?? 1000;
     try {
-      await tgSendMessage(`🔄 <b>RESET VỐN</b>\n💰 ${oldCap.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} → <b>${cap.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b> USDT · Arena B restarts from 0\n📝 ${note}`, "HTML");
+      await tgSendMessage(`🔄 <b>CAPITAL RESET</b>\n💰 ${oldCap.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} → <b>${cap.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b> USDT · Arena B restarts from 0\n📝 ${note}`, "HTML");
     } catch { /* telegram loi — reset von van giu nguyen, khong block response */ }
     return NextResponse.json({ ok: true, capital: cap, resetAt: resetAt.toISOString() });
   }

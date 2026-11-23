@@ -11,6 +11,7 @@ import { fetchKlinesDirect } from "./klines-direct";
 import { breadthPct } from "./wyckoff-gate";
 import { db } from "./db";
 import { tgSendMessage } from "./telegram-store";
+import { readUnifiedSettled } from "./unified-balance";
 
 // Pair lấy từ pair scan / Universe — KHÔNG hardcode, KHÔNG fallback.
 // startLiquidEngine(symbols: string[]) nhận symbols từ scheduler, scan fail -> STANDBY.
@@ -104,12 +105,16 @@ export async function startLiquidEngine(symbols: string[]) {
               const tpPrice = entry * (1 - (dec.stopPct * 1.4) / 100);
               const closedD: any[] = await db.liquidBook.findMany({ where: { status: "closed" } }); const equityD = 1000 + closedD.reduce((s: number, r: any) => s + (Number(r.capitalAfter ?? 0) - Number(r.capitalBefore ?? 0)), 0); await db.liquidBook.create({ data: { symbol: sym, side: "SHORT", capitalBefore: Math.round(equityD * 100) / 100, trigger: ("[" + tf + "] " + dec.reason).slice(0, 80), score: 0, breadth, entryPrice: entry, status: "open", stopPrice, tpPrice } });
               console.log(`[liquid] OPEN SHORT ${sym} [${tf}] @ ${entry} · SL ${stopPrice.toFixed(2)} · TP ${tpPrice.toFixed(2)} · ${dec.reason}`);
+    const unifiedBalD = await readUnifiedSettled().then((u) => u.balance).catch(() => undefined);
     void tgSendMessage(
       [
-      `OPEN D - ${sym} SHORT`,
-      `Entry ${entry} - Vao ${new Date().toLocaleTimeString("vi-VN", { hour12: false })} - So D Liquid`,
-      `SL ${stopPrice.toFixed(2)} - TP ${tpPrice.toFixed(2)}`,
-      `Lev x3 - Stake 10%`,
+      `🟢 <b>OPEN</b>`,
+      `🟩 <b>#${sym}</b> · D · ${tf} · SHORT 🔴`,
+      `━━━━━━━━━━━━━━━━━━`,
+      `🎯 Entry <b>${entry}</b>`,
+      `📐 SL <b>${stopPrice.toFixed(2)}</b> · TP <b>${tpPrice.toFixed(2)}</b>`,
+      `Lev ×3 · Stake 10%`,
+      ...(unifiedBalD != null ? [`💰 Balance <b>${unifiedBalD.toFixed(2)}</b> USDT`] : []),
       ].join(String.fromCharCode(10)),
       "HTML",
       { dedupeKey: `open:D:${sym}:${tf}:${entry}` },

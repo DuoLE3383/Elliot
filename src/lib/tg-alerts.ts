@@ -18,6 +18,7 @@ import { type AutoState, type AutoTradeRow } from "./autotrade";
 import { readAutoState } from "./autostate";
 import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store";
 import { msgClose, msgDrawdown, msgLossStreak } from "./tg-msgs";
+import { readUnifiedSettled } from "./unified-balance";
 
 /** các loại tin có thể bị TẮT qua TG_MUTE (alert nằm ngoài danh sách này) */
 export type TgMuteCat = "near" | "veto" | "autopsy" | "scan" | "close";
@@ -107,19 +108,29 @@ export async function notifyClosed(closed: AutoTradeRow): Promise<void> {
   if (!tgReady()) return;
   try {
     const st: AutoState = await readAutoState();
+    // Unified dry-run Balance (settled wallet, all paper books) — same number
+    // /api/capital reports when no position is open. Live Balance comes from
+    // the Binance API call, never from this helper.
+    const unified = await readUnifiedSettled().catch(() => null);
+    const balAfter = unified?.balance ?? st.capital ?? (closed.capitalAfter ?? 0);
+    const deltaUsdt = (closed.capitalAfter ?? 0) - (closed.capitalBefore ?? 0);
+    const balBefore = balAfter - deltaUsdt;
     if (!tgMuted("close")) {
-      await tgSendMessage(msgClose(closed, st.stats.closed, st.stats.winRate, st.stats.netPnlPct), "HTML");
+      await tgSendMessage(
+        msgClose(closed, unified?.closed ?? st.stats.closed, unified?.winRate ?? st.stats.winRate, unified?.netPnlPct ?? st.stats.netPnlPct, balAfter),
+        "HTML",
+      );
     }
     const n = pval("TG_STREAK_ALERT", TG_STREAK_ALERT);
     if (n > 0) {
       const chain = losingStreakTrades(st.trades);
       if (chain.length >= n && chain.length % n === 0) {
-        await tgSendMessage(msgLossStreak(chain.length, chain, st.capital), "HTML");
+        await tgSendMessage(msgLossStreak(chain.length, chain, balAfter), "HTML");
       }
     }
     const dd = pval("TG_DD_ALERT", TG_DD_ALERT);
     if (dd > 0) {
-      const x = ddCrossOf(st.trades, closed.capitalBefore ?? 0, closed.capitalAfter ?? 0, dd, 86_400_000, Date.now());
+      const x = ddCrossOf(st.trades, balBefore, balAfter, dd, 86_400_000, Date.now());
       if (x) await tgSendMessage(msgDrawdown(x, closed), "HTML");
     }
   } catch {
