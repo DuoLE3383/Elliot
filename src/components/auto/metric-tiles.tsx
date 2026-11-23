@@ -1,9 +1,10 @@
 "use client";
 
-// ─── MetricTiles (v0.3.12) — dải 4 chỉ số đầu trang /auto redesign ────────────
+// ─── MetricTiles (v0.3.13) — dải 4 chỉ số đầu trang /auto redesign ────────────
 // Theo mockup: Total Equity · Net ROI (Realized) · Win Rate (Closed) ·
 // Total Trades — mỗi ô icon màu + số lớn + sparkline SVG.
-// Số THẬT: LIVE bật → sổ live (/api/arena live.*); không → gộp cả 4 sổ
+// Số THẬT: LIVE bật → sổ live (/api/arena live.*); không → gộp A+B+C
+// TOTAL EQUITY = Σ final A+B+C (cùng nguồn TOTAL PNL/NET) — trước đây = capital (ví B) nên chọi nhau.
 // dry-run A+B+C+D (ROI = (final-start)/start tren tong von, WR = theo tong lenh dong).
 // Sparkline: đường vốn sổ tương ứng (bEquity / aEquity / cEquity), đủ 2 điểm
 // mới vẽ — thiếu thì vẽ đường nền phẳng cho đúng khung mockup.
@@ -98,12 +99,6 @@ export function MetricTiles({ data, lang }: { data: TilesData; lang: "vi" | "en"
   const { a, b, c, live, capital } = data;
   const liveOn = live?.on === true && (live.nClosed > 0 || live.nOpen > 0);
 
-  // ── equity: LIVE → balanceAfter; dry-run → ví sổ B
-  const equity = liveOn && live.balanceAfter != null ? live.balanceAfter : (capital ?? 0);
-  const equitySub = liveOn
-    ? lang === "vi" ? "Binance Futures" : "live balance"
-    : lang === "vi" ? "ví dry-run" : "dry-run wallet";
-
   // ── gộp số các sổ dry-run (hoặc sổ live khi LIVE)
   const books = liveOn ? null : [a, b, c].filter((x): x is BookStats => x != null);
   const nClosed = liveOn ? (live?.nClosed ?? 0) : (books?.reduce((s, x) => s + x.nClosed, 0) ?? 0);
@@ -120,6 +115,13 @@ export function MetricTiles({ data, lang }: { data: TilesData; lang: "vi" | "en"
   const totalStart = liveOn ? (live?.balanceBefore ?? 0) : (books?.reduce((sum, x) => sum + (x.startCapital ?? 0), 0) ?? 0);
   const totalFinal = liveOn ? (live?.balanceAfter ?? 0) : (books?.reduce((sum, x) => sum + (x.finalCapital ?? x.startCapital ?? 0), 0) ?? 0);
   const totalPnl = totalStart > 0 && totalFinal > 0 ? totalFinal - totalStart : 0;
+  // ── equity: LIVE → balanceAfter; dry-run → Σ final A+B+C (cùng nguồn TOTAL PNL/NET)
+  // Trước: equity = capital (ví B) nên TOTAL EQUITY $1,066.73 chọi TOTAL PNL +$70.40 (tổng A+B+C).
+  // Fallback capital chỉ khi Σ final = 0 (chưa có sổ nào).
+  const equity = liveOn && live.balanceAfter != null ? live.balanceAfter : (totalFinal > 0 ? totalFinal : (capital ?? 0));
+  const equitySub = liveOn
+    ? lang === "vi" ? "Binance Futures" : "live balance"
+    : lang === "vi" ? "tổng A+B+C" : "total A+B+C";
   const netPnlPct = totalStart > 0 ? (totalPnl / totalStart) * 100 : 0;
   const pnlClass = totalPnl > 0 ? "text-emerald-400" : totalPnl < 0 ? "text-rose-400" : "text-white";
 
@@ -167,7 +169,7 @@ export function MetricTiles({ data, lang }: { data: TilesData; lang: "vi" | "en"
         icon="$"
         iconClass="border-amber-700/50 bg-amber-950/40 text-amber-300"
         spark={<Spark points={eqB.length >= 2 ? eqB.slice(-40) : []} stroke="#eab308" fill="#eab308" />}
-        sub={liveOn ? "live balance diff" : "sum(final - start) A+B+C+D"}
+        sub={liveOn ? "live balance diff" : "sum(final - start) A+B+C"}
       />
       <Tile
         label="Net PNL"
