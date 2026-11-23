@@ -172,7 +172,7 @@ export function Tune2Card({ lang, onBcfgApplied, pushToast }: Props) {
             {enoughData && <span className="font-bold text-cyan-300"> {totalTrades.toLocaleString("en-US")} trades</span>}
           </p>
           {enoughData && <span className="mt-0.5 text-center text-[10px] text-emerald-400">✓</span>}
-          {updatedAt && <p className="mt-1 text-center font-mono text-[9px] text-zinc-600">Cập nhật: {updatedAt}</p>}
+          {updatedAt && <p className="mt-1 text-center font-mono text-[9px] text-zinc-600">Updated: {updatedAt}</p>}
         </div>
 
         {/* 2) bảng Strategy | Current RR | Quality Floor | Recommendation */}

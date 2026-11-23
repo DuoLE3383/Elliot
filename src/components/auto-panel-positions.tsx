@@ -151,7 +151,7 @@ export function AutoPositions(props: any) {
                       );
                     })()}
                   </span>
-                  <span className="text-zinc-500">Giá đánh dấu · Giá thanh lý</span>
+                  <span className="text-zinc-500">Mark · Liq price</span>
                   <span className="text-right font-mono text-zinc-200">
                     {(() => {
                       const mark = tickers[open.symbol]?.price ?? open.entryPrice;

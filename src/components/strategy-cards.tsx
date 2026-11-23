@@ -55,9 +55,9 @@ export function strategyAdvice(
   for (const b of active) {
     const idx = out.findIndex((o) => o.id === b.id);
     if (b.s.netRoi <= -10 && b.s.wr < 35) {
-      out[idx] = { id: b.id, action: "off", reason: `net ${num(b.s.netRoi)}% · WR ${num(b.s.wr)}% — dừng để sổ khác chạy` };
+      out[idx] = { id: b.id, action: "off", reason: `net ${num(b.s.netRoi)}% · WR ${num(b.s.wr)}% — paused so other books can run` };
     } else if (b.s.netRoi >= 5 && b.s.wr >= 40) {
-      out[idx] = { id: b.id, action: "on", reason: `net +${num(b.s.netRoi)}% · WR ${num(b.s.wr)}% trên ${b.s.nClosed} lệnh` };
+      out[idx] = { id: b.id, action: "on", reason: `net +${num(b.s.netRoi)}% · WR ${num(b.s.wr)}% over ${b.s.nClosed} trades` };
     }
   }
   const ons = out.filter((o) => o.action === "on");

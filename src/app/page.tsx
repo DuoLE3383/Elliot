@@ -1056,7 +1056,7 @@ export default function Home() {
               <span className="hidden text-sm font-black tracking-[0.24em] text-zinc-100 lg:inline">ELLIOTT</span>
             </div>
             <div className="hidden leading-tight xl:block">
-              <p className="text-[11px] font-semibold text-zinc-300">UT Bot · Sóng · Cá voi</p>
+              <p className="text-[11px] font-semibold text-zinc-300">UT Bot · Swing · Whale</p>
               <p className="text-[10px] text-zinc-600">{t(lang, "app.subtitle")}</p>
             </div>
           </div>

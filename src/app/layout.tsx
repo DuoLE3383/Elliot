@@ -70,7 +70,7 @@ export default function RootLayout({
             (trước đây id chỉ nằm trong meta ẩn elliott-build). */}
         <div
           className="fixed bottom-1 right-2 z-[70] select-none font-mono text-[9px] leading-none text-zinc-600"
-          title={`build ${BUILD_ID} — khớp /api/build-id khi server chạy cùng bản`}
+          title={`build ${BUILD_ID} — matches /api/build-id when the server runs this version`}
         >
           {BUILD_ID}
         </div>

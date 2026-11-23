@@ -1120,7 +1120,7 @@ export default function AiPage() {
                   </span>
                   <span className="mt-0.5 block font-mono text-[10px] text-zinc-400">
                     {evo.active.combo} · {evoCfg(evo.active.cfgAfter)}
-                    {evo.active.metrics?.best ? ` · exp ${evo.active.metrics.best.expectancy.toFixed(2)}%/lệnh` : ""}
+                    {evo.active.metrics?.best ? ` · exp ${evo.active.metrics.best.expectancy.toFixed(2)}%/trade` : ""}
                   </span>
                   {evo.watch && (
                     <span className="mt-0.5 block text-zinc-500">⏳ {t(lang, "ai.evo.watch", { n: evo.watch.n, need: evo.watch.need })}</span>

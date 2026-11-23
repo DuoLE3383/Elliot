@@ -154,7 +154,7 @@ function ConfluenceTable({ onPickPair }: { onPickPair: (sym: string, itv: string
           </button>
         ))}
       </div>
-      <p className="text-[10px] leading-snug text-zinc-600">Bấm 1 dòng để xem symbol đó. STRONG = tất cả khung đồng thuận · RISK = lệch khung nhỏ · CONFLICT = đứng ngoài.</p>
+      <p className="text-[10px] leading-snug text-zinc-600">Click a row to inspect that symbol. STRONG = all timeframes agree · RISK = minor timeframe mismatch · CONFLICT = stand aside.</p>
     </div>
   );
 }
@@ -884,11 +884,11 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
                       <button
                         key={a.id}
                         disabled={locked}
-                        title={locked ? "GRAIL locked — mở sau khi B đủ 20 lệnh + C hết RISK_OFF" : a.desc}
+                        title={locked ? "GRAIL locked — unlocks after B reaches 20 trades and C clears RISK_OFF" : a.desc}
                         onClick={() => {
                           const pr = AGENT_UI_PRESETS[a.id] || {};
                           onCfgChange({ agent: a.id, ...pr } as any);
-                          pushToast({ kind: "success", text: `Agent ${a.id} đã set — Risk ${pr.riskPct}% · Gate ${pr.minScore}/${pr.minAuc}/${pr.minAcc} · TF ${pr.runTf?.join("/")}` });
+                          pushToast({ kind: "success", text: `Agent ${a.id} set — Risk ${pr.riskPct}% · Gate ${pr.minScore}/${pr.minAuc}/${pr.minAcc} · TF ${pr.runTf?.join("/")}` });
                         }}
                         className={`rounded-xl border p-2.5 text-center transition-all ${
                           active
