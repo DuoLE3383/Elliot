@@ -125,7 +125,7 @@ export function OpenPositionsModal({
                     </div>
                     <div className="flex items-center justify-between text-xs text-[#8b8b94]">
       <div className="mt-1 flex items-center justify-between text- text-zinc-400"><span>Peak <span className="font-mono text-amber-300">{peak.toFixed(5)}</span></span><span className="font-mono text-amber-300">{peakRoi >= 0 ? "+" : ""}{peakRoi.toFixed(2)}% ROI</span></div>
-      {hasTp1 && (<div className="flex items-center justify-between text-"><span className="text-emerald-300">TP1 PARTIAL {(p1ShareFrac*100).toFixed(0)}% · Banked +${bankedPnl.toFixed(2)} @ +{bankedRoi.toFixed(2)}%</span><span className="text-zinc-300">Còn lại ${marginRemain.toFixed(2)} ({(remainFrac*100).toFixed(0)}%) · Size ${sizeRemain.toFixed(2)}</span></div>)}
+      {hasTp1 && (<div className="flex items-center justify-between text-"><span className="text-emerald-300">TP1 partial {(p1ShareFrac*100).toFixed(0)}% · Banked +${bankedPnl.toFixed(2)} @ +{bankedRoi.toFixed(2)}%</span><span className="text-zinc-300">Remaining ${marginRemain.toFixed(2)} ({(remainFrac*100).toFixed(0)}%) · Size ${sizeRemain.toFixed(2)}</span></div>)}
                       <span>Còn <strong className="font-mono text-[#d4d4d8]">{fmtPct(pos.distTpPct)}</strong> tới TP</span>
                     </div>
                   </div>

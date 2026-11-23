@@ -408,7 +408,7 @@ const vi: Dict = {
   "whale.last": "nến gần nhất",
   "whale.none": "Không có dữ liệu taker volume",
   "whale.note": "Delta = khối lượng mua thị trường − bán thị trường (cân đối >55% = mạnh)",
-  "equity.title": "Đường cong vốn",
+  "equity.title": "Balance curve",
   "equity.peak": "đỉnh",
   "equity.trough": "đáy",
   "equity.now": "hiện tại",
