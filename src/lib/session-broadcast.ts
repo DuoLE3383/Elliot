@@ -152,11 +152,12 @@ export function buildSessionOpenMessage(
       ? `⏳ <b>${NAME[opened].toUpperCase()} SESSION OPENS SOON</b> — in ${inLabel(inMin)} — ${pad2(vnHour)}:00 GMT+7 (${pad2(o.getUTCHours())}:00 UTC)`
       : `🚦 <b>${NAME[opened].toUpperCase()} SESSION</b> — ${pad2(vnHour)}:00 GMT+7 (${pad2(o.getUTCHours())}:00 UTC)`,
     HR,
-    `${pre ? "⏳" : "🚀"} <b>${NAME[opened]}</b> — Bull ${st?.bullPct != null ? `${st.bullPct.toFixed(2)}%` : "—"} · BTC drift ${driftTxt(st?.driftPct)} · ${
-      pre ? `opens in ${inLabel(inMin)}` : "<b>JUST OPENED 🚀</b>"
+    `📊 <b>${NAME[opened]}</b> — Bull ${st?.bullPct != null ? `${st.bullPct.toFixed(2)}%` : "—"} · BTC drift ${driftTxt(st?.driftPct)} · ${
+      pre ? `opens in ${inLabel(inMin)}` : "<b>JUST OPENED</b>"
     }`,
   ];
 
+  lines.push("");
   const nx = nextSessionOpen(now);
   if (nx) {
     const nxStat = byKey.get(nx.key);
@@ -171,12 +172,13 @@ export function buildSessionOpenMessage(
   }
 
   // 🧭 composite verdict (0.2.60) — 9 yếu tố gộp một điểm; caller tính sẵn
+  lines.push("");
   if (verdict) {
     lines.push(
       `🧭 Composite verdict: <b>${verdict.call} ${verdict.score >= 0 ? "+" : ""}${verdict.score}</b> · edge ${verdict.confidence}% · threshold ±${verdict.band}`,
     );
     const tf = topFactorLine(verdict);
-    if (tf) lines.push(`   <i>top factors:</i> ${tf}`);
+    if (tf) lines.push(`🔍 <i>Top factors:</i> ${tf}`);
   }
 
   // ⛓ radar đòn bẩy — dữ liệu gốc Binance Futures (nguồn Coinglass tổng hợp):
@@ -184,8 +186,10 @@ export function buildSessionOpenMessage(
   // khi giá chạy. Lỗi fetch → bỏ khối, không cản tin phiên.
   if (sq) lines.push(squeezeLine(sq));
 
+  lines.push("");
   lines.push(
-    `💡 Historical stats (${pval("SESS_SYMBOL", SESS_SYMBOL)} ${SESS_INTERVAL}) · ⛓ = OI + long/short + taker + funding from Binance Futures — the raw source Coinglass aggregates. Stats ≠ guarantees — always set an SL.`,
+    `💡 Historical stats (${pval("SESS_SYMBOL", SESS_SYMBOL)} ${SESS_INTERVAL}) · ⛓ = OI + long/short + taker + funding from Binance Futures — the raw source Coinglass aggregates.`,
+    `⚠️ Stats ≠ guarantees — always set an SL.`,
   );
   return lines.join("\n");
 }
