@@ -28,6 +28,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
 import { db } from "./db";
+import { accountSummary } from "./account";
 import { dataFile } from "./data-dir";
 import { dqfTick, dqfEffectiveSync } from "./dqf";
 import {
@@ -1741,8 +1742,8 @@ async function cycleTick(): Promise<void> {
     const existing = await db.autoTrade.findFirst({ where: { status: "open", symbol: best.symbol, interval: best.interval } });
     if (existing) return; // combo nay vua co lenh (race) - cycle sau mo combo khac
     const stNow = await readAutoState();
-    const capitalNow = stNow.capital ?? c.capital;
-    const usedMargin = (stNow.opens ?? (stNow.open ? [stNow.open] : [])).reduce((a, o) => a + ((o.capitalBefore ?? capitalNow) * (o.stakePct ?? 100)) / 100, 0);
+    const capitalNow = (await accountSummary()).equityUsd; // one paper-wallet equity across A-D
+    const usedMargin = (await accountSummary()).openMarginUsd; // open margin across ALL books, not only B
     // multi-position: von gioi han = tong margin, khong gioi han so lenh
     // RISK ENVELOPE (0.2.79) — stake cam = min(cfg.riskPct, RISK_MAX_STAKE):
     // lệnh ghi số ĐÃ KẸP (equity impact của lệnh = capitalBefore × stakePct ×
@@ -1924,7 +1925,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
   const existing = await db.autoTrade.findFirst({ where: { status: "open", symbol: row.symbol, interval: row.interval } });
   if (existing) return true; // watcher/luồng khác vừa mở — đừng đụng vào
   const stNow = await readAutoState();
-  const capitalNow = stNow.capital ?? c.capital;
+  const capitalNow = (await accountSummary()).equityUsd; // one paper-wallet equity across A-D
   // RISK ENVELOPE — flip cam stake ĐÃ KẸP trần như lệnh thường (một nguồn)
   const stakeUsed = clampStake(c.riskPct);
   if (stakeUsed < c.riskPct) {
