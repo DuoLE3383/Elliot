@@ -357,10 +357,10 @@ export function ApmFlowMap({
   // click trỏ sang trạm đúng nghĩa (dock = config/params, hist = lệnh) thay vì
   // st-universe mà trước đây 2 node giữa đang trỏ nhầm.
   const bottomNodes: NodeSpec[] = [
-    { x: bottomX(0), y: bottomY, id: "st-hist", title: "Trade autopsy", value: `${f.closedTrades}`, sub: "thang / thua - queue 60s", dot: RED, valColor: TXT },
-    { x: bottomX(1), y: bottomY, id: "st-dock", title: "Strategy self-evolution", value: "±20%", sub: "proposal-only - duyet moi ap", dot: "#38bdf8", valColor: TXT },
-    { x: bottomX(2), y: bottomY, id: "st-dock", title: "param_values", value: "↻", sub: "doc lai tick sau - het hardcode", dot: "#22d3ee", valColor: TXT },
-    { x: bottomX(3), y: bottomY, id: "st-hist", title: "Root-cause monitor", value: "5m", sub: "chi quet & ghi - khong sua", dot: "#a78bfa", valColor: TXT },
+    { x: bottomX(0), y: bottomY, id: "st-autopsy", title: "Trade autopsy", value: `${f.closedTrades}`, sub: "thang / thua - queue 60s", dot: RED, valColor: TXT },
+    { x: bottomX(1), y: bottomY, id: "st-evo", title: "Strategy self-evolution", value: "±20%", sub: "proposal-only - duyet moi ap", dot: "#38bdf8", valColor: TXT },
+    { x: bottomX(2), y: bottomY, id: "st-param", title: "param_values", value: "↻", sub: "doc lai tick sau - het hardcode", dot: "#22d3ee", valColor: TXT },
+    { x: bottomX(3), y: bottomY, id: "st-root", title: "Root-cause monitor", value: "5m", sub: "chi quet & ghi - khong sua", dot: "#a78bfa", valColor: TXT },
   ];
   const nodes: NodeSpec[] = [...leftNodes, ...middleNodes, ...rightNodes, ...bottomNodes];
   const gateCy = leftY(3) + NH / 2;
