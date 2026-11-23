@@ -57,9 +57,9 @@ export function AutoHistory(props: any) {
         <div className="grid items-stretch gap-3 lg:grid-cols-2">
           <ConfluenceTable onPickPair={onPickPair} />
           <div className="flex h-full flex-col">
-        {/* best pick + ranking */}
-        {best ? (
-          <div className="space-y-1.5">
+        {/* best pick + ranking — scan table always shows, even with no results */}
+        <div className="space-y-1.5">
+          {best && (
             <div className="flex items-center justify-between rounded-lg border border-teal-800/60 bg-teal-950/20 px-2.5 py-1.5">
               <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-teal-400">
                 {t(lang, "auto.best")}
@@ -82,7 +82,8 @@ export function AutoHistory(props: any) {
                 </button>
               </span>
             </div>
-            <div className="flex-1 overflow-x-auto rounded-lg border border-zinc-800">
+          )}
+          <div className="flex-1 overflow-x-auto rounded-lg border border-zinc-800">
               {/* cột số co đúng nội dung (kể cả nhãn vi "HƯỚNG"), PAIR (1fr)
                   nhận toàn bộ phần còn lại — hết cảnh whitespace-normal leading-snug "XMR…" */}
               <div className="grid grid-cols-[170px_40px_52px_60px_44px_54px_50px_64px] min-w- gap-x-0.5 border-b border-zinc-800 bg-zinc-950/60 px-1.5 py-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
@@ -144,6 +145,11 @@ export function AutoHistory(props: any) {
                   </button>
                 );
               })}
+              {rows.length === 0 && !scanning && (
+                <div className="grid grid-cols-[170px_40px_52px_60px_44px_54px_50px_64px] gap-x-0.5 px-1.5 py-2 font-mono text-xs text-zinc-500">
+                  <span className="col-span-8">{t(lang, "auto.scan.empty")}</span>
+                </div>
+              )}
             </div>
             <p className="text-[10px] leading-snug text-zinc-600">{t(lang, "auto.rank.hint")}</p>
             {/* 0.3.2 — sàn HIỆU LỰC engine đang lọc: DQF tự học thì hiện rõ để
@@ -156,10 +162,7 @@ export function AutoHistory(props: any) {
                 {t(lang, "auto.dqf.floors", { s: Math.round(ef.minScore), a: ef.minAuc.toFixed(2), c: Math.round(ef.minAcc) })}
               </p>
             )}
-          </div>
-        ) : (
-          !scanning && <p className="text-[11px] text-zinc-600">{t(lang, "auto.scan.empty")}</p>
-        )}
+        </div>
 
           </div>
         </div>
