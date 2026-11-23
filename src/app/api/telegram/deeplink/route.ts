@@ -84,7 +84,7 @@ export async function POST(req: Request) {
       "sendMessage",
       {
         chat_id: bound.chatId,
-        text: "✅ Elliott connected — trade alerts will arrive here.\nĐã kết nối — thông báo giao dịch sẽ gửi vào chat này.",
+        text: "✅ Elliott connected — trade alerts will arrive here.",
         disable_web_page_preview: true,
       },
       1,

@@ -10,18 +10,22 @@ import type { LlmVerdict } from "./llm";
 const HR = "━━━━━━━━━━━━━━━━━━";
 
 /** Book code + emoji — same colours as the position cards (A amber, B cyan, C violet, D emerald). */
-const BOOK_ICON: Record<string, string> = { A: "🟧", B: "🟦", C: "🟪", D: "🟩" };
+const BOOK_ICON: Record<string, string> = { A: "⚛️", B: "☯️", C: "♒️", D: "☪️" };
 export const bookCode = (r: { book?: string | null }): string => (r.book ?? "B").toUpperCase();
 
-/** Header shared by every trade message: icon + event, then symbol · book · timeframe · side. */
+/**
+ * Header shared by every trade message: icon + event, then symbol · book · timeframe · side.
+ * Ends with a blank line so the header block stands apart from the body.
+ */
 export const buildTradeHeader = (
   icon: string,
   event: string,
   r: { symbol: string; interval: string; side: string; book?: string | null },
 ): string[] => [
   `${icon} <b>${event}</b>`,
-  `${BOOK_ICON[bookCode(r)] ?? "🟦"} <b>#${r.symbol}</b> · ${bookCode(r)} · ${r.interval} · ${sideTxt(r.side)}`,
+  `${BOOK_ICON[bookCode(r)] ?? "☯️"} <b>#${r.symbol}</b> · ${bookCode(r)} · ${r.interval} · ${sideTxt(r.side)}`,
   HR,
+  "",
 ];
 
 /** Balance line: before → after with signed delta, USDT two decimals. */
@@ -31,12 +35,14 @@ export const balanceLine = (before: number, after: number): string => {
 };
 const levTxt = (x: number): string => `×${x % 1 === 0 ? x : x.toFixed(2)}`;
 const sideTxt = (side: string): string => (side === "LONG" ? "LONG 🟢" : side === "SHORT" ? "SHORT 🔴" : "NEUTRAL ⚪");
+const escHtml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-/** prob HIỂN THỊ THEO PHÍA model nghiêng về (cùng chuẩn PHE của §6c reliability).
- *  prob gốc LUÔN là P(giá đi lên) — SHORT P(up)=20.1% thật ra là tin 79.9% giá
- *  giảm. In thô "Prob 20.1%" cạnh chữ SHORT khiến người đọc tưởng model chỉ
- *  tin 20% mà vẫn mở lệnh. Flip về phía nghiêng về, kèm nhãn phía cho khỏi
- *  phải tự đảo trong đầu. NEUTRAL giữ prob thô (không có phía để đảo). */
+/** Display prob FLIPPED toward the side the model leans to (same SIDE convention as §6c reliability).
+ *  Raw prob is ALWAYS P(price goes up) — a SHORT with P(up)=20.1% is really 79.9%
+ *  confidence price falls. Printing raw "Prob 20.1%" next to SHORT makes it look
+ *  like the model only believes 20% yet still opened. Flip toward the leaned
+ *  side and label the side so the reader doesn't have to invert it mentally.
+ *  NEUTRAL keeps raw prob (no side to flip to). */
 const probTxt = (side: string, prob: number): string => {
   const p = side === "SHORT" ? 1 - prob : prob;
   return side === "LONG"
@@ -73,22 +79,25 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string, displ
       : "LLM Risk Officer: not reviewed";
   const lines = [
     ...buildTradeHeader("🟢", forced ? "OPEN · FORCE" : "OPEN", r),
-    `Entry <b>${fmtPrice(r.entryPrice)}</b>`,
-    `SL <b>${fmtPrice(slNow)}</b> (−${r.slPct.toFixed(2)}% price · ROI ${(-(r.slPct * r.leverage)).toFixed(2)}%)`,
-    `TP <b>${fmtPrice(tpNow)}</b> (+${r.tpPct.toFixed(2)}% price · ROI +${(r.tpPct * r.leverage).toFixed(2)}%)`,
-    `Lev ${levTxt(r.leverage)} · Stake ${r.stakePct ?? 100}% · R:R 1:${rr.toFixed(2)}`,
-    `Margin <b>${stake.toFixed(2)}</b> USDT · Size ${notional.toFixed(2)} USDT`,
-    `💰 Balance <b>${(displayBalance ?? base).toFixed(2)}</b> USDT`,
+    `🎯 Entry <b>${fmtPrice(r.entryPrice)}</b>`,
+    `🛑 Stop Loss <b>${fmtPrice(slNow)}</b> (−${r.slPct.toFixed(2)}% price · ROI ${(-(r.slPct * r.leverage)).toFixed(2)}% if hit)`,
+    `🏁 Take Profit <b>${fmtPrice(tpNow)}</b> (+${r.tpPct.toFixed(2)}% price · ROI +${(r.tpPct * r.leverage).toFixed(2)}% if hit)`,
+    "",
+    `⚖️ Leverage ${levTxt(r.leverage)} · Stake ${r.stakePct ?? 100}% of Balance · Reward : Risk 1 : ${rr.toFixed(2)}`,
+    `📦 Margin <b>${stake.toFixed(2)}</b> USDT · Position size ${notional.toFixed(2)} USDT`,
+    "",
   ];
-  if (forced) lines.push("Gate: bypassed (forced start from BEST)");
-  if (feeRt > 0) lines.push(`Fees round-trip −${feeRt.toFixed(2)}% ROI (net in realized ROI)`);
+  if (forced) lines.push("🔓 Gate: bypassed (forced start from BEST)");
+  if (feeRt > 0) lines.push(`🧾 Fees (round-trip) −${feeRt.toFixed(2)}% ROI — already counted in realized ROI`);
   if (atrNote) lines.push(atrNote);
-  lines.push(llm);
+  lines.push(`🧠 ${llm}`);
   lines.push(
     noModel
-      ? "Model: pending (no score yet)"
-      : `${probTxt(r.side, r.prob ?? 0)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}% · Score ${(r.score ?? 0).toFixed(2)}`,
+      ? "📊 Model: pending (no score yet)"
+      : `📊 Model: ${probTxt(r.side, r.prob ?? 0)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}% · Score ${(r.score ?? 0).toFixed(2)}`,
   );
+  lines.push("");
+  lines.push(`💰 Balance <b>${(displayBalance ?? base).toFixed(2)}</b> USDT`);
   return lines.join("\n");
 };
 
@@ -104,8 +113,8 @@ const kindTag = (k: string | null): string =>
           : "MANUAL CLOSE ✋";
 
 export const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPnlPct: number, balanceAfter?: number): string => {
-  // pnlPct từ settlement đã SAU PHÍ (0.2.77) — dòng phụ cho thấy phí đã trừ
-  // bao nhiêu để đọc msg không thắc mắc "ROI thấp hơn bảng SL/TP".
+  // pnlPct from settlement is AFTER FEES (0.2.77) — the sub-line shows how much
+  // fee was deducted so the reader doesn't wonder why ROI is lower than the SL/TP table.
   const feeRt = feeRoi(r.leverage, 2);
   const share = r.p1Share ?? 0;
   const banked = r.p1Pct ?? null;
@@ -122,12 +131,14 @@ export const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPn
   return [
     ...buildTradeHeader("🤖", `AUTO CLOSE · ${kindTag(r.exitKind)}`, r),
     `🎯 Entry ${fmtPrice(r.entryPrice)} → 🚪 Exit <b>${fmtPrice(r.exitPrice ?? 0)}</b>`,
-    `📐 SL ${r.slPct.toFixed(2)}% · TP ${r.tpPct.toFixed(2)}% · Lev ${levTxt(r.leverage)} · Score ${(r.score ?? 0).toFixed(2)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}%`,
+    `📐 Plan: SL ${r.slPct.toFixed(2)}% · TP ${r.tpPct.toFixed(2)}% · Lev ${levTxt(r.leverage)} · Score ${(r.score ?? 0).toFixed(2)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}%`,
+    "",
     banked != null && runner != null
-      ? `💵 PnL: Banked ${banked >= 0 ? "+" : ""}${banked.toFixed(2)}% × ${(share * 100).toFixed(2)}% + Runner ${runner >= 0 ? "+" : ""}${runner.toFixed(2)}% × ${((1 - share) * 100).toFixed(2)}% = <b>${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}% total ROI</b>`
+      ? `💵 PnL: Banked ${banked >= 0 ? "+" : ""}${banked.toFixed(2)}% × ${(share * 100).toFixed(2)}% stake + Runner ${runner >= 0 ? "+" : ""}${runner.toFixed(2)}% × ${((1 - share) * 100).toFixed(2)}% stake = <b>${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}% total ROI</b>`
       : `💵 PnL (ROI): <b>${(r.pnlPct ?? 0) >= 0 ? "+" : ""}${(r.pnlPct ?? 0).toFixed(2)}%</b>${feeRt > 0 ? ` · fees −${feeRt.toFixed(2)}%` : ""}`,
     `💰 ${balanceLine(balBefore, balAfter)}`,
-    ...(slip > 0 ? [`⚠️ Slippage +${slip.toFixed(2)}% price (exit ${fmtPrice(exP)} past SL ${fmtPrice(slP)})`] : []),
+    "",
+    ...(slip > 0 ? [`⚠ Slippage +${slip.toFixed(2)}% price — exit ${fmtPrice(exP)} went past SL ${fmtPrice(slP)}`, ""] : []),
     `📈 Track record (all books): ${closed} trades · Win rate ${winRate.toFixed(2)}% · Net ROI ${netPnlPct >= 0 ? "+" : ""}${netPnlPct.toFixed(2)}%`,
   ].join("\n");
 }
@@ -139,12 +150,11 @@ export const msgNear = (r: AutoTradeRow, price: number, kind: "tp" | "sl"): stri
   return [
     ...buildTradeHeader("⚠", kind === "tp" ? "NEAR TAKE PROFIT — READY TO LOCK GAINS" : "NEAR STOP LOSS — RISK WATCH", r),
     `${kind === "tp" ? "🏁" : "🛑"} ${kind === "tp" ? "Take Profit" : "Stop Loss"} ${fmtPrice(target)} · <b>${awayPct.toFixed(2)}%</b> away`,
-    `📊 SL ${r.slPct.toFixed(2)}% · TP ${r.tpPct.toFixed(2)}% · Lev ${levTxt(r.leverage)} · Score ${(r.score ?? 0).toFixed(2)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}%
-📈 Price ${fmtPrice(price)} · ROI <b>${roi >= 0 ? "+" : ""}${roi.toFixed(2)}%</b> · Lev ${levTxt(r.leverage)}`,
+    "",
+    `📊 Plan: SL ${r.slPct.toFixed(2)}% · TP ${r.tpPct.toFixed(2)}% · Lev ${levTxt(r.leverage)} · Score ${(r.score ?? 0).toFixed(2)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}%`,
+    `📈 Now: Price ${fmtPrice(price)} · ROI <b>${roi >= 0 ? "+" : ""}${roi.toFixed(2)}%</b> · Lev ${levTxt(r.leverage)}`,
   ].join("\n");
 };
-
-const escHtml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /**
  * DCA notice — price pushed against the position but the model still backs the
@@ -167,11 +177,13 @@ export const msgDca = (
   const movedPct = prevEntry > 0 ? Math.abs((dcaPrice - prevEntry) / prevEntry) * 100 : 0;
   return [
     ...buildTradeHeader("🤖", `AUTO DCA (dry-run) · add ${add}/${max}${trigger === "cross" ? " · at SL" : ""}`, r),
-    `🎯 Entry ${fmtPrice(prevEntry)} → add <b>${fmtPrice(dcaPrice)}</b> (${movedPct.toFixed(2)}% price)`,
+    `🎯 Entry ${fmtPrice(prevEntry)} → ➕ Add <b>${fmtPrice(dcaPrice)}</b> (${movedPct.toFixed(2)}% price move)`,
     `📊 New average entry: <b>${fmtPrice(r.entryPrice)}</b>`,
-    `🛑 New SL: <b>${fmtPrice(slPrice(r.side, r.entryPrice, r.slPct))}</b> · −${r.slPct.toFixed(2)}% from avg`,
-    `🏁 New TP: <b>${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(2)}% from avg`,
-    `📦 Margin: <b>${stake.toFixed(2)}</b> USDT · ${r.stakePct ?? 100}% of Balance · Size ${notional.toFixed(2)} USDT · PnL SL -${((r.slPct ?? 0) * r.leverage * stake / 100).toFixed(2)} / TP +${((r.tpPct ?? 0) * r.leverage * stake / 100).toFixed(2)} USDT`,
+    "",
+    `🛑 New SL: <b>${fmtPrice(slPrice(r.side, r.entryPrice, r.slPct))}</b> · −${r.slPct.toFixed(2)}% from average`,
+    `🏁 New TP: <b>${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(2)}% from average`,
+    "",
+    `📦 Margin: <b>${stake.toFixed(2)}</b> USDT · ${r.stakePct ?? 100}% of Balance · Position size ${notional.toFixed(2)} USDT · PnL if SL -${((r.slPct ?? 0) * r.leverage * stake / 100).toFixed(2)} / if TP +${((r.tpPct ?? 0) * r.leverage * stake / 100).toFixed(2)} USDT`,
     `📈 ROI at DCA price: ${roi >= 0 ? "+" : ""}${roi.toFixed(2)}% @ ${levTxt(r.leverage)}`,
     `🧠 Model still confirms · ${probTxt(r.side, confirm.prob)} · AUC ${confirm.auc.toFixed(2)} · ACC ${confirm.acc.toFixed(2)}%`,
   ].join("\n");
@@ -181,14 +193,14 @@ export const msgDca = (
 export const msgLlmVeto = (r: ScanRow, v: LlmVerdict): string =>
   [
     ...buildTradeHeader("🛑", "LLM VETO — setup blocked before entry", { symbol: r.symbol, interval: r.interval, side: r.bias, book: (r as any).book ?? "B" }),
-    `🧠 ${probTxt(r.bias, r.prob)} · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(2)}% · Score ${r.score.toFixed(2)}`,
-    `💬 ${escHtml(v.reasons.slice(0, 3).join(" · ")) || "—"}`,
+    `🧠 Model: ${probTxt(r.bias, r.prob)} · AUC ${r.auc.toFixed(2)} · ACC ${r.acc.toFixed(2)}% · Score ${r.score.toFixed(2)}`,
+    `💬 Reason: ${escHtml(v.reasons.slice(0, 3).join(" · ")) || "—"}`,
   ].join("\n");
 
-/** 0.3.3 — TP1 PARTIAL → RUNNER: chạm TP lần đầu, chốt một phần (SAU PHÍ — cùng
- *  settlement 0.2.77 với closeTradeDirect), phần còn lại chuyển runner (SL về
- *  breakeven, TP mở rộng, trail ratchet khoá lời). Tham số khai báo structural
- *  (AutoTradeRow subset) để tránh vòng import. */
+/** 0.3.3 — TP1 PARTIAL → RUNNER: first TP touch, bank part of the stake (AFTER FEES —
+ *  same settlement 0.2.77 as closeTradeDirect), the rest becomes a runner (SL to
+ *  breakeven, TP widened, trail ratchet locks profit). Params are structural
+ *  (AutoTradeRow subset) to avoid an import cycle. */
 export const msgTp1 = (
   r: { symbol: string; interval: string; side: string; entryPrice: number; tpPct: number; leverage: number; stakePct?: number | null },
   price: number,
@@ -201,19 +213,20 @@ export const msgTp1 = (
   const bank = bankRoi ?? Math.round((r.tpPct * r.leverage - feeRoi(r.leverage)) * 100) / 100;
   return [
     ...buildTradeHeader("🪙", "TP1 PARTIAL — RUNNER ARMED", { symbol: r.symbol, interval: r.interval, side: r.side, book: (r as any).book ?? "B" }),
-    `✅ Banked <b>${(share * 100).toFixed(2)}%</b> stake ${src === "trail" ? "(TRAIL)" : "(TP1)"} (+${bank.toFixed(2)}% ROI on banked stake, after fees)` ,
+    `✅ Banked <b>${(share * 100).toFixed(2)}%</b> of stake ${src === "trail" ? "on TRAIL" : "at TP1"} (+${bank.toFixed(2)}% ROI on the banked part, after fees)`,
+    "",
     src === "trail"
-      ? `🛡 Runner: SL moved up to <b>trail price</b> — banked profit locked`
-      : `🛡 Runner: SL moved to <b>TP1 price</b> — runner profit has a floor`,
-    `🏁 Runner: let profit run — trail follows (locks 50% of the move) until position ends, no hard TP2 close`,
-    `📈 Price ${fmtPrice(price)} · ROI ${roi >= 0 ? "+" : ""}${roi.toFixed(2)}% · SL floor ${r.tpPct.toFixed(2)}% price (TP1)`,
+      ? `🛡 Runner: Stop Loss moved up to <b>trail price</b> — banked profit locked`
+      : `🛡 Runner: Stop Loss moved to <b>TP1 price</b> — the runner's profit now has a floor`,
+    `🏁 Runner: letting profit run — trailing stop follows (locks 50% of the move) until the position ends. No hard TP2 close.`,
+    `📈 Now: Price ${fmtPrice(price)} · ROI ${roi >= 0 ? "+" : ""}${roi.toFixed(2)}% · SL floor ${r.tpPct.toFixed(2)}% price (TP1)`,
   ].join("\n");
 };
 
 /**
- * Autopsy notice — lệnh ĐÃ ĐÓNG được LLM phân tích chuyên sâu (cả thắng lẫn thua): tag chế độ
- * thắng/thua + bài học + các why trích số. Tham số khai báo structural (không
- * import autopsy.ts) để tránh vòng import — đủ hình dạng là ghép được.
+ * Autopsy notice — a CLOSED trade analyzed in depth by the LLM (wins and losses):
+ * win/loss mode tag + lesson + why bullets with numbers. Params are structural
+ * (no autopsy.ts import) to avoid an import cycle — any matching shape works.
  */
 export const msgAutopsy = (
   t: { symbol: string; interval: string; side: string; exitKind?: string | null; pnlPct?: number | null },
@@ -221,20 +234,21 @@ export const msgAutopsy = (
 ): string =>
   [
     ...buildTradeHeader("🔬", `TRADE AUTOPSY · ${a.outcome === "win" ? "WIN ✅" : "LOSS 🔻"} · ${kindTag(t.exitKind ?? null)}`, { symbol: t.symbol, interval: t.interval, side: t.side, book: (t as any).book ?? "B" }),
-    `💵 Result: <b>${(t.pnlPct ?? 0) >= 0 ? "+" : ""}${(t.pnlPct ?? 0).toFixed(2)}% ROI</b>${a.ev?.rMultiple != null ? ` · R ${a.ev.rMultiple >= 0 ? "+" : ""}${a.ev.rMultiple.toFixed(2)}x` : ""}${a.ev?.durMin != null ? ` · held ${a.ev.durMin.toFixed(2)}m` : ""}`,
-    `🏷️ tag: <b>${escHtml(a.tag)}</b>`,
-    ...(a.why.length > 0 ? [`📝 ${a.why.map((w) => escHtml(w)).join("<br/>• ")}`] : []),
-    `💡 <b>Lesson:</b> ${escHtml(a.lesson)}`,
-    `🧠 ${escHtml(a.model ?? "llm")}${a.ms ? ` · ${(a.ms / 1000).toFixed(2)}s` : ""} — lesson feeds the next review for this pair`,
+    `💵 Result: <b>${(t.pnlPct ?? 0) >= 0 ? "+" : ""}${(t.pnlPct ?? 0).toFixed(2)}% ROI</b>${a.ev?.rMultiple != null ? ` · R ${a.ev.rMultiple >= 0 ? "+" : ""}${a.ev.rMultiple.toFixed(2)}x` : ""}${a.ev?.durMin != null ? ` · Held ${a.ev.durMin.toFixed(2)}m` : ""}`,
+    `🏷 Tag: <b>${escHtml(a.tag)}</b>`,
+    ...(a.why.length > 0 ? ["", `📝 What happened:`, ...a.why.map((w) => `• ${escHtml(w)}`)] : []),
+    "",
+    `💡 Lesson: ${escHtml(a.lesson)}`,
+    `🧠 Model: ${escHtml(a.model ?? "llm")}${a.ms ? ` · ${(a.ms / 1000).toFixed(2)}s` : ""} — this lesson feeds the next review for this pair`,
   ].join("\n");
 
-// ─── ALERT builders (0.2.71) — tier-1 notify, KHÔNG BAO GIỜ bị TG_MUTE ───────
+// ─── ALERT builders (0.2.71) — tier-1 notify, NEVER muted by TG_MUTE ───────
 
 const eqTxt = (x: number): string => x.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /**
- * 🔴 LOSS STREAK — chuỗi thua liên tiếp chạm bội TG_STREAK_ALERT (4, 8, 12…).
- * `chain` = chính các lệnh thua trong chuỗi, mới nhất trước (đã cắt sẵn).
+ * 🔴 LOSS STREAK — consecutive losses hit a TG_STREAK_ALERT multiple (4, 8, 12…).
+ * `chain` = the losing trades in the streak, newest first (already sliced).
  */
 export const msgLossStreak = (
   streak: number,
@@ -248,16 +262,18 @@ export const msgLossStreak = (
   return [
     `🔴 <b>ALERT · LOSS STREAK — ${streak} losses in a row</b>`,
     HR,
-    `📉 Chain (newest first): ${shown.join(" · ")}`,
-    `💰 Balance: <b>${equity != null ? eqTxt(equity) : "—"}</b> USDT · chain ROI <b>${net >= 0 ? "+" : ""}${net.toFixed(2)}%</b>`,
-    `🧠 Regime mismatch? Check /ai — entry gates, flip cooldown, or pause auto.`,
+    "",
+    `📉 Recent losses (newest first): ${shown.join(" · ")}`,
+    `💰 Balance: <b>${equity != null ? eqTxt(equity) : "—"}</b> USDT · Streak ROI <b>${net >= 0 ? "+" : ""}${net.toFixed(2)}%</b>`,
+    "",
+    `🧠 Action: regime mismatch? Check /ai — entry gates, flip cooldown, or pause auto.`,
   ].join("\n");
 };
 
 /**
- * 🔴 DRAWDOWN — vốn vừa cắt XUỐNG mức (đỉnh 24h × (1 − dd%)). Chỉ bắn đúng
- * lần chạm ngưỡng; hồi phục rồi phá tiếp mới bắn lại (crossing logic ở
- * tg-alerts.ddCrossOf).
+ * 🔴 DRAWDOWN — equity just cut DOWN through (24h peak × (1 − dd%)). Fires only on
+ * the crossing touch; it must recover and break again to fire again (crossing
+ * logic in tg-alerts.ddCrossOf).
  */
 export const msgDrawdown = (
   x: { peak: number; level: number; nowEq: number; ddPct: number },
@@ -266,7 +282,9 @@ export const msgDrawdown = (
   [
     `🔴 <b>ALERT · DRAWDOWN — Balance ${x.ddPct.toFixed(2)}% under the 24h peak</b>`,
     HR,
+    "",
     `💰 Balance <b>${eqTxt(x.nowEq)}</b> USDT · 24h peak ${eqTxt(x.peak)} → alert level ${eqTxt(x.level)}`,
-    `🚪 Crossed on: <b>#${crossedOn.symbol}</b> ${crossedOn.interval} closed ${(crossedOn.pnlPct ?? 0) >= 0 ? "+" : ""}${(crossedOn.pnlPct ?? 0).toFixed(2)}%`,
-    `🧠 Risk check: consecutive losses + DCA usage on /ai — consider pausing auto.`,
+    `🚪 Triggered by: <b>#${crossedOn.symbol}</b> ${crossedOn.interval} closed ${(crossedOn.pnlPct ?? 0) >= 0 ? "+" : ""}${(crossedOn.pnlPct ?? 0).toFixed(2)}%`,
+    "",
+    `🧠 Action: risk check — consecutive losses + DCA usage on /ai — consider pausing auto.`,
   ].join("\n");
