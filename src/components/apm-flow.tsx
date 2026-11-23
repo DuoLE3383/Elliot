@@ -103,6 +103,7 @@ function Line({
   flow = false,
   op = 1,
   neon = false,
+  pulse = false,
 }: {
   d: string;
   color: string;
@@ -111,6 +112,7 @@ function Line({
   flow?: boolean;
   op?: number;
   neon?: boolean;
+  pulse?: boolean;
 }) {
   return (
     <path
@@ -122,7 +124,7 @@ function Line({
       strokeLinecap="round"
       strokeLinejoin="round"
       strokeDasharray={dashed ? "5 5" : undefined}
-      className={flow ? "apm-flow" : undefined}
+      className={[flow ? "apm-flow" : "", pulse ? "apm-pulse" : ""].filter(Boolean).join(" ") || undefined}
       filter={neon ? "url(#apmNeonLine)" : undefined}
     />
   );
@@ -134,24 +136,26 @@ function NeonDefs() {
   return (
     <defs>
       {/* viền node phát sáng: halo blur + giữ nét gốc trên cùng */}
-      <filter id="apmNeon" x="-45%" y="-45%" width="190%" height="190%">
-        <feGaussianBlur stdDeviation="3.2" result="blur" />
+      <filter id="apmNeon" x="-75%" y="-75%" width="250%" height="250%">
+        <feGaussianBlur stdDeviation="4.5" result="blur" />
         <feMerge>
+          <feMergeNode in="blur" />
           <feMergeNode in="blur" />
           <feMergeNode in="SourceGraphic" />
         </feMerge>
       </filter>
       {/* dây tín hiệu phát sáng nhẹ — dùng cho dây có dòng chảy (flow) */}
-      <filter id="apmNeonLine" x="-30%" y="-30%" width="160%" height="160%">
-        <feGaussianBlur stdDeviation="1.8" result="blur" />
+      <filter id="apmNeonLine" x="-75%" y="-75%" width="250%" height="250%">
+        <feGaussianBlur stdDeviation="2.6" result="blur" />
         <feMerge>
+          <feMergeNode in="blur" />
           <feMergeNode in="blur" />
           <feMergeNode in="SourceGraphic" />
         </feMerge>
       </filter>
       {/* quầng mềm phía sau card (neon tube) — chỉ blur, lớp dưới cùng */}
-      <filter id="apmHalo" x="-60%" y="-60%" width="220%" height="220%">
-        <feGaussianBlur stdDeviation="9" />
+      <filter id="apmHalo" x="-75%" y="-75%" width="250%" height="250%">
+        <feGaussianBlur stdDeviation="11" />
       </filter>
     </defs>
   );
@@ -181,6 +185,7 @@ function Node({
   valColor,
   dashed = false,
   neon = false,
+  pulse = false,
   onClick,
 }: {
   x: number;
@@ -194,6 +199,7 @@ function Node({
   valColor: string;
   dashed?: boolean;
   neon?: boolean;
+  pulse?: boolean;
   onClick?: () => void;
 }) {
   return (
@@ -207,7 +213,8 @@ function Node({
           height={h}
           rx={10}
           fill={color}
-          opacity={0.24}
+          opacity={0.5}
+          className={pulse ? "apm-pulse" : undefined}
           filter="url(#apmHalo)"
         />
       )}
@@ -276,32 +283,32 @@ export function ApmFlowMap({
       id: "st-dock",
       title: t(lang, "apm.node.scan"),
       value: `${f.scanCombos}`,
-      sub: scanStale ? `${f.scanAgeMin}m trước · tín hiệu 1h` : "Tín hiệu 1h",
+      sub: scanStale ? `${f.scanAgeMin}m ago · 1h signals` : "1h signals",
       color: C.violet,
     },
     {
       id: "st-dock",
       title: t(lang, "apm.node.gate"),
       value: Number.isFinite(f.gatePass) ? `${f.gatePass}` : "—",
-      sub: "Qua gate · khớp auto engine",
+      sub: "Passed gate · matches auto engine",
       color: gateOn ? C.lime : C.grey,
       valColor: gateOn ? C.lime : C.sub,
     },
-    { id: "st-dock", title: t(lang, "apm.node.skipped"), value: `${f.neutral}`, sub: "NEUTRAL / nhiễu", color: C.grey, valColor: C.sub, dashed: true },
+    { id: "st-dock", title: t(lang, "apm.node.skipped"), value: `${f.neutral}`, sub: "NEUTRAL / noise", color: C.grey, valColor: C.sub, dashed: true },
   ];
 
   const colC: NodeDef[] = [
-    { id: "st-hist", title: t(lang, "apm.node.trades"), value: `${f.tradesTotal}`, sub: `${f.closedTrades} đã đóng`, color: tradesOn ? C.lime : C.grey, valColor: C.text },
-    { id: "st-hist", title: t(lang, "apm.node.tp"), value: `${f.tp}`, sub: "Chốt lời", color: C.lime, valColor: C.lime },
-    { id: "st-hist", title: t(lang, "apm.node.sl"), value: `${f.sl}`, sub: "Cắt lỗ", color: C.red, valColor: C.red },
-    { id: "st-hist", title: t(lang, "apm.node.flip"), value: `${f.flip + f.manual}`, sub: `đảo ${f.flip} · tay ${f.manual}`, color: C.amber, valColor: C.amber },
+    { id: "st-hist", title: t(lang, "apm.node.trades"), value: `${f.tradesTotal}`, sub: `${f.closedTrades} closed`, color: tradesOn ? C.lime : C.grey, valColor: C.text },
+    { id: "st-hist", title: t(lang, "apm.node.tp"), value: `${f.tp}`, sub: "Take profit", color: C.lime, valColor: C.lime },
+    { id: "st-hist", title: t(lang, "apm.node.sl"), value: `${f.sl}`, sub: "Stop loss", color: C.red, valColor: C.red },
+    { id: "st-hist", title: t(lang, "apm.node.flip"), value: `${f.flip + f.manual}`, sub: `flip ${f.flip} · manual ${f.manual}`, color: C.amber, valColor: C.amber },
   ];
 
   const aiNodes: NodeDef[] = [
-    { id: "st-autopsy", title: "Phân tích lệnh · AI", value: `${f.closedTrades}`, sub: "Review lệnh đã đóng", color: C.red },
-    { id: "st-evo", title: "Đề xuất chiến lược · AI", value: "Đề xuất", sub: "Cần phê duyệt", color: C.blue },
-    { id: "st-param", title: "Tham số · AI", value: "Làm mới", sub: "Nạp tham số đã kiểm chứng", color: C.cyan },
-    { id: "st-root", title: "Nguyên nhân gốc", value: "Theo dõi", sub: "Chẩn đoán, không tự sửa", color: C.violet },
+    { id: "st-autopsy", title: "Trade autopsy · AI", value: `${f.closedTrades}`, sub: "Review closed trades", color: C.red },
+    { id: "st-evo", title: "Strategy proposals · AI", value: "Propose", sub: "Needs approval", color: C.blue },
+    { id: "st-param", title: "Parameters · AI", value: "Refresh", sub: "Load proven parameters", color: C.cyan },
+    { id: "st-root", title: "Root cause", value: "Monitor", sub: "Diagnose only, never auto-fix", color: C.violet },
   ];
 
   const aY = (i: number) => TOP + i * (NH + GAP);
@@ -330,12 +337,14 @@ export function ApmFlowMap({
       <style>{`
         @keyframes apmFlow { to { stroke-dashoffset: -20; } }
         .apm-flow { animation: apmFlow 1.2s linear infinite; }
-        @media (prefers-reduced-motion: reduce) { .apm-flow { animation: none; } }
+        @keyframes apmPulse { from { opacity: 0.55; } to { opacity: 1; } }
+        .apm-pulse { animation: apmPulse 1.6s ease-in-out infinite alternate; }
+        @media (prefers-reduced-motion: reduce) { .apm-flow, .apm-pulse { animation: none; } }
       `}</style>
 
       {warn && (
         <div className="mb-3 rounded-lg border border-amber-300/30 bg-amber-300/5 px-3 py-2 text-xs text-amber-300">
-          Không khớp: gate = 0 nhưng đã có {f.tradesTotal} lệnh và {all.length} vị thế.
+          Mismatch: gate = 0 but {f.tradesTotal} trades and {all.length} positions already exist.
         </div>
       )}
 
@@ -402,8 +411,9 @@ export function ApmFlowMap({
             flow
             op={0.7}
             neon
+            pulse
           />
-          <Pill x={450} y={AI_Y - 26} text="kết quả → vòng AI" color={C.cyan} />
+          <Pill x={450} y={AI_Y - 26} text="results → AI loop" color={C.cyan} />
 
           {/* Chuỗi AI 1 → 2 → 3 → 4 */}
           {[0, 1, 2].map((i) => (
@@ -414,6 +424,7 @@ export function ApmFlowMap({
               w={2}
               flow
               neon
+              pulse
             />
           ))}
 
@@ -425,8 +436,9 @@ export function ApmFlowMap({
             flow
             op={0.8}
             neon
+            pulse
           />
-          <Pill x={450} y={H - 14} text="phản hồi → gate" color={C.cyan} />
+          <Pill x={450} y={H - 14} text="feedback → gate" color={C.cyan} />
 
           {/* Nodes */}
           {colA.map((n, i) => (
@@ -453,7 +465,7 @@ export function ApmFlowMap({
                 <g key={`pos${p.id ?? p.symbol}${j}`} onClick={() => onSelectPosition?.(j)} style={{ cursor: "pointer" }}>
                   <title>{`${p.symbol} ${p.side} · ROI ${p.roi == null ? "—" : `${p.roi.toFixed(2)}%`} · ${p.ageH.toFixed(1)}h`}</title>
                   {/* quầng neon theo side: long xanh, short đỏ */}
-                  <rect x={COL_B} y={pY(j)} width={NW} height={PH} rx={10} fill={color} opacity={0.16} filter="url(#apmHalo)" />
+                  <rect x={COL_B} y={pY(j)} width={NW} height={PH} rx={10} fill={color} opacity={0.32} filter="url(#apmHalo)" />
                   <rect x={COL_B} y={pY(j)} width={NW} height={PH} rx={10} fill={C.card} stroke={color} strokeOpacity={0.55} strokeDasharray="4 3" filter="url(#apmNeon)" />
                   <circle cx={COL_B + 12} cy={pY(j) + 14} r={3} fill={color} />
                   <text x={COL_B + 22} y={pY(j) + 17} fontSize={10.5} fill={C.text}>
@@ -473,9 +485,9 @@ export function ApmFlowMap({
               x={COL_B}
               y={pY(0)}
               h={PH}
-              title="Vị thế"
+              title="Position"
               value="—"
-              sub="Chưa có vị thế đang mở"
+              sub="No open positions"
               color={C.grey}
               valColor={C.sub}
               dashed
@@ -483,7 +495,7 @@ export function ApmFlowMap({
           )}
           {extra > 0 && (
             <text x={COL_B + NW / 2} y={pY(shown.length - 1) + PH + 14} textAnchor="middle" fontSize={10} fill={C.sub}>
-              +{extra} vị thế khác
+              +{extra} more positions
             </text>
           )}
 
@@ -514,6 +526,7 @@ export function ApmFlowMap({
               color={n.color}
               valColor={C.text}
               neon
+              pulse
               onClick={() => onNodeClick?.(n.id)}
             />
           ))}

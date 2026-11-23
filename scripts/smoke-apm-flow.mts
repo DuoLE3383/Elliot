@@ -1,4 +1,4 @@
-// Smoke test SSR cho ApmFlowMap — render chuỗi với props mẫu (long + short + gate on)
+// SSR smoke test for ApmFlowMap — render with sample props (long + short + gate on)
 import { renderToStaticMarkup } from "react-dom/server";
 import { ApmFlowMap, type ApmFlowCounts } from "../src/components/apm-flow";
 
@@ -28,15 +28,22 @@ const html = renderToStaticMarkup(
 );
 
 const checks: Array<[string, boolean]> = [
-  ["defs neon", html.includes('id="apmNeon"')],
-  ["filter dây", html.includes("apmNeonLine")],
-  ["quầng halo", html.includes("apmHalo")],
-  ["card long xanh #34d399", html.includes("#34d399")],
-  ["card short đỏ #fb7185", html.includes("#fb7185")],
-  ["4 node AI (theo tiêu đề)", ["Phân tích lệnh · AI", "Đề xuất chiến lược · AI", "Tham số · AI", "Nguyên nhân gốc"].every((s) => html.includes(s))],
+  ["neon defs", html.includes('id="apmNeon"')],
+  ["line filter", html.includes("apmNeonLine")],
+  ["halo filter", html.includes("apmHalo")],
+  ["neon boost blur 4.5", html.includes('stdDeviation="4.5"')],
+  ["neon line blur 2.6", html.includes('stdDeviation="2.6"')],
+  ["halo blur 11", html.includes('stdDeviation="11"')],
+  ["pulse animation on AI loop", html.includes("apm-pulse")],
+  ["long card green #34d399", html.includes("#34d399")],
+  ["short card red #fb7185", html.includes("#fb7185")],
+  ["4 AI nodes (EN titles)", ["Trade autopsy · AI", "Strategy proposals · AI", "Parameters · AI", "Root cause"].every((s) => html.includes(s))],
+  ["EN subs (1h signals)", html.includes("1h signals")],
+  ["EN subs (Take profit)", html.includes("Take profit")],
+  ["EN subs (Stop loss)", html.includes("Stop loss")],
   ["ROI +2.40%", html.includes("+2.40%")],
   ["ROI -1.10%", html.includes("-1.10%")],
-  ["không lỗi render", !html.includes("Error")],
+  ["no render error", !html.includes("Error")],
 ];
 
 let ok = 0;
