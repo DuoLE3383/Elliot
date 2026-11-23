@@ -8,6 +8,27 @@ import { feeRoi, roiOf, type AutoTradeRow, type ScanRow } from "./autotrade";
 import type { LlmVerdict } from "./llm";
 
 const HR = "━━━━━━━━━━━━━━━━━━";
+
+/** Book code + emoji — same colours as the position cards (A amber, B cyan, C violet, D emerald). */
+const BOOK_ICON: Record<string, string> = { A: "🟧", B: "🟦", C: "🟪", D: "🟩" };
+export const bookCode = (r: { book?: string | null }): string => (r.book ?? "B").toUpperCase();
+
+/** Header shared by every trade message: icon + event, then symbol · book · timeframe · side. */
+export const buildTradeHeader = (
+  icon: string,
+  event: string,
+  r: { symbol: string; interval: string; side: string; book?: string | null },
+): string[] => [
+  `${icon} <b>${event}</b>`,
+  `${BOOK_ICON[bookCode(r)] ?? "🟦"} <b>#${r.symbol}</b> · ${bookCode(r)} · ${r.interval} · ${sideTxt(r.side)}`,
+  HR,
+];
+
+/** Balance line: before → after with signed delta, USDT two decimals. */
+export const balanceLine = (before: number, after: number): string => {
+  const d = after - before;
+  return `Balance ${before.toFixed(2)} → <b>${after.toFixed(2)}</b> USDT (${d >= 0 ? "+" : ""}${d.toFixed(2)})`;
+};
 const levTxt = (x: number): string => `×${x % 1 === 0 ? x : x.toFixed(2)}`;
 const sideTxt = (side: string): string => (side === "LONG" ? "LONG 🟢" : side === "SHORT" ? "SHORT 🔴" : "NEUTRAL ⚪");
 
@@ -36,30 +57,20 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string): stri
   const stake = (equity * (r.stakePct ?? 100)) / 100;
   const notional = stake * r.leverage;
   const rr = r.slPct > 0 ? r.tpPct / r.slPct : 0;
-  const slRoi = -(r.slPct * r.leverage);
-  const tpRoi = r.tpPct * r.leverage;
-  // Phí round-trip (0.2.77) — ROI ở SL/TP trên là hình học giá; lệnh chốt còn
-  // gánh thêm đúng chừng này (2 × FEE_PCT × lev % ROI). In rõ để nhìn msg là
-  // biết ngay VÌ SAO ROI realised thấp hơn mức bảng SL/TP.
   const feeRt = feeRoi(r.leverage, 2);
-  const feeSide = feeRoi(r.leverage, 1);
+  const slNow = slPrice(r.side, r.entryPrice, r.slPct);
+  const tpNow = tpPrice(r.side, r.entryPrice, r.tpPct);
   const lines = [
-    `🤖 <b>AUTO OPEN (dry-run) · ${r.side === "LONG" ? "LONG 🟢" : "SHORT 🔴"}</b>`,
-    `📌 <b>#${r.symbol}</b> · ${r.interval}`,
-    HR,
-    `🎯 Entry: <b>${fmtPrice(r.entryPrice)}</b>`,
-    `🛑 SL: <b>${fmtPrice(slPrice(r.side, r.entryPrice, r.slPct))}</b> · −${r.slPct.toFixed(2)}% price (ROI ${slRoi.toFixed(2)}% @ ${levTxt(r.leverage)})`,
-    `🏁 TP: <b>${fmtPrice(tpPrice(r.side, r.entryPrice, r.tpPct))}</b> · +${r.tpPct.toFixed(2)}% price (ROI +${tpRoi.toFixed(2)}% @ ${levTxt(r.leverage)})`,
+    ...buildTradeHeader("🟢", "OPEN", r),
+    `Entry <b>${fmtPrice(r.entryPrice)}</b>`,
+    `SL <b>${fmtPrice(slNow)}</b> (−${r.slPct.toFixed(2)}% price · ROI ${(-(r.slPct * r.leverage)).toFixed(2)}%)`,
+    `TP <b>${fmtPrice(tpNow)}</b> (+${r.tpPct.toFixed(2)}% price · ROI +${(r.tpPct * r.leverage).toFixed(2)}%)`,
+    `Lev ${levTxt(r.leverage)} · Stake ${r.stakePct ?? 100}% · R:R 1:${rr.toFixed(2)}`,
+    `Margin <b>${stake.toFixed(2)}</b> USDT · Size ${notional.toFixed(2)} USDT`,
   ];
-  if (feeRt > 0) {
-    lines.push(`🧾 Fees round-trip: <b>−${feeRt.toFixed(2)}% ROI</b> (2 × ${feeSide.toFixed(2)}%/side @ ${levTxt(r.leverage)}) — realized ROI is net of fees`);
-  }
+  if (feeRt > 0) lines.push(`Fees round-trip −${feeRt.toFixed(2)}% ROI (net in realized ROI)`);
   if (atrNote) lines.push(atrNote);
-  lines.push(
-    `⚖️ Leverage ${levTxt(r.leverage)} · R:R 1:${rr.toFixed(2)}`,
-    `📦 Margin: <b>${stake.toFixed(2)}</b> USDT · ${r.stakePct ?? 100}% equity · Kích thước ${notional.toFixed(2)} USDT · PnL SL -${((r.slPct ?? 0) * r.leverage * stake / 100).toFixed(2)} / TP +${((r.tpPct ?? 0) * r.leverage * stake / 100).toFixed(2)} USDT`,
-    `🧠 ${probTxt(r.side, r.prob ?? 0)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}% · Score ${(r.score ?? 0).toFixed(2)}`,
-  );
+  lines.push(`${probTxt(r.side, r.prob ?? 0)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}% · Score ${(r.score ?? 0).toFixed(2)}`);
   return lines.join("\n");
 };
 
