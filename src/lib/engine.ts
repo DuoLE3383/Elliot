@@ -1740,6 +1740,31 @@ async function cycleTick(): Promise<void> {
     // 3) open the position (DB race-safe — reject while another is open)
     const existing = await db.autoTrade.findFirst({ where: { status: "open", symbol: best.symbol, interval: best.interval } });
     if (existing) return; // combo nay vua co lenh (race) - cycle sau mo combo khac
+    // DUP-SIGNAL GUARD: DB is the source of truth (the in-memory trades cache can lag).
+    // Block only a near-identical re-entry: same symbol/interval/side, a trade closed
+    // within DUP_WINDOW_MS, and entry within DUP_PRICE_TOL of that trade's entry.
+    // SL / trail / tp re-entries on a genuinely new signal (different price) are NOT blocked.
+    {
+      const DUP_WINDOW_MS = 5 * 60_000;
+      const DUP_PRICE_TOL = 0.001; // 0.1%
+      const dupSide = best.bias === "SHORT" ? "SHORT" : "LONG";
+      const dup = await db.autoTrade.findFirst({
+        where: {
+          symbol: best.symbol,
+          interval: best.interval,
+          side: dupSide,
+          status: "closed",
+          exitTime: { gte: new Date(Date.now() - DUP_WINDOW_MS) },
+        },
+        orderBy: { exitTime: "desc" },
+      });
+      if (dup && dup.exitTime && Math.abs(dup.entryPrice - price) / price <= DUP_PRICE_TOL) {
+        const ago = Math.round((Date.now() - new Date(dup.exitTime).getTime()) / 1000);
+        console.info(`[engine] DUP-SIGNAL skip ${best.symbol} ${best.interval} ${dupSide} @ ${price} — same entry as trade closed ${ago}s ago`);
+        v.lastCycleStatus = `dup-signal ${best.symbol} ${best.interval} skipped`;
+        return;
+      }
+    }
     const stNow = await readAutoState();
     const capitalNow = stNow.capital ?? c.capital;
     const usedMargin = (stNow.opens ?? (stNow.open ? [stNow.open] : [])).reduce((a, o) => a + ((o.capitalBefore ?? capitalNow) * (o.stakePct ?? 100)) / 100, 0);
