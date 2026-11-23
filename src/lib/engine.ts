@@ -1848,7 +1848,7 @@ async function cycleTick(): Promise<void> {
         c.tpMode === "dyn" && live
           ? `📏 SL/TP động = ATR ${live.atrPct.toFixed(2)}% × ${coef} · time ×${live.heatMul.toFixed(2)} · vol ×${live.volMul.toFixed(2)}${levScale < 1 ? ` · lev-norm ×${levScale.toFixed(2)} @ ×${tradeLev}` : ""} → SL ${finalSl}% · TP ${finalTp}% — pair/time/volume đo tại entry`
           : finalSl !== entrySl || finalTp !== entryTp
-            ? `📏 SL/TP liq-capped @ ×${p.leverage}: ${entrySl}/${entryTp}% → ${finalSl}/${finalTp}% (max ${pval("TP_LIQ_SAFE", TP_LIQ_SAFE)}% of the liquidation distance)`
+            ? `📏 SL/TP capped by liquidation safety @ ×${p.leverage}: ${entrySl}/${entryTp}% → ${finalSl}/${finalTp}% (max ${pval("TP_LIQ_SAFE", TP_LIQ_SAFE)}% of the liquidation distance)`
             : "";
       const note = [baseNote, capNote].filter(Boolean).join(" · ") || undefined;
       void tgSendMessage(
@@ -1984,7 +1984,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
       c.tpMode === "dyn" && live
         ? `📏 SL/TP động = ATR ${live.atrPct.toFixed(2)}% × ${coef} · time ×${live.heatMul.toFixed(2)} · vol ×${live.volMul.toFixed(2)}${levScale < 1 ? ` · lev-norm ×${levScale.toFixed(2)} @ ×${p.leverage}` : ""} → SL ${finalSl}% · TP ${finalTp}% — pair/time/volume đo lúc LẬT CHIỀU 🔄`
         : finalSl !== slPct || finalTp !== tpPct
-          ? `📏 SL/TP liq-capped @ ×${p.leverage}: ${slPct}/${tpPct}% → ${finalSl}/${finalTp}% (max ${pval("TP_LIQ_SAFE", TP_LIQ_SAFE)}% of the liquidation distance)`
+          ? `📏 SL/TP capped by liquidation safety @ ×${p.leverage}: ${slPct}/${tpPct}% → ${finalSl}/${finalTp}% (max ${pval("TP_LIQ_SAFE", TP_LIQ_SAFE)}% of the liquidation distance)`
           : "";
     const note = [baseNote, capNote].filter(Boolean).join(" · ") || undefined;
     void tgSendMessage(

@@ -16,6 +16,8 @@
 
 import { db } from "./db";
 import { tgSendMessage } from "./telegram-store";
+import { fmtPrice } from "./i18n";
+import { buildTradeHeader } from "./tg-msgs";
 import { readUnifiedSettled } from "./unified-balance";
 import { fetchKlinesDirect } from "./klines-direct";
 import { feeRoi, pval, VUL_ATR_STOP_MULT, VUL_VOL_FACTOR } from "./params";
@@ -228,14 +230,14 @@ async function vulcanSymbolTick(symbol: string, lastCandleT: Map<string, number>
     const unifiedBalA = await readUnifiedSettled().then((u) => u.balance).catch(() => undefined);
     void tgSendMessage(
       [
-      `🟢 <b>OPEN</b>`,
-      `🟧 <b>#${symbol}</b> · A · 15m · ${action.side === "LONG" ? "LONG 🟢" : "SHORT 🔴"}`,
-      `━━━━━━━━━━━━━━━━━━`,
-      `🎯 Entry <b>${action.entry}</b>`,
-      `📐 SL <b>${action.stopPrice.toFixed(2)}</b> · Trail Donchian`,
-      `Lev ×5 · Stake 10%`,
+      ...buildTradeHeader("🟢", "OPEN", { symbol, interval: "15m", side: action.side, book: "A" }),
+      `🎯 Entry <b>${fmtPrice(Number(action.entry))}</b>`,
+      `🛑 Stop Loss <b>${fmtPrice(Number(action.stopPrice))}</b> · Trailing — Donchian (no fixed TP)`,
+      "",
+      `⚖️ Leverage ×5 · Stake 10% of Balance`,
+      "",
       ...(unifiedBalA != null ? [`💰 Balance <b>${unifiedBalA.toFixed(2)}</b> USDT`] : []),
-      ].join(String.fromCharCode(10)),
+      ].join("\n"),
       "HTML",
       { dedupeKey: `open:A:${created.id}` },
     ).catch(() => {});

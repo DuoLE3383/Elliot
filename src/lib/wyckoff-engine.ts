@@ -28,6 +28,8 @@
 
 import { db } from "./db";
 import { tgSendMessage } from "./telegram-store";
+import { fmtPrice } from "./i18n";
+import { buildTradeHeader } from "./tg-msgs";
 import { readUnifiedSettled } from "./unified-balance";
 import { fetchKlinesDirect } from "./klines-direct";
 import { feeRoi, pval } from "./params";
@@ -690,14 +692,14 @@ async function wyckoffTick(): Promise<void> {
     const unifiedBalC = await readUnifiedSettled().then((u) => u.balance).catch(() => undefined);
     void tgSendMessage(
       [
-      `🟢 <b>OPEN</b>`,
-      `🟪 <b>#${pick.sym}</b> · C · 1d · LONG 🟢`,
-      `━━━━━━━━━━━━━━━━━━`,
-      `🎯 Entry <b>${entry}</b>`,
-      `📐 SL <b>${stop.toPrecision(6)}</b> · Trigger ${pick.trig.kind} · Score ${pick.trig.score.toFixed(2)}`,
-      `Lev ×1 · Stake 10%`,
+      ...buildTradeHeader("🟢", "OPEN", { symbol: pick.sym, interval: "1d", side: "LONG", book: "C" }),
+      `🎯 Entry <b>${fmtPrice(Number(entry))}</b>`,
+      `🛑 Stop Loss <b>${fmtPrice(Number(stop))}</b> · Wyckoff trigger: ${pick.trig.kind} · Trigger score ${pick.trig.score.toFixed(2)}`,
+      "",
+      `⚖️ Leverage ×1 · Stake 10% of Balance`,
+      "",
       ...(unifiedBalC != null ? [`💰 Balance <b>${unifiedBalC.toFixed(2)}</b> USDT`] : []),
-      ].join(String.fromCharCode(10)),
+      ].join("\n"),
       "HTML",
       { dedupeKey: `open:C:${pick.sym}:${entry}` },
     ).catch(() => {});

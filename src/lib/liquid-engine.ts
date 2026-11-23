@@ -11,6 +11,8 @@ import { fetchKlinesDirect } from "./klines-direct";
 import { breadthPct } from "./wyckoff-gate";
 import { db } from "./db";
 import { tgSendMessage } from "./telegram-store";
+import { fmtPrice } from "./i18n";
+import { buildTradeHeader } from "./tg-msgs";
 import { readUnifiedSettled } from "./unified-balance";
 
 // Pair lấy từ pair scan / Universe — KHÔNG hardcode, KHÔNG fallback.
@@ -108,14 +110,15 @@ export async function startLiquidEngine(symbols: string[]) {
     const unifiedBalD = await readUnifiedSettled().then((u) => u.balance).catch(() => undefined);
     void tgSendMessage(
       [
-      `🟢 <b>OPEN</b>`,
-      `🟩 <b>#${sym}</b> · D · ${tf} · SHORT 🔴`,
-      `━━━━━━━━━━━━━━━━━━`,
-      `🎯 Entry <b>${entry}</b>`,
-      `📐 SL <b>${stopPrice.toFixed(2)}</b> · TP <b>${tpPrice.toFixed(2)}</b>`,
-      `Lev ×3 · Stake 10%`,
+      ...buildTradeHeader("🟢", "OPEN", { symbol: sym, interval: tf, side: "SHORT", book: "D" }),
+      `🎯 Entry <b>${fmtPrice(Number(entry))}</b>`,
+      `🛑 Stop Loss <b>${fmtPrice(Number(stopPrice))}</b> (+${dec.stopPct.toFixed(2)}% price)`,
+      `🏁 Take Profit <b>${fmtPrice(Number(tpPrice))}</b> (−${(dec.stopPct * 1.4).toFixed(2)}% price)`,
+      "",
+      `⚖️ Leverage ×3 · Stake 10% of Balance`,
+      "",
       ...(unifiedBalD != null ? [`💰 Balance <b>${unifiedBalD.toFixed(2)}</b> USDT`] : []),
-      ].join(String.fromCharCode(10)),
+      ].join("\n"),
       "HTML",
       { dedupeKey: `open:D:${sym}:${tf}:${entry}` },
     ).catch(() => {});

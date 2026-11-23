@@ -41,10 +41,15 @@ export async function POST(req: NextRequest) {
     if (body.action === "notify") {
       const info: any = await getEvolveInfo();
       const a = info.active;
-      const msg = `🧬 <b>SELF-EVOLUTION</b> — Agent HEDGE · Book B (XGB)\n` +
-        `Combo: <b>${a?.combo ?? "—"}</b> · ${a?.name ?? ""}\n` +
-        `Watch: ${info.watch?.n ?? 0}/${info.watch?.need ?? 15} trades · Cooldown: ${info.cooldownH ?? 24}h\n` +
-        `Status: ${a ? "promoted " + a.at : "no active combo"}`;
+      const msg = [
+        `🧬 <b>SELF-EVOLUTION</b>`,
+        `🤖 Agent HEDGE · Book B (XGB)`,
+        ``,
+        `🧪 Active combo: <b>${a?.combo ?? "—"}</b>${a?.name ? " — " + a.name : ""}`,
+        `👀 Watch: ${info.watch?.n ?? 0}/${info.watch?.need ?? 15} trades · Cooldown: ${info.cooldownH ?? 24}h`,
+        ``,
+        `📊 Status: ${a ? "promoted at " + a.at : "no active combo"}`,
+      ].join("\n");
       const r = await tgSendMessage(msg, "HTML");
       return NextResponse.json({ sent: r.ok ? ["evolve-notify"] : [] });
     }

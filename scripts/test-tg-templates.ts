@@ -140,7 +140,7 @@ const streakChain = [
 ];
 
 const msgs: Array<{ key: string; label: string; text: string }> = [
-  { key: "open", label: "OPEN · LONG", text: msgOpen(openLong, 1118.4, "📏 SL/TP liq-capped @ ×10: 1.5/3.0% → 1.2/2.4%", BAL) },
+  { key: "open", label: "OPEN · LONG", text: msgOpen(openLong, 1118.4, "📏 SL/TP capped by liquidation safety @ ×10: 1.5/3.0% → 1.2/2.4%", BAL) },
   { key: "open", label: "OPEN · SHORT", text: msgOpen(openShort, 1118.4, undefined, BAL) },
   { key: "close", label: "CLOSE · TP win", text: msgClose(closedTp, 174, 74.71, 12.11, BAL) },
   { key: "close", label: "CLOSE · SL loss + slippage", text: msgClose(closedSl, 175, 74.29, 11.52, 1115.2) },
@@ -155,9 +155,9 @@ const msgs: Array<{ key: string; label: string; text: string }> = [
   { key: "autopsy", label: "AUTOPSY · LOSS", text: msgAutopsy(closedSl, { outcome: "loss", tag: "fomo", why: ["Chased entry", "No retest"], lesson: "Wait for retest", ev: { rMultiple: -1.2, durMin: 20, mfePct: 0.5, maePct: -2.1 }, ms: 900, model: "llm" }) },
   { key: "streak", label: "LOSS STREAK x3", text: msgLossStreak(3, streakChain, BAL) },
   { key: "drawdown", label: "DRAWDOWN -2%", text: msgDrawdown({ peak: 1150, level: 1127, nowEq: 1120, ddPct: 2 }, closedSl) },
-  { key: "open-a", label: "OPEN · Book A Vulcan", text: [...buildTradeHeader("🟢", "OPEN", { symbol: "ETH", interval: "15m", side: "LONG", book: "A" }), `🎯 Entry <b>3500</b>`, `📐 SL <b>3420.50</b> · Trail Donchian`, `Lev ×5 · Stake 10%`, `💰 Balance <b>${BAL.toFixed(2)}</b> USDT`].join("\n") },
-  { key: "open-c", label: "OPEN · Book C Wyckoff", text: [...buildTradeHeader("🟢", "OPEN", { symbol: "SOL", interval: "1d", side: "LONG", book: "C" }), `🎯 Entry <b>180.25</b>`, `📐 SL <b>165.400000</b> · Trigger accum · Score 0.82`, `Lev ×1 · Stake 10%`, `💰 Balance <b>${BAL.toFixed(2)}</b> USDT`].join("\n") },
-  { key: "open-d", label: "OPEN · Book D Liquid", text: [...buildTradeHeader("🟢", "OPEN", { symbol: "DOGE", interval: "4h", side: "SHORT", book: "D" }), `🎯 Entry <b>0.1800</b>`, `📐 SL <b>0.1850</b> · TP <b>0.1720</b>`, `Lev ×3 · Stake 10%`, `💰 Balance <b>${BAL.toFixed(2)}</b> USDT`].join("\n") },
+  { key: "open-a", label: "OPEN · Book A Vulcan", text: [...buildTradeHeader("🟢", "OPEN", { symbol: "ETH", interval: "15m", side: "LONG", book: "A" }), `🎯 Entry <b>3,500.00</b>`, `🛑 Stop Loss <b>3,420.50</b> · Trailing — Donchian (no fixed TP)`, ``, `⚖️ Leverage ×5 · Stake 10% of Balance`, ``, `💰 Balance <b>${BAL.toFixed(2)}</b> USDT`].join("\n") },
+  { key: "open-c", label: "OPEN · Book C Wyckoff", text: [...buildTradeHeader("🟢", "OPEN", { symbol: "SOL", interval: "1d", side: "LONG", book: "C" }), `🎯 Entry <b>180.25</b>`, `🛑 Stop Loss <b>165.40</b> · Wyckoff trigger: accum · Trigger score 0.82`, ``, `⚖️ Leverage ×1 · Stake 10% of Balance`, ``, `💰 Balance <b>${BAL.toFixed(2)}</b> USDT`].join("\n") },
+  { key: "open-d", label: "OPEN · Book D Liquid", text: [...buildTradeHeader("🟢", "OPEN", { symbol: "DOGE", interval: "4h", side: "SHORT", book: "D" }), `🎯 Entry <b>0.1800</b>`, `🛑 Stop Loss <b>0.1850</b> (+2.78% price)`, `🏁 Take Profit <b>0.1720</b> (−4.44% price)`, ``, `⚖️ Leverage ×3 · Stake 10% of Balance`, ``, `💰 Balance <b>${BAL.toFixed(2)}</b> USDT`].join("\n") },
 ];
 
 async function main(): Promise<void> {
