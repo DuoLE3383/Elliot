@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
       const a = info.active;
       const msg = [
         `🧬 <b>SELF-EVOLUTION</b>`,
-        `🤖 Agent HEDGE · Book B (XGB)`,
+        `🤖 Agent HERCULES · Book B (XGB)`,
         ``,
         `🧪 Active combo: <b>${a?.combo ?? "—"}</b>${a?.name ? " — " + a.name : ""}`,
         `👀 Watch: ${info.watch?.n ?? 0}/${info.watch?.need ?? 15} trades · Cooldown: ${info.cooldownH ?? 24}h`,

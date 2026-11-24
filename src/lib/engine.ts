@@ -1423,9 +1423,9 @@ async function llmGate(
 
 // ─── AGENTS — nguồn duy nhất: ./agent-presets (UI + engine + digest cùng số) ──
 function applyAgentPreset(cfg: any): any {
-  const id = (cfg?.agent || "HEDGE") as AgentId;
-  if (id === "GRAIL") return cfg; // GRAIL locked — chưa map, giữ cfg hiện tại
-  const pr = AGENT_PRESETS[id] || AGENT_PRESETS.HEDGE;
+  const id = (cfg?.agent || "HERCULES") as AgentId;
+  if (id === "OLYMPUS") return cfg; // OLYMPUS locked — chưa map, giữ cfg hiện tại
+  const pr = AGENT_PRESETS[id] || AGENT_PRESETS.HERCULES;
   // Giữ runTf user đã bật/tắt — preset Agent không được ghi đè TF
   return { ...cfg, ...pr, runTf: cfg?.runTf?.length ? cfg.runTf : [...pr.runTf] };
 }

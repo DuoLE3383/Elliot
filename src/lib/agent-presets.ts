@@ -1,10 +1,10 @@
 // ─── AGENT PRESETS — nguồn duy nhất cho UI + engine + digest Telegram ────────
-// Trước đây HEDGE lệch giữa auto-panel.tsx và engine.ts
+// Trước đây HERCULES lệch giữa auto-panel.tsx và engine.ts
 // → panel set gate 66/0.78/76 trong khi backend chạy 55/0.72/68. Một nguồn
 // hết lệch sync. Chỉnh agent ở đây là cả panel, applyAgentPreset, hourly
 // header cùng số.
 
-export type AgentId = "VAULT" | "HEDGE" | "ALPHA" | "GRAIL";
+export type AgentId = "ATHENA" | "HERCULES" | "ZEUS" | "OLYMPUS";
 
 export interface AgentPreset {
   riskPct: number;
@@ -19,9 +19,9 @@ export interface AgentPreset {
   slConfirmTicks: number;
 }
 
-/** Preset vận hành — engine apply khi user chọn Agent (GRAIL lock riêng). */
+/** Preset vận hành — engine apply khi user chọn Agent (OLYMPUS lock riêng). */
 export const AGENT_PRESETS: Record<AgentId, AgentPreset> = {
-  VAULT: {
+  ATHENA: {
     riskPct: 10,
     minAuc: 0.82,
     minAcc: 80,
@@ -34,7 +34,7 @@ export const AGENT_PRESETS: Record<AgentId, AgentPreset> = {
     slConfirmTicks: 2,
   },
   // Balanced — khớp gate đang chạy live / Telegram (55/0.72/68)
-  HEDGE: {
+  HERCULES: {
     riskPct: 10,
     minAuc: 0.72,
     minAcc: 68,
@@ -46,7 +46,7 @@ export const AGENT_PRESETS: Record<AgentId, AgentPreset> = {
     runnerTrailLock: 0.5,
     slConfirmTicks: 2,
   },
-  ALPHA: {
+  ZEUS: {
     riskPct: 10,
     minAuc: 0.74,
     minAcc: 72,
@@ -58,7 +58,7 @@ export const AGENT_PRESETS: Record<AgentId, AgentPreset> = {
     runnerTrailLock: 0.3,
     slConfirmTicks: 2,
   },
-  GRAIL: {
+  OLYMPUS: {
     riskPct: 10,
     minAuc: 0.8,
     minAcc: 78,
@@ -73,15 +73,15 @@ export const AGENT_PRESETS: Record<AgentId, AgentPreset> = {
 };
 
 export const AGENT_META: { id: AgentId; icon: string; desc: string }[] = [
-  { id: "VAULT", icon: "🗄", desc: "Safe" },
-  { id: "HEDGE", icon: "⚖", desc: "Balanced" },
-  { id: "ALPHA", icon: "🚀", desc: "Aggressive" },
-  { id: "GRAIL", icon: "👑", desc: "Elliott 🏵" },
+  { id: "ATHENA", icon: "♻️", desc: "Safe" },
+  { id: "HERCULES", icon: "☣️", desc: "Balanced" },
+  { id: "ZEUS", icon: "🔱", desc: "Aggressive" },
+  { id: "OLYMPUS", icon: "👑", desc: "Elliott 🏵" },
 ];
 
 export function agentPresetOf(id: string | null | undefined): AgentPreset {
-  const k = (id || "HEDGE") as AgentId;
-  return AGENT_PRESETS[k] ?? AGENT_PRESETS.HEDGE;
+  const k = (id || "HERCULES") as AgentId;
+  return AGENT_PRESETS[k] ?? AGENT_PRESETS.HERCULES;
 }
 
 /** Header digest: [riskPct, minScore, minAuc, minAcc] */
@@ -91,6 +91,6 @@ export function agentGateTuple(id: string | null | undefined): [number, number, 
 }
 
 export function agentIconOf(id: string | null | undefined): string {
-  const m = AGENT_META.find((x) => x.id === (id || "HEDGE"));
+  const m = AGENT_META.find((x) => x.id === (id || "HERCULES"));
   return m?.icon ?? "⚖";
 }

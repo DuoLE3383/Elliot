@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 // Trả về lệnh OPEN của 4 sổ A/B/C/D dạng AutoTradeRow để auto-panel merge vào POSITIONS OPENING.
 // Chỉ ĐỌC — không đóng/mở lệnh ở đây.
 // A/C/D: VulcanBook/WyckoffBook/LiquidBook (lev/stake cố định theo sổ).
-// B: AutoTrade (lev/stake/interval/capitalBefore lấy ĐÚNG từ row — HEDGE stake 10%, lev dynLeverage).
+// B: AutoTrade (lev/stake/interval/capitalBefore lấy ĐÚNG từ row — HERCULES stake 10%, lev dynLeverage).
 function mapRow(r: any, book: string) {
   return {
     id: `${book}-${r.id}`, symbol: r.symbol, interval: book === "A" ? "15m" : "1d", leverage: book === "A" ? 5 : book === "D" ? 3 : 1,

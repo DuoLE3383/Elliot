@@ -1013,7 +1013,7 @@ export interface AutoAnalytics {
   /** net + n theo chiều */
   bySide: Array<{ side: string; n: number; net: number; wr: number }>;
   /** đường vốn từ chuỗi capitalAfter (cũ → mới) */
-  equity: Array<{ t: string; capital: number }>;
+  equity: Array<{ t: string; capital: number; pnl?: number; symbol?: string; side?: string; exitKind?: string | null }>;
   closed: number;
   wins: number;
   winRate: number;
@@ -1299,9 +1299,9 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
   const eqTxt2 = eqDelta != null ? ` · Balance Δ ${eqDelta >= 0 ? "+" : ""}${eqDelta.toFixed(2)}%` : "";
   const capLabel = periodLabel.charAt(0).toUpperCase() + periodLabel.slice(1);
   const eq = st.capital != null ? st.capital.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
-  // TG UPGRADE — Agent header: lấy agent từ state nếu có, fallback HEDGE
+  // TG UPGRADE — Agent header: lấy agent từ state nếu có, fallback HERCULES
   const anySt0 = st as any;
-  const agentId = (anySt0.agent || anySt0.cfg?.agent || "HEDGE") as string;
+  const agentId = (anySt0.agent || anySt0.cfg?.agent || "HERCULES") as string;
   const ag = agentGateTuple(agentId); // [risk, score, auc, acc] — cùng nguồn engine/UI
   const agentIcon = agentIconOf(agentId);
   const rp = agentPresetOf(agentId);
@@ -1387,8 +1387,8 @@ export async function pushAutoStats(body: { hourly?: boolean; daily?: boolean; f
 export const AUTO_LS_KEY = "utp.auto";
 
 export interface AutoConfig {
-  /** Agent — VAULT | HEDGE | ALPHA | GRAIL (GRAIL locked) */
-  agent?: "VAULT" | "HEDGE" | "ALPHA" | "GRAIL";
+  /** Agent — ATHENA | HERCULES | ZEUS | OLYMPUS (OLYMPUS locked) */
+  agent?: "ATHENA" | "HERCULES" | "ZEUS" | "OLYMPUS";
   on: boolean;
   /** dry-run starting equity, USDT */
   capital: number;
@@ -1493,7 +1493,7 @@ export interface AutoConfig {
 
 export const AUTO_DEFAULTS: AutoConfig = {
   on: false,
-  agent: "HEDGE",
+  agent: "HERCULES",
   capital: 1000,
   // audit 04/11: 25% vốn/lệnh là nguyên nhân −40% net ROI hoá nhỏ thành
   // swing vốn lớn; khuyến nghị 2-3%/lệnh — mặc định 3, trần RISK_MAX_STAKE
@@ -1616,7 +1616,7 @@ export function loadAutoConfig(): AutoConfig {
     const p = JSON.parse(raw) as Partial<AutoConfig>;
     return {
       on: p.on === true,
-      agent: (["VAULT","HEDGE","ALPHA","GRAIL"] as const).includes(p.agent as any) ? (p.agent as "VAULT"|"HEDGE"|"ALPHA"|"GRAIL") : AUTO_DEFAULTS.agent,
+      agent: (["ATHENA","HERCULES","ZEUS","OLYMPUS"] as const).includes(p.agent as any) ? (p.agent as "ATHENA"|"HERCULES"|"ZEUS"|"OLYMPUS") : AUTO_DEFAULTS.agent,
       capital: typeof p.capital === "number" && p.capital > 0 ? p.capital : AUTO_DEFAULTS.capital,
       riskPct: RISK_CHOICES.includes(p.riskPct as (typeof RISK_CHOICES)[number]) ? (p.riskPct as number) : AUTO_DEFAULTS.riskPct,
       tpMode: sanitizeTpMode(p.tpMode),

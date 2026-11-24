@@ -36,15 +36,20 @@ function OpenPositionsModalLauncher(props: any) {
       markPrice: mark,
       pnlUsd: (margin * roi) / 100,
       roi: roi,
-      slPrice: slPriceV,
+      slPrice: (o as any).p1Pct != null ? (side === "LONG" ? entry * (1 + Number((o as any).trailPct ?? tpPct) / 100) : entry * (1 - Number((o as any).trailPct ?? tpPct) / 100)) : slPriceV,
       tpPrice: tpPriceV,
-      distSlPct: entry > 0 ? (Math.abs(slPriceV - mark) / entry) * 100 : 0,
-      distTpPct: entry > 0 ? (Math.abs(tpPriceV - mark) / entry) * 100 : 0,
+      distSlPct: entry > 0 ? (side === "LONG" ? (mark - slPriceV) / entry * 100 : (slPriceV - mark) / entry * 100) : 0,
+      distTpPct: entry > 0 ? (side === "LONG" ? (tpPriceV - mark) / entry * 100 : (mark - tpPriceV) / entry * 100) : 0,
       marginUsd: margin,
       sizeUsd: margin * Number(o.leverage ?? 1),
       leverage: o.leverage,
       liqPrice: o.liqPrice ?? null,
-      trailText: o.trailText ?? undefined,
+      trailText: (o as any).p1Pct != null ? "RUNNER ARMED - SL floor TP1" : (o as any).trailText ?? undefined,
+      p1Pct: (o as any).p1Pct ?? null,
+      p1Share: (o as any).p1Share ?? null,
+      tp2Pct: (o as any).tp2Pct ?? null,
+      trailPct: (o as any).trailPct ?? null,
+      peakPrice: (o as any).peakPrice ?? (o as any).peak ?? (o as any).maxPrice ?? (o as any).runnerPeak ?? null,
     };
   });
   return (
@@ -867,24 +872,24 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
           <CardContent className="space-y-3 px-4 pt-2">
             <div className="flex flex-wrap items-center gap-2 rounded-lg border border-violet-700/60 bg-violet-950/20 px-2 py-1">
               <span className="text-xs">⚖</span>
-              <span className="font-mono text-xs font-bold text-violet-300">{(cfg as any)?.agent ?? "HEDGE"} Agent</span>
+              <span className="font-mono text-xs font-bold text-violet-300">{(cfg as any)?.agent ?? "HERCULES"} Agent</span>
               <span className="font-mono text-xs text-zinc-300">Risk {cfg?.riskPct ?? "?"}% - Gate {cfg?.minScore ?? "?"}/{cfg?.minAuc ?? "?"}/{cfg?.minAcc ?? "?"} - TF {(cfg?.runTf ?? []).join("/")} - Lev x{leverage}</span>
               <span className="ml-auto rounded px-1.5 py-0.5 font-mono text-xs font-bold bg-emerald-950/60 text-emerald-300">{opens.length > 0 ? "IN POSITION" : "STANDBY / SCANNING"}</span>
             </div>
-            {/* ─── TAB AGENT — bộ chọn VAULT/HEDGE/ALPHA/GRAIL ─── */}
+            {/* ─── TAB AGENT — bộ chọn ATHENA/HERCULES/ZEUS/OLYMPUS ─── */}
             {tab === "agent" && (
               <div>
                 <h3 className="mb-2 text-[12px] font-bold uppercase tracking-wider text-zinc-300">AI Agents Choice</h3>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {AGENTS.map((a) => {
-                    const cur = (cfg as any)?.agent || "HEDGE";
-                    const locked = a.id === "GRAIL";
+                    const cur = (cfg as any)?.agent || "HERCULES";
+                    const locked = a.id === "OLYMPUS";
                     const active = cur === a.id;
                     return (
                       <button
                         key={a.id}
                         disabled={locked}
-                        title={locked ? "GRAIL locked — unlocks after B reaches 20 trades and C clears RISK_OFF" : a.desc}
+                        title={locked ? "OLYMPUS locked — unlocks after B reaches 20 trades and C clears RISK_OFF" : a.desc}
                         onClick={() => {
                           const pr = AGENT_UI_PRESETS[a.id] || {};
                           onCfgChange({ agent: a.id, ...pr } as any);

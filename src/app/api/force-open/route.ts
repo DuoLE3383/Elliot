@@ -1,7 +1,7 @@
 // ─── /api/force-open — Force Start từ BEST ────────────────────────────────
 // Bypass DQF/Wyckoff/combo. Mở ngay ở giá live, thoát vẫn theo Elliot/A.
-// THEO ĐÚNG ENGINE B: stake = clampStake(riskPct HEDGE 10%), lev = dynLeverage(score, minScore, ATR)
-// KHÔNG 100%, KHÔNG 2% (ALPHA), KHÔNG hardcode 10.
+// THEO ĐÚNG ENGINE B: stake = clampStake(riskPct HERCULES 10%), lev = dynLeverage(score, minScore, ATR)
+// KHÔNG 100%, KHÔNG 2% (ZEUS), KHÔNG hardcode 10.
 import { NextRequest, NextResponse } from "next/server";
 import { POST as autotradePOST } from "../autotrade/route";
 import { agentPresetOf } from "@/lib/agent-presets";
@@ -40,8 +40,8 @@ export async function POST(req: NextRequest) {
   if (!symbol || (bias !== "LONG" && bias !== "SHORT"))
     return NextResponse.json({ error: "symbol/bias required (LONG/SHORT)" }, { status: 400 });
 
-  const agentId = String(body.agent ?? "HEDGE").toUpperCase();
-  const preset = agentPresetOf(agentId); // HEDGE: riskPct 1.0, minScore 55
+  const agentId = String(body.agent ?? "HERCULES").toUpperCase();
+  const preset = agentPresetOf(agentId); // HERCULES: riskPct 1.0, minScore 55
 
   let entryPrice = Number(body.entryPrice ?? 0);
   if (!entryPrice || !isFinite(entryPrice)) {
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
   // Leverage: đúng công thức engine B 0.3.4 — score vừa đủ gate -> 5x, +15 -> 20x, ATR to -> hạ lev
   const tradeLev = dynLeverage(score, preset.minScore, atrPct);
   // Stake: Force = ép mở nên lấy full riskPct (không lấy tierMin), rồi clamp như engine
-  // Ưu tiên Risk slider UI gửi lên, không có thì fallback về preset HEDGE
+  // Ưu tiên Risk slider UI gửi lên, không có thì fallback về preset HERCULES
   const uiRisk = Number(body.riskPct ?? body.stakePct ?? NaN);
   const stakeUsed = clampStake(isFinite(uiRisk) && uiRisk > 0 ? uiRisk : preset.riskPct);
 

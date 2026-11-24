@@ -224,7 +224,7 @@ export function universeBroadcastText(
 
   // TG UPGRADE — header Agent + gate, footer giải thích vì sao không lệnh
   const lines = [
-    `📡 <b>UNIVERSE · TOP ${show.length}</b> · ${hhmm} · ⚖ Agent HEDGE (gate 55/0.72/68) · Runner 50/2/0.5`,
+    `📡 <b>UNIVERSE · TOP ${show.length}</b> · ${hhmm} · ⚖ Agent HERCULES (gate 55/0.72/68) · Runner 50/2/0.5`,
     "",
     `<code>${[head, ...rows].join("\n")}</code>`,
   ];

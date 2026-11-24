@@ -16,34 +16,45 @@ const num = (x: number, d = 2): string => String(Math.round(x * 10 ** d) / 10 **
 const pctClass = (x: number): string => (x > 0 ? "text-emerald-400" : x < 0 ? "text-rose-400" : "text-zinc-400");
 
 function EquitySpark({ equity, wallet, lang }: { equity: AutoAnalytics["equity"]; wallet: number | null; lang: Lang }) {
-  const pts = useMemo(() => {
-    const all = [...equity];
-    if (wallet != null && wallet > 0 && all.length === 0) all.push({ t: new Date().toISOString(), capital: wallet });
-    return all;
-  }, [equity, wallet]);
+  const pts = equity.slice();
+  if (wallet != null && wallet > 0 && pts.length === 0) pts.push({ t: new Date().toISOString(), capital: wallet });
   if (pts.length < 2) {
-    return <p className="py-3 text-center text-[11px] text-zinc-600">{t(lang, "ana.equity.short")}</p>;
+    return <p className="py-3 text-center text-xs text-zinc-600">{t(lang, "ana.equity.short")}</p>;
   }
   const caps = pts.map((p) => p.capital);
   const min = Math.min(...caps);
   const max = Math.max(...caps);
+  const startCap = pts.at(0)?.capital ?? wallet ?? 0;
+  const endCap = pts.at(-1)?.capital ?? wallet ?? 0;
   const W = 560;
   const H = 110;
-  const path = pts
-    .map((p, i) => {
+  const path = pts.map((p, i) => {
       const x = (i / (pts.length - 1)) * W;
       const y = H - 4 - ((p.capital - min) / (max - min || 1)) * (H - 10);
       return `${i === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
-    })
-    .join(" ");
-  const up = caps[caps.length - 1] >= (wallet ?? caps[0]);
+    }).join(" ");
+  const up = endCap >= (wallet ?? startCap);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" aria-hidden>
-      <path d={path} fill="none" stroke={up ? "#10b981" : "#f43f5e"} strokeWidth="1.6" />
-      <text x="6" y="12" fontSize="10" fill="#71717a">
-        {num(min, 0)} — {num(max, 0)} USDT
-      </text>
-    </svg>
+    <div>
+      <p className="text-xs text-zinc-400">Start {num(startCap, 0)} End {num(endCap, 0)} USDT</p>
+      <p className="text-xs text-zinc-600">Min {num(min, 0)} Max {num(max, 0)} USDT</p>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" aria-hidden>
+        <path d={path} fill="none" stroke={up ? "#10b981" : "#f43f5e"} strokeWidth="1.6" />
+        {pts.map((p, i) => {
+          const x = (i / (pts.length - 1)) * W;
+          const y = H - 4 - ((p.capital - min) / (max - min || 1)) * (H - 10);
+          const peakSoFar = Math.max(...pts.slice(0, i + 1).map((q) => q.capital));
+          const dd = peakSoFar > 0 ? ((peakSoFar - p.capital) / peakSoFar) * 100 : 0;
+          const tip = new Date(p.t).toLocaleString(lang === "vi" ? "vi-VN" : "en-GB", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }) + " | " + (p.symbol ?? "") + " " + (p.side ?? "") + " " + (p.exitKind ?? "") + " | PnL " + num(p.pnl ?? 0) + " | Capital " + num(p.capital, 0) + " | DD " + num(dd, 1) + "%";
+          return (
+            <g key={i}>
+              <circle cx={x} cy={y} r="9" fill="transparent"><title>{tip}</title></circle>
+              <circle cx={x} cy={y} r="1.5" fill={up ? "#10b981" : "#f43f5e"} />
+            </g>
+          );
+        })}
+      </svg>
+    </div>
   );
 }
 
