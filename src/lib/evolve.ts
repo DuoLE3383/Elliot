@@ -213,24 +213,27 @@ export async function activePromotion(): Promise<{
 /** Combo có champion XGBoost tốt nhất (AUC) trong pairs × runTf của engine —
  *  fallback BTCUSDT 15m. Đây là combo mà quyết định SL/TP/UT/SMA ảnh hưởng
  *  rõ nhất, nên dùng nó làm sân backtest chung. */
-async function wrongDirGlobal(): Promise<{ nSL: number; nWrong: number; nMid: number; nMaeThieu: number; rate: number }> {
+async function wrongDirGlobal(): Promise<{ nSL: number; nWrong: number; nMid: number; nMaeThieu: number; nUnmeasured: number; nWinSkipped: number; rate: number; lossOnly: boolean }> {
   const rows = await db.autoTrade.findMany({
     where: { status: "closed", exitKind: "sl", autopsy: { not: null } },
     orderBy: { exitTime: "desc" }, take: 100,
-    select: { slPct: true, tpPct: true, autopsy: true },
+    select: { slPct: true, tpPct: true, pnlPct: true, autopsy: true },
   });
-  let nSL = 0, nWrong = 0, nMid = 0, nMaeThieu = 0;
+  let nSL = 0, nWrong = 0, nMid = 0, nMaeThieu = 0, nUnmeasured = 0, nWinSkipped = 0;
   for (const r of rows) {
-    let ev: { mfePct?: number; maePct?: number; covered?: boolean } = {};
-    try { ev = (JSON.parse(r.autopsy ?? "") as { ev?: typeof ev }).ev ?? {}; } catch { continue; }
-    if (ev.covered === false) continue;
+    // LOSS-only: WIN (pnl>0, vd trail chốt lời nhưng exitKind=sl) -> winners_watch, KHONG tinh vao wrongDir
+    if ((r as any).pnlPct != null && (r as any).pnlPct > 0) { nWinSkipped += 1; continue; }
+    let ev: { mfePct?: number; maePct?: number; covered?: boolean; candles?: number } = {};
+    try { ev = (JSON.parse(r.autopsy ?? "") as { ev?: typeof ev }).ev ?? {}; } catch { nUnmeasured += 1; continue; }
+    // Unmeasured rieng: covered=false HOAC candles<=2 -> KHONG tinh vao nSL/rate
+    if (ev.covered === false || (ev.candles ?? 0) <= 2) { nUnmeasured += 1; continue; }
     nSL += 1;
     const mfe = Math.abs(ev.mfePct ?? 0), mae = Math.abs(ev.maePct ?? 0);
     if (mfe < r.tpPct * 0.25 && mae >= r.slPct * 0.8) nWrong += 1;
     else if (mae < r.slPct * 0.8) nMaeThieu += 1;
     else if (mfe < r.tpPct * 0.5) nMid += 1;
   }
-  return { nSL, nWrong, nMid, nMaeThieu, rate: nSL ? nWrong / nSL : 0 };
+  return { nSL, nWrong, nMid, nMaeThieu, nUnmeasured, nWinSkipped, rate: nSL ? nWrong / nSL : 0, lossOnly: true };
 }
 
 async function pickCombo(bridge: EvolveBridge): Promise<{ sym: string; itv: string }> {
@@ -363,7 +366,7 @@ export async function evolveRound(bridge: EvolveBridge): Promise<EvolveOutcome> 
           recent_paper_trades: trades.map((t) => ({ symbol: t.symbol, side: t.side, pnlPct: t.pnlPct, exit: t.exitKind })),
           feature_importance: importance,
           wrong_dir_global: wrongG,
-          rules: "1 candidate only. Must differ from current_config and from losing candidates. tpPct and slPct in % of price. Vietnamese hypothesis. If wrong_dir_global.rate >= 0.35, prefer anti-wrong-direction candidates (raise minAcc / tighten gate / larger SL ATRx), do not propose TP change.",
+          rules: "1 candidate only. Must differ from current_config and from losing candidates. tpPct and slPct in % of price. Vietnamese hypothesis. wrong_dir_global is LOSS-ONLY (nWinSkipped = WIN excluded to winners_watch, nUnmeasured = covered=false or candles<=2 excluded). If wrong_dir_global.rate >= 0.35, prefer anti-wrong-direction candidates (raise minAcc / tighten gate / larger SL ATRx), do not propose TP change. NEVER propose SL/TP change based on WIN trades.",
         });
         const ep = bridge.llmEndpoint();
         const t0 = Date.now();
