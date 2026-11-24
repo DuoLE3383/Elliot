@@ -1286,6 +1286,9 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
   const opened = st.trades.filter((x) => new Date(x.entryTime).getTime() >= sinceMs);
   const wins = recent.filter((x) => (x.pnlPct ?? 0) > 0).length;
   const net = recent.reduce((a, x) => a + (x.pnlPct ?? 0), 0); // tong ROI-margin, KHONG phai Equity ROI
+  const pnlParts = recent.map((x) => { const b = Number((x as any).capitalBefore); const e = Number((x as any).capitalAfter); return Number.isFinite(b) && Number.isFinite(e) ? e - b : null; });
+  const pnlUsd: number = pnlParts.reduce((a: number, v) => a + (v ?? 0), 0);
+  const pnlTxt = pnlParts.some((v) => v != null) ? `PnL <b>${pnlUsd >= 0 ? "+" : ""}${pnlUsd.toFixed(2)} USDT</b>` : "PnL —";
   const wr = recent.length ? `${Math.round((wins / recent.length) * 100)}%` : "—";
   const oldest = recent[recent.length - 1] as any;
   const newest = recent[0] as any;
@@ -1307,7 +1310,7 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
     title,
     `${agentIcon} Agent: <b>${agentId}</b> · Risk ${ag[0]}% · ${floor ? `Gate ${floor.src}: Score ${floor.minScore} / AUC ${floor.minAuc.toFixed(2)} / ACC ${floor.minAcc}%` : "Gate: see /ai"} · Runner ${runnerTxt}`,
     DIGEST_HR,
-    `📊 <b>${capLabel}</b>: ${opened.length} opened · ${recent.length} closed · WR <b>${wr}</b>${eqTxt2} · ${roi}`,
+    `📊 <b>${capLabel}</b>: ${opened.length} opened · ${recent.length} closed · WR <b>${wr}</b>${eqTxt2} · ${roi} · ${pnlTxt}`,
     `💰 Book B balance <b>${eq}</b> USDT · ${st.stats.closed} closed all-time${st.open ? " · 1 open" : ""} · WR ${st.stats.closed ? `${st.stats.winRate.toFixed(2)}%` : "—"}`,
   ];
   const best = (st.byCombo ?? []).filter((c) => c.closed >= 3).sort((a, b) => b.winRate - a.winRate)[0];
@@ -1329,29 +1332,24 @@ export function statLines(st: AutoState, sinceMs: number, title: string, periodL
     return lines;
   }
 
-  // 📋 bảng lệnh trong cửa sổ — mới nhất trước, nhóm theo ngày (giờ VN)
-  lines.push(`📋 Trades closed ${periodLabel} — newest first:`);
-  const fmtD = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Ho_Chi_Minh", day: "2-digit", month: "2-digit" });
+  // 📋 Top 5 lãi nhất + Top 5 lỗ nhất — rút gọn, không đổ full 40 lệnh
   const fmtT = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Ho_Chi_Minh", hour: "2-digit", minute: "2-digit", hour12: false });
-  const rows: string[] = [];
-  let curDate = "";
-  for (const x of recent.slice(0, DIGEST_LIST_MAX)) {
+  const rowOf = (x: (typeof recent)[number]) => {
     const at = new Date(x.exitTime ?? x.entryTime);
-    const d = fmtD.format(at);
-    if (d !== curDate) {
-      rows.push(`— ${d} —`);
-      curDate = d;
-    }
     const pnl = x.pnlPct ?? 0;
-    const pnlTxt = `${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}%`.padStart(6);
+    const cell = `${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}%`.padStart(6);
     const side = x.side === "LONG" ? "L" : x.side === "SHORT" ? "S" : "—";
     const code = DIGEST_KIND_CODE[x.exitKind ?? ""] ?? "—";
-    rows.push(
-      `${DIGEST_KIND[x.exitKind ?? ""] ?? "✋"} ${pnlTxt}  ${baseSym(x.symbol).padEnd(9)} ${x.interval.padStart(3)} ${side} ${code}  ${fmtT.format(at)}`,
-    );
-  }
-  lines.push(`<code>${rows.join("\n")}</code>`);
-  if (recent.length > DIGEST_LIST_MAX) lines.push(`…+${recent.length - DIGEST_LIST_MAX} more`);
+    return `${DIGEST_KIND[x.exitKind ?? ""] ?? "✋"} ${cell}  ${baseSym(x.symbol).padEnd(9)} ${x.interval.padStart(3)} ${side} ${code}  ${fmtT.format(at)}`;
+  };
+  const byPnlDesc = [...recent].sort((a, b) => (b.pnlPct ?? 0) - (a.pnlPct ?? 0));
+  const winners = byPnlDesc.slice(0, 5);
+  const losers = [...recent].sort((a, b) => (a.pnlPct ?? 0) - (b.pnlPct ?? 0)).slice(0, 5).filter((x) => !winners.includes(x));
+  lines.push(`📋 Trades closed ${periodLabel} — Top 5 winners / Bottom 5 losers (${recent.length} total):`);
+  const winRows = winners.map(rowOf);
+  const loseRows = losers.map(rowOf);
+  lines.push(`<code>📈 Top 5 winners:\n${winRows.join("\n")}${loseRows.length ? `\n\n📉 Bottom 5 losers:\n${loseRows.join("\n")}` : ""}</code>`);
+  if (recent.length > winners.length + losers.length) lines.push(`…+${recent.length - winners.length - losers.length} other trades`);
 
   // 💡 Lesson rollup (0.2.71) — khi per-trade AUTOPSY bị mute (TG_MUTE), bài
   // học VẪN lọt vào digest: lấy autopsy MỚI NHẤT trong cửa sổ, gọn 1 dòng.
