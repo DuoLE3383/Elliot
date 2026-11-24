@@ -154,7 +154,22 @@ export async function fetchKlinesDirect(
           continue;
         }
         const raw = await binanceJson<unknown[]>(res, h.label);
-        return raw.map(mapRow);
+                const klines = raw.map(mapRow);
+        const isSpot = h.url === SPOT_PATH;
+        const isBareForThousand = sym.startsWith("1000") && cand === sym.slice(4);
+        const isLegacyThousand = typeof mapped === "string" && mapped.startsWith("1000") && cand === sym;
+        const needsScale = isSpot && (isBareForThousand || isLegacyThousand);
+        if (needsScale) {
+          for (const k of klines) {
+            k.o = k.o * 1000;
+            k.h = k.h * 1000;
+            k.l = k.l * 1000;
+            k.c = k.c * 1000;
+            k.v = k.v / 1000;
+            k.tb = k.tb / 1000;
+          }
+        }
+        return klines;
       } catch (e) {
         lastErr = e instanceof Error ? e.message : "fetch failed";
       }
