@@ -265,14 +265,14 @@ export function repairBook(trades: AuditTradeRow[], base?: number): RepairPlan {
         u.pnlPct = pnl;
         pnlFixed += 1;
       }
-      const stake = t.stakePct ?? 100;
+      const stake = t.stakePct ?? 10;
       const delta = round2(cb * (stake / 100) * (pnl / 100));
       deltaAt.set(t.id, delta);
       const ca = Math.max(0, round2(cb + delta));
       if (t.capitalAfter == null || Math.abs((t.capitalAfter ?? 0) - ca) > 0.005) {
         u.capitalAfter = ca;
       }
-      finalCapital = ca;
+      // finalCapital set after loop as wallet
     } else {
       // lệnh MỞ (hoặc closed thiếu exitPrice — mắt xích chuỗi, không delta riêng).
       // Guard V3: ≥2 lệnh mở → bỏ qua hết (opensSkipped>0): mốc neo tại một thời
@@ -289,5 +289,8 @@ export function repairBook(trades: AuditTradeRow[], base?: number): RepairPlan {
     }
     if (Object.keys(u).length > 1) updates.set(t.id, u);
   }
+  let sumDelta = 0;
+  for (const d of deltaAt.values()) sumDelta += d;
+  finalCapital = round2(anchor + sumDelta);
   return { updates: [...updates.values()], pnlFixed, capitalRefixed, finalCapital, opensSkipped: openCount > 1 ? openCount : 0 };
 }
