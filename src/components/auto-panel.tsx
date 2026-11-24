@@ -665,6 +665,7 @@ const langRef = useRef(lang);
       const res = await fetch("/api/autotrade", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "audit-entry-close" }) });
       const r = await res.json();
       setEntryCloseRes?.(r);
+      if (r.ok && r.report) { pushToast({ kind: "success", text: "Entry close checked " + r.report.checked + " close " + r.report.closeCount + " ticker " + r.report.tickerCount + " flagged " + r.report.flaggedCount }); }
       if (!r.ok) {
         pushToast({ kind: "error", text: t(langRef.current, "auto.audit.err", { detail: r.error ?? "?" }) });
       }
