@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { KpiCards } from "@/components/kpi";
+import { ForceBar } from "@/components/force-bar";
 import { SessionsPanel } from "@/components/sessions";
 import { SignalDock } from "@/components/panels";
 import { PriceChart } from "@/components/price-chart";
@@ -1258,8 +1259,6 @@ export default function Home() {
             totalSignals={sigTotals[`${symbol}|${interval}`] ?? null}
             autoOpen={autoOpen}
             tickers={tickers}
-            chartSymbol={symbol}
-            chartInterval={interval}
             onPickAuto={(sym, itv) => {
               setSymbol(sym);
               if ((INTERVALS as readonly string[]).includes(itv)) setIntervalTf(itv as Interval);
@@ -1380,6 +1379,7 @@ export default function Home() {
                   </div>
                 </CardContent>
               </Card>
+              <ForceBar symbol={symbol} interval={interval} />
             </div>
 
             {/* ── RIGHT: controls first, then Auto, analytics in tabs ──── */}
