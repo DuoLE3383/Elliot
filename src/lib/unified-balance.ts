@@ -25,12 +25,19 @@ export async function readUnifiedSettled(): Promise<UnifiedSettled> {
   let delta = 0;
   let closed = 0;
   let wins = 0;
-  const books = ["vulcanBook", "autoTrade", "wyckoffBook", "liquidBook"] as const;
-  for (const model of books) {
+  // FIX: moi model chi co 1 loai pct (Auto/Wyckoff/Liquid=pnlPct, Vulcan=roePct).
+  // Select chung ca 2 -> Prisma throw Unknown field -> catch nuot -> delta=0, balance=1000.
+  const books = [
+    { model: "vulcanBook", pct: "roePct" },
+    { model: "autoTrade", pct: "pnlPct" },
+    { model: "wyckoffBook", pct: "pnlPct" },
+    { model: "liquidBook", pct: "pnlPct" },
+  ] as const;
+  for (const { model, pct } of books) {
     try {
       const rows: any[] = await (db as any)[model].findMany({
         where: { status: "closed" },
-        select: { capitalBefore: true, capitalAfter: true, pnlPct: true, roePct: true },
+        select: { capitalBefore: true, capitalAfter: true, [pct]: true },
       });
       for (const r of rows) {
         const before = Number(r.capitalBefore ?? NaN);
