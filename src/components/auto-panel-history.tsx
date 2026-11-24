@@ -111,7 +111,7 @@ export function AutoHistory(props: any) {
                   >
                     <span className="whitespace-normal leading-snug text-zinc-200">
                       {r.symbol}
-                      {confluenceMap[r.symbol] ? <span className="ml-1 text-xs text-violet-400">· {confluenceMap[r.symbol]}</span> : null}
+                      {confluenceMap[r.symbol] ? <span className="ml-1 text-s text-violet-400">· {confluenceMap[r.symbol]}</span> : null}
                       {r.regressed && (
                         <span
                           title={t(lang, "auto.regress.tip", { auc: (r.champAuc ?? 0).toFixed(2) })}

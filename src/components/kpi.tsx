@@ -8,6 +8,7 @@ import type { KpiStats } from "@/lib/papers";
 import type { Paper, Signal, Ticker } from "@/lib/types";
 import { Activity, AlertTriangle, ArrowLeftRight, Percent, Target, Zap } from "lucide-react";
 import type { ReactNode } from "react";
+import { fetchForceStats, shouldWarnForce } from "@/lib/force-learn";
 
 interface Props {
   lang: Lang;
@@ -20,6 +21,8 @@ interface Props {
   autoOpen?: AutoTradeRow | null;
   tickers?: Record<string, Ticker>;
   onPickAuto?: (sym: string, itv: string) => void;
+  chartSymbol?: string;
+  chartInterval?: string;
 }
 
 function roiOf(side: string, entry: number, price: number, lev: number): number {
@@ -48,6 +51,8 @@ export function KpiCards({
   autoOpen = null,
   tickers = {},
   onPickAuto,
+  chartSymbol,
+  chartInterval,
 }: Props) {
   const long = signals.filter((s) => s.dir === "BUY" && s.smaOk).length;
   const short = signals.filter((s) => s.dir === "SELL" && s.smaOk).length;
@@ -61,6 +66,27 @@ export function KpiCards({
     !!openPaper &&
     autoOpen.symbol === openPaper.symbol &&
     autoOpen.side !== openPaper.side;
+  const forceDisabled = !!autoOpen;
+  const doForce = async (bias: "LONG" | "SHORT") => {
+    const sym = (chartSymbol ?? "").toUpperCase();
+    const itv = chartInterval ?? "5m";
+    if (!sym) return;
+    try {
+      const st = await fetchForceStats(sym, itv, bias);
+      const warn = shouldWarnForce(st, sym, itv, bias);
+      if (warn && !confirm(warn + "\n\nForce anyway?")) return;
+    } catch {}
+    const r = await fetch("/api/force-open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol: sym, interval: itv, bias, agent: "HEDGE", score: 0, riskPct: 10 }) });
+    const d: any = await r.json().catch(() => ({}));
+    if (!r.ok) alert(d?.error ?? "Force failed");
+    else window.location.reload();
+  };
+  const forceRow = (
+    <div className="flex gap-1.5">
+      <button type="button" disabled={forceDisabled} onClick={() => doForce("LONG")} title={forceDisabled ? "Dang co lenh mo" : "Force LONG"} className="flex-1 rounded bg-emerald-600 px-2 py-1 font-mono text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-40">Force LONG</button>
+      <button type="button" disabled={forceDisabled} onClick={() => doForce("SHORT")} title={forceDisabled ? "Dang co lenh mo" : "Force SHORT"} className="flex-1 rounded bg-rose-600 px-2 py-1 font-mono text-xs font-bold text-white hover:bg-rose-500 disabled:opacity-40">Force SHORT</button>
+    </div>
+  );
 
   const cell = (
     label: ReactNode,
@@ -120,10 +146,9 @@ export function KpiCards({
     const posPct = hi === lo ? 50 : Math.max(0, Math.min(100, ((live - lo) / (hi - lo)) * 100));
 
     autoCard = (
-      <button
-        type="button"
+      <div
         onClick={() => onPickAuto?.(autoOpen.symbol, autoOpen.interval)}
-        title={t(lang, "open.strip.tip")}
+                title={t(lang, "open.strip.tip")}
         className="flex h-full min-h-[72px] w-full flex-col justify-center gap-1 rounded-lg border border-emerald-800/70 bg-emerald-950/30 px-3 py-2 text-left transition hover:border-emerald-600 hover:bg-emerald-950/50"
       >
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -186,7 +211,7 @@ export function KpiCards({
             })}
           </p>
         )}
-      </button>
+      </div>
     );
   }
 
@@ -258,7 +283,7 @@ export function KpiCards({
           </div>
 
           {/* Right — large auto position */}
-          <div className="min-w-0">{autoCard}</div>
+          <div className="min-w-0 flex flex-col gap-1">{autoCard}{forceRow}</div>
         </CardContent>
       </Card>
     );
@@ -324,6 +349,7 @@ export function KpiCards({
           </span>,
           { icon: <ArrowLeftRight className="h-3.5 w-3.5 text-zinc-600" /> },
         )}
+        <div className="col-span-full flex flex-col gap-1 px-2.5 pb-1">{forceRow}</div>
       </CardContent>
     </Card>
   );

@@ -1258,6 +1258,8 @@ export default function Home() {
             totalSignals={sigTotals[`${symbol}|${interval}`] ?? null}
             autoOpen={autoOpen}
             tickers={tickers}
+            chartSymbol={symbol}
+            chartInterval={interval}
             onPickAuto={(sym, itv) => {
               setSymbol(sym);
               if ((INTERVALS as readonly string[]).includes(itv)) setIntervalTf(itv as Interval);
