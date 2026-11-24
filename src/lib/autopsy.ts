@@ -64,6 +64,7 @@ export interface AutopsyEvidence {
   /** cửa sổ nến có phủ tới lúc vào lệnh không (false = dữ liệu thiếu — LLM
    *  phải phán trên entry/outcome thôi) */
   covered: boolean;
+  regime: string;
 }
 
 /** JSON lưu vào AutoTrade.autopsy. */
@@ -113,6 +114,31 @@ export interface AutopsyTradeInput {
  * limited nên `covered` do caller quyết định (nến đầu có phủ trước entry?).
  * Giá trị % luôn kẹp dương [0, 999] — nến h/l lệch entry theo phía thuận/ngược.
  */
+export function computeRegime(klines: Array<Kline>): string {
+  if (klines.length < 10) return "unknown";
+  const closes = klines.map((k) => k.c).filter((c) => c > 0);
+  if (closes.length < 10) return "unknown";
+  const avg = (a: Array<number>): number => a.reduce((s, v) => s + v, 0) / a.length;
+  const last10 = closes.slice(-10);
+  const prev10 = closes.slice(-20, -10);
+  const sma10 = avg(last10);
+  const sma20 = closes.length >= 20 ? avg(closes.slice(-20)) : avg(closes);
+  const prevSma = prev10.length >= 10 ? avg(prev10) : sma10;
+  const slope = prevSma > 0 ? ((sma10 - prevSma) / prevSma) * 100 : 0;
+  const last = closes.at(-1) ?? 0;
+  let hi = 0;
+  let lo = Number.POSITIVE_INFINITY;
+  for (const k of klines.slice(-20)) {
+    if (k.h > hi) hi = k.h;
+    if (k.l < lo) lo = k.l;
+  }
+  const rangePct = last > 0 ? ((hi - lo) / last) * 100 : 0;
+  if (sma10 > sma20 * 1.001 && slope > 0.15) return "trend_up";
+  if (sma10 < sma20 * 0.999 && slope < -0.15) return "trend_down";
+  if (rangePct < 1.0) return "chop";
+  return "range";
+}
+
 export function computeEvidence(klines: Kline[], input: AutopsyTradeInput): AutopsyEvidence {
   const long = input.side !== "SHORT";
   const entry = input.entryPrice > 0 ? input.entryPrice : klines[0]?.o ?? 0;
@@ -144,7 +170,8 @@ export function computeEvidence(klines: Kline[], input: AutopsyTradeInput): Auto
     durMin: Math.max(0, Math.round(((input.exitTime - input.entryTime) / 60_000) * 10) / 10),
     noisePct: n > 0 ? clamp(noiseSum / n) : 0,
     candles: klines.length,
-    covered: false, // caller set
+    covered: false, // caller set,
+    regime: computeRegime(klines)
   };
 }
 
