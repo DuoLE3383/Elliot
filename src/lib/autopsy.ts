@@ -161,7 +161,7 @@ export function klinesInWindow(klines: Kline[], input: AutopsyTradeInput): { ks:
 // ─── prompt — evidence block chèn sẵn, LLM chỉ diễn giải ─────────────────────
 
 const AUTOPSY_SYSTEM_PROMPT = [
-  "You are the post-mortem analyst of a crypto futures paper-trading bot. A trade just closed (win or loss) and you dissect it so future entries get better.",
+  "HARD RULES: (1) If outcome is win, NEVER propose SL/TP change. Lesson format: What worked: ... / Watch: ... (2) NEVER propose a specific SL/TP number (no \"tighten to X%\", \"increase by X%\"). Only qualitative direction, and only if ev supports it. (3) NEVER repeat evidence lines verbatim. What happened: max 3 bullets, each must be a NEW inference. (4) Tag must be one of: wrong_dir / noise_stop / trail_early / manual / unknown — pick from ev, not default noise_stop.\nYou are the post-mortem analyst of a crypto futures paper-trading bot. A trade just closed (win or loss) and you dissect it so future entries get better.",
   'The "path" block is computed by code from real candles: treat it as ground truth — never contradict it, never invent numbers absent from it.',
   "Reply with ONLY one JSON object:",
   '{"tag":"...","why":["..."],"lesson":"..."}',
@@ -347,10 +347,10 @@ export async function autopsyClosedTrade(row: {
   llmVerdict: string | null;
   llmReason: string | null;
   autopsy: string | null;
-}, opts?: { url?: string; model?: string }): Promise<AutopsyJson | null> {
+}, opts?: { url?: string; model?: string; force?: boolean }): Promise<AutopsyJson | null> {
   if (!pval("AUTOPSY_ON", AUTOPSY_ON)) return null;
   if (row.status !== "closed" || !row.exitTime) return null;
-  if (row.autopsy) return null; // đã mổ rồi — không mổ lại
+  if (row.autopsy && !opts?.force) return null; // đã mổ rồi — không mổ lại (force thi mo lai)
   if (inflight.has(row.id)) return null;
   inflight.add(row.id);
   try {
@@ -392,6 +392,7 @@ export async function autopsyClosedTrade(row: {
       return null;
     }
     const json = parseAutopsyText(call.text, model, call.ms, input, ev);
+    if (json && json.outcome === 'win' && /\bsl\b|\btp\b|stop loss|take profit/i.test(json.lesson || '')) { json.lesson = (json.lesson || '').split('.')[0] + '. (win — no SL/TP change proposed, monitoring only.)'; }
     if (!json) {
       console.warn(`[autopsy] ${input.symbol} ${input.interval} — JSON/lesson hỏng, bỏ lượt mổ (${call.text.slice(0, 120)})`);
       return null;
