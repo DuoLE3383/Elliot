@@ -239,10 +239,9 @@ async function wrongDirGlobal(): Promise<{ nSL: number; nWrong: number; nMid: nu
     else if (mae < r.slPct * 0.8) nMaeThieu += 1;
     else if (mfe < r.tpPct * 0.5) nMid += 1;
   }
-  const byRegimeArr = Array.from(byRegime.entries()).map((entry) => {
-    const rg2 = entry.at(0) ?? "unknown";
-    const v = entry.at(1);
-    return { regime: rg2, nSL: v?.nSL ?? 0, nWrong: v?.nWrong ?? 0, rate: v && v.nSL ? v.nWrong / v.nSL : 0 };
+  const byRegimeArr: Array<{ regime: string; nSL: number; nWrong: number; rate: number }> = [];
+  byRegime.forEach((v, k) => {
+    byRegimeArr.push({ regime: k, nSL: v.nSL, nWrong: v.nWrong, rate: v.nSL ? v.nWrong / v.nSL : 0 });
   });
   return { nSL, nWrong, nMid, nMaeThieu, nUnmeasured, nWinSkipped, rate: nSL ? nWrong / nSL : 0, lossOnly: true, byRegime: byRegimeArr };
 }
