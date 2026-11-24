@@ -166,7 +166,7 @@ export async function fetchKlinesDirect(
             k.l = k.l * 1000;
             k.c = k.c * 1000;
             k.v = k.v / 1000;
-            k.tb = k.tb / 1000;
+            k.tb = (k.tb ?? 0) / 1000;
           }
         }
         return klines;

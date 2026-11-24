@@ -20,7 +20,7 @@ import { readAutoState } from "@/lib/autostate";
 import { comboStats, isTradeable, type ScanRow } from "@/lib/autotrade";
 import { readDqfFile, DQF_MIN_N, type DqfBand } from "@/lib/dqf";
 import { outcomeOf, type XgbBiasRow } from "@/lib/history";
-import { LESSON_WEIGHT, NOISE_BAND, SCAN_TTL, UNIVERSE_LOOKBACK_CANDLES, UNIVERSE_SCAN_MS, pval } from "@/lib/params";
+import { LESSON_WEIGHT, NOISE_BAND, SCAN_TTL, UNIVERSE_LOOKBACK_CANDLES, UNIVERSE_SCAN_MS, pval, feeRoi } from "@/lib/params";
 import { SESSIONS, sessionOf, sessionOneHot, sessionOverlap, type SessionKey } from "@/lib/market";
 import { UNIVERSE } from "@/lib/universe";
 
@@ -1002,7 +1002,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
           const px = priceMap[x.symbol] ?? Number((x as any).markPrice ?? (x as any).lastPrice ?? NaN);
           const lev = Number(x.leverage ?? 1);
           const gross = Number.isFinite(px) && x.entryPrice ? (x.side === "SHORT" ? (x.entryPrice - px) / x.entryPrice : (px - x.entryPrice) / x.entryPrice) * 100 * lev : 0;
-          const fee = 0.05 * lev * 2 // feeRoi = 0.05*lev*2, khop settlement engine.ts;
+          const fee = feeRoi(lev) // feeRoi = 0.05*lev*2, khop settlement engine.ts;
           const sr = Number(x.p1Share ?? 0);
           const share = sr > 1 ? Math.min(1, sr/100) : Math.min(1, Math.max(0, sr));
           const hasTp1 = (x as any).p1Pct != null && share > 0;
@@ -1048,7 +1048,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
           const px = priceMap[x.symbol] ?? Number((x as any).markPrice ?? (x as any).lastPrice ?? NaN);
           const lev = Number(x.leverage ?? 1);
           const gross = Number.isFinite(px) && x.entryPrice ? (x.side === "SHORT" ? (x.entryPrice - px) / x.entryPrice : (px - x.entryPrice) / x.entryPrice) * 100 * lev : 0;
-          const fee = 0.05 * lev * 2 // feeRoi = 0.05*lev*2, khop settlement engine.ts;
+          const fee = feeRoi(lev) // feeRoi = 0.05*lev*2, khop settlement engine.ts;
           const shareRaw = Number(x.p1Share ?? 0);
           const share = shareRaw > 1 ? Math.min(1, shareRaw / 100) : Math.min(1, Math.max(0, shareRaw));
           const hasTp1 = (x as any).p1Pct != null && share > 0;
