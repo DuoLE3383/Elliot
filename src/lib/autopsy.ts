@@ -204,7 +204,7 @@ export function autopsyPrompt(input: AutopsyTradeInput, ev: AutopsyEvidence): { 
         ]
       : ["path_check: candle data unavailable — rely on entry/outcome only"];
   const user = [
-    `AUTOPSY of a CLOSED paper trade — outcome ${outcome}. Explain why and give one lesson.`,
+    `POST-MORTEM of a CLOSED paper trade — outcome ${outcome}. Explain why and give one lesson.`,
     `pair=${input.symbol} tf=${input.interval} side=${input.side}`,
     `entry: entry=${input.entryPrice} sl=${input.slPct.toFixed(2)}%price tp=${input.tpPct.toFixed(2)}%price lev=x${input.leverage} rr=1:${rr.toFixed(2)} stake=${input.stakePct ?? 100}%equity`,
     modelLine,
