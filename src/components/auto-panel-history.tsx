@@ -8,7 +8,7 @@ import { RotateCcw } from "lucide-react";
 // Props any de tsc khong ket type. Chi tiet lenh se them vao day, khong phinh file cu.
 // 0.3.12 — header "Recent Trades" theo mockup redesign.
 export function AutoHistory(props: any) {
-  const { auto, capitalNow, cfg, lang, t, auditRes, auditBusy, doAudit, doResetCapital, resetOpen, setResetOpen, resetAmount, setResetAmount, resetBusy, closedHist, sideClass, onPickPair, NOISE_BAND, ConfluenceTable, best, flipped, rows, confluenceMap, TOP_N, ef, blockedWhy, probShown, scanning, trainHist, bcastSnap, ListChecks } = props;
+  const { auto, capitalNow, cfg, lang, t, auditRes, auditBusy, doAudit, entryCloseRes, entryCloseBusy, doAuditEntryClose, doResetCapital, resetOpen, setResetOpen, resetAmount, setResetAmount, resetBusy, closedHist, sideClass, onPickPair, NOISE_BAND, ConfluenceTable, best, flipped, rows, confluenceMap, TOP_N, ef, blockedWhy, probShown, scanning, trainHist, bcastSnap, ListChecks } = props;
   return (
     <Card className="border-[#1e2d4d]/70 bg-[#0a0f1e]/80 mt-4">
       <CardHeader className="px-4 pb-2">
@@ -282,7 +282,31 @@ export function AutoHistory(props: any) {
               );
             })}
           </div>
-          {auditRes?.ok && auditRes.report && (
+          
+<div className="mt-2 flex flex-wrap items-center gap-2">
+  <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-zinc-300" disabled={entryCloseBusy} onClick={() => void doAuditEntryClose()}>
+    Entry close
+  </Button>
+  {entryCloseRes?.ok && entryCloseRes.report && (
+    <div className="w-full space-y-1 rounded border border-zinc-800 bg-zinc-950 p-2 text-xs text-zinc-300">
+      <p className="font-medium text-teal-300">
+        Entry close checked {entryCloseRes.report.checked} close {entryCloseRes.report.closeCount} ticker {entryCloseRes.report.tickerCount} flagged {entryCloseRes.report.flaggedCount}
+      </p>
+      <p className="text-zinc-400">
+        Avg abs {entryCloseRes.report.avgAbsDiff.toFixed(4)} pct max {entryCloseRes.report.maxAbsDiff.toFixed(4)} pct
+      </p>
+      <div className="max-h-20 overflow-y-auto rounded border border-zinc-800 bg-zinc-950 font-mono text-xs text-zinc-400">
+        {entryCloseRes.report.issues.slice(0, 12).map((x) => (
+          <p key={x.id} className="px-1 py-0.5">
+            {x.symbol} {x.interval} {x.label} {x.entryPrice} vs {x.closePrice} {x.diffPct} pct
+          </p>
+        ))}
+      </div>
+    </div>
+  )}
+</div>
+
+{auditRes?.ok && auditRes.report && (
             <div className="mt-2 space-y-1.5 rounded-md border border-teal-900/60 bg-teal-950/20 p-2 text-[10px] leading-relaxed text-zinc-300">
               <p className="font-medium text-teal-300">
                 {auditRes.report.issues.length === 0

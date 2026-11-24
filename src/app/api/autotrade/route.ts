@@ -27,7 +27,7 @@ import { readAutoState, readOpenPosition, readWallet, serialize } from "@/lib/au
 import { feeRoi } from "@/lib/autotrade";
 import { combineClosePnl } from "@/lib/trade-mgmt";
 import { autopsyClosedTrade } from "@/lib/autopsy";
-import { auditBook, repairBook } from "@/lib/audit-book";
+import { auditBook, repairBook, auditEntryClose } from "@/lib/audit-book";
 import { tgSendMessage } from "@/lib/telegram-store";
 import { msgOpen } from "@/lib/tg-msgs";
 import { readUnifiedSettled } from "@/lib/unified-balance";
@@ -207,7 +207,16 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ok: true, repaired: false, report });
   }
 
-  if (body.action !== "close") {
+  
+  // Entry close audit 0.4.2. Read only. Compares entryPrice against closed candle close at entryTime.
+  // Returns close vs ticker label and flags diff over 0.5 pct. No history rewrite.
+  if (body.action === "audit-entry-close") {
+    const rows = await db.autoTrade.findMany({ orderBy: { createdAt: "asc" } });
+    const report = await auditEntryClose(rows as any);
+    return NextResponse.json({ ok: true, report });
+  }
+
+if (body.action !== "close") {
     return NextResponse.json({ error: "unknown action" }, { status: 400 });
   }
   const id = typeof body.id === "string" ? body.id : "";

@@ -353,7 +353,16 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
   const [auditBusy, setAuditBusy] = useState(false);
   const [auditRes, setAuditRes] = useState<AutoAuditResult | null>(null);
 
-  const langRef = useRef(lang);
+  
+  // Entry close audit 0.4.2. Separate state from ROI audit. Read only.
+  const entryCloseBusyState = useState(false);
+  const entryCloseResState = useState<any>(null);
+  const entryCloseBusy = entryCloseBusyState.at(0) ?? false;
+  const setEntryCloseBusy = entryCloseBusyState.at(1) as any;
+  const entryCloseRes = entryCloseResState.at(0);
+  const setEntryCloseRes = entryCloseResState.at(1) as any;
+
+const langRef = useRef(lang);
   const scanBusyRef = useRef(false);
   const closingRef = useRef(false);
   const mountedRef = useRef(true);
@@ -648,7 +657,23 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
     }
   };
 
-  const capitalNow = auto?.capital ?? cfg.capital;
+  
+  const doAuditEntryClose = async () => {
+    if (entryCloseBusy) return;
+    setEntryCloseBusy?.(true);
+    try {
+      const res = await fetch("/api/autotrade", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "audit-entry-close" }) });
+      const r = await res.json();
+      setEntryCloseRes?.(r);
+      if (!r.ok) {
+        pushToast({ kind: "error", text: t(langRef.current, "auto.audit.err", { detail: r.error ?? "?" }) });
+      }
+    } finally {
+      if (mountedRef.current) setEntryCloseBusy?.(false);
+    }
+  };
+
+const capitalNow = auto?.capital ?? cfg.capital;
   const opens = [...(auto?.opens ?? (auto?.open ? [auto.open] : [])), ...booksOpen];
   const open = opens[0] ?? null;
   const best = rows.find((r) => r.bias !== "NEUTRAL") ?? rows[0] ?? null;
@@ -1584,7 +1609,7 @@ export function AutoPanel({ lang, pairs, leverage, onLeverageChange, tickers, se
         <OpenPositionsModalLauncher opens={opens} tickers={tickers} capitalNow={capitalNow} roiOf={typeof roiOf !== 'undefined' ? roiOf : undefined} closeOpen={typeof closeOpen !== 'undefined' ? closeOpen : undefined} closeNow={closeNow} />
         {/* List cu da thay bang Open Positions modal — cho gon */}
       </div>
-      <AutoHistory auto={auto} capitalNow={capitalNow} cfg={cfg} lang={lang} t={t} auditRes={auditRes} auditBusy={auditBusy} doAudit={doAudit} doResetCapital={doResetCapital} resetOpen={resetOpen} setResetOpen={setResetOpen} resetAmount={resetAmount} setResetAmount={setResetAmount} resetBusy={resetBusy} closedHist={closedHist} sideClass={sideClass} onPickPair={onPickPair} NOISE_BAND={NOISE_BAND} ConfluenceTable={typeof ConfluenceTable !== 'undefined' ? ConfluenceTable : undefined} best={typeof best !== 'undefined' ? best : undefined} flipped={typeof flipped !== 'undefined' ? flipped : undefined} rows={typeof rows !== 'undefined' ? rows : undefined} confluenceMap={typeof confluenceMap !== 'undefined' ? confluenceMap : undefined} TOP_N={typeof TOP_N !== 'undefined' ? TOP_N : undefined} ef={typeof ef !== 'undefined' ? ef : undefined} blockedWhy={typeof blockedWhy !== 'undefined' ? blockedWhy : undefined} probShown={typeof probShown !== 'undefined' ? probShown : undefined} scanning={typeof scanning !== 'undefined' ? scanning : undefined} trainHist={typeof trainHist !== 'undefined' ? trainHist : undefined} bcastSnap={typeof bcastSnap !== 'undefined' ? bcastSnap : undefined} ListChecks={typeof ListChecks !== 'undefined' ? ListChecks : undefined} />
+      <AutoHistory auto={auto} capitalNow={capitalNow} cfg={cfg} lang={lang} t={t} auditRes={auditRes} auditBusy={auditBusy} doAudit={doAudit} entryCloseRes={entryCloseRes} entryCloseBusy={entryCloseBusy} doAuditEntryClose={doAuditEntryClose} doResetCapital={doResetCapital} resetOpen={resetOpen} setResetOpen={setResetOpen} resetAmount={resetAmount} setResetAmount={setResetAmount} resetBusy={resetBusy} closedHist={closedHist} sideClass={sideClass} onPickPair={onPickPair} NOISE_BAND={NOISE_BAND} ConfluenceTable={typeof ConfluenceTable !== 'undefined' ? ConfluenceTable : undefined} best={typeof best !== 'undefined' ? best : undefined} flipped={typeof flipped !== 'undefined' ? flipped : undefined} rows={typeof rows !== 'undefined' ? rows : undefined} confluenceMap={typeof confluenceMap !== 'undefined' ? confluenceMap : undefined} TOP_N={typeof TOP_N !== 'undefined' ? TOP_N : undefined} ef={typeof ef !== 'undefined' ? ef : undefined} blockedWhy={typeof blockedWhy !== 'undefined' ? blockedWhy : undefined} probShown={typeof probShown !== 'undefined' ? probShown : undefined} scanning={typeof scanning !== 'undefined' ? scanning : undefined} trainHist={typeof trainHist !== 'undefined' ? trainHist : undefined} bcastSnap={typeof bcastSnap !== 'undefined' ? bcastSnap : undefined} ListChecks={typeof ListChecks !== 'undefined' ? ListChecks : undefined} />
     </>
   );
 }

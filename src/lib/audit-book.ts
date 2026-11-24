@@ -19,6 +19,7 @@
 // Thuần (không IO) — API route đọc DB rồi truyền vào; test chạy trực tiếp.
 
 import { feeRoi } from "./params";
+import { fetchKlinesDirect } from "./klines-direct";
 import { combineClosePnl } from "./trade-mgmt";
 
 // ─── Kiểu đầu vào — struct tối thiểu, ăn khớp với AutoTradeRow ────────────────
@@ -294,3 +295,131 @@ export function repairBook(trades: AuditTradeRow[], base?: number): RepairPlan {
   finalCapital = round2(anchor + sumDelta);
   return { updates: [...updates.values()], pnlFixed, capitalRefixed, finalCapital, opensSkipped: openCount > 1 ? openCount : 0 };
 }
+
+
+// Entry close audit 0.4.2
+// English only from here on. This check is separate from auditBook.
+// auditBook verifies stored ROI from stored entry and exit. It never
+// re-derives prices. auditEntryClose verifies entryPrice against the
+// closed candle close at entryTime. A ticker entry drifts from close.
+// A 0.4.2 entry must equal closed close. Flag when abs diff exceeds 0.5 pct.
+// No history rewrite. This is a read-only report.
+
+export interface EntryCloseRow {
+  id: string;
+  symbol: string;
+  interval: string;
+  entryPrice: number;
+  entryTime: string | Date | number | null;
+  createdAt: string | Date;
+}
+
+export interface EntryCloseIssue {
+  id: string;
+  symbol: string;
+  interval: string;
+  entryPrice: number;
+  closePrice: number;
+  diffPct: number;
+  label: string;
+  flagged: boolean;
+}
+
+export interface EntryCloseReport {
+  total: number;
+  checked: number;
+  closeCount: number;
+  tickerCount: number;
+  flaggedCount: number;
+  avgAbsDiff: number;
+  maxAbsDiff: number;
+  issues: Array<EntryCloseIssue>;
+}
+
+function tfMinOf(interval: string): number {
+  if (interval === "1m") return 1;
+  if (interval === "5m") return 5;
+  if (interval === "15m") return 15;
+  if (interval === "30m") return 30;
+  if (interval === "1h") return 60;
+  if (interval === "4h") return 240;
+  if (interval === "1d") return 1440;
+  if (interval === "1w") return 10080;
+  return 15;
+}
+
+function entryMsOf(raw: unknown): number {
+  if (typeof raw === "number") return raw;
+  if (raw instanceof Date) return raw.getTime();
+  const s = String(raw);
+  if (s.trim() === "") return 0;
+  const asNum = Number(s);
+  if (Number.isFinite(asNum) && s.includes("-") === false && s.includes("/") === false && s.includes(":") === false) return asNum;
+  const d = new Date(s).getTime();
+  return Number.isFinite(d) ? d : 0;
+}
+
+export async function closedCloseAt(symbol: string, interval: string, entryMs: number): Promise<number> {
+  try {
+    const tfMin = tfMinOf(interval);
+    const curStart = entryMs - entryMs % (tfMin * 60000);
+    const closedEnd = curStart - 1;
+    const kl = await fetchKlinesDirect(symbol, interval, 3, { endTime: closedEnd });
+    const last = kl.at(-1);
+    if (!last) return 0;
+    return last.c;
+  } catch {
+    return 0;
+  }
+}
+
+export async function auditEntryClose(trades: Array<AuditTradeRow>): Promise<EntryCloseReport> {
+  const closed = trades.filter((t) => t.status === "closed" && t.entryPrice > 0);
+  const issues: Array<EntryCloseIssue> = Array.of();
+  let closeCount = 0;
+  let tickerCount = 0;
+  let flaggedCount = 0;
+  let sumAbs = 0;
+  let maxAbs = 0;
+  for (const t of closed) {
+    const asRow = t as unknown as EntryCloseRow;
+    const entryMs = entryMsOf(asRow.entryTime ?? t.createdAt);
+    if (!entryMs) continue;
+    const sym = asRow.symbol ?? "";
+    const itv = asRow.interval ?? "";
+    if (!sym || !itv) continue;
+    const closePrice = await closedCloseAt(sym, itv, entryMs);
+    if (!closePrice) continue;
+    const diffPct = (t.entryPrice - closePrice) / closePrice * 100;
+    const absDiff = diffPct < 0 ? -diffPct : diffPct;
+    const isClose = absDiff <= 0.001;
+    const flagged = absDiff > 0.5;
+    if (isClose) closeCount += 1;
+    else tickerCount += 1;
+    if (flagged) flaggedCount += 1;
+    sumAbs += absDiff;
+    if (absDiff > maxAbs) maxAbs = absDiff;
+    issues.push({
+      id: t.id,
+      symbol: sym,
+      interval: itv,
+      entryPrice: t.entryPrice,
+      closePrice,
+      diffPct: Math.round(diffPct * 10000) / 10000,
+      label: isClose ? "close" : "ticker",
+      flagged,
+    });
+  }
+  const checked = issues.length;
+  return {
+    total: trades.length,
+    checked,
+    closeCount,
+    tickerCount,
+    flaggedCount,
+    avgAbsDiff: checked ? Math.round(sumAbs / checked * 10000) / 10000 : 0,
+    maxAbsDiff: Math.round(maxAbs * 10000) / 10000,
+    issues,
+  };
+}
+
