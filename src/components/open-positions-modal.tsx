@@ -95,8 +95,8 @@ export function OpenPositionsModal({
     const isProfit = pnlTotal >= 0; // mau theo PNL $ dung (banked + runner)
               const span = Math.abs(tp - sl);
               const clamp01 = (val: number) => Math.max(4, Math.min(96, val));
-              const entryPos = span > 0 ? clamp01((Math.abs(entry - sl) / span) * 100) : 50;
-              const markPos = span > 0 ? clamp01((Math.abs(mark - sl) / span) * 100) : 55;
+              const entryPos = span > 0 ? clamp01(((entry - Math.min(sl, tp)) / span) * 100) : 50;
+              const markPos = span > 0 ? clamp01(((mark - Math.min(sl, tp)) / span) * 100) : 55;
               return (
                 <div key={pos.id ?? `${pos.symbol}-${i}`} className="rounded-xl border border-[#24242c] bg-[#16161c] p-3.5 space-y-3">
                   <div className="flex items-center justify-between gap-2">
@@ -115,9 +115,9 @@ export function OpenPositionsModal({
                   </div>
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between font-mono text-xs text-[#9aa0a6]">
-                      <span className="text-rose-400">SL {fmtPrice(pos.slPrice)}</span>
+                      <span className="text-rose-400">{isLong ? "SL " : "TP "}{fmtPrice(isLong ? pos.slPrice : pos.tpPrice)}</span>
                       <span className="text-[#a1a1aa]">Entry {fmtPrice(pos.entryPrice)}</span>
-                      <span className="text-[#a1a1aa]">TP {fmtPrice(pos.tpPrice)}</span>
+                      <span className="text-[#a1a1aa]">{isLong ? "TP " : "SL "}{fmtPrice(isLong ? pos.tpPrice : pos.slPrice)}</span>
                     </div>
                     <div className="relative h-2 w-full rounded-full bg-[#24242d]">
                       <span className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-3 w-0.5 bg-[#a1a1aa]" style={{ left: `${entryPos}%` }} />
@@ -196,9 +196,9 @@ export function OpenPositionsModal({
               const span = Math.abs(tp - sl);
               const clamp01 = (val: number) => Math.max(4, Math.min(96, val));
               const entryPos =
-                span > 0 ? clamp01((Math.abs(entry - sl) / span) * 100) : 50;
+                span > 0 ? clamp01(((entry - Math.min(sl, tp)) / span) * 100) : 50;
               const markPos =
-                span > 0 ? clamp01((Math.abs(mark - sl) / span) * 100) : 55;
+                span > 0 ? clamp01(((mark - Math.min(sl, tp)) / span) * 100) : 55;
 
               return (
                 <div
@@ -264,9 +264,9 @@ export function OpenPositionsModal({
 
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between font-mono text-xs text-[#9aa0a6]">
-                      <span className="text-rose-400">SL {fmtPrice(pos.slPrice)}</span>
+                      <span className="text-rose-400">{isLong ? "SL " : "TP "}{fmtPrice(isLong ? pos.slPrice : pos.tpPrice)}</span>
                       <span className="text-[#a1a1aa]">Entry {fmtPrice(pos.entryPrice)}</span>
-                      <span className="text-[#a1a1aa]">TP {fmtPrice(pos.tpPrice)}</span>
+                      <span className="text-[#a1a1aa]">{isLong ? "TP " : "SL "}{fmtPrice(isLong ? pos.tpPrice : pos.slPrice)}</span>
                     </div>
                     <div className="relative h-2 w-full rounded-full bg-[#24242d]">
                       <span

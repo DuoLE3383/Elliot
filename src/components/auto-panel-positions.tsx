@@ -229,7 +229,7 @@ export function AutoPositions(props: any) {
                   const dTp = hasTp ? Math.abs((tp - mark) / mark) * 100 : null;
                   return (
                     <div className="mt-1 space-y-0.5">
-                      <div className="flex justify-between font-mono text-xs text-zinc-500"><span>SL {fmtPrice(sl)}</span><span>Entry {fmtPrice(open.entryPrice)}</span><span>{hasTp ? "TP " + fmtPrice(tp) : "TP Trail"}</span></div>
+                      <div className="flex justify-between font-mono text-xs text-zinc-500"><span>{open.side === "SHORT" && hasTp ? "TP " : "SL "}{fmtPrice(open.side === "SHORT" && hasTp ? tp : sl)}</span><span>Entry {fmtPrice(open.entryPrice)}</span><span>{hasTp ? (open.side === "SHORT" ? "SL " + fmtPrice(sl) : "TP " + fmtPrice(tp)) : "TP Trail"}</span></div>
                       <div className="relative h-2 rounded-full bg-zinc-800">
                         <div className="absolute top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-zinc-100" style={{ left: pct(open.entryPrice) + "%" }} />
                         <div className="absolute top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-emerald-400" style={{ left: pct(mark) + "%" }} />
