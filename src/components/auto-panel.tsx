@@ -187,7 +187,7 @@ interface Props {
 }
 
 /** rescan when the snapshot is older than this */
-const TOP_N = 8;
+const TOP_N = 10;
 
 /** last LLM risk-officer review (server-side), shown next to the config row */
 interface LlmLast {

@@ -96,11 +96,7 @@ export function AutoHistory(props: any) {
                 <span className="text-right">{t(lang, "auto.col.score")}</span>
                 <span className="text-right">Force</span>
               </div>
-              {rows.filter((r) => {
-                if (Object.keys(confluenceMap).length === 0) return true;
-                const v = confluenceMap[r.symbol] ?? "";
-                return v.startsWith("STRONG") || v.startsWith("LEAN");
-              }).slice(0, TOP_N).map((r, i) => {
+              {rows.slice(0, TOP_N).map((r, i) => {
                 const tradeable = r.bias !== "NEUTRAL" && r.auc >= ef.minAuc && r.acc >= ef.minAcc && (ef.minScore <= 0 || r.score >= ef.minScore);
                 const why = blockedWhy(r);
                 return (
@@ -216,7 +212,7 @@ export function AutoHistory(props: any) {
               </span>
             </div>
             <div className="rail-scroll mt-1.5 max-h-32 space-y-0.5 overflow-y-auto pr-0.5">
-              {bcastSnap.rows.slice(0, 24).map((r, i) => {
+              {bcastSnap.rows.slice(0, 10).map((r, i) => {
                 const pass = r.verdict === "pass";
                 return (
                   <button
