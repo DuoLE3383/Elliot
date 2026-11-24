@@ -78,6 +78,20 @@ function ItemTip({
   );
 }
 
+
+function TableChart({ chart }: { chart: Extract<StatChart, { kind: "table" }> }) {
+  const title = chart.columns[0] === "Hour" ? "By hour" : "By day";
+  return (
+    <div className="overflow-x-auto">
+      <p className="mb-1.5 font-mono text- font-bold text-zinc-200">{title} - Trade history, PNL % and PNL $</p>
+      <table className="w-full text-left font-mono text-">
+        <thead><tr>{chart.columns.map((c, i) => (<th key={i} className="border-b border-zinc-800 px-2 py-1 text-zinc-400">{c}</th>))}</tr></thead>
+        <tbody>{chart.rows.map((row, ri) => (<tr key={ri} className="border-b border-zinc-900">{row.map((cell, ci) => (<td key={ci} className="px-2 py-1 text-zinc-200">{cell}</td>))}</tr>))}</tbody>
+      </table>
+    </div>
+  );
+}
+
 export function ChartBox({ chart, lang }: { chart: StatChart; lang: Lang }) {
   const [show, setShow] = useState(false);
   const text = lang === "vi" ? chart.hintVi ?? chart.hint : chart.hint;
@@ -92,6 +106,7 @@ export function ChartBox({ chart, lang }: { chart: StatChart; lang: Lang }) {
       {chart.kind === "bars" && <BarsChart chart={chart} />}
       {chart.kind === "stack" && <StackChart chart={chart} />}
       {chart.kind === "timeline" && <SessionTimeline />}
+      {chart.kind === "table" && <TableChart chart={chart} />}
       {text && show && <TipBox text={text} />}
     </div>
   );

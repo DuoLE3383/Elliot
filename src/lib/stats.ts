@@ -95,6 +95,14 @@ export type StatChart =
       hintVi?: string;
     }
   | {
+      /** table: hourly and daily trade history, PNL pct and PNL USD visible */
+      kind: "table";
+      columns: string[];
+      rows: string[][];
+      hint?: string;
+      hintVi?: string;
+    }
+  | {
       /** timeline 24h của 4 phiên UTC + mốc "now" — client tự vẽ từ SESSIONS */
       kind: "timeline";
       hint?: string;
@@ -726,7 +734,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
   // ─── 7. Auto history ──────────────────────────────────────────────────────
   const hist = await safe("hist", async () => {
     const rows = await db.autoTrade.findMany({
-      select: { status: true, exitKind: true, pnlPct: true, exitTime: true, symbol: true, interval: true, side: true },
+      select: { status: true, exitKind: true, pnlPct: true, exitTime: true, symbol: true, interval: true, side: true, capitalBefore: true, stakePct: true, capitalAfter: true, entryTime: true },
       orderBy: { createdAt: "desc" },
       take: 2000,
     });
@@ -742,6 +750,49 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     const worst = pnls.length ? Math.min(...pnls) : null;
     const avg = pnls.length ? pnls.reduce((a, b) => a + b, 0) / pnls.length : null;
     const last7d = closed.filter((r) => r.exitTime && now - new Date(r.exitTime).getTime() < 7 * 86_400_000).length;
+    // Hourly and daily breakdown: PNL USD from margin times ROI, PNL pct from totals
+    const pnlUsdOf = (r: typeof closed[number]) => {
+      if (r.capitalBefore != null && r.stakePct != null && r.pnlPct != null) return ((r.capitalBefore * r.stakePct) / 100) * (r.pnlPct / 100);
+      if (r.capitalAfter != null && r.capitalBefore != null) return r.capitalAfter - r.capitalBefore;
+      return 0;
+    };
+    const hourFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Ho_Chi_Minh", hour: "2-digit", hour12: false });
+    const dayFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit", day: "2-digit" });
+    const hourKey = (d: Date) => hourFmt.format(d);
+    const dayKey = (d: Date) => {
+      const parts = dayFmt.formatToParts(d);
+      const get = (type: string) => parts.find((x) => x.type === type)?.value ?? "";
+      return `${get("year")}-${get("month")}-${get("day")}`;
+    };
+    type HistGroup = { n: number; wins: number; sumPnlPct: number; sumUsd: number; margin: number };
+    const groupByHist = (keyFn: (d: Date) => string) => {
+      const m = new Map<string, HistGroup>();
+      for (const r of closed) {
+        if (!r.exitTime) continue;
+        const k = keyFn(new Date(r.exitTime));
+        const g = m.get(k) ?? { n: 0, wins: 0, sumPnlPct: 0, sumUsd: 0, margin: 0 };
+        g.n += 1;
+        if ((r.pnlPct ?? 0) > 0) g.wins += 1;
+        g.sumPnlPct += r.pnlPct ?? 0;
+        g.sumUsd += pnlUsdOf(r);
+        if (r.capitalBefore != null && r.stakePct != null) g.margin += (r.capitalBefore * r.stakePct) / 100;
+        m.set(k, g);
+      }
+      return m;
+    };
+    const byHourMap = groupByHist(hourKey);
+    const byDayMap = groupByHist(dayKey);
+    const toBarItems = (m: Map<string, HistGroup>) => [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([label, g]) => {
+      const winRate = g.n ? (g.wins / g.n) * 100 : 0;
+      const avgG = g.n ? g.sumPnlPct / g.n : 0;
+      const totalPct = g.margin > 0 ? (g.sumUsd / g.margin) * 100 : 0;
+      return { label, v: Math.round(g.sumUsd * 100) / 100, sub: [`${g.wins}/${g.n} trades, ${winRate.toFixed(1)}% win`, `avg ${avgG >= 0 ? "+" : ""}${avgG.toFixed(2)}%, total ${totalPct >= 0 ? "+" : ""}${totalPct.toFixed(2)}%`] };
+    });
+    const hourItems = toBarItems(byHourMap);
+    const dayItems = toBarItems(byDayMap);
+    const totalUsd = closed.reduce((a, r) => a + pnlUsdOf(r), 0);
+    const totalMargin = closed.reduce((a, r) => a + (r.capitalBefore != null && r.stakePct != null ? (r.capitalBefore * r.stakePct) / 100 : 0), 0);
+    const totalPnlPct = totalMargin > 0 ? (totalUsd / totalMargin) * 100 : null;
     // PnL 20 lệnh đóng gần nhất (cũ → mới) — client vẽ cột xanh/đỏ
     // (0.2.91) mỗi cột kèm chi tiết hover: phía · kiểu đóng + thời điểm
     const pnlBars = closed
@@ -801,6 +852,20 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         hintVi: "Win rate theo phía (LONG so với SHORT, thắng = ROI > 0). Lệch bền vững nghĩa là model nghiêng sai một hướng hoặc regime bất lợi phía kia. Di chuột xem thắng/tổng và ROI ròng.",
       });
     }
+    if (hourItems.length > 0) {
+      charts.push({ kind: "bars", unit: "$", items: hourItems, hint: "Net PNL USD by closing hour (Asia/Ho_Chi_Minh). Hover a bar for trades, win rate, avg ROI and total ROI on margin." });
+    }
+    if (dayItems.length > 0) {
+      charts.push({ kind: "bars", unit: "$", items: dayItems, hint: "Net PNL USD by closing day (Asia/Ho_Chi_Minh). Hover a bar for trades, win rate, avg ROI and total ROI on margin." });
+    }
+    const toTableRows = (m: Map<string, HistGroup>) => [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([label, g]) => {
+      const wr = g.n ? (g.wins / g.n) * 100 : 0;
+      const avgT = g.n ? g.sumPnlPct / g.n : 0;
+      const totT = g.margin > 0 ? (g.sumUsd / g.margin) * 100 : 0;
+      return [label, String(g.n), `${wr.toFixed(1)}%`, `${avgT >= 0 ? "+" : ""}${avgT.toFixed(2)}%`, `${totT >= 0 ? "+" : ""}${totT.toFixed(2)}%`, `${g.sumUsd >= 0 ? "+" : ""}$${g.sumUsd.toFixed(2)}`];
+    });
+    if (byHourMap.size > 0) charts.push({ kind: "table", columns: ["Hour", "Trades", "Win rate", "Avg PNL %", "Total PNL %", "PNL $"], rows: toTableRows(byHourMap), hint: "Trade history by closing hour (Asia/Ho_Chi_Minh). PNL USD equals capitalBefore times stakePct times pnlPct." });
+    if (byDayMap.size > 0) charts.push({ kind: "table", columns: ["Day", "Trades", "Win rate", "Avg PNL %", "Total PNL %", "PNL $"], rows: toTableRows(byDayMap), hint: "Trade history by closing day (Asia/Ho_Chi_Minh). PNL USD equals capitalBefore times stakePct times pnlPct." });
     return {
       state: (unlabeled > 0 ? "warn" : "ok") as StatState,
       note:
@@ -815,6 +880,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         { k: "Total trades", v: String(rows.length), sub: `${rows.length - closed.length} open · ${closed.length} closed`, tone: "info", hint: "Every AutoTrade row (newest 2000): sub shows how many are still open vs closed.", hintVi: "Mọi dòng AutoTrade (2000 mới nhất): dòng dưới cho biết đang mở bao nhiêu / đã đóng bao nhiêu." },
         // TP nhiều hơn SL xanh, ngược lại đỏ — bằng nhau thì teal
         { k: "TP / SL", v: `${kinds.tp} / ${kinds.sl}`, sub: `trail ${kinds.trail} · flip ${kinds.flip} · tay ${kinds.manual}`, tone: kinds.tp > kinds.sl ? "ok" : kinds.tp < kinds.sl ? "bad" : "info", hint: "Take-profit vs stop-loss closes. More TP than SL = green; the sub counts the other close kinds (trail/flip/manual).", hintVi: "Số lệnh đóng ở chốt lời so với cắt lỗ. TP nhiều hơn SL = xanh; dòng dưới đếm các kiểu đóng khác (trail/flip/manual)." },
+        { k: "Total PNL USD", v: `${totalUsd >= 0 ? "+" : ""}$${totalUsd.toFixed(2)}`, sub: totalPnlPct != null ? `total ${totalPnlPct >= 0 ? "+" : ""}${totalPnlPct.toFixed(2)}% on margin` : undefined, tone: (totalUsd > 0 ? "ok" : totalUsd < 0 ? "bad" : "dim") as StatTone, hint: "Sum of PNL USD across closed trades. PNL USD equals capitalBefore times stakePct times pnlPct." },
         ...(avg != null ? [{ k: "Avg ROI", v: `${avg >= 0 ? "+" : ""}${avg.toFixed(2)}%`, tone: (avg > 0 ? "ok" : avg < 0 ? "bad" : "dim") as StatTone, hint: "Mean ROI across all closed trades — the expectancy per trade before compounding.", hintVi: "ROI trung bình mọi lệnh đã đóng — kỳ vọng mỗi lệnh trước khi cộng dồn." }] : []),
         ...(best != null ? [{ k: "Best / worst", v: `+${best.toFixed(2)}% / ${worst ?? 0}%`, tone: "info" as StatTone, hint: "Best and worst single-trade ROIs ever recorded — the tail risk you survived.", hintVi: "ROI tốt nhất và xấu nhất của một lệnh từ trước tới nay — rủi ro đuôi mà bạn đã sống sót." }] : []),
         { k: "Last 7 days", v: `${last7d} closed trades`, tone: "info", hint: "Trades closed in the past 7 days — recent activity level of the engine.", hintVi: "Số lệnh đóng trong 7 ngày qua — mức độ hoạt động gần đây của engine." },
