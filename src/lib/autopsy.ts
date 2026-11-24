@@ -275,6 +275,14 @@ export function sanitizeAutopsy(raw: unknown, model: string, ms: number, input: 
   if (outcome === "win" && (finalTag === "noise_stop" || finalTag === "wrong_dir" || finalTag === "sl_too_tight")) finalTag = "good_entry";
   if (outcome === "loss" && finalTag === "noise_stop" && /tighten|increase|adjust|change.*sl|change.*tp/i.test(lesson)) {
     lesson = "noise_stop: price hit SL then reversed, noise, do not change SL/TP";
+  const lowerLesson = lesson.toLowerCase();
+  const hasAdjustWord = /adjust|tighten|increase|decrease|change/.test(lowerLesson);
+  const repeatsEvidence = lesson.includes(ev.durMin.toFixed(2)) || lesson.includes(ev.noisePct.toFixed(2)) || lesson.includes(ev.mfePct.toFixed(2)) || lesson.includes(ev.maePct.toFixed(2));
+  if (outcome === "loss" && (hasAdjustWord || repeatsEvidence)) {
+    if (finalTag === "wrong_dir") lesson = "wrong_dir: price went opposite immediately after entry, entry was wrong direction, wait for confirmation, do not change SL/TP";
+    else if (finalTag === "noise_stop") lesson = "noise_stop: price hit SL then reversed, noise, do not change SL/TP";
+    else lesson = finalTag + ": loss, do not change SL/TP, review entry confirmation";
+  }
   }
   return {
     outcome,
