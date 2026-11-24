@@ -99,6 +99,7 @@ export type StatChart =
       kind: "table";
       columns: string[];
       rows: string[][];
+      details?: Record<string, Array<Array<string>>>;
       hint?: string;
       hintVi?: string;
     }
@@ -783,6 +784,22 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     };
     const byHourMap = groupByHist(hourKey);
     const byDayMap = groupByHist(dayKey);
+    // Day x Hour breakdown for drill-down (click a day to see its hours). Display-only aggregation.
+    const byDayHourMap = new Map<string, Map<string, HistGroup>>();
+    for (const r of closed) {
+      if (!r.exitTime) continue;
+      const d = dayKey(new Date(r.exitTime));
+      const h = hourKey(new Date(r.exitTime));
+      let inner = byDayHourMap.get(d);
+      if (!inner) { inner = new Map(); byDayHourMap.set(d, inner); }
+      const g = inner.get(h) ?? { n: 0, wins: 0, sumPnlPct: 0, sumUsd: 0, margin: 0 };
+      g.n += 1;
+      if ((r.pnlPct ?? 0) > 0) g.wins += 1;
+      g.sumPnlPct += r.pnlPct ?? 0;
+      g.sumUsd += pnlUsdOf(r);
+      if (r.capitalBefore != null && r.stakePct != null) g.margin += (r.capitalBefore * r.stakePct) / 100;
+      inner.set(h, g);
+    }
     const toBarItems = (m: Map<string, HistGroup>) => [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([label, g]) => {
       const winRate = g.n ? (g.wins / g.n) * 100 : 0;
       const avgG = g.n ? g.sumPnlPct / g.n : 0;
@@ -866,7 +883,9 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       return [label, String(g.n), `${wr.toFixed(1)}%`, `${avgT >= 0 ? "+" : ""}${avgT.toFixed(2)}%`, `${totT >= 0 ? "+" : ""}${totT.toFixed(2)}%`, `${g.sumUsd >= 0 ? "+" : ""}$${g.sumUsd.toFixed(2)}`];
     });
     if (byHourMap.size > 0) charts.push({ kind: "table", columns: ["Hour", "Trades", "Win rate", "Avg PNL %", "Total PNL %", "PNL $"], rows: toTableRows(byHourMap), hint: "Trade history by closing hour (Asia/Ho_Chi_Minh). PNL USD equals capitalBefore times stakePct times pnlPct." });
-    if (byDayMap.size > 0) charts.push({ kind: "table", columns: ["Day", "Trades", "Win rate", "Avg PNL %", "Total PNL %", "PNL $"], rows: toTableRows(byDayMap), hint: "Trade history by closing day (Asia/Ho_Chi_Minh). PNL USD equals capitalBefore times stakePct times pnlPct." });
+    const byDayDetails: Record<string, Array<Array<string>>> = {};
+    for (const entry of byDayHourMap.entries()) { const day = entry.at(0) as string; const inner = entry.at(1) as Map<string, HistGroup>; byDayDetails[day] = toTableRows(inner); }
+    if (byDayMap.size > 0) charts.push({ kind: "table", columns: ["Day", "Trades", "Win rate", "Avg PNL %", "Total PNL %", "PNL $"], rows: toTableRows(byDayMap), details: byDayDetails, hint: "Trade history by closing day (Asia/Ho_Chi_Minh). PNL USD equals capitalBefore times stakePct times pnlPct." });
     return {
       state: (unlabeled > 0 ? "warn" : "ok") as StatState,
       note:

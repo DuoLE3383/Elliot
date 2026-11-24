@@ -15,7 +15,7 @@
 import type { Lang } from "@/lib/i18n";
 import { SESSIONS } from "@/lib/market";
 import type { StatChart } from "@/lib/stats";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 
 /** màu cố định cho từng nhãn stack — khớp quy ước LONG xanh / SHORT đỏ của app */
 const STACK_HUE: Record<string, string> = {
@@ -80,13 +80,46 @@ function ItemTip({
 
 
 function TableChart({ chart }: { chart: Extract<StatChart, { kind: "table" }> }) {
-  const title = chart.columns[0] === "Hour" ? "By hour" : "By day";
+  const isDay = chart.columns.at(0) === "Day";
+  const title = isDay ? "By day" : "By hour";
+  const [openDay, setOpenDay] = useState<string | null>(null);
+  const isPnlCol = (ci: number) => ci >= 3;
+  const colorOf = (cell: string) => {
+    if (cell.startsWith("+")) return "text-emerald-400";
+    if (cell.startsWith("-")) return "text-rose-400";
+    return "text-zinc-400";
+  };
   return (
     <div className="overflow-x-auto">
-      <p className="mb-1.5 font-mono text- font-bold text-zinc-200">{title} - Trade history, PNL % and PNL $</p>
-      <table className="w-full text-left font-mono text-">
-        <thead><tr>{chart.columns.map((c, i) => (<th key={i} className="border-b border-zinc-800 px-2 py-1 text-zinc-400">{c}</th>))}</tr></thead>
-        <tbody>{chart.rows.map((row, ri) => (<tr key={ri} className="border-b border-zinc-900">{row.map((cell, ci) => (<td key={ci} className="px-2 py-1 text-zinc-200">{cell}</td>))}</tr>))}</tbody>
+      <p className="mb-1.5 font-mono text-sm font-bold text-zinc-200">{title} - Trade history, PNL % and PNL $ {isDay ? "(click a day to see its hours)" : ""}</p>
+      <table className="w-full text-left font-mono text-xs leading-tight">
+        <thead><tr>{chart.columns.map((c, i) => (<th key={i} className="border-b border-zinc-800 px-2 py-1 text-xs font-medium text-zinc-400">{c}</th>))}</tr></thead>
+        <tbody>
+          {chart.rows.map((row, ri) => {
+            const day = row.at(0) ?? "";
+            const detailRows = isDay && chart.details ? chart.details[day] : undefined;
+            const isOpen = openDay === day;
+            return (
+              <Fragment key={ri}>
+                <tr onClick={detailRows ? () => setOpenDay(isOpen ? null : day) : undefined} className={detailRows ? "cursor-pointer border-b border-zinc-900 hover:bg-zinc-900/60" : "border-b border-zinc-900"}>
+                  {row.map((cell, ci) => (
+                    <td key={ci} className={`px-2 py-1 ${isPnlCol(ci) ? colorOf(cell) : "text-zinc-200"}`}>{ci === 0 && detailRows ? (isOpen ? "v " : "> ") : ""}{cell}</td>
+                  ))}
+                </tr>
+                {isOpen && detailRows ? (
+                  <tr className="border-b border-zinc-900">
+                    <td colSpan={chart.columns.length} className="px-2 py-1">
+                      <table className="w-full text-left font-mono text-xs leading-tight">
+                        <thead><tr>{chart.columns.map((c, i) => (<th key={i} className="border-b border-zinc-800 px-2 py-1 text-xs font-medium text-zinc-500">{i === 0 ? "Hour" : c}</th>))}</tr></thead>
+                        <tbody>{detailRows.map((dRow, di) => (<tr key={di} className="border-b border-zinc-900/60">{dRow.map((cell, ci) => (<td key={ci} className={`px-2 py-1 ${isPnlCol(ci) ? colorOf(cell) : "text-zinc-300"}`}>{cell}</td>))}</tr>))}</tbody>
+                      </table>
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
+            );
+          })}
+        </tbody>
       </table>
     </div>
   );
