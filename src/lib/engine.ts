@@ -425,6 +425,31 @@ async function getTickers(): Promise<Record<string, Ticker>> {
   return map;
 }
 
+
+async function closePriceOf(symbol: string, interval: string): Promise<number> {
+  try {
+    const kl = await fetchKlinesDirect(symbol, interval, 3);
+    if (kl.length === 0) return 0;
+    let tfMin = 15;
+    if (interval === "1m") tfMin = 1;
+    if (interval === "5m") tfMin = 5;
+    if (interval === "15m") tfMin = 15;
+    if (interval === "30m") tfMin = 30;
+    if (interval === "1h") tfMin = 60;
+    if (interval === "4h") tfMin = 240;
+    if (interval === "1d") tfMin = 1440;
+    if (interval === "1w") tfMin = 10080;
+    const last = kl.at(-1);
+    if (!last) return 0;
+    const lastIsClosed = last.t + tfMin * 60000 <= Date.now();
+    const closed = lastIsClosed ? last : kl.at(-2);
+    if (!closed) return last.c;
+    return closed.c;
+  } catch {
+    return 0;
+  }
+}
+
 // ─── DB helpers (mirror the /api/autotrade + /api/finetune routes) ───────────
 
 async function runCount(symbol: string, interval: string): Promise<number> {
@@ -1588,7 +1613,7 @@ async function cycleTick(): Promise<void> {
     const openKeys = new Set((st.opens ?? (st.open ? [st.open] : [])).map((o) => `${o.symbol}|${o.interval}`));
     for (const cand of cands) {
       if (openKeys.has(`${cand.symbol}|${cand.interval}`)) continue; // multi: combo nay da co lenh
-      const px = tickers[cand.symbol]?.price ?? 0;
+      const px = await closePriceOf(cand.symbol, cand.interval);
       if (px <= 0) continue;
       if (slCooldownLeft(st.trades, cand.symbol, cand.interval, c.cooldownMin) !== 0) continue;
       if (!passesChaseGuard(st.trades, cand.symbol, cand.interval, cand.bias, px)) {
@@ -1878,6 +1903,8 @@ async function cycleTick(): Promise<void> {
 //      Telegram. Trả true = lệnh cũ đã xử lý xong (kể cả khi không mở lệnh mới).
 
 async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise<boolean> {
+  const flipClose = await closePriceOf(row.symbol, row.interval);
+  if (flipClose > 0) price = flipClose;
   const { p, v } = eng();
   const c = p.cfg;
   const from = open.side;
