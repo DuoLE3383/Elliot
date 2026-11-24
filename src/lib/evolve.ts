@@ -213,6 +213,26 @@ export async function activePromotion(): Promise<{
 /** Combo có champion XGBoost tốt nhất (AUC) trong pairs × runTf của engine —
  *  fallback BTCUSDT 15m. Đây là combo mà quyết định SL/TP/UT/SMA ảnh hưởng
  *  rõ nhất, nên dùng nó làm sân backtest chung. */
+async function wrongDirGlobal(): Promise<{ nSL: number; nWrong: number; nMid: number; nMaeThieu: number; rate: number }> {
+  const rows = await db.autoTrade.findMany({
+    where: { status: "closed", exitKind: "sl", autopsy: { not: null } },
+    orderBy: { exitTime: "desc" }, take: 100,
+    select: { slPct: true, tpPct: true, autopsy: true },
+  });
+  let nSL = 0, nWrong = 0, nMid = 0, nMaeThieu = 0;
+  for (const r of rows) {
+    let ev: { mfePct?: number; maePct?: number; covered?: boolean } = {};
+    try { ev = (JSON.parse(r.autopsy ?? "") as { ev?: typeof ev }).ev ?? {}; } catch { continue; }
+    if (ev.covered === false) continue;
+    nSL += 1;
+    const mfe = Math.abs(ev.mfePct ?? 0), mae = Math.abs(ev.maePct ?? 0);
+    if (mfe < r.tpPct * 0.25 && mae >= r.slPct * 0.8) nWrong += 1;
+    else if (mae < r.slPct * 0.8) nMaeThieu += 1;
+    else if (mfe < r.tpPct * 0.5) nMid += 1;
+  }
+  return { nSL, nWrong, nMid, nMaeThieu, rate: nSL ? nWrong / nSL : 0 };
+}
+
 async function pickCombo(bridge: EvolveBridge): Promise<{ sym: string; itv: string }> {
   const { pairs, runTf } = bridge.universe();
   const syms = (pairs.length ? pairs : ["BTCUSDT"]).slice(0, 8);
@@ -260,6 +280,7 @@ export async function evolveRound(bridge: EvolveBridge): Promise<EvolveOutcome> 
 
     // 1 · combo đại diện + klines (1 lần fetch, dùng chung mọi backtest)
     const combo = await pickCombo(bridge);
+    const wrongG = await wrongDirGlobal().catch(() => null);
     const KLINE_LIMIT_EVOLVE = 500;
     const { klines } = await fetchKlinesDirectResolved(combo.sym, combo.itv, KLINE_LIMIT_EVOLVE);
 
@@ -341,7 +362,8 @@ export async function evolveRound(bridge: EvolveBridge): Promise<EvolveOutcome> 
           recent_evolution: tried.map((t) => ({ at: t.createdAt.toISOString(), decision: t.decision, name: t.name, detail: t.detail.slice(0, 160) })),
           recent_paper_trades: trades.map((t) => ({ symbol: t.symbol, side: t.side, pnlPct: t.pnlPct, exit: t.exitKind })),
           feature_importance: importance,
-          rules: "1 candidate only. Must differ from current_config and from losing candidates. tpPct and slPct in % of price. Vietnamese hypothesis.",
+          wrong_dir_global: wrongG,
+          rules: "1 candidate only. Must differ from current_config and from losing candidates. tpPct and slPct in % of price. Vietnamese hypothesis. If wrong_dir_global.rate >= 0.35, prefer anti-wrong-direction candidates (raise minAcc / tighten gate / larger SL ATRx), do not propose TP change.",
         });
         const ep = bridge.llmEndpoint();
         const t0 = Date.now();

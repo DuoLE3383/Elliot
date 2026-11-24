@@ -379,7 +379,7 @@ export async function autopsyClosedTrade(row: {
     const needed = Math.ceil(durMin / tfMin) + 10;
     const limit = Math.min(1000, Math.max(60, needed));
     try {
-      ks = await fetchKlinesDirect(input.symbol, input.interval, limit);
+      ks = await fetchKlinesDirect(input.symbol, input.interval, limit, { endTime: input.exitTime });
       ({ ks, covered } = klinesInWindow(ks, input));
     } catch {
       // không lấy được nến — mổ trên entry/outcome thôi
