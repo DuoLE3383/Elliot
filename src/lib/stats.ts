@@ -562,9 +562,9 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     };
   });
 
-  // ─── 4b. DQF — sàn chất lượng ĐỘNG học từ toàn bộ Elliott session (0.3.2) ────
-  // Chỉ ĐỌC db/dqf-state.json (engine tick ghi sau khi đo) — KHÔNG đụng DB ở đây
-  // (stats poll nhiều, DB chỉ được chạm ở nơi có kiểm soát — bài học integrity).
+  // ─── 4b. DQF — DYNAMIC quality floor learning from whole Elliott session (0.3.2) ────
+  // Only READ DATA_DIR/dqf-state.json (engine tick writes after measuring) — DO NOT touch DB here
+  // (stats polls often, DB only touched where controlled — integrity lesson).
   const dqfSec = await safe("dqf", async () => {
     const f = readDqfFile();
     const s = f.state;
@@ -573,16 +573,16 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
     const nSess = sess?.n ?? 0;
     const fmtF = (x: { minScore: number; minAuc: number; minAcc: number }): string =>
       `${Math.round(x.minScore)} / ${x.minAuc.toFixed(2)} / ${Math.round(x.minAcc)}`;
-    const bandLabel = (b: DqfBand): string => (b.hi === Infinity ? `≥${b.lo}` : `${b.lo}–${b.hi === Infinity ? "" : b.hi}`);
+    const bandLabel = (b: DqfBand): string => { const hi = (b as unknown as { hi: number | null }).hi; return hi == null || hi === Infinity ? `≥${b.lo}` : `${b.lo}–${hi}`; };
     const bandBars = (bands: DqfBand[] | undefined) =>
       (bands ?? [])
         .filter((b) => b.n > 0)
         .map((b) => ({
           label: bandLabel(b),
           v: Math.round(b.exp * 100) / 100,
-          sub: [`${b.n} lệnh · WR ${b.wr.toFixed(2)}% · TB ${b.exp >= 0 ? "+" : ""}${b.exp.toFixed(2)}%/lệnh`],
+          sub: [`${b.n} trades · WR ${b.wr.toFixed(2)}% · avg ${b.exp >= 0 ? "+" : ""}${b.exp.toFixed(2)}%/trade`],
         }));
-    const bandChart = (bands: DqfBand[] | undefined, unitName: string, hint: string, hintVi: string) =>
+    const bandChart = (bands: DqfBand[] | undefined, unitName: string, hint: string, hintVi?: string) =>
       (bands ?? []).some((b) => b.n > 0)
         ? [
             {
@@ -595,47 +595,48 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
           ]
         : [];
     const hist0 = f.hist[0] ?? null;
+    const atTarget = s?.target ? s.floors.minScore === s.target.minScore && s.floors.minAuc === s.target.minAuc && s.floors.minAcc === s.target.minAcc : false;
     const lastChange = hist0
-      ? `${ago(hist0.at)} — ${Math.round(hist0.from.minScore)}/${hist0.from.minAuc.toFixed(2)}/${Math.round(hist0.from.minAcc)} → ${Math.round(hist0.to.minScore)}/${hist0.to.minAuc.toFixed(2)}/${Math.round(hist0.to.minAcc)}`
-      : "chưa đổi lần nào";
+      ? `${ago(hist0.at)} — ${Math.round(hist0.from.minScore)}/${hist0.from.minAuc.toFixed(2)}/${Math.round(hist0.from.minAcc)} → ${Math.round(hist0.to.minScore)}/${hist0.to.minAuc.toFixed(2)}/${Math.round(hist0.to.minAcc)}${atTarget ? " · Stable at target, no step needed" : ""}`
+      : atTarget ? "Stable at target — no step needed" : "never changed";
     return {
       state: (!f.on ? "warn" : s && s.src === "dqf" ? "ok" : "warn") as StatState,
       note: f.on
         ? s && s.src === "dqf"
-          ? `DQF đang giữ quyền sàn (${fmtF(s.floors)}) — quyết định từ ${nSess} lệnh đóng, mục tiêu bands ${s.target ? fmtF(s.target) : "chưa đủ mẫu nhóm"}. Engine funnel + flip đều dùng đúng sàn này.`
-          : `DQF bật nhưng CHƯA đủ mẫu (cần ≥ ${DQF_MIN_N} lệnh đóng) — passthrough sàn cfg panel, chưa tiến hoá.`
-        : "DQF đang TẮT — engine dùng sàn cfg panel (minScore/minAuc/minAcc như Auto panel).",
+          ? `DQF holds floor authority (${fmtF(s.floors)}) — decided from ${nSess} closed trades, band target ${s.target ? fmtF(s.target) : "not enough group samples"}. Engine funnel + flip use these floors.`
+          : `DQF on but NOT enough samples (need ≥ ${DQF_MIN_N} closed trades) — passthrough cfg panel floors, not evolved yet.`
+        : "DQF OFF — engine uses cfg panel floors (minScore/minAuc/minAcc as in Auto panel).",
       accPct: nSess > 0 ? wilsonLB(wins, nSess) : 0,
-      accNote: nSess > 0 ? `Wilson 95% lower bound on ${nSess} closed trades (toàn bộ session)` : "no closed trades yet",
+      accNote: nSess > 0 ? `Wilson 95% lower bound on ${nSess} closed trades (whole session)` : "no closed trades yet",
       accent: "cyan" as StatAccent,
       charts: [
         ...bandChart(
           s?.bands.score,
           "%",
           "Expectancy (avg ROI%/trade, leverage+fee included) cumulated per ENTRY-SCORE band from the ENTIRE Elliott session. The DQF floor moves toward the break-even boundary: smallest floor whose band-group ≥ 0. Hover for n/WR.",
-          "Expectancy (TB ROI%/lệnh, gồm đòn bẩy + phí) theo BĂNG ĐIỂM LÚC VÀO của TOÀN BỘ session Elliott. Sàn DQF tiến về mép hoà vốn: ngưỡng nhỏ nhất mà nhóm ≥ ngưỡng có exp ≥ 0. Di chuột xem n/WR.",
+          "Expectancy (avg ROI%/trade, leverage+fee included) cumulated per ENTRY-SCORE band from the ENTIRE Elliott session. The DQF floor moves toward the break-even boundary: smallest floor whose band-group ≥ 0. Hover for n/WR.",
         ),
         ...bandChart(
           s?.bands.auc,
           "%",
           "Same break-even read by ENTRY-AUC band. Bands below the historical floor are thin/empty — that is expected (the old floor gated them out).",
-          "Đọc hoà vốn theo BĂNG AUC LÚC VÀO. Các băng dưới sàn cũ thường mỏng/rỗng — bình thường vì sàn cũ đã chặn chúng trước khi vào lệnh.",
+          "Same break-even read by ENTRY-AUC band. Bands below the historical floor are thin/empty — that is expected (the old floor gated them out).",
         ),
         ...bandChart(
           s?.bands.acc,
           "%",
           "Same break-even read by ENTRY-ACC band.",
-          "Đọc hoà vốn theo BĂNG ACC LÚC VÀO.",
+          "Same break-even read by ENTRY-ACC band.",
         ),
       ],
       metrics: [
-        { k: "Công tắc", v: f.on ? "DQF BẬT" : "DQF TẮT", sub: f.on ? "sàn tự học theo session" : "sàn = cfg panel", tone: f.on ? "ok" : "warn", hint: "DQF master switch (POST /api/dqf). ON = the dynamic quality floor learns from the whole Elliott session and overrides the panel floors at entry/flip time. OFF = panel cfg floors only. Either way nothing is applied below the safe defaults (60/0.80/70).", hintVi: "Công tắc chính DQF (POST /api/dqf). BẬT = sàn chất lượng tự học từ toàn bộ session Elliott và đè sàn panel lúc vào lệnh/flip. TẮT = chỉ dùng sàn cfg panel. Cả hai đều không bao giờ xuống dưới mặc định an toàn (60/0.80/70)." },
-        { k: "Sàn hiệu lực", v: s ? fmtF(s.floors) : fmtF({ minScore: 60, minAuc: 0.8, minAcc: 70 }), sub: s ? `nguồn: ${s.src === "dqf" ? "DQF tự học" : "cfg panel (chưa đủ mẫu/tắt)"}` : "chưa có chu kỳ nào chạy", tone: s?.src === "dqf" ? "ok" : "info", hint: "The floors the engine ACTUALLY used last cycle: minScore / minAuc / minAcc (entry + flip + funnel tooltips). Source shows who decided: DQF (learned) vs cfg (panel).", hintVi: "Sàn engine ĐÃ DÙNG ở chu kỳ gần nhất: minScore / minAuc / minAcc (vào lệnh + flip + tooltip funnel). Nguồn cho biết ai quyết: DQF (tự học) hay cfg (panel)." },
-        { k: "Mục tiêu bands", v: s?.target ? fmtF(s.target) : "—", sub: "ngưỡng hoà vốn từng metric", tone: "info", hint: "Band-derived target: for each metric the smallest floor whose entry-group has expectancy ≥ 0 (min 10 trades). Floors evolve ONE step (±2 score / ±0.01 AUC / ±1 ACC) toward it every ≤30min, clamped to defaults..caps.", hintVi: "Mục tiêu suy từ băng: với từng metric là ngưỡng NHỎ NHẤT mà nhóm lệnh ≥ ngưỡng có expectancy ≥ 0 (tối thiểu 10 lệnh). Sàn tiến hoá TỪNG BẬC (±2 điểm / ±0.01 AUC / ±1 ACC) mỗi ≤30 phút về phía mục tiêu, kẹp trong default..trần." },
-        { k: "Session (toàn bộ)", v: `${nSess} lệnh`, sub: sess ? `WR ${sess.wr.toFixed(2)}% · exp ${sess.exp >= 0 ? "+" : ""}${sess.exp.toFixed(2)}%/lệnh · net ${sess.net >= 0 ? "+" : ""}${sess.net.toFixed(2)}%` : "—", tone: !sess ? "dim" : sess.exp >= 0 ? "ok" : "bad", hint: "The WHOLE Elliott dry-run session (every closed AutoTrade row, flips included) — the dataset DQF learns from. Need ≥ 20 closed trades before it may speak.", hintVi: "TOÀN BỘ session dry-run Elliott (mọi lệnh AutoTrade đã đóng, kể cả flip) — tập dữ liệu DQF học. Cần ≥ 20 lệnh đóng trước khi được phát ngôn." },
-        { k: "Payoff", v: sess && Number.isFinite(sess.payoff) ? sess.payoff.toFixed(2) : "—", sub: "lãi TB / lỗ TB", tone: !sess ? "dim" : sess.payoff >= 1 ? "ok" : "warn", hint: "Average win / average loss of the session — payoff < 1 with low WR is the bleed pattern that pushes floors up.", hintVi: "Lãi TB / lỗ TB của session — payoff < 1 kèm WR thấp là kiểu chảy máu khiến sàn bị siết lên." },
-        { k: "Lý do hiện tại", v: s?.why ? (s.why.length > 64 ? `${s.why.slice(0, 64)}…` : s.why) : "—", wide: true, tone: "info", hint: s?.why ?? "Full reason with numbers from the last DQF decision (also in pm2 logs at every change).", hintVi: s?.why ?? "Lý do đầy đủ kèm số của quyết định DQF gần nhất (cũng nằm trong log pm2 mỗi lần đổi)." },
-        { k: "Tiến hoá gần nhất", v: lastChange, wide: true, tone: hist0 ? "info" : "dim", hint: "Latest floor step: time + from → to (one step per change; full history below via the charts and db/dqf-state.json).", hintVi: "Bậc sàn gần nhất: thời điểm + from → to (mỗi lần đổi một bậc; lịch sử đầy đủ nằm trong phần biểu đồ và file db/dqf-state.json)." },
+        { k: "Switch", v: f.on ? "DQF ON" : "DQF OFF", sub: f.on ? "learned floors from session" : "floors = cfg panel", tone: f.on ? "ok" : "warn", hint: "DQF master switch (POST /api/dqf). ON = the dynamic quality floor learns from the whole Elliott session and overrides the panel floors at entry/flip time. OFF = panel cfg floors only. Either way nothing is applied below the safe defaults (50/0.60/55)." },
+        { k: "Effective floors", v: s ? fmtF(s.floors) : fmtF({ minScore: 50, minAuc: 0.6, minAcc: 55 }), sub: s ? `source: ${s.src === "dqf" ? "DQF learned" : "cfg panel (not enough samples/off)"}` : "no cycle ran yet", tone: s?.src === "dqf" ? "ok" : "info", hint: "The floors the engine ACTUALLY used last cycle: minScore / minAuc / minAcc (entry + flip + funnel tooltips). Source shows who decided: DQF (learned) vs cfg (panel)." },
+        { k: "Band target", v: s?.target ? fmtF(s.target) : "—", sub: "break-even threshold per metric", tone: "info", hint: "Band-derived target: for each metric the smallest floor whose entry-group has expectancy ≥ 0 (min 10 trades). Floors evolve ONE step (±2 score / ±0.01 AUC / ±1 ACC) toward it every ≤30min, clamped to defaults..caps." },
+        { k: "Session (all)", v: `${nSess} trades`, sub: sess ? `WR ${sess.wr.toFixed(2)}% · exp ${sess.exp >= 0 ? "+" : ""}${sess.exp.toFixed(2)}%/trade · sum ROI ${sess.net >= 0 ? "+" : ""}${sess.net.toFixed(2)}%` : "—", tone: !sess ? "dim" : sess.exp >= 0 ? "ok" : "bad", hint: "The WHOLE Elliott dry-run session (every closed AutoTrade row with PnL, flips included) — the dataset DQF learns from. Need ≥ 20 closed trades before it may speak. Sum ROI is the plain sum of per-trade ROI, not compounded capital — capital ROI lives in Recent Trades." },
+        { k: "Payoff", v: sess && Number.isFinite(sess.payoff) ? sess.payoff.toFixed(2) : "—", sub: "avg win / avg loss", tone: !sess ? "dim" : sess.payoff >= 1 ? "ok" : "warn", hint: "Average win / average loss of the session — payoff < 1 with low WR is the bleed pattern that pushes floors up." },
+        { k: "Current reason", v: s?.why ? (s.why.length > 64 ? `${s.why.slice(0, 64)}…` : s.why) : "—", wide: true, tone: "info", hint: s?.why ?? "Full reason with numbers from the last DQF decision (also in pm2 logs at every change)." },
+        { k: "Latest evolution", v: lastChange, wide: true, tone: hist0 ? "info" : "dim", hint: "Latest floor step: time + from → to (one step per change; full history below via the charts and DATA_DIR/dqf-state.json)." },
       ],
     };
   });

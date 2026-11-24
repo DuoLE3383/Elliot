@@ -1,60 +1,59 @@
-// ─── DQF — SÀN CHẤT LƯỢNG ĐỘNG (0.3.2) — "học & tiến hoá từ toàn bộ Elliott session" ──
-// Yêu cầu của user: "AUC ACC và score dynamic và phải học và tiến hoá dựa trên
-// toàn bộ elliott session và nêu rõ bên stats".
+// ─── DQF — DYNAMIC QUALITY FLOOR (0.3.2) — "learn & evolve from whole Elliott session" ──
+// User requirement: "AUC ACC and score dynamic and must learn and evolve based on
+// whole Elliott session and state it clearly in stats".
 //
-// Thiết kế:
-//   • NGUỒN HỌC = bảng AutoTrade (sổ B Elliott) TOÀN BỘ lệnh đã đóng — mỗi lệnh
-//     đã lưu auc/acc/score LÚC VÀO LỆNH (engine ghi từ đời đầu) + pnlPct (ROI
-//     đòn bẩy, đã trừ phí). Học từ KẾT QUẢ THẬT của chính session, không phải
-//     từ setpoint tay.
-//   • LUẬT (break-even bands, thuần số không LLM):
-//       – Chia lệnh theo băng giá trị lúc vào (Score 60→85 · AUC 0.80→0.90 ·
-//         ACC 70→85, bước 2/0.01/1). Với từng ngưỡng F tăng dần, đo expectancy
-//         cộng dồn của NHÓM lệnh entry ≥ F.
-//       – Mục tiêu từng metric = ngưỡng F NHỎ NHẤT mà nhóm ≥ F có expectancy ≥ 0
-//         (và đủ mẫu ≥ DQF_MIN_BAND_N). Không ngưỡng nào dương → trần (85/0.90/
-//         85). Mọi nhóm đều dương → mặc định (50/0.60/55) — v0.3.45. Chưa đủ mẫu → giữ.
-//   • TIẾN HOÁ = đi từng BẬC (score ±2 · AUC ±0.01 · ACC ±1) về phía mục tiêu,
-//     tối đa 1 lần đổi mỗi DQF_COOLDOWN_MIN phút — mượt, truy vết được, không
-//     giật cfg panel. Biên tuyệt đối [50..85]/[0.60..0.90]/[55..85] — KHÔNG BAO
-//     GIỜ xuống dưới mặc định (giữ nhất quán luật restore của tune-2 0.3.0).
-//   • ÁP = engine đọc sàn hiệu lực lúc funnel vào lệnh + flip (override layer,
-//     KHÔNG ghi cfg → hết nỗi lo vòng sync 0.2.99 và không cài thẳng tay
-//     self-improve/tune-2). Panel + tooltip 0.3.1 dùng đúng sàn hiệu lực này.
-//   • NÊU RÕ = db/dqf-state.json (DATA_DIR, sống qua restart): sàn hiện tại +
-//     mục tiêu + lý do kèm số + băng bằng chứng + lịch sử từng lần đổi.
-//     /stats trạm "Sàn chất lượng động (Elliott)" đọc FILE (không đụng DB —
-//     bài học vụ integrity_check: poll không được quét DB).
+// Design:
+//   • LEARNING SOURCE = AutoTrade table (Book B Elliott) ALL closed trades — each trade
+//     saved auc/acc/score AT ENTRY (engine wrote from day one) + pnlPct (leveraged ROI,
+//     net of fees). Learn from REAL results of this session, not from manual setpoints.
+//   • RULE (break-even bands, pure numbers no LLM):
+//       – Split trades by entry-value band (Score 60→85 · AUC 0.80→0.90 ·
+//         ACC 70→85, step 2/0.01/1). For each rising threshold F, measure cumulative
+//         expectancy of entry ≥ F group.
+//       – Target per metric = SMALLEST threshold F whose ≥ F group has expectancy ≥ 0
+//         (and enough samples ≥ DQF_MIN_BAND_N). No threshold positive → cap (85/0.90/
+//         85). All groups positive → default (50/0.60/55) — v0.3.45. Not enough samples → keep.
+//   • EVOLUTION = move one STEP (score ±2 · AUC ±0.01 · ACC ±1) toward target,
+//     at most 1 change per DQF_COOLDOWN_MIN minutes — smooth, traceable, no
+//     cfg panel jump. Absolute bounds [50..85]/[0.60..0.90]/[55..85] — NEVER
+//     below default (keeps tune-2 0.3.0 restore rule consistent).
+//   • APPLY = engine reads effective floors at funnel entry + flip (override layer,
+//     does NOT write cfg → no more 0.2.99 sync loop and no manual
+//     self-improve/tune-2 install). Panel + tooltip 0.3.1 use these effective floors.
+//   • STATE CLEARLY = DATA_DIR/dqf-state.json (survives restart): current floors +
+//     target + reason with numbers + evidence bands + history of each change.
+//     /stats station "Dynamic quality floor (Elliott)" reads FILE (does not touch DB —
+//     integrity_check lesson: poll must not scan DB).
 //
-// Cạnh với self-improve agent (tự +2 minScore vào cfg): khi DQF bật, sàn hiệu
-// lực là của DQF — patch cfg của agent vẫn ghi nhưng bị override ở funnel.
-// /stats hiển thị "nguồn" để nhìn thấy ai đang giữ quyền.
+// Rival with self-improve agent (auto +2 minScore into cfg): when DQF on, effective
+// floors belong to DQF — agent cfg patch still writes but is overridden at funnel.
+// /stats shows "source" so you can see who holds authority.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { db } from "./db";
 import { dataFile } from "./data-dir";
 
-// ── Hằng số luật ──────────────────────────────────────────────────────────────
+// ── Rule constants ──────────────────────────────────────────────────────────────
 
-/** sàn mặc định (setpoint broadcast 31/10) — biên DƯỚI tuyệt đối của DQF */
-export const DQF_DEFAULT = { minScore: 50, minAuc: 0.6, minAcc: 55 } as const; // v0.3.45: hạ biên dưới 60/0.80/70 -> 50/0.60/55 — 60/0.80/70 cho 0/336 tradeable, bot chết
-/** biên TRÊN tuyệt đối — trùng trần self-improve/tune-2 */
+/** default floors (setpoint broadcast 31/10) — absolute LOWER bound of DQF */
+export const DQF_DEFAULT = { minScore: 50, minAuc: 0.6, minAcc: 55 } as const; // v0.3.45: lowered lower bound 60/0.80/70 -> 50/0.60/55 — 60/0.80/70 gave 0/336 tradeable, bot dead
+/** absolute UPPER bound — matches self-improve/tune-2 cap */
 export const DQF_CAP = { minScore: 85, minAuc: 0.9, minAcc: 85 } as const;
-/** một bước tiến hoá mỗi lần đổi */
+/** one evolution step per change */
 export const DQF_STEP = { minScore: 2, minAuc: 0.01, minAcc: 1 } as const;
-/** tối thiểu lệnh đóng của TOÀN BỘ session mới được phát ngôn */
+/** min closed trades of WHOLE session before it may speak */
 export const DQF_MIN_N = 20;
-/** tối thiểu lệnh trong nhóm cộng dồn ≥ F để nhóm đó được tin */
+/** min trades in cumulative group ≥ F for that group to be trusted */
 export const DQF_MIN_BAND_N = 10;
-/** đo lại session tối đa mỗi 5 phút (engine tick + stats đều đọc cache) */
+/** re-measure session at most every 5 min (engine tick + stats both read cache) */
 const DQF_MEASURE_TTL_MS = 5 * 60_000;
-/** tối đa 1 lần đổi sàn mỗi 30 phút — tiến hoá mượt, không giật */
+/** at most 1 floor change every 30 min — smooth evolution, no jump */
 export const DQF_COOLDOWN_MIN = 30;
 
-// ── Types (client đọc được qua /api/stats + /api/engine) ─────────────────────
+// ── Types (client reads via /api/stats + /api/engine) ─────────────────────
 
 export interface DqfBand {
-  /** khoảng [lo, hi) — hi = Infinity với băng cuối */
+  /** range [lo, hi) — hi = Infinity for last band */
   lo: number;
   hi: number;
   n: number;
@@ -72,7 +71,7 @@ export interface DqfSession {
   n: number;
   wr: number;
   payoff: number;
-  /** expectancy % ROI / lệnh (TB pnlPct) — cùng công thức tune-2 */
+  /** expectancy % ROI / trade (avg pnlPct) — same formula as tune-2 */
   exp: number;
   net: number;
 }
@@ -80,15 +79,15 @@ export interface DqfSession {
 export interface DqfDecision {
   at: number;
   on: boolean;
-  /** sàn HIỆU LỰC chu kỳ này — "cfg" = chưa đủ mẫu/tắt → passthrough cấu hình panel */
+  /** EFFECTIVE floors this cycle — "cfg" = not enough samples/off → passthrough panel config */
   src: "dqf" | "cfg";
   floors: DqfFloors;
-  /** mục tiêu bands chỉ ra — null = chưa đủ mẫu nhóm */
+  /** band-derived target — null = not enough group samples */
   target: DqfFloors | null;
-  /** lý do kèm SỐ — hiện ở /stats + log engine */
+  /** reason with NUMBERS — shown in /stats + engine log */
   why: string;
   session: DqfSession;
-  /** bằng chứng: expectancy cộng dồn theo từng băng entry */
+  /** evidence: cumulative expectancy per entry band */
   bands: { score: DqfBand[]; auc: DqfBand[]; acc: DqfBand[] };
 }
 
@@ -102,18 +101,18 @@ export interface DqfHistEntry {
 export interface DqfFile {
   on: boolean;
   state: DqfDecision | null;
-  /** lịch sử TIẾN HOÁ — mỗi lần sàn đổi một bậc ghi 1 dòng (mới nhất đầu) */
+  /** EVOLUTION history — one line per floor step (newest first) */
   hist: DqfHistEntry[];
   lastChangeAt: number | null;
 }
 
-// ── Băng bằng chứng (cố định, phủ mọi thời kỳ — gồm cả era sàn 0.55/55 cũ) ────
+// ── Evidence bands (fixed, cover all eras — incl. old 0.55/55 floor era) ────
 
 const SCORE_BANDS: [number, number][] = [[0, 55], [55, 60], [60, 65], [65, 70], [70, 75], [75, 80], [80, Infinity]];
 const AUC_BANDS: [number, number][] = [[0, 0.7], [0.7, 0.75], [0.75, 0.8], [0.8, 0.85], [0.85, Infinity]];
 const ACC_BANDS: [number, number][] = [[0, 55], [55, 60], [60, 65], [65, 70], [70, 75], [75, Infinity]];
 
-/** ứng viên sàn tăng dần trong biên [default..cap] — đúng bước tiến hoá */
+/** floor candidates increasing in [default..cap] — exact evolution steps */
 export const DQF_CANDIDATES = {
   minScore: rangeCandidates(DQF_DEFAULT.minScore, DQF_CAP.minScore, DQF_STEP.minScore),
   minAuc: rangeCandidates(DQF_DEFAULT.minAuc, DQF_CAP.minAuc, DQF_STEP.minAuc, 2),
@@ -128,7 +127,7 @@ function rangeCandidates(lo: number, hi: number, step: number, round = 0): numbe
   return out;
 }
 
-// ── Đo session từ DB (chỉ engine tick gọi — stats đọc file) ───────────────────
+// ── Measure session from DB (only engine tick calls — stats reads file) ───────────────────
 
 interface TradeRow {
   pnlPct: number | null;
@@ -159,7 +158,7 @@ function bandStats(rows: TradeRow[], pick: (r: TradeRow) => number | null, bands
   });
 }
 
-/** expectancy CỘNG DỒN của nhóm entry ≥ F (trong biên candidate) */
+/** CUMULATIVE expectancy of entry ≥ F group (within candidate range) */
 function cumExp(rows: TradeRow[], pick: (r: TradeRow) => number | null, f: number): { n: number; exp: number } {
   const cum = rows.filter((r) => {
     const v = pick(r);
@@ -169,36 +168,36 @@ function cumExp(rows: TradeRow[], pick: (r: TradeRow) => number | null, f: numbe
   return { n: s.n, exp: s.exp };
 }
 
-/** Mục tiêu MỘT metric: ngưỡng F NHỎ NHẤT có nhóm ≥ F expectancy ≥ 0 & đủ mẫu.
- *  Trả về: { to, why } · "cap" (không ngưỡng nào dương) · "default" · null (chưa đủ mẫu nhóm). */
+/** Target for ONE metric: SMALLEST threshold F whose ≥ F group has expectancy ≥ 0 & enough samples.
+ *  Returns: { to, why } · "cap" (no threshold positive) · "default" · null (not enough group samples). */
 export function dqfTargetOne(
   rows: TradeRow[],
   pick: (r: TradeRow) => number | null,
   candidates: number[],
 ): { kind: "to" | "cap" | "default"; to: number; why: string } | null {
-  // băng thấp nhất (entry < default) đã dương → mọi ngưỡng đều dương → default
+  // lowest band (entry < default) already positive → all thresholds positive → default
   const below = rows.filter((r) => {
     const v = pick(r);
     return v != null && v < candidates[0];
   });
   const belowS = sessionStats(below);
   if (below.length >= DQF_MIN_BAND_N && belowS.exp >= 0) {
-    return { kind: "default", to: candidates[0], why: `nhóm dưới default cũng dương (exp ${fmt2(belowS.exp)}%, n=${below.length})` };
+    return { kind: "default", to: candidates[0], why: `below-default group also positive (exp ${fmt2(belowS.exp)}%, n=${below.length})` };
   }
   for (const f of candidates) {
     const { n, exp } = cumExp(rows, pick, f);
     if (n >= DQF_MIN_BAND_N && exp >= 0) {
-      return { kind: "to", to: f, why: `nhóm ≥ ${fmtNum(f, candidates)} đạt hoà vốn (exp ${fmt2(exp)}%, n=${n})` };
+      return { kind: "to", to: f, why: `group ≥ ${fmtNum(f, candidates)} break-even (exp ${fmt2(exp)}%, n=${n})` };
     }
   }
-  // không ngưỡng nào dương nhưng có ngưỡng nào đủ mẫu → trần (chỉ giữ vùng mạnh nhất)
+  // no threshold positive but some have enough samples → cap (keep only strongest zone)
   const anyN = candidates.some((f) => cumExp(rows, pick, f).n >= DQF_MIN_BAND_N);
   if (anyN) {
     const top = candidates[candidates.length - 1];
     const { n, exp } = cumExp(rows, pick, top);
-    return { kind: "cap", to: top, why: `tới ngưỡng cao nhất vẫn âm (nhóm ≥ ${fmtNum(top, candidates)}: exp ${fmt2(exp)}%, n=${n})` };
+    return { kind: "cap", to: top, why: `still negative at highest threshold (group ≥ ${fmtNum(top, candidates)}: exp ${fmt2(exp)}%, n=${n})` };
   }
-  return null; // chưa đủ mẫu theo nhóm — giữ nguyên
+  return null; // not enough samples per group — keep as is
 }
 
 const fmt2 = (v: number): string => `${v >= 0 ? "+" : ""}${v.toFixed(2)}`;
@@ -206,7 +205,7 @@ const fmtNum = (v: number, cands: number[]): string => (cands.length && cands[0]
 
 const r2 = (v: number): number => Math.round(v * 100) / 100;
 
-// ── LUẬT TIẾN HOÁ — thuần, exported cho test ─────────────────────────────────
+// ── EVOLUTION RULE — pure, exported for test ─────────────────────────────────
 
 const clampFloors = (f: DqfFloors): DqfFloors => ({
   minScore: Math.min(DQF_CAP.minScore, Math.max(DQF_DEFAULT.minScore, Math.round(f.minScore))),
@@ -214,7 +213,7 @@ const clampFloors = (f: DqfFloors): DqfFloors => ({
   minAcc: Math.min(DQF_CAP.minAcc, Math.max(DQF_DEFAULT.minAcc, Math.round(f.minAcc))),
 });
 
-/** một bước tiến hoá: mỗi metric đi TỐI ĐA 1 bước về phía mục tiêu (clamp biên) */
+/** one evolution step: each metric moves AT MOST 1 step toward target (clamp bounds) */
 export function dqfStepToward(current: DqfFloors, target: DqfFloors): { floors: DqfFloors; changed: boolean } {
   const step1 = (cur: number, tgt: number, stp: number): number =>
     Math.abs(tgt - cur) <= stp ? tgt : cur + Math.sign(tgt - cur) * stp;
@@ -227,7 +226,7 @@ export function dqfStepToward(current: DqfFloors, target: DqfFloors): { floors: 
   return { floors: next, changed };
 }
 
-// ── Persist (db/dqf-state.json — DATA_DIR, sống qua restart) ──────────────────
+// ── Persist (DATA_DIR/dqf-state.json — survives restart) ──────────────────
 
 const DQF_FILE = "dqf-state.json";
 
@@ -236,7 +235,17 @@ export function readDqfFile(): DqfFile {
     const f = dataFile(DQF_FILE);
     if (!existsSync(f)) return { on: true, state: null, hist: [], lastChangeAt: null };
     const raw = JSON.parse(readFileSync(f, "utf8")) as Partial<DqfFile>;
-    return { on: raw.on !== false, state: raw.state ?? null, hist: Array.isArray(raw.hist) ? raw.hist : [], lastChangeAt: raw.lastChangeAt ?? null };
+    // JSON turns Infinity into null on save — restore it for the last band of each metric,
+    // otherwise labels render as 80-null / 0.85-null / 75-null.
+    const st = raw.state ?? null;
+    if (st?.bands) {
+      for (const k of ["score", "auc", "acc"] as const) {
+        for (const b of st.bands[k] ?? []) {
+          if ((b as unknown as { hi: unknown }).hi == null) (b as unknown as { hi: number }).hi = Infinity;
+        }
+      }
+    }
+    return { on: raw.on !== false, state: st, hist: Array.isArray(raw.hist) ? raw.hist : [], lastChangeAt: raw.lastChangeAt ?? null };
   } catch {
     return { on: true, state: null, hist: [], lastChangeAt: null };
   }
@@ -252,16 +261,16 @@ export function saveDqfFile(f: DqfFile): void {
   }
 }
 
-/** Công tắc /stats — giữ hist + state, chỉ đổi `on`. */
+/** Switch /stats — keep hist + state, only change `on`. */
 export function setDqfOn(on: boolean): DqfFile {
   const f = readDqfFile();
   const next: DqfFile = { ...f, on };
   saveDqfFile(next);
-  console.log(`[dqf] sàn chất lượng động ${on ? "BẬT" : "TẮT"} — ${on ? "engine sẽ dùng sàn tự học (khi đủ mẫu)" : "engine quay về sàn cfg panel"}`);
+  console.log(`[dqf] dynamic quality floor ${on ? "ON" : "OFF"} — ${on ? "engine uses learned floors (when enough samples)" : "engine falls back to cfg panel floors"}`);
   return next;
 }
 
-// ── Cache đo (1 query DB / 5 phút tối đa — tick engine + snapshot dùng chung) ─
+// ── Measure cache (1 DB query / 5 min max — engine tick + snapshot share it) ─
 
 let measureCache: { at: number; rows: TradeRow[] } | null = null;
 
@@ -275,7 +284,7 @@ async function measureSession(): Promise<TradeRow[]> {
   return rows;
 }
 
-/** quyết định thuần từ rows đã đo — exported cho test (không DB/fs) */
+/** pure decision from measured rows — exported for test (no DB/fs) */
 export function dqfDecide(
   rows: TradeRow[],
   cfgFloors: DqfFloors,
@@ -292,8 +301,8 @@ export function dqfDecide(
     at: now,
     on: prev.on,
     src: "cfg",
-    // passthrough cfg panel NGUYÊN VẸN (user có thể chủ động đặt ngoài biên
-    // DQF — kẹp chỉ áp cho sàn do DQF tiến hoá)
+    // passthrough cfg panel VERBATIM (user may set outside DQF bounds
+    // DQF — clamp only applies to DQF-evolved floors)
     floors: { ...cfgFloors },
     target: null,
     why: "",
@@ -301,11 +310,11 @@ export function dqfDecide(
     bands,
   };
   if (!prev.on) {
-    return { decision: { ...base, why: "công tắc TẮT — passthrough sàn cfg panel" }, hist: null };
+    return { decision: { ...base, why: "switch OFF — passthrough cfg panel floors" }, hist: null };
   }
   if (session.n < DQF_MIN_N) {
     return {
-      decision: { ...base, why: `chưa đủ mẫu học (n=${session.n} < ${DQF_MIN_N} lệnh đóng) — giữ sàn cfg panel` },
+      decision: { ...base, why: `not enough samples (n=${session.n} < ${DQF_MIN_N} closed trades) — keep cfg panel floors` },
       hist: null,
     };
   }
@@ -316,7 +325,7 @@ export function dqfDecide(
     return {
       decision: {
         ...base,
-        why: `chưa đủ mẫu theo nhóm (n=${session.n}, cần ≥ ${DQF_MIN_BAND_N} lệnh/nhóm) — giữ sàn cfg panel`,
+        why: `not enough samples per group (n=${session.n}, need ≥ ${DQF_MIN_BAND_N} trades/group) — keep cfg panel floors`,
       },
       hist: null,
     };
@@ -329,8 +338,8 @@ export function dqfDecide(
   const current = clampFloors(prev.floors);
   const inCooldown = prev.lastChangeAt != null && now - prev.lastChangeAt < DQF_COOLDOWN_MIN * 60_000;
   const { floors, changed } = dqfStepToward(current, target);
-  // cooldown đang chạy → GIỮ nguyên sàn hiện tại (không bước ngầm không log);
-  // chỉ khi thoát cooldown mà target lệch mới đi 1 bậc và ghi lịch sử
+  // cooldown running → KEEP current floors (no silent step without log);
+  // only when cooldown ends and target differs, step 1 and log history
   const eff = changed && !inCooldown ? floors : current;
   const src: "dqf" | "cfg" = "dqf";
   const targetNote = [
@@ -340,15 +349,15 @@ export function dqfDecide(
   ]
     .filter(Boolean)
     .join(" · ");
-  const why = `session ${session.n} lệnh · WR ${session.wr.toFixed(2)}% · exp ${fmt2(session.exp)}%/lệnh — mục tiêu: ${targetNote}${inCooldown ? " · chờ cooldown đổi bậc" : ""}`;
+  const why = `session ${session.n} trades · WR ${session.wr.toFixed(2)}% · exp ${fmt2(session.exp)}%/trade — target: ${targetNote}${inCooldown ? " · waiting cooldown to step" : ""}`;
   let hist: DqfHistEntry | null = null;
   if (changed && !inCooldown) {
-    hist = { at: now, from: current, to: floors, why: `tiến hoá 1 bậc về mục tiêu bands — exp ${fmt2(session.exp)}% (n=${session.n}, WR ${session.wr.toFixed(2)}%)` };
+    hist = { at: now, from: current, to: floors, why: `evolved 1 step toward band target — exp ${fmt2(session.exp)}% (n=${session.n}, WR ${session.wr.toFixed(2)}%)` };
   }
   return { decision: { ...base, src, floors: eff, target, why }, hist };
 }
 
-/** TICK — engine gọi 1 lần mỗi chu kỳ vào-lệnh: đo → quyết → persist → trả sàn hiệu lực */
+/** TICK — engine calls once per entry cycle: measure → decide → persist → return effective floors */
 export async function dqfTick(cfgFloors: DqfFloors): Promise<DqfFloors & { src: "dqf" | "cfg"; why: string; on: boolean }> {
   const f = readDqfFile();
   let rows: TradeRow[];
@@ -356,7 +365,7 @@ export async function dqfTick(cfgFloors: DqfFloors): Promise<DqfFloors & { src: 
     rows = await measureSession();
   } catch (e) {
     console.warn(`[dqf] measure failed: ${e instanceof Error ? e.message : String(e)}`);
-    return { ...cfgFloors, src: "cfg", why: "đo session lỗi — passthrough cfg", on: f.on };
+    return { ...cfgFloors, src: "cfg", why: "measure failed — passthrough cfg", on: f.on };
   }
   const { decision, hist } = dqfDecide(rows, cfgFloors, {
     floors: f.state?.floors ?? cfgFloors,
@@ -372,7 +381,7 @@ export async function dqfTick(cfgFloors: DqfFloors): Promise<DqfFloors & { src: 
   saveDqfFile(nextFile);
   if (hist) {
     console.log(
-      `[dqf] TIẾN HOÁ sàn: Score ${hist.from.minScore}→${hist.to.minScore} · AUC ${hist.from.minAuc.toFixed(2)}→${hist.to.minAuc.toFixed(2)} · ACC ${hist.from.minAcc}→${hist.to.minAcc} — ${hist.why}`,
+      `[dqf] EVOLVED floors: Score ${hist.from.minScore}→${hist.to.minScore} · AUC ${hist.from.minAuc.toFixed(2)}→${hist.to.minAuc.toFixed(2)} · ACC ${hist.from.minAcc}→${hist.to.minAcc} — ${hist.why}`,
     );
   }
   return decision.on
@@ -380,8 +389,8 @@ export async function dqfTick(cfgFloors: DqfFloors): Promise<DqfFloors & { src: 
     : { ...cfgFloors, src: "cfg", why: decision.why, on: decision.on };
 }
 
-/** SYNC — cho engineSnapshot/panel (KHÔNG đụng DB): đọc file cache, hết TTL 30s
- *  state cũ vẫn dùng được (chỉ là hiển thị sàn hiệu lực lần tick gần nhất). */
+/** SYNC — for engineSnapshot/panel (DO NOT touch DB): read cache file, 30s TTL
+ *  old state still usable (just display of effective floors from last tick). */
 let snapCache: { at: number; floors: DqfFloors & { src: "dqf" | "cfg"; why: string; on: boolean } } | null = null;
 
 export function dqfEffectiveSync(cfgFloors: DqfFloors): DqfFloors & { src: "dqf" | "cfg"; why: string; on: boolean } {
@@ -389,7 +398,7 @@ export function dqfEffectiveSync(cfgFloors: DqfFloors): DqfFloors & { src: "dqf"
   const f = readDqfFile();
   const out = f.on && f.state && f.state.src === "dqf"
     ? { ...f.state.floors, src: "dqf" as const, why: f.state.why, on: true }
-    : // passthrough cfg nguyên vẹn — không kẹp biên DQF
+    : // passthrough cfg verbatim — no DQF bound clamp
       { ...cfgFloors, src: "cfg" as const, why: f.state?.why ?? "", on: f.on };
   snapCache = { at: Date.now(), floors: out };
   return out;
