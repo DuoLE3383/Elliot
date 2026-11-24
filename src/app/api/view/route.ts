@@ -25,6 +25,7 @@ import { analyze } from "@/lib/analysis";
 import { sessionStats, whaleDelta } from "@/lib/market";
 import { cycleStats } from "@/lib/cycles";
 import { buildSessionVerdict, deepDaily } from "@/lib/session-forecast";
+import { SESS_INTERVAL, SESS_KLINE_COUNT, SESS_SYMBOL, pval } from "@/lib/params";
 import type { PieStat, Sparkline, ViewPayload, WatchRow, WatchStatus } from "@/lib/view";
 
 export const dynamic = "force-dynamic";
@@ -110,6 +111,15 @@ async function miniFor(sym: string, interval: string): Promise<Kline[] | null> {
 
 let dailyCache: { at: number; klines: Kline[] } | null = null;
 const DAILY_TTL_MS = 30 * 60_000;
+
+let sessRefCache: { at: number; klines: Kline[] } | null = null;
+const SESS_REF_TTL_MS = 5 * 60_000;
+async function sessRefKlines(): Promise<Kline[]> {
+  if (sessRefCache && Date.now() - sessRefCache.at < SESS_REF_TTL_MS) return sessRefCache.klines;
+  const { klines } = await fetchKlinesDirectResolved(pval("SESS_SYMBOL", SESS_SYMBOL), pval("SESS_INTERVAL", SESS_INTERVAL), pval("SESS_KLINE_COUNT", SESS_KLINE_COUNT), { revalidate: 60 });
+  if (klines.length >= 10) sessRefCache = { at: Date.now(), klines };
+  return klines.length >= 10 ? klines : (sessRefCache?.klines ?? []);
+}
 
 async function btcDaily(): Promise<Kline[]> {
   if (dailyCache && Date.now() - dailyCache.at < DAILY_TTL_MS) return dailyCache.klines;
@@ -224,11 +234,15 @@ export async function GET(req: NextRequest) {
     });
 
     // ── phiên + cá voi + chu kỳ lịch + composite forecast ────────────────────
-    const sessStats = sessionStats(klines);
-    const whale = whaleDelta(klines);
+    // Market-wide session forecast: use SESS_SYMBOL reference klines, never the viewed coin/timeframe klines.
+    let refKlines: Kline[] = [];
+    try { refKlines = await sessRefKlines(); } catch { refKlines = sessRefCache?.klines ?? []; }
+    const forecastKlines = refKlines.length >= 10 ? refKlines : [];
+    const sessStats = forecastKlines.length ? sessionStats(forecastKlines) : [];
+    const whale = forecastKlines.length ? whaleDelta(forecastKlines) : null;
     const daily = await btcDaily();
     const cycles = daily.length >= 60 ? cycleStats(daily) : null;
-    const forecast = await buildSessionVerdict({ symbol, klines, sessStats, whale, daily });
+    const forecast = forecastKlines.length ? await buildSessionVerdict({ symbol: pval("SESS_SYMBOL", SESS_SYMBOL), klines: forecastKlines, sessStats, whale, daily }) : null;
 
     // ── watchlist — song song, mỗi cặp mini 48 nến (cache 60s) ──────────────
     const minis = await Promise.all(pairs.map((sym) => miniFor(sym, interval)));
