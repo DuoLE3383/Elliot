@@ -161,11 +161,11 @@ export function klinesInWindow(klines: Kline[], input: AutopsyTradeInput): { ks:
 // ─── prompt — evidence block chèn sẵn, LLM chỉ diễn giải ─────────────────────
 
 const AUTOPSY_SYSTEM_PROMPT = [
-  "HARD RULES: (1) If outcome is win, NEVER propose SL/TP change. Lesson format: What worked: ... / Watch: ... (2) NEVER propose a specific SL/TP number (no \"tighten to X%\", \"increase by X%\"). Only qualitative direction, and only if ev supports it. (3) NEVER repeat evidence lines verbatim. What happened: max 3 bullets, each must be a NEW inference. (4) Tag must be one of: wrong_dir / noise_stop / trail_early / manual / unknown — pick from ev, not default noise_stop.\nYou are the post-mortem analyst of a crypto futures paper-trading bot. A trade just closed (win or loss) and you dissect it so future entries get better.",
+  "HARD RULES - CODE WILL REJECT VIOLATIONS: (1) If outcome is WIN, lesson MUST be winners_watch: \"What worked: ... / Watch: ...\" and MUST NOT contain sl/stop/tp/take-profit/tighten/adjust. (2) NEVER propose a specific SL/TP number. (3) NEVER repeat evidence lines verbatim. (4) Tag MUST be one of: good_entry / winners_watch / wrong_dir / noise_stop / trail_early / manual / unknown. WIN -> good_entry or winners_watch. LOSS + price went opposite immediately -> wrong_dir. LOSS + hit SL then reversed -> noise_stop.\nYou are the post-mortem analyst of a crypto futures paper-trading bot. A trade just closed (win or loss) and you dissect it so future entries get better.",
   'The "path" block is computed by code from real candles: treat it as ground truth — never contradict it, never invent numbers absent from it.',
   "Reply with ONLY one JSON object:",
   '{"tag":"...","why":["..."],"lesson":"..."}',
-  "tag = 1-3 words snake_case naming the win/loss mode (examples: sl_too_tight, good_entry, whipsaw, late_signal, trend_ignored, noise_stop, manual_exit, tp_grazed_then_reversed).",
+  "tag MUST be one of: good_entry, winners_watch, wrong_dir, noise_stop, trail_early, manual, unknown.",
   "why = max 3 bullets, each under 120 characters, each quoting the exact field=value it relies on (entry/outcome/path blocks). No markdown.",
   "lesson = ONE actionable sentence under 160 characters about what to do differently for FUTURE entries on similar setups (SL placement, timing, side, model quality, noise) — concrete, not generic advice.",
   "Do not propose changing the bot's code, do not mention being an AI, English only.",
@@ -237,12 +237,22 @@ export function sanitizeAutopsy(raw: unknown, model: string, ms: number, input: 
         .slice(0, 3)
         .map((x) => x.trim().slice(0, 160))
     : [];
-  const lesson = typeof o.lesson === "string" ? o.lesson.trim().slice(0, 240) : "";
+  let lesson = typeof o.lesson === "string" ? o.lesson.trim().slice(0, 240) : "";
   if (!lesson) return null;
+  const outcome = (input.pnlPct ?? 0) > 0 ? "win" : "loss";
+  let finalTag = tag || "unlabeled";
+  // Code-enforce: WIN không được đề xuất SL/TP, LOSS noise_stop không được đổi SL/TP
+  if (outcome === "win" && /\bsl\b|stop|\btp\b|take-profit|tighten|increase.*stop|adjust.*sl/i.test(lesson)) {
+    lesson = "winners_watch: keep SL/TP unchanged, winning setup, no config change";
+  }
+  if (outcome === "win" && (finalTag === "noise_stop" || finalTag === "wrong_dir" || finalTag === "sl_too_tight")) finalTag = "good_entry";
+  if (outcome === "loss" && finalTag === "noise_stop" && /tighten|increase|adjust|change.*sl|change.*tp/i.test(lesson)) {
+    lesson = "noise_stop: price hit SL then reversed, noise, do not change SL/TP";
+  }
   return {
-    outcome: (input.pnlPct ?? 0) > 0 ? "win" : "loss",
+    outcome,
     exitKind: input.exitKind ?? "manual",
-    tag: tag || "unlabeled",
+    tag: finalTag,
     why,
     lesson,
     ev,

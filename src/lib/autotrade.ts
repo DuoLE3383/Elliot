@@ -1493,6 +1493,7 @@ export interface AutoConfig {
 
 export const AUTO_DEFAULTS: AutoConfig = {
   on: false,
+  agent: "HEDGE",
   capital: 1000,
   // audit 04/11: 25% vốn/lệnh là nguyên nhân −40% net ROI hoá nhỏ thành
   // swing vốn lớn; khuyến nghị 2-3%/lệnh — mặc định 3, trần RISK_MAX_STAKE
@@ -1615,6 +1616,7 @@ export function loadAutoConfig(): AutoConfig {
     const p = JSON.parse(raw) as Partial<AutoConfig>;
     return {
       on: p.on === true,
+      agent: (["VAULT","HEDGE","ALPHA","GRAIL"] as const).includes(p.agent as any) ? (p.agent as "VAULT"|"HEDGE"|"ALPHA"|"GRAIL") : AUTO_DEFAULTS.agent,
       capital: typeof p.capital === "number" && p.capital > 0 ? p.capital : AUTO_DEFAULTS.capital,
       riskPct: RISK_CHOICES.includes(p.riskPct as (typeof RISK_CHOICES)[number]) ? (p.riskPct as number) : AUTO_DEFAULTS.riskPct,
       tpMode: sanitizeTpMode(p.tpMode),
