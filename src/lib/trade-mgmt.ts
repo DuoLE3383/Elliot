@@ -34,7 +34,7 @@ export const TRAIL_KIND = "trail";
 export const SL_DEEP_FRAC = 0.15;
 
 /** Trail ROI (B) — arm: đỉnh ROI vượt mức này (%) mới bắt đầu dời trail. */
-export const TRAIL_ROI_ARM = 3;
+export const TRAIL_ROI_ARM = 4;
 /** Trail ROI (B) — đuổi theo: stop bám đỉnh, nhường lại đúng số % ROI này
  *  (spec user 0.3.40: "ROI > 3% dời trail tới 2% rồi đuổi theo ROI"). */
 export const TRAIL_ROI_GIVEBACK = 1;

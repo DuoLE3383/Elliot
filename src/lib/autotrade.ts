@@ -739,10 +739,10 @@ export function trailMovePct(side: string, entry: number, peak: number): number 
 /** Trail ROI (B) — peakROI > TRAIL_ROI_ARM (3%) => stopROI = peakROI - TRAIL_ROI_GIVEBACK (2%).
  *  Tra ve gia stop tuong ung: LONG entry*(1+(stopROI)/lev/100),
  *  SHORT entry*(1-(stopROI)/lev/100). ROI o day la % (vd 8.91 = +8.91%). */
-export function trailRoiStopPrice(side: string, entry: number, peakRoi: number, leverage: number): number | null {
-  if (!entry || !leverage || peakRoi < TRAIL_ROI_ARM) return null;
-  // spec #2+#3: lock tối thiểu 2% ROI, gap 1% từ peak (chỉ tăng nhờ peak monotonic)
-  const stopRoi = Math.max(peakRoi - TRAIL_ROI_GIVEBACK, 2);
+export function trailRoiStopPrice(side: string, entry: number, peakRoi: number, leverage: number, arm = TRAIL_ROI_ARM, giveback = TRAIL_ROI_GIVEBACK): number | null {
+  if (!entry || !leverage || peakRoi < arm) return null;
+  // Lock minimum 2% ROI, gap = giveback from peak (only increases via monotonic peak). Old spec: tối thiểu 2% ROI, gap 1% từ peak (chỉ tăng nhờ peak monotonic)
+  const stopRoi = Math.max(peakRoi - giveback, 2);
   const m = stopRoi / leverage / 100;
   return side === "SHORT" ? entry * (1 - m) : entry * (1 + m);
 }
@@ -1473,6 +1473,12 @@ export interface AutoConfig {
   trailActPct: number;
   /** khoảng cách % từ đỉnh/đáy tốt nhất tới stop trailing */
   trailDistPct: number;
+  /** Trail ROI arm - peak ROI above this starts trailing, % ROI */
+  trailRoiArm: number;
+  /** Trail ROI giveback - stop follows peak minus this, % ROI */
+  trailRoiGiveback: number;
+  /** Extra SL distance on DCA and TP1, % price */
+  dcaTp1SlExtra: number;
   /** 0.3.3 — TP1 PARTIAL → RUNNER: chạm TP lần đầu chỉ chốt runnerSharePct% stake
    *  (sau phí), phần còn lại chạy tiếp với SL về breakeven (BE), TP mở rộng
    *  ×runnerTpMult và trail ratchet khoá lời runnerTrailLock × quãng đi. false =
@@ -1525,14 +1531,16 @@ export const AUTO_DEFAULTS: AutoConfig = {
   // flip cooldown — tắt mặc định (0) để giữ hành vi cũ; self-improve agent sẽ
   // bật khi flip-expectancy thật âm (xem decidePatch @ self-improve.ts).
   flipCooldownMin: 0,
-  // trailing stop — tắt mặc định; bật = bảo vệ lời tự động. trailAuto mặc định
-  // BẬT: mỗi lệnh tự đề xuất act/dist theo ATR(cặp×khung)×đòn bẩy (0.2.63);
-  // 2 số dưới chỉ còn là phương án thủ công khi trailAuto=false và fallback
-  // khi klines lỗi.
-  trailOn: false,
+  // trailing stop - always ON, locked, cannot be turned off. trailAuto defaults
+  // ON: each trade auto-proposes act/dist from ATR(pair x timeframe) x leverage (0.2.63);
+  // the 2 numbers below are manual fallback when trailAuto=false and when klines fail.
+  trailOn: true,
   trailAuto: true,
   trailActPct: 1,
   trailDistPct: 0.8,
+  trailRoiArm: 4,
+  trailRoiGiveback: 1,
+  dcaTp1SlExtra: 1,
   // 0.3.3 — TP1→runner + SL confirm: bật sẵn vì sửa đúng hai pain user báo:
   // "các lệnh bị chốt sớm và SL non… tăng RR thì ko bắt lệnh dc nữa" — TP1 bank
   // nửa, runner chạy ra RR cao hơn; SL đợi confirm, wick nông không quét sạch.
@@ -1647,12 +1655,18 @@ export function loadAutoConfig(): AutoConfig {
       flipCooldownMin: FLIP_COOLDOWN_CHOICES.includes(p.flipCooldownMin as 0 | 15 | 30 | 60)
         ? (p.flipCooldownMin as number)
         : AUTO_DEFAULTS.flipCooldownMin,
-      trailOn: p.trailOn === true,
+      trailOn: true, // Locked ON - ignore saved/API value, never allow OFF.
       trailAuto: p.trailAuto !== false,
       trailActPct:
         typeof p.trailActPct === "number" && p.trailActPct > 0 ? Math.min(10, Math.max(0.2, p.trailActPct)) : AUTO_DEFAULTS.trailActPct,
       trailDistPct:
         typeof p.trailDistPct === "number" && p.trailDistPct > 0 ? Math.min(10, Math.max(0.1, p.trailDistPct)) : AUTO_DEFAULTS.trailDistPct,
+      trailRoiArm:
+        typeof p.trailRoiArm === "number" && p.trailRoiArm > 0 ? Math.min(20, Math.max(0.5, p.trailRoiArm)) : AUTO_DEFAULTS.trailRoiArm,
+      trailRoiGiveback:
+        typeof p.trailRoiGiveback === "number" && p.trailRoiGiveback >= 0 ? Math.min(10, Math.max(0, p.trailRoiGiveback)) : AUTO_DEFAULTS.trailRoiGiveback,
+      dcaTp1SlExtra:
+        typeof p.dcaTp1SlExtra === "number" && p.dcaTp1SlExtra >= 0 ? Math.min(5, Math.max(0, p.dcaTp1SlExtra)) : AUTO_DEFAULTS.dcaTp1SlExtra,
       // 0.3.3 — TP1→runner + SL confirm: thiếu field (cfg cũ) → mặc định BẬT
       runnerOn: p.runnerOn !== false,
       runnerSharePct: RUNNER_SHARE_CHOICES.includes(p.runnerSharePct as (typeof RUNNER_SHARE_CHOICES)[number])

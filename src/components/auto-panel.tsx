@@ -1066,7 +1066,7 @@ const capitalNow = auto?.capital ?? cfg.capital;
                       max={MAX_LEVERAGE}
                       value={leverage}
                       onChange={(e) => onLeverageChange(Math.max(1, Math.min(MAX_LEVERAGE, Number(e.target.value) || 1)))}
-                      className="h-7 w-14 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
+                      style={{fontSize:10}} className="h-6 w-12 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
                     />
                   </span>
                 </label>
@@ -1103,7 +1103,7 @@ const capitalNow = auto?.capital ?? cfg.capital;
                         step={0.1}
                         value={cfg.atrCoef}
                         onChange={(e) => updateCfg({ atrCoef: Math.min(5, Math.max(0.5, Number(e.target.value) || 1.5)) })}
-                        className="h-7 w-14 border-sky-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-sky-300"
+                        style={{fontSize:10}} className="h-6 w-12 border-sky-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-sky-300"
                       />
                       ×
                     </label>
@@ -1120,7 +1120,7 @@ const capitalNow = auto?.capital ?? cfg.capital;
                       step={0.1}
                       value={cfg.slPct}
                       onChange={(e) => updateCfg({ slPct: Math.min(20, Math.max(0.2, Number(e.target.value) || 1)) })}
-                      className="h-7 w-14 border-rose-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-rose-300"
+                      style={{fontSize:10}} className="h-6 w-12 border-rose-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-rose-300"
                     />
                     TP
                     <Input
@@ -1130,7 +1130,7 @@ const capitalNow = auto?.capital ?? cfg.capital;
                       step={0.1}
                       value={cfg.tpPct}
                       onChange={(e) => updateCfg({ tpPct: Math.min(30, Math.max(0.2, Number(e.target.value) || 1.5)) })}
-                      className="h-7 w-14 border-emerald-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-emerald-300"
+                      style={{fontSize:10}} className="h-6 w-12 border-emerald-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-emerald-300"
                     />
                     %
                   </label>
@@ -1144,15 +1144,12 @@ const capitalNow = auto?.capital ?? cfg.capital;
                 <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t(lang, "auto.trail")}>
                   <button
                     type="button"
-                    onClick={() => updateCfg({ trailOn: !cfg.trailOn })}
-                    aria-pressed={cfg.trailOn}
-                    title={t(lang, "auto.trail.tip")}
-                    className={`h-7 rounded-md border px-2 text-[11px] ${cfg.trailOn
-                        ? "border-violet-700 bg-violet-950/40 text-violet-300"
-                        : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:bg-zinc-800"
-                      }`}
+                    disabled
+                    aria-pressed={true}
+                    title="Trailing always ON - locked"
+                    className="h-7 rounded-md border border-violet-700 bg-violet-950/40 px-2 text-xs text-violet-300"
                   >
-                    🪢 {t(lang, "auto.trail")}
+                    🪢 {t(lang, "auto.trail")} 🔒 ON
                   </button>
                   {cfg.trailOn && (
                     <button
@@ -1216,7 +1213,7 @@ const capitalNow = auto?.capital ?? cfg.capital;
                       step={0.1}
                       value={cfg.trailActPct}
                       onChange={(e) => updateCfg({ trailActPct: Math.min(10, Math.max(0.2, Number(e.target.value) || 1)) })}
-                      className="h-7 w-14 border-violet-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-violet-300"
+                      style={{fontSize:10}} className="h-6 w-12 border-violet-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-violet-300"
                     />
                     {t(lang, "auto.trail.dist")}
                     <Input
@@ -1226,11 +1223,20 @@ const capitalNow = auto?.capital ?? cfg.capital;
                       step={0.1}
                       value={cfg.trailDistPct}
                       onChange={(e) => updateCfg({ trailDistPct: Math.min(10, Math.max(0.1, Number(e.target.value) || 0.8)) })}
-                      className="h-7 w-14 border-violet-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-violet-300"
+                      style={{fontSize:10}} className="h-6 w-12 border-violet-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-violet-300"
                     />
                     <span className="text-zinc-600">{t(lang, "auto.trail.unit")}</span>
                   </label>
                 )}
+                <div className="flex flex-wrap items-center gap-1" style={{fontSize:10}}>
+                  <span className="text-zinc-500">ROI Arm</span>
+                  <Input type="number" min={0.5} max={20} step={0.1} value={cfg.trailRoiArm ?? 4} onChange={(e) => updateCfg({ trailRoiArm: Math.min(20, Math.max(0.5, Number(e.target.value) || 4)) })} style={{fontSize:10}} className="h-6 w-12 border-violet-900/60 bg-zinc-950/60 px-1 font-mono text-xs text-violet-300" />
+                  <span className="text-zinc-500">Giveback</span>
+                  <Input type="number" min={0} max={10} step={0.1} value={cfg.trailRoiGiveback ?? 1} onChange={(e) => updateCfg({ trailRoiGiveback: Math.min(10, Math.max(0, Number(e.target.value) || 1)) })} style={{fontSize:10}} className="h-6 w-12 border-violet-900/60 bg-zinc-950/60 px-1 font-mono text-xs text-violet-300" />
+                  <span className="text-zinc-500">SL Extra</span>
+                  <Input type="number" min={0} max={5} step={0.1} value={cfg.dcaTp1SlExtra ?? 1} onChange={(e) => updateCfg({ dcaTp1SlExtra: Math.min(5, Math.max(0, Number(e.target.value) || 1)) })} style={{fontSize:10}} className="h-6 w-12 border-violet-900/60 bg-zinc-950/60 px-1 font-mono text-xs text-violet-300" />
+                  <span className="text-zinc-600">% ROI / % price</span>
+                </div>
               </div>
             )}
 
@@ -1340,7 +1346,7 @@ const capitalNow = auto?.capital ?? cfg.capital;
                     onChange={(e) => updateCfg({ minAuc: Math.min(0.95, Math.max(0.5, Number(e.target.value) || 0.8)) })}
                     aria-label={t(lang, "auto.cfg.floorAuc")}
                     title={t(lang, "auto.cfg.floorAuc")}
-                    className="h-7 w-14 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
+                    style={{fontSize:10}} className="h-6 w-12 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
                   />
                   <Input
                     type="number"
@@ -1351,7 +1357,7 @@ const capitalNow = auto?.capital ?? cfg.capital;
                     onChange={(e) => updateCfg({ minAcc: Math.min(90, Math.max(50, Number(e.target.value) || 70)) })}
                     aria-label={t(lang, "auto.cfg.floorAcc")}
                     title={t(lang, "auto.cfg.floorAcc")}
-                    className="h-7 w-14 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
+                    style={{fontSize:10}} className="h-6 w-12 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
                   />
                   <Input
                     type="number"
@@ -1362,7 +1368,7 @@ const capitalNow = auto?.capital ?? cfg.capital;
                     onChange={(e) => updateCfg({ minScore: Math.min(95, Math.max(0, Number(e.target.value) || 60)) })}
                     aria-label={t(lang, "auto.cfg.floorScore")}
                     title={t(lang, "auto.cfg.floorScore")}
-                    className="h-7 w-14 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
+                    style={{fontSize:10}} className="h-6 w-12 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
                   />
                 </div>
                 <div className="flex items-center gap-1" role="group" aria-label={t(lang, "auto.cfg.tf")}>

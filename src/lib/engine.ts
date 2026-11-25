@@ -145,6 +145,7 @@ import {
   trailHit,
   trailRatchet,
   tp1Plan,
+  TRAIL_ROI_ARM,
   TRAIL_ROI_GIVEBACK,
   type SlPending,
 } from "./trade-mgmt";
@@ -2092,7 +2093,7 @@ async function dcaRescue(open: AutoTradeRow, price: number, trigger: "near" | "c
   try {
     const updated = await db.autoTrade.update({
       where: { id: open.id },
-      data: { entryPrice: avgEntry, stakePct: newStakePct },
+      data: { entryPrice: avgEntry, stakePct: newStakePct, slPct: Math.round((open.slPct + (c.dcaTp1SlExtra ?? 1)) * 100) / 100 },
     });
     const trade = serialize(updated);
     Object.assign(warnedOf(open.id), { tp: false, sl: false }); // new levels → fresh warns
@@ -2174,13 +2175,15 @@ async function updateTrail(
     tr.peak = peak;
     persistEngine();
   }
-  // Trail ROI (B): peakROI > 3% => stopROI = peakROI - 2% (đuổi theo, nhường 2% ROI)
+  // Trail ROI: peakROI >= arm => stopROI = peakROI - giveback (đuổi theo, nhường 2% ROI)
   const peakRoi = trailMovePct(open.side, open.entryPrice, peak) * open.leverage;
-  const roiStop = trailRoiStopPrice(open.side, open.entryPrice, peakRoi, open.leverage);
+  const arm = c.trailRoiArm ?? TRAIL_ROI_ARM;
+  const giveback = c.trailRoiGiveback ?? TRAIL_ROI_GIVEBACK;
+  const roiStop = trailRoiStopPrice(open.side, open.entryPrice, peakRoi, open.leverage, arm, giveback);
   const stop = roiStop ?? trailStopPrice(open.side, open.entryPrice, peak, act, dist);
   const curRoi = trailMovePct(open.side, open.entryPrice, price) * open.leverage;
   const hit = stop != null && (roiStop != null
-    ? curRoi <= peakRoi - TRAIL_ROI_GIVEBACK
+    ? curRoi <= peakRoi - giveback
     : open.side === "SHORT" ? price >= stop : price <= stop);
   return { stop, hit, act, dist, atrPct: tr.atrPct, lev: tr.lev, src: tr.src };
 }
@@ -2264,7 +2267,7 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
         const p1Net = Math.round((plan.p1Pct - feeRoi(open.leverage)) * 100) / 100;
         await db.autoTrade.update({
           where: { id: open.id },
-          data: { p1Pct: p1Net, p1Share: plan.share, tp2Pct: plan.tp2Pct, trailPct: open.tpPct },
+          data: { p1Pct: p1Net, p1Share: plan.share, tp2Pct: plan.tp2Pct, trailPct: Math.max(0, Math.round((open.tpPct - (c.dcaTp1SlExtra ?? 1)) * 100) / 100) },
         });
         console.log(
           `[engine] TP1 partial ${open.symbol} ${open.interval} — bank ${(plan.share * 100).toFixed(2)}% stake (+${p1Net.toFixed(2)}% ROI sau phí) · runner SL khoá tại giá TP1 (${open.tpPct.toFixed(2)}% giá) · để lời chạy theo trail`,
