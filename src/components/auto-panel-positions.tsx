@@ -166,12 +166,10 @@ export function AutoPositions(props: any) {
                   <span className="text-zinc-500">SL</span>
                   <span className="text-right font-mono text-rose-300">
                     {fmtPrice(slPrice(open.side, open.entryPrice, open.slPct))} · −{(open.slPct * Number(open.leverage ?? 1)).toFixed(2)}% ROI
-                    <span className="text-zinc-500"> (ROI −{(open.slPct * open.leverage).toFixed(2)}%)</span>
                   </span>
                   <span className="text-zinc-500">TP</span>
                   <span className="text-right font-mono text-emerald-300">
                     {fmtPrice(tpPrice(open.side, open.entryPrice, open.tpPct))} · +{(open.tpPct * Number(open.leverage ?? 1)).toFixed(2)}% ROI
-                    <span className="text-zinc-500"> (ROI +{(open.tpPct * open.leverage).toFixed(2)}%)</span>
                   </span>
                   {cfg.trailOn && (
                     <>
