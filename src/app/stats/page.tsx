@@ -1096,7 +1096,7 @@ export default function StatsPage() {
         </main>
 
         {/* ── RAIL PHẢI cố định (2xl+) — y cột phải ảnh tham chiếu ── */}
-        <aside className="sticky top-12 hidden h-[calc(100vh-3rem)] w-[330px] shrink-0 overflow-y-auto border-l border-[#1d1d23] bg-[#0c0c10] p-3 2xl:block">
+        <aside className="hidden">
           <Rail />
         </aside>
       </div>

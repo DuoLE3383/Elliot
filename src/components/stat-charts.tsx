@@ -150,8 +150,8 @@ function LineChart({ chart }: { chart: Extract<StatChart, { kind: "line" }> }) {
   const [hov, setHov] = useState<number | null>(null);
   const pts = chart.points;
   if (pts.length < 2) return null;
-  const W = 600;
-  const H = 132;
+  const W = 1200;
+  const H = 320;
   const padX = 8;
   const padT = 10;
   const padB = 16; // chừa chỗ nhãn thời gian
@@ -171,7 +171,7 @@ function LineChart({ chart }: { chart: Extract<StatChart, { kind: "line" }> }) {
     new Date(tt).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   return (
     <div className="relative">
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-32 w-full" preserveAspectRatio="xMidYMid meet" role="img">
+      <svg viewBox={`0 0 ${W} ${H}`} className="h- w-full" preserveAspectRatio="xMidYMid meet" role="img">
         {/* lưới min/max mờ + nhãn giá trị — nhãn min/max nằm TRÁI để khỏi đè
             nhãn giá trị hiện tại ở góc phải (dính chùm khi curve kết thúc gần đỉnh) */}
         <line x1={padX} y1={y(vmin)} x2={W - padX} y2={y(vmin)} stroke="#3f3f46" strokeDasharray="3 4" strokeWidth="1" />
