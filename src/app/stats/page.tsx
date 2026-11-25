@@ -1011,7 +1011,7 @@ export default function StatsPage() {
         {navOpen && <div className="fixed inset-0 z-40 bg-black/60 xl:hidden" onClick={() => setNavOpen(false)} />}
 
         {/* ── CENTER + RAIL ── */}
-        <main className="min-w-0 flex-1 w-full max-w-none p-4 sm:p-6 lg:p-8">
+        <main className="min-w-0 flex-1 w-full max-w-none-none p-4 sm:p-6 lg:p-8">
           {err && !snap && (
             <Panel className="mb-3">
               <div className="flex items-center gap-2 p-4 text-sm text-rose-300">
@@ -1077,7 +1077,7 @@ export default function StatsPage() {
               {bottomTabs}
 
               {/* Rail xếp chồng cho màn <2xl */}
-              <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{Rail()}</div>
+              <div className="grid w-full gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">{Rail()}</div>
             </div>
           )}
 
