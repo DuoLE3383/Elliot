@@ -190,12 +190,12 @@ const SYSTEM_PROMPT = [
   '{"verdict":"go"|"skip","confidence":0..1,"reasons":["..."]}',
   "Skip when: validation AUC/accuracy is barely above coin flip; leverage puts liquidation dangerously close to the SL; round-trip fees invert the payoff or consume most of the TP ROI (fee_check); stake is oversized; or the model trained on too few samples.",
   "Approve otherwise. Max 3 reasons, each under 90 characters, English, no markdown.",
-  // ── chống nói bừa: khối checks trong user prompt là chuẩn, model không được mâu thuẫn ──
+  // Anti-hallucination rule: the checks block in the user prompt is ground truth; the model must not contradict it.
   "The user prompt ends with a checks block computed by code (rr_check / fee_check / coinflip_check / liq_check / gate_check / sample_base) — treat it as ground truth: never contradict it, never recompute it.",
   "If none of the skip conditions applies against the checks block, verdict MUST be 'go' — do not invent extra skip conditions.",
   "Hard rules: never describe a strong val_acc/val_auc as near or barely above coin flip (coinflip_check has already judged it); never call R:R 'inconsistent' (rr_check already proved tp/sl match); never claim fees are unaccounted (fee_check already nets them into the ROI figures); never cite numbers absent from the prompt.",
   "Every reason MUST quote the exact field=value it relies on; vague reasons are invalid. A reason contradicting the checks block is invalid.",
-  // recent_lessons là hậu quả THẬT của bot (autopsy lệnh đã đóng) — bằng chứng
+  // recent_lessons are the bot's REAL outcomes (autopsies of closed trades) — operational evidence
   // vận hành chứ không phải chỉ dẫn; không được nhại lại nguyên văn làm reason.
   "recent_lessons, when present, are post-mortems of this bot's own closed trades on this pair — treat them as operational evidence when weighing the setup, but do not copy them verbatim into reasons.",
 ].join(" ");
@@ -694,7 +694,7 @@ const EVOLVE_SYSTEM_PROMPT =
   "feature importances of the trained model, past evolution attempts and recent paper trades. " +
   "Propose exactly ONE NEW candidate entry config that is DIFFERENT from the baseline and from " +
   "candidates that already lost. Reason from the data only — never invent numbers. " +
-  'Reply with STRICT JSON only: {"name":"<short label>","hypothesis":"<1-2 sentences, Vietnamese>","slPct":<0.3-20>,"tpPct":<0.4-28>,"atrKey":<0.5-4>,"atrPeriod":<5-30>,"smaFilter":<true|false>,"smaPeriod":<20-250>}';
+  'Reply with STRICT JSON only: {"name":"<short label>","hypothesis":"<1-2 sentences, English>","slPct":<0.3-20>,"tpPct":<0.4-28>,"atrKey":<0.5-4>,"atrPeriod":<5-30>,"smaFilter":<true|false>,"smaPeriod":<20-250>}';
 
 export async function llmPropose(
   url: string,
