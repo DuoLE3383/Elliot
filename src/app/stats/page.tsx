@@ -533,7 +533,7 @@ export default function StatsPage() {
     ];
     const scMax = Math.max(...sc.map((r) => r.n), fc.closedTrades, 1);
     return (
-      <div className="space-y-3">
+      <div className="grid w-full gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
         <Panel>
           <PanelHead label={t(lang, "apm.rail.events")} dot="#a78bfa" right={<span className="rounded-full bg-[#1a1a20] px-2 py-0.5 font-mono text-[10px] text-zinc-400">{ev.length}</span>} />
           <div className="divide-y divide-[#1a1a20]">
