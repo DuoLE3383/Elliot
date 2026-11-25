@@ -220,11 +220,40 @@ export async function tgApi(
  *  Without a key the exact text hash is used (identical repeats still collapse).
  *  `opts.dedupe: false` — bypass (manual test sends must always go out).
  *  A duplicate resolves {ok:true, deduped:true} — callers treat it as success. */
+const TG_TAG_RULES: Array<[RegExp, string]> = [
+  [/TP1 PARTIAL/, "#TP1"],
+  [/AUTO DCA/, "#DCA"],
+  [/AUTO CLOSE/, "#CLOSE"],
+  [/TRAILING STOP/, "#TRAIL"],
+  [/STOP LOSS/, "#SL"],
+  [/\bOPEN\b/, "#OPEN"],
+  [/\bFORCE\b/, "#FORCE"],
+  [/POST-MORTEM/, "#POSTMORTEM"],
+  [/\bWIN\b/, "#WIN"],
+  [/\bLOSS\b/, "#LOSS"],
+  [/HOURLY REPORT/, "#HOURLY"],
+  [/DAILY REPORT/, "#DAILY"],
+  [/UNIVERSE/, "#UNIVERSE"],
+  [/Complete Trainer/, "#TRAINER"],
+  [/VETO/i, "#VETO"],
+];
+// Gắn hashtag vào DÒNG TIÊU ĐỀ (dòng đầu). Idempotent nhờ marker #ELLIOTT.
+function withHashtags(text: string): string {
+  const nl = text.indexOf("\n");
+  const head = nl === -1 ? text : text.slice(0, nl);
+  const body = nl === -1 ? "" : text.slice(nl);
+  if (head.includes("#ELLIOTT")) return text;
+  const tags = ["#ELLIOTT"];
+  for (const [re, tag] of TG_TAG_RULES) if (re.test(head) && !tags.includes(tag)) tags.push(tag);
+  return `${head} ${tags.join(" ")}${body}`;
+}
+
 export async function tgSendMessage(
   text: string,
   parseMode?: "HTML",
   opts?: { dedupeKey?: string; dedupe?: boolean },
 ): Promise<{ ok: boolean; deduped?: boolean; detail?: string }> {
+  text = withHashtags(text);
   const chat = effectiveChatId();
   if (!chat.id) return { ok: false, detail: "telegram_not_configured" };
   const key =
