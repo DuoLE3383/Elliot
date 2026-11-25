@@ -35,6 +35,13 @@ function resolveEndpoint(): { url: string; model: string } {
   };
 }
 
+// stripActions: drop the Actions block. Parameter proposals from the LLM are
+// not backed by enough samples; the verdict already states when more n is needed.
+function stripActions(text: string): string {
+  const i = text.indexOf("**Actions**");
+  return i === -1 ? text : text.slice(0, i).trimEnd();
+}
+
 export async function POST() {
   const { url, model } = resolveEndpoint();
   const snap = await buildStatsSnapshot();
@@ -47,6 +54,7 @@ export async function POST() {
     /* engine not ready */
   }
   const r = await llmStatsDive(url, model, JSON.stringify(snap), timeoutMs);
+  if (r.text) r.text = stripActions(r.text);
   // lưu bài phân tích vào DB — fire-and-forget, kể cả !ok (lỗi LLM cũng là dữ
   // kiện đáng nhớ: "hôm đó nó chết, không audit được"); lỗi lưu chỉ log.
   const modelName = (r.model ?? model ?? "").slice(0, 80);
