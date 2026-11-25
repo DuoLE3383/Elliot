@@ -402,6 +402,10 @@ const eng = (): { p: EnginePersisted; v: EngineVolatile } => {
   return g.__elliottEngine!;
 };
 
+const logTgOpen = (symbol: string, side: string, p: Promise<{ ok: boolean; deduped?: boolean; detail?: string }>) =>
+  p.then((r) =>
+    console.log(`[tg] OPEN ${symbol} ${side} → ${r.ok ? (r.deduped ? "DEDUPED" : "SENT") : "NOT SENT " + (r.detail ?? "")}`),
+  ).catch((e) => console.log(`[tg] OPEN ${symbol} ${side} → THREW ${e instanceof Error ? e.message : e}`));
 const tgReady = (): boolean => Boolean(effectiveToken().token && effectiveChatId().id);
 
 // ─── tickers (whole futures board, aliased to watchlist names) ───────────────
@@ -1940,10 +1944,10 @@ async function cycleTick(): Promise<void> {
             ? `📏 SL/TP capped by liquidation safety @ ×${p.leverage}: ${entrySl}/${entryTp}% → ${finalSl}/${finalTp}% (max ${pval("TP_LIQ_SAFE", TP_LIQ_SAFE)}% of the liquidation distance)`
             : "";
       const note = [baseNote, capNote].filter(Boolean).join(" · ") || undefined;
-      void tgSendMessage(
+      void logTgOpen(trade.symbol, trade.side, tgSendMessage(
         msgOpen(trade, capitalNow, note, await readUnifiedSettled().then((u) => u.balance).catch(() => undefined)),
         "HTML",
-      );
+      ));
     }
   } catch (e) {
     console.error(`[engine] cycle tick failed: ${e instanceof Error ? e.message : e}`);
@@ -2079,10 +2083,10 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
           ? `📏 SL/TP capped by liquidation safety @ ×${p.leverage}: ${slPct}/${tpPct}% → ${finalSl}/${finalTp}% (max ${pval("TP_LIQ_SAFE", TP_LIQ_SAFE)}% of the liquidation distance)`
           : "";
     const note = [baseNote, capNote].filter(Boolean).join(" · ") || undefined;
-    void tgSendMessage(
+    void logTgOpen(trade.symbol, trade.side, tgSendMessage(
       msgOpen(trade, capitalNow, note, await readUnifiedSettled().then((u) => u.balance).catch(() => undefined)),
       "HTML",
-    );
+    ));
   }
   return true;
 }
