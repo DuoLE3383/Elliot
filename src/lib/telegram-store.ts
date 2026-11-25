@@ -244,7 +244,7 @@ function withHashtags(text: string): string {
   const body = nl === -1 ? "" : text.slice(nl);
   if (head.includes("#ELLIOTT")) return text;
   const tags = ["#ELLIOTT"];
-  for (const [re, tag] of TG_TAG_RULES) if (re.test(head) && !tags.includes(tag)) tags.push(tag);
+  for (const [re, tag] of TG_TAG_RULES) if (re.test(head) && !tags.includes(tag) && !head.includes(tag)) tags.push(tag);
   return `${head} ${tags.join(" ")}${body}`;
 }
 

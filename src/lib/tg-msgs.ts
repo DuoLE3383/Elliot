@@ -129,7 +129,7 @@ export const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPn
   const balAfter = balanceAfter ?? (r.capitalAfter ?? 0);
   const balBefore = balAfter - deltaUsdt;
   return [
-    ...buildTradeHeader("🤖", `AUTO CLOSE · ${kindTag(r.exitKind)}`, r),
+    ...buildTradeHeader("🤖", `AUTO #CLOSE · ${kindTag(r.exitKind).replace("TRAILING STOP", "#TRAIL STOP")}`, r),
     `🎯 Entry ${fmtPrice(r.entryPrice)} → 🚪 Exit <b>${fmtPrice(r.exitPrice ?? 0)}</b>`,
     `📐 Plan: SL ${r.slPct.toFixed(2)}% · TP ${r.tpPct.toFixed(2)}% · Lev ${levTxt(r.leverage)} · Score ${(r.score ?? 0).toFixed(2)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}%`,
     "",
@@ -233,7 +233,7 @@ export const msgAutopsy = (
   a: { outcome: string; tag: string; why: string[]; lesson: string; ev?: { rMultiple?: number; durMin?: number; mfePct?: number; maePct?: number }; ms?: number; model?: string },
 ): string =>
   [
-    ...buildTradeHeader("🔬", `ELLIOTT DOCTOR — POST-MORTEM · ${a.outcome === "win" ? "WIN ✅" : "LOSS 🔻"} · ${kindTag(t.exitKind ?? null)}`, { symbol: t.symbol, interval: t.interval, side: t.side, book: (t as any).book ?? "B" }),
+    ...buildTradeHeader("🔬", `ELLIOTT #DOCTOR · ${a.outcome === "win" ? "#WIN ✅" : "#LOSS 🔻"}`, { symbol: t.symbol, interval: t.interval, side: t.side, book: (t as any).book ?? "B" }),
     `💵 Result: <b>${(t.pnlPct ?? 0) >= 0 ? "+" : ""}${(t.pnlPct ?? 0).toFixed(2)}% ROI</b>${a.ev?.rMultiple != null ? ` · R ${a.ev.rMultiple >= 0 ? "+" : ""}${a.ev.rMultiple.toFixed(2)}x` : ""}${a.ev?.durMin != null ? ` · Held ${a.ev.durMin.toFixed(2)}m` : ""}`,
     `🏷 Tag: <b>${escHtml(a.tag)}</b>`,
     ...(a.why.length > 0 ? ["", `📝 What happened:`, ...a.why.map((w) => `• ${escHtml(w)}`)] : []),
