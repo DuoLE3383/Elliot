@@ -744,7 +744,7 @@ export async function llmPropose(
       return { ok: false, proposal: null, raw: text, detail: "bad-numbers", ms };
     }
     const proposal: LlmProposal = {
-      name: typeof p.name === "string" ? p.name.slice(0, 60) : "LLM đề xuất",
+      name: typeof p.name === "string" ? p.name.slice(0, 60) : "LLM proposal",
       hypothesis: typeof p.hypothesis === "string" ? p.hypothesis.slice(0, 300) : "",
       slPct,
       tpPct,

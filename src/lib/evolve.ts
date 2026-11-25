@@ -275,7 +275,7 @@ async function pickCombo(bridge: EvolveBridge): Promise<{ sym: string; itv: stri
 export async function evolveRound(bridge: EvolveBridge): Promise<EvolveOutcome> {
   const comboTag = (c: { sym: string; itv: string }) => `${c.sym} ${c.itv}`;
   try {
-    if (!evolveOn()) return { decision: "keep", combo: "—", note: "EVOLVE_ON=0 — vòng tắt" };
+    if (!evolveOn()) return { decision: "keep", combo: "—", note: "EVOLVE_ON=0 — loop disabled" };
 
     // 0 · cooldown giữa các lần ÁP — chống đun vỉ tham số
     const lastPromote = await activePromotion();
@@ -403,7 +403,7 @@ export async function evolveRound(bridge: EvolveBridge): Promise<EvolveOutcome> 
               },
             });
             rows.push({ id: "", config: cfg, metrics, name: `LLM — ${pr.proposal.name}`, hypothesis: pr.proposal.hypothesis, baseline: false, applied: false, createdAt: new Date() });
-            llmNote = " +1 ứng viên LLM";
+            llmNote = " +1 LLM candidate";
           }
         }
       } catch (e) {
@@ -451,7 +451,7 @@ export async function evolveRound(bridge: EvolveBridge): Promise<EvolveOutcome> 
 
     // Không đủ biên → ghi nhận để vòng sau học (LLM đọc recent_evolution)
     const why = !best
-      ? "không ứng viên nào đủ số lệnh tối thiểu"
+      ? "no candidate reached the minimum trade count"
       : !passMargin
         ? `exp ${r3(best.metrics!.expectancy)} chưa vượt mốc ${r3(baseMetrics?.expectancy ?? 0)} + ${MARGIN()}`
         : !passDd
