@@ -378,10 +378,10 @@ export function AutoHistory(props: any) {
           )}
         </div>
 
-        {/* RESET VỐN DRY-RUN (0.2.86) — xoá sạch sổ lệnh + đặt vốn mới về ví
-            DryRunState (server nhớ qua restart). Hai bước: nút → xác nhận có ô
-            nhập vốn (khởi tạo = vốn hiện tại). Chấp nhận = mất lịch sử lệnh. */}
-        <div className="flex flex-wrap items-center gap-2">
+        {/* RESET VỐN DRY-RUN — HIDDEN theo yêu cầu: ẩn nút Reset capital + dialog
+            Wipe & reset để không bấm nhầm mất sổ. API reset_capital vẫn giữ
+            nguyên, rollback chỉ cần bỏ "hidden" ở div dưới. */}
+        <div className="hidden flex flex-wrap items-center gap-2">
           {!resetOpen ? (
             <>
               <Button
