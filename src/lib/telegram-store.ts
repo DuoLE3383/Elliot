@@ -225,13 +225,14 @@ export async function tgSendMessage(
   parseMode?: "HTML",
   opts?: { dedupeKey?: string; dedupe?: boolean },
 ): Promise<{ ok: boolean; deduped?: boolean; detail?: string }> {
+  console.log(`[tg] try key=${opts?.dedupeKey ?? "auto"} len=${text.length} head=${text.slice(0,60).replace(/\n/g," ")}`);
   const chat = effectiveChatId();
   if (!chat.id) return { ok: false, detail: "telegram_not_configured" };
   const key =
     opts?.dedupe === false
       ? null
       : (opts?.dedupeKey ?? textKey(chat.id, parseMode, text));
-  return dedupeSend(key, async () => {
+  const _r = await dedupeSend(key, async () => {
     const r = await tgApi("sendMessage", {
       chat_id: chat.id,
       text,
@@ -240,6 +241,8 @@ export async function tgSendMessage(
     });
     return r.detail ? { ok: false, detail: r.detail } : { ok: true };
   });
+  console.log(`[tg] result key=${opts?.dedupeKey ?? "auto"} ok=${_r.ok} deduped=${_r.deduped ?? false} detail=${_r.detail ?? "-"}`);
+  return _r;
 }
 
 // ─── Runtime overrides (db/telegram.json) — tg-connect UI flows ───────────────

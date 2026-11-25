@@ -540,7 +540,7 @@ const langRef = useRef(lang);
       }
     };
     void poll();
-    const id = window.setInterval(() => void poll(), 3_000);
+    const id = window.setInterval(() => void poll(), 10_000);
     return () => {
       alive = false;
       window.clearInterval(id);

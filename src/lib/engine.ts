@@ -2277,6 +2277,11 @@ export interface ExitEval {
 async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | null> {
   const { p } = eng();
   const c = p.cfg;
+  // BAD TICK: 1 tick lech >10% so voi entry = gia rac, khong dong lenh
+  if (price <= 0 || Math.abs(price - open.entryPrice) / open.entryPrice > 0.10) {
+    console.log(`[engine] BAD TICK SKIP ${open.symbol} price=${price} entry=${open.entryPrice} - cho tick sau`);
+    return null;
+  }
   const liq = liquidationHit(open.side, price, open.entryPrice, open.leverage);
   // runner phase = đã bank TP1 (p1Pct + tp2Pct nằm trên ROW — sống qua restart,
   // không cần engine.json)
