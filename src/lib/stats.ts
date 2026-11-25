@@ -736,7 +736,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
   // ─── 7. Auto history ──────────────────────────────────────────────────────
   const hist = await safe("hist", async () => {
     const rows = await db.autoTrade.findMany({
-      select: { status: true, exitKind: true, pnlPct: true, exitTime: true, symbol: true, interval: true, side: true, capitalBefore: true, stakePct: true, capitalAfter: true, entryTime: true },
+      select: { status: true, exitKind: true, pnlPct: true, exitTime: true, symbol: true, interval: true, side: true, capitalBefore: true, stakePct: true, capitalAfter: true, entryTime: true, leverage: true, entryPrice: true, exitPrice: true },
       orderBy: { createdAt: "desc" },
       take: 2000,
     });
@@ -882,10 +882,39 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       const totT = g.margin > 0 ? (g.sumUsd / g.margin) * 100 : 0;
       return [label, String(g.n), `${wr.toFixed(1)}%`, `${avgT >= 0 ? "+" : ""}${avgT.toFixed(2)}%`, `${totT >= 0 ? "+" : ""}${totT.toFixed(2)}%`, `${g.sumUsd >= 0 ? "+" : ""}$${g.sumUsd.toFixed(2)}`];
     });
-    if (byHourMap.size > 0) charts.push({ kind: "table", columns: ["Hour", "Trades", "Win rate", "Avg PNL %", "Total PNL %", "PNL $"], rows: toTableRows(byHourMap), hint: "Trade history by closing hour (Asia/Ho_Chi_Minh). PNL USD equals capitalBefore times stakePct times pnlPct." });
+    // VOLUME (round-trip notional, Binance-style): notional mở + notional đóng.
+    // Chỉ hiển thị thêm; không đổi PnL / WR / ROI.
+    const volOf = (r: typeof closed[number]) => {
+      if (!r.capitalBefore || !r.stakePct || !r.leverage) return 0;
+      const open = (r.capitalBefore * r.stakePct / 100) * r.leverage;
+      const close = r.entryPrice && r.exitPrice ? open * (r.exitPrice / r.entryPrice) : open;
+      return open + close;
+    };
+    const volMap = (keyFn: (d: Date) => string) => {
+      const m = new Map<string, number>();
+      for (const r of closed) {
+        if (!r.exitTime) continue;
+        const k = keyFn(new Date(r.exitTime));
+        m.set(k, (m.get(k) ?? 0) + volOf(r));
+      }
+      return m;
+    };
+    const volByDayHour = new Map<string, Map<string, number>>();
+    for (const r of closed) {
+      if (!r.exitTime) continue;
+      const d = dayKey(new Date(r.exitTime));
+      const h = hourKey(new Date(r.exitTime));
+      let inner = volByDayHour.get(d);
+      if (!inner) { inner = new Map(); volByDayHour.set(d, inner); }
+      inner.set(h, (inner.get(h) ?? 0) + volOf(r));
+    }
+    // thêm cột Volume vào cuối row; khóa là phần tử đầu của row
+    const withVol = (rows: any[][], m: Map<string, number>) =>
+      rows.map((row) => [...row, Math.round(m.get(String(row[0])) ?? 0).toLocaleString("en-US")]);
+    if (byHourMap.size > 0) charts.push({ kind: "table", columns: ["Hour", "Trades", "Win rate", "Avg PNL %", "Total PNL %", "PNL $", "Volume"], rows: withVol(toTableRows(byHourMap), volMap(hourKey)), hint: "Trade history by closing hour (Asia/Ho_Chi_Minh). PNL USD equals capitalBefore times stakePct times pnlPct." });
     const byDayDetails: Record<string, Array<Array<string>>> = {};
-    for (const entry of byDayHourMap.entries()) { const day = entry.at(0) as string; const inner = entry.at(1) as Map<string, HistGroup>; byDayDetails[day] = toTableRows(inner); }
-    if (byDayMap.size > 0) charts.push({ kind: "table", columns: ["Day", "Trades", "Win rate", "Avg PNL %", "Total PNL %", "PNL $"], rows: toTableRows(byDayMap), details: byDayDetails, hint: "Trade history by closing day (Asia/Ho_Chi_Minh). PNL USD equals capitalBefore times stakePct times pnlPct." });
+    for (const entry of byDayHourMap.entries()) { const day = entry.at(0) as string; const inner = entry.at(1) as Map<string, HistGroup>; byDayDetails[day] = withVol(toTableRows(inner), volByDayHour.get(day) ?? new Map()); }
+    if (byDayMap.size > 0) charts.push({ kind: "table", columns: ["Day", "Trades", "Win rate", "Avg PNL %", "Total PNL %", "PNL $", "Volume"], rows: withVol(toTableRows(byDayMap), volMap(dayKey)), details: byDayDetails, hint: "Trade history by closing day (Asia/Ho_Chi_Minh). PNL USD equals capitalBefore times stakePct times pnlPct." });
     return {
       state: (unlabeled > 0 ? "warn" : "ok") as StatState,
       note:
