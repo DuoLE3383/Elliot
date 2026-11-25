@@ -427,6 +427,18 @@ async function getTickers(): Promise<Record<string, Ticker>> {
 }
 
 
+// ─── MARK PRICE — giá mark thật lúc khớp (không phải close nến cũ) ─────
+// Lấy từ board 24h (last price ≈ mark). Fallback closePriceOf nếu board hụt.
+// Gate + entry + SL/TP đều phải dùng mark này thì mới live được.
+async function markPriceOf(symbol: string, interval: string): Promise<number> {
+  try {
+    const tickers = await getTickers();
+    const t = tickers[symbol] ?? tickers[aliasFuturesSymbol(symbol) ?? ""];
+    if (t && t.price > 0) return t.price;
+  } catch {}
+  return closePriceOf(symbol, interval);
+}
+
 async function closePriceOf(symbol: string, interval: string): Promise<number> {
   try {
     const kl = await fetchKlinesDirect(symbol, interval, 3);
@@ -1473,8 +1485,8 @@ function stakeCompLev(baseLev: number, stakePct: number): number {
 // readAutoState (autostate.ts: wallet.capital ?? 1000 + ΣΔ full history) và
 // mirror ở POST /api/autotrade open; không ai gọi hàm này nữa.)
 
-// ─── PENDING 2-CANDLE SETTLE — chạy đầu cycleTick ─────────────────────────
-// Pending chờ đúng 2 nến: hết hạn mới xét. Stake chỉ khi BOTH:
+// ─── PENDING 5-MIN SETTLE — chạy đầu cycleTick ─────────────────────────
+// Pending chờ đúng 5 phút: hết hạn mới xét. Stake chỉ khi BOTH:
 //  (1) giá live chạm entry ±0.5%, (2) gate còn pass trên scan row mới nhất
 //       (bias == side, score >= minScore, auc/acc >= floors).
 // Fail 1 trong 2 → cancel_pending, pnl 0, vốn không đổi, autopsy lesson gửi office relearn.
@@ -1500,24 +1512,24 @@ async function settlePendings(): Promise<void> {
       const trade = serialize(updated);
       mirrorLiveOpen(trade.symbol, trade.side === "SHORT" ? "SHORT" : "LONG", trade.id, trade.leverage ?? 1, trade.stakePct ?? 100);
       warnedOf(trade.id); dcaOf(trade.id, trade.stakePct ?? 100, trade.entryPrice);
-      v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice} — PENDING 2 nến → STAKE (gate + touch pass)`;
+      v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice} — PENDING 5 phút → STAKE (gate + touch pass)`;
       try {
         const stNow = await readAutoState();
         await tgSendMessage(msgOpen(trade, Number(stNow.capital ?? pend.capitalBefore ?? 0), undefined, (await readUnifiedSettled().catch(() => null))?.balance), "HTML", { dedupeKey: `open:${pend.id}` });
       } catch (e) { console.error(`[engine] Telegram OPEN (pending promote) fail ${pend.symbol}:`, e); }
-      console.log(`[engine] PENDING PROMOTE ${pend.symbol} ${pend.interval} ${pend.side} @ ${pend.entryPrice} — gate + touch pass after 2 candles`);
+      console.log(`[engine] PENDING PROMOTE ${pend.symbol} ${pend.interval} ${pend.side} @ ${pend.entryPrice} — gate + touch pass after 5 min`);
     } else {
-      await db.autoTrade.update({ where: { id: pend.id }, data: { status: "closed", exitKind: "cancel_pending", exitPrice: live, exitTime: now, pnlPct: 0, capitalAfter: pend.capitalBefore, autopsy: JSON.stringify({ outcome: "cancel_pending", tag: "pending_cancel_2candles", why: [`gatePass=${gatePass} touched=${touched} live=${live} entry=${pend.entryPrice} score=${fresh?.score ?? null} bias=${fresh?.bias ?? null}`, "pending expired after exactly 2 candles — gate or price touch failed, no stake"], lesson: "pending_cancel_2candles: do not re-enter same package immediately, office relearn" }) } });
-      v.lastCycleStatus = `${pend.symbol} ${pend.interval} ${pend.side} — PENDING 2 nến → CANCEL (gate=${gatePass} touch=${touched})`;
-      try { await tgSendMessage(`❌ CANCEL PENDING ${pend.symbol} ${pend.interval} ${pend.side} @ ${pend.entryPrice} — 2 nến hết, gate=${gatePass} touch=${touched}, no stake → office relearn`, "HTML", { dedupeKey: `cancel_pending:${pend.id}` }); } catch {}
-      console.log(`[engine] PENDING CANCEL ${pend.symbol} ${pend.interval} ${pend.side} — gate=${gatePass} touch=${touched} after 2 candles`);
+      await db.autoTrade.update({ where: { id: pend.id }, data: { status: "closed", exitKind: "cancel_pending", exitPrice: live, exitTime: now, pnlPct: 0, capitalAfter: pend.capitalBefore, autopsy: JSON.stringify({ outcome: "cancel_pending", tag: "pending_cancel_5min", why: [`gatePass=${gatePass} touched=${touched} live=${live} entry=${pend.entryPrice} score=${fresh?.score ?? null} bias=${fresh?.bias ?? null}`, "pending expired after exactly 5 min — gate or price touch failed, no stake"], lesson: "pending_cancel_5min: do not re-enter same package immediately, office relearn" }) } });
+      v.lastCycleStatus = `${pend.symbol} ${pend.interval} ${pend.side} — PENDING 5 phút → CANCEL (gate=${gatePass} touch=${touched})`;
+      try { await tgSendMessage(`❌ CANCEL PENDING ${pend.symbol} ${pend.interval} ${pend.side} @ ${pend.entryPrice} — 5 phút hết, gate=${gatePass} touch=${touched}, no stake → office relearn`, "HTML", { dedupeKey: `cancel_pending:${pend.id}` }); } catch {}
+      console.log(`[engine] PENDING CANCEL ${pend.symbol} ${pend.interval} ${pend.side} — gate=${gatePass} touch=${touched} after 5 min`);
     }
   }
   persistEngine();
 }
 
 async function cycleTick(): Promise<void> {
-  await settlePendings(); // PENDING 2-candle: settle expired pendings before managing opens
+  await settlePendings(); // MARK: settle pending cũ còn sót (promote ngay, không đợi)
   const { p, v } = eng();
   const c = p.cfg;
   if (!c.on || !p.syncedAt) return;
@@ -1658,7 +1670,7 @@ async function cycleTick(): Promise<void> {
     const openKeys = new Set((st.opens ?? (st.open ? [st.open] : [])).map((o) => `${o.symbol}|${o.interval}`));
     for (const cand of cands) {
       if (openKeys.has(`${cand.symbol}|${cand.interval}`)) continue; // multi: combo nay da co lenh
-      const px = await closePriceOf(cand.symbol, cand.interval);
+      const px = await markPriceOf(cand.symbol, cand.interval);
       if (px <= 0) continue;
       if (slCooldownLeft(st.trades, cand.symbol, cand.interval, c.cooldownMin) !== 0) continue;
       if (!passesChaseGuard(st.trades, cand.symbol, cand.interval, cand.bias, px)) {
@@ -1674,6 +1686,12 @@ async function cycleTick(): Promise<void> {
       }
       best = cand;
       price = px;
+      // MARK GATE — ScanRow không có field price, giá scan = close nến đóng mà model học từ đó.
+      // Lọc cuối bằng mark: mark chạy >1% so với close thì bỏ, không đuổi giá. continue để thử combo kế.
+      try {
+        const scanPx = await closePriceOf(cand.symbol, cand.interval);
+        if (scanPx > 0 && Math.abs(price - scanPx) / scanPx > 0.01) { console.log(`[engine] MARK GATE skip ${cand.symbol} — mark ${price} lệch >1% so với close scan ${scanPx}, không đuổi`); guardBlocked++; continue; }
+      } catch {}
       break;
     }
     if (!best) {
@@ -1766,7 +1784,7 @@ async function cycleTick(): Promise<void> {
     }
     if (finalSl !== entrySl || finalTp !== entryTp) {
       console.log(
-        `[engine] SL/TP lev-adjust @ ×${tradeLev}: ${entrySl}/${entryTp}% → ${finalSl}/${finalTp}% (scale ${levScale.toFixed(2)} · liq-cap ${((pval("TP_LIQ_SAFE", TP_LIQ_SAFE) / 100) * (100 / tradeLev)).toFixed(2)}%)`,
+        `[engine] SL/TP lev-adjust @ ×${tradeLev}: ${(entrySl*tradeLev).toFixed(2)}/${(entryTp*tradeLev).toFixed(2)}% ROI → ${(finalSl*tradeLev).toFixed(2)}/${(finalTp*tradeLev).toFixed(2)}% ROI (scale ${levScale.toFixed(2)} · liq-cap ${((pval("TP_LIQ_SAFE", TP_LIQ_SAFE) / 100) * (100 / tradeLev)).toFixed(2)}%)`,
       );
     }
 
@@ -1881,7 +1899,7 @@ async function cycleTick(): Promise<void> {
     }
     const created = await db.autoTrade.create({
       data: {
-        status: "pending",
+        status: "open", // MARK IMMEDIATE: entry = mark lúc vào, SL/TP suy ra từ entry này
         symbol: best.symbol,
         interval: best.interval,
         side: best.bias === "SHORT" ? "SHORT" : "LONG",
@@ -1904,10 +1922,9 @@ async function cycleTick(): Promise<void> {
       },
     });
     const trade = serialize(created);
-    // PENDING 2 nến: chưa stake → chưa mirror live, chưa warned/dca (settle sẽ làm khi promote)
-    // mirrorLiveOpen(trade.symbol, trade.side === "SHORT" ? "SHORT" : "LONG", trade.id, tradeLev, stakeUsed);
+    mirrorLiveOpen(trade.symbol, trade.side === "SHORT" ? "SHORT" : "LONG", trade.id, tradeLev, stakeUsed); // MARK: stake ngay
     v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice}${stakeUsed < c.riskPct ? ` · stake ${stakeUsed}%` : ""}`;
-    // warnedOf/dcaOf deferred to settle promote (flip pending)
+    warnedOf(trade.id); dcaOf(trade.id, stakeUsed, trade.entryPrice); // MARK: SL/TP suy ra từ entry mark (flip pending)
     persistEngine();
     if (tgReady()) {
       // note kẹp stake (envelope + tier) nối đuôi note SL/TP — 1 dòng, mọi nguồn thấy
@@ -1950,7 +1967,7 @@ async function cycleTick(): Promise<void> {
 //      Telegram. Trả true = lệnh cũ đã xử lý xong (kể cả khi không mở lệnh mới).
 
 async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise<boolean> {
-  const flipClose = await closePriceOf(row.symbol, row.interval);
+  const flipClose = await markPriceOf(row.symbol, row.interval);
   if (flipClose > 0) price = flipClose;
   const { p, v } = eng();
   const c = p.cfg;
@@ -2028,7 +2045,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
   }
   const created = await db.autoTrade.create({
     data: {
-      status: "pending",
+      status: "open", // MARK IMMEDIATE (flip): entry = mark lúc lật
       symbol: row.symbol,
       interval: row.interval,
       side: to,
@@ -2049,8 +2066,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
     },
   });
   const trade = serialize(created);
-  // PENDING 2 nến (flip): chưa stake → chưa mirror live (settle sẽ làm khi promote)
-  // mirrorLiveOpen(trade.symbol, trade.side === "SHORT" ? "SHORT" : "LONG", trade.id, p.leverage, stakeUsed);
+  mirrorLiveOpen(trade.symbol, trade.side === "SHORT" ? "SHORT" : "LONG", trade.id, p.leverage, stakeUsed); // MARK flip: stake ngay
   v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice} (lật từ ${from})${stakeUsed < c.riskPct ? ` · stake ${stakeUsed}% (trần ${stakeUsed}<${c.riskPct}%)` : ""}`;
   warnedOf(trade.id); dcaOf(trade.id, stakeUsed, trade.entryPrice);
   persistEngine();

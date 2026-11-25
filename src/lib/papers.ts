@@ -4,8 +4,8 @@ export interface PendingEntry {
   side: Side;
   /** kline index of the signal that queued this entry */
   signalIndex: number;
-  /** must wait until this index (signal + exactly 2 candles) */
-  expiryIndex: number;
+  /** must wait until this timestamp (signal + exactly 5 min) */
+  expiryTime: number;
   /** locked entry price (open of candle after signal) */
   entryPrice: number;
   flippedFrom?: string;
@@ -121,9 +121,9 @@ export function papersFrom(
   for (let i = 0; i < klines.length; i++) {
     const k = klines[i];
 
-    // A. PENDING 2-CANDLE — wait exactly 2 candles, stake only at expiry
+    // A. MARK IMMEDIATE (papers) — pending kept only for flip queue, fresh entries enter at next open
     //    if gate still passes + price touched locked entry. Else cancel (drop).
-    if (pending && !open && i >= pending.expiryIndex) {
+    if (pending && !open && k.t >= pending.expiryTime) {
       const touched = k.l <= pending.entryPrice && pending.entryPrice <= k.h;
       if (gateOkAt(pending.side, i - 1) && touched) {
         enterAt(pending.side, pending.entryPrice, i, pending.flippedFrom);
@@ -159,26 +159,26 @@ export function papersFrom(
     const newSide = sideOf(sig.dir);
 
     if (open && open.side !== newSide) {
-      // ── REVERSAL: close current, queue PENDING 2-candle for opposite.
-      //    Flip also waits 2 candles — no immediate open.
+      // ── REVERSAL: close current, queue PENDING 5-min for opposite.
+      //    Flip also waits 5 min — no immediate open.
       const old = open;
       const flipIndex = i + 1;
       const flipPrice = klines[flipIndex].o;
       closeAt(old, flipPrice, flipIndex, "flip");
       const flipEntry = klines[flipIndex + 1]?.o ?? flipPrice;
-      pending = { side: newSide, signalIndex: flipIndex, expiryIndex: flipIndex + 2, entryPrice: flipEntry, flippedFrom: old.id };
+      pending = { side: newSide, signalIndex: flipIndex, expiryTime: klines[flipIndex].t + 5 * 60 * 1000, entryPrice: flipEntry, flippedFrom: old.id };
     } else if (open) {
       // same direction → pyramiding=0, ignore
     } else if (pending && pending.side !== newSide) {
-      // direction changed while queued → replace queued entry, reset 2-candle clock
+      // direction changed while queued → replace queued entry, reset 5-min clock
       const entryPrice = klines[i + 1]?.o ?? k.c;
-      pending = { side: newSide, signalIndex: i, expiryIndex: i + 2, entryPrice };
+      pending = { side: newSide, signalIndex: i, expiryTime: k.t + 5 * 60 * 1000, entryPrice };
     } else if (pending) {
       // already waiting — keep original expiry, do NOT reset clock
     } else {
-      // Fresh entry: ALWAYS queue pending 2 candles, never enter immediately
+      // Fresh entry: ALWAYS queue pending 5 min, never enter immediately
       const entryPrice = klines[i + 1]?.o ?? k.c;
-      pending = { side: newSide, signalIndex: i, expiryIndex: i + 2, entryPrice };
+      pending = { side: newSide, signalIndex: i, expiryTime: k.t + 5 * 60 * 1000, entryPrice };
     }
   }
 

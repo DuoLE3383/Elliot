@@ -38,8 +38,8 @@ function OpenPositionsModalLauncher(props: any) {
       roi: roi,
       slPrice: (o as any).p1Pct != null ? (side === "LONG" ? entry * (1 + Number((o as any).trailPct ?? tpPct) / 100) : entry * (1 - Number((o as any).trailPct ?? tpPct) / 100)) : slPriceV,
       tpPrice: tpPriceV,
-      distSlPct: entry > 0 ? (side === "LONG" ? (mark - slPriceV) / entry * 100 : (slPriceV - mark) / entry * 100) : 0,
-      distTpPct: entry > 0 ? (side === "LONG" ? (tpPriceV - mark) / entry * 100 : (mark - tpPriceV) / entry * 100) : 0,
+      distSlPct: entry > 0 ? ((side === "LONG" ? (mark - slPriceV) / entry * 100 : (slPriceV - mark) / entry * 100) * Number(o.leverage ?? 1)) : 0, // % đã * lev = % ROI
+      distTpPct: entry > 0 ? ((side === "LONG" ? (tpPriceV - mark) / entry * 100 : (mark - tpPriceV) / entry * 100) * Number(o.leverage ?? 1)) : 0, // % đã * lev = % ROI
       marginUsd: margin,
       sizeUsd: margin * Number(o.leverage ?? 1),
       leverage: o.leverage,

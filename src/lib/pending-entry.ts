@@ -1,4 +1,5 @@
-// Pending 2-candle entry — gate pass locks package, wait exactly 2 candles.
+// MARK IMMEDIATE mode: pending disabled for new entries (kept for rollback + settling old pendings).
+// New entries go OPEN at mark immediately, SL/TP derived from that mark entry.
 export function intervalToMs(interval: string): number {
   const m = /^([0-9]+)([mhdw])$/.exec(interval.trim().toLowerCase());
   if (!m) return 15 * 60 * 1000;

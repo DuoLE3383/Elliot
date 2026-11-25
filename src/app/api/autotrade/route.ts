@@ -22,6 +22,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { fetchBoard24h } from "@/lib/klines-direct";
 import { isCorruptDbError, corruptDbHint } from "@/lib/db-hardening";
 import { readAutoState, readOpenPosition, readWallet, serialize } from "@/lib/autostate";
 import { feeRoi } from "@/lib/autotrade";
@@ -69,7 +70,14 @@ export async function POST(req: NextRequest) {
   const symbol = typeof body.symbol === "string" ? body.symbol.toUpperCase().slice(0, 20) : "";
   const interval = typeof body.interval === "string" ? body.interval.slice(0, 8) : "";
   const side = body.side === "SHORT" ? "SHORT" : "LONG";
-  const entryPrice = num(body.entryPrice, 0, Infinity, 0);
+  // MARK: entry phải là mark thật lúc khớp, không lấy entryPrice bịa từ body/scan.
+  // Body entryPrice chỉ là fallback nếu board hụt.
+  let entryPrice = num(body.entryPrice, 0, Infinity, 0);
+  try {
+    const board = await fetchBoard24h();
+    const row = board.get(symbol) ?? board.get(symbol.replace("USDT", "USDT"));
+    if (row && row.price > 0) entryPrice = row.price;
+  } catch {}
   if (!symbol || !interval || entryPrice <= 0) {
     return NextResponse.json({ error: "symbol, interval, entryPrice required" }, { status: 400 });
   }
@@ -87,7 +95,7 @@ export async function POST(req: NextRequest) {
   const equityNow = (wallet.capital ?? 1000) + closedEq.reduce((s: number, r: any) => s + (Number(r.capitalAfter ?? 0) - Number(r.capitalBefore ?? 0)), 0);
   const row = await db.autoTrade.create({
     data: {
-      status: "pending",
+      status: "open", // MARK IMMEDIATE: entryPrice gửi lên đã là mark, SL/TP suy ra từ entry này
       symbol,
       interval,
       side,
@@ -105,12 +113,12 @@ export async function POST(req: NextRequest) {
     },
   });
   const trade = serialize(row);
-  // PENDING 2-candle: POST open now creates PENDING, not OPEN — no stake, no mirror live until settle promotes it.
+  // MARK IMMEDIATE: POST open creates OPEN ngay tại mark.
   // Previously this route created the row and returned 201 without any Telegram call,
   // so force-open positions were silent even though the Telegram test send works.
   // Telegram failure must not fail the open: log it and still return 201.
   try {
-    const tg = await tgSendMessage(`⏳ PENDING ${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice} — waiting 2 candles (touch + gate still pass to stake)`, "HTML", { dedupeKey: `pending:${row.id}` });
+    const tg = await tgSendMessage(msgOpen(trade, equityNow, undefined, (await readUnifiedSettled().catch(() => null))?.balance), "HTML", { dedupeKey: `open:${row.id}` });
     if (!tg.ok) console.error(`[autotrade] Telegram OPEN failed for ${row.symbol}: ${tg.detail ?? "unknown"}`);
   } catch (e) {
     console.error(`[autotrade] Telegram OPEN error for ${row.symbol}: ${e instanceof Error ? e.message : "unknown"}`);
