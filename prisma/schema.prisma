@@ -101,7 +101,7 @@ model AutoTrade {
   leverage      Float     @default(1)
   /** share of equity staked on this trade, % (100 = all-in) */
   stakePct      Float     @default(100)
-  status        String    @default("open") // open | closed
+  status        String    @default("open") // open | pending | closed
   exitPrice     Float?
   exitTime      DateTime?
   /** signed ROE % = price move × leverage (liquidation-safe) */

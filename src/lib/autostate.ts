@@ -187,7 +187,7 @@ export const serialize = (r: {
   tpPct: r.tpPct,
   leverage: r.leverage,
   stakePct: r.stakePct,
-  status: r.status === "open" ? "open" : "closed",
+  status: r.status === "open" ? "open" : r.status === "pending" ? "pending" : "closed",
   exitPrice: r.exitPrice,
   exitTime: r.exitTime?.toISOString() ?? null,
   pnlPct: r.pnlPct,
@@ -304,6 +304,7 @@ export async function readAutoState(): Promise<AutoState> {
   };
   const trades = rows.map(serialize);
   const opens = trades.filter((t) => t.status === "open");
+  const pendings = trades.filter((t) => t.status === "pending");
   const open = opens[0] ?? null;
   // equity = vốn gốc ví (sau Reset vốn gần nhất — 0.2.86) + Σ delta MỌI lệnh
   // đã đóng trong lịch sử (không trần 200). Base hardcode 1000 đã bị BỎ: nó
@@ -319,6 +320,7 @@ export async function readAutoState(): Promise<AutoState> {
     trades,
     open,
     opens,
+    pendings,
     capital,
     resetAt: wallet.resetAt,
     walletCapital: wallet.capital,
@@ -341,11 +343,12 @@ export async function readAutoState(): Promise<AutoState> {
 /** Lightweight version of readAutoState for the home-page open-position strip:
  * reads only the open row + most recent closed capital — does not pull 200 historical
  * trades or the combo table. */
-export async function readOpenPosition(): Promise<{ open: TradeRow | null; opens: TradeRow[]; capital: number | null }> {
+export async function readOpenPosition(): Promise<{ open: TradeRow | null; opens: TradeRow[]; pendings?: TradeRow[]; capital: number | null }> {
+  const pendings = (await db.autoTrade.findMany({ where: { status: "pending" }, orderBy: { createdAt: "desc" } })).map(serialize);
   const row = await db.autoTrade.findFirst({ where: { status: "open" }, orderBy: { createdAt: "desc" } });
   if (row) {
     const all = await db.autoTrade.findMany({ where: { status: "open" }, orderBy: { createdAt: "desc" } });
-    return { open: serialize(row), opens: all.map(serialize), capital: row.capitalBefore };
+    return { open: serialize(row), opens: all.map(serialize), pendings, capital: row.capitalBefore };
   }
   // không có lệnh mở → vẫn trả vốn đã chốt gần nhất cho title/tooltip
   const last = await db.autoTrade.findFirst({
@@ -353,8 +356,8 @@ export async function readOpenPosition(): Promise<{ open: TradeRow | null; opens
     orderBy: { createdAt: "desc" },
     select: { capitalAfter: true },
   });
-  if (last?.capitalAfter != null) return { open: null, opens: [], capital: last.capitalAfter };
+  if (last?.capitalAfter != null) return { open: null, opens: [], pendings, capital: last.capitalAfter };
   // sổ trống → vốn từ ví (sau Reset vốn) — hết kiểu hiện "?" ngay sau reset
   const wallet = await readWallet();
-  return { open: null, opens: [], capital: wallet.capital };
+  return { open: null, opens: [], pendings, capital: wallet.capital };
 }

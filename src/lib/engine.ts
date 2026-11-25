@@ -1374,7 +1374,7 @@ async function llmGate(
       ep.url,
       ep.model,
       {
-        symbol: row.symbol,
+      symbol: row.symbol,
         interval: row.interval,
         side,
         prob: row.prob,
@@ -1473,7 +1473,51 @@ function stakeCompLev(baseLev: number, stakePct: number): number {
 // readAutoState (autostate.ts: wallet.capital ?? 1000 + ΣΔ full history) và
 // mirror ở POST /api/autotrade open; không ai gọi hàm này nữa.)
 
+// ─── PENDING 2-CANDLE SETTLE — chạy đầu cycleTick ─────────────────────────
+// Pending chờ đúng 2 nến: hết hạn mới xét. Stake chỉ khi BOTH:
+//  (1) giá live chạm entry ±0.5%, (2) gate còn pass trên scan row mới nhất
+//       (bias == side, score >= minScore, auc/acc >= floors).
+// Fail 1 trong 2 → cancel_pending, pnl 0, vốn không đổi, autopsy lesson gửi office relearn.
+async function settlePendings(): Promise<void> {
+  const pendings = await db.autoTrade.findMany({ where: { status: "pending" }, orderBy: { entryTime: "asc" } });
+  if (!pendings.length) return;
+  const { p, v } = eng();
+  const c = p.cfg as any;
+  const now = new Date();
+  for (const pend of pendings) {
+    if (!isPendingExpired(pend.entryTime, pend.interval, now)) continue;
+    let live = 0;
+    try { live = await closePriceOf(pend.symbol, pend.interval); } catch { live = 0; }
+    if (!live) live = pend.entryPrice;
+    const fresh = (v.scan?.rows ?? []).find((r: any) => r.symbol === pend.symbol && r.interval === pend.interval);
+    const gatePass = !!fresh && fresh.bias === (pend.side === "SHORT" ? "SHORT" : "LONG")
+      && (fresh.score ?? 0) >= (c.minScore ?? 0)
+      && (fresh.auc ?? 1) >= ((c as any).minAuc ?? 0)
+      && (fresh.acc ?? 100) >= ((c as any).minAcc ?? 0);
+    const touched = priceTouched(pend.entryPrice, live);
+    if (gatePass && touched) {
+      const updated = await db.autoTrade.update({ where: { id: pend.id }, data: { status: "open", entryTime: now } });
+      const trade = serialize(updated);
+      mirrorLiveOpen(trade.symbol, trade.side === "SHORT" ? "SHORT" : "LONG", trade.id, trade.leverage ?? 1, trade.stakePct ?? 100);
+      warnedOf(trade.id); dcaOf(trade.id, trade.stakePct ?? 100, trade.entryPrice);
+      v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice} — PENDING 2 nến → STAKE (gate + touch pass)`;
+      try {
+        const stNow = await readAutoState();
+        await tgSendMessage(msgOpen(trade, Number(stNow.capital ?? pend.capitalBefore ?? 0), undefined, (await readUnifiedSettled().catch(() => null))?.balance), "HTML", { dedupeKey: `open:${pend.id}` });
+      } catch (e) { console.error(`[engine] Telegram OPEN (pending promote) fail ${pend.symbol}:`, e); }
+      console.log(`[engine] PENDING PROMOTE ${pend.symbol} ${pend.interval} ${pend.side} @ ${pend.entryPrice} — gate + touch pass after 2 candles`);
+    } else {
+      await db.autoTrade.update({ where: { id: pend.id }, data: { status: "closed", exitKind: "cancel_pending", exitPrice: live, exitTime: now, pnlPct: 0, capitalAfter: pend.capitalBefore, autopsy: JSON.stringify({ outcome: "cancel_pending", tag: "pending_cancel_2candles", why: [`gatePass=${gatePass} touched=${touched} live=${live} entry=${pend.entryPrice} score=${fresh?.score ?? null} bias=${fresh?.bias ?? null}`, "pending expired after exactly 2 candles — gate or price touch failed, no stake"], lesson: "pending_cancel_2candles: do not re-enter same package immediately, office relearn" }) } });
+      v.lastCycleStatus = `${pend.symbol} ${pend.interval} ${pend.side} — PENDING 2 nến → CANCEL (gate=${gatePass} touch=${touched})`;
+      try { await tgSendMessage(`❌ CANCEL PENDING ${pend.symbol} ${pend.interval} ${pend.side} @ ${pend.entryPrice} — 2 nến hết, gate=${gatePass} touch=${touched}, no stake → office relearn`, "HTML", { dedupeKey: `cancel_pending:${pend.id}` }); } catch {}
+      console.log(`[engine] PENDING CANCEL ${pend.symbol} ${pend.interval} ${pend.side} — gate=${gatePass} touch=${touched} after 2 candles`);
+    }
+  }
+  persistEngine();
+}
+
 async function cycleTick(): Promise<void> {
+  await settlePendings(); // PENDING 2-candle: settle expired pendings before managing opens
   const { p, v } = eng();
   const c = p.cfg;
   if (!c.on || !p.syncedAt) return;
@@ -1777,7 +1821,7 @@ async function cycleTick(): Promise<void> {
       const dupSide = best.bias === "SHORT" ? "SHORT" : "LONG";
       const dup = await db.autoTrade.findFirst({
         where: {
-          symbol: best.symbol,
+      symbol: best.symbol,
           interval: best.interval,
           side: dupSide,
           status: "closed",
@@ -1837,6 +1881,7 @@ async function cycleTick(): Promise<void> {
     }
     const created = await db.autoTrade.create({
       data: {
+        status: "pending",
         symbol: best.symbol,
         interval: best.interval,
         side: best.bias === "SHORT" ? "SHORT" : "LONG",
@@ -1859,9 +1904,10 @@ async function cycleTick(): Promise<void> {
       },
     });
     const trade = serialize(created);
-    mirrorLiveOpen(trade.symbol, trade.side === "SHORT" ? "SHORT" : "LONG", trade.id, tradeLev, stakeUsed);
+    // PENDING 2 nến: chưa stake → chưa mirror live, chưa warned/dca (settle sẽ làm khi promote)
+    // mirrorLiveOpen(trade.symbol, trade.side === "SHORT" ? "SHORT" : "LONG", trade.id, tradeLev, stakeUsed);
     v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice}${stakeUsed < c.riskPct ? ` · stake ${stakeUsed}%` : ""}`;
-    warnedOf(trade.id); dcaOf(trade.id, stakeUsed, trade.entryPrice);
+    // warnedOf/dcaOf deferred to settle promote (flip pending)
     persistEngine();
     if (tgReady()) {
       // note kẹp stake (envelope + tier) nối đuôi note SL/TP — 1 dòng, mọi nguồn thấy
@@ -1982,6 +2028,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
   }
   const created = await db.autoTrade.create({
     data: {
+      status: "pending",
       symbol: row.symbol,
       interval: row.interval,
       side: to,
@@ -2002,7 +2049,8 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
     },
   });
   const trade = serialize(created);
-  mirrorLiveOpen(trade.symbol, trade.side === "SHORT" ? "SHORT" : "LONG", trade.id, p.leverage, stakeUsed);
+  // PENDING 2 nến (flip): chưa stake → chưa mirror live (settle sẽ làm khi promote)
+  // mirrorLiveOpen(trade.symbol, trade.side === "SHORT" ? "SHORT" : "LONG", trade.id, p.leverage, stakeUsed);
   v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice} (lật từ ${from})${stakeUsed < c.riskPct ? ` · stake ${stakeUsed}% (trần ${stakeUsed}<${c.riskPct}%)` : ""}`;
   warnedOf(trade.id); dcaOf(trade.id, stakeUsed, trade.entryPrice);
   persistEngine();
@@ -2716,3 +2764,4 @@ export function startEngineScheduler(): void {
     console.error(`[vulcan] không khởi động được: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
+import { isPendingExpired, priceTouched } from "@/lib/pending-entry";

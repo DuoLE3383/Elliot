@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "symbol, interval, entryPrice required" }, { status: 400 });
   }
 
-  const existing = await db.autoTrade.findFirst({ where: { status: "open", symbol, interval } });
+  const existing = await db.autoTrade.findFirst({ where: { status: { in: ["open", "pending"] }, symbol, interval } });
   if (existing) {
     return NextResponse.json({ error: "position_open", open: serialize(existing) }, { status: 409 });
   }
@@ -87,6 +87,7 @@ export async function POST(req: NextRequest) {
   const equityNow = (wallet.capital ?? 1000) + closedEq.reduce((s: number, r: any) => s + (Number(r.capitalAfter ?? 0) - Number(r.capitalBefore ?? 0)), 0);
   const row = await db.autoTrade.create({
     data: {
+      status: "pending",
       symbol,
       interval,
       side,
@@ -104,12 +105,12 @@ export async function POST(req: NextRequest) {
     },
   });
   const trade = serialize(row);
-  // Send Telegram OPEN for every position opened via this API, including force-open.
+  // PENDING 2-candle: POST open now creates PENDING, not OPEN — no stake, no mirror live until settle promotes it.
   // Previously this route created the row and returned 201 without any Telegram call,
   // so force-open positions were silent even though the Telegram test send works.
   // Telegram failure must not fail the open: log it and still return 201.
   try {
-    const tg = await tgSendMessage(msgOpen(trade, equityNow, undefined, (await readUnifiedSettled().catch(() => null))?.balance), "HTML", { dedupeKey: `open:${row.id}` });
+    const tg = await tgSendMessage(`⏳ PENDING ${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice} — waiting 2 candles (touch + gate still pass to stake)`, "HTML", { dedupeKey: `pending:${row.id}` });
     if (!tg.ok) console.error(`[autotrade] Telegram OPEN failed for ${row.symbol}: ${tg.detail ?? "unknown"}`);
   } catch (e) {
     console.error(`[autotrade] Telegram OPEN error for ${row.symbol}: ${e instanceof Error ? e.message : "unknown"}`);

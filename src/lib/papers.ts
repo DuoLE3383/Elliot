@@ -4,6 +4,11 @@ export interface PendingEntry {
   side: Side;
   /** kline index of the signal that queued this entry */
   signalIndex: number;
+  /** must wait until this index (signal + exactly 2 candles) */
+  expiryIndex: number;
+  /** locked entry price (open of candle after signal) */
+  entryPrice: number;
+  flippedFrom?: string;
 }
 
 export interface EngineResult {
@@ -116,11 +121,14 @@ export function papersFrom(
   for (let i = 0; i < klines.length; i++) {
     const k = klines[i];
 
-    // A. Pending entry fires at the open of candle i when the PREVIOUS close
-    //    passed the gate for the pending side.
-    if (pending && !open && i > pending.signalIndex) {
-      if (gateOkAt(pending.side, i - 1)) {
-        enterAt(pending.side, k.o, i);
+    // A. PENDING 2-CANDLE — wait exactly 2 candles, stake only at expiry
+    //    if gate still passes + price touched locked entry. Else cancel (drop).
+    if (pending && !open && i >= pending.expiryIndex) {
+      const touched = k.l <= pending.entryPrice && pending.entryPrice <= k.h;
+      if (gateOkAt(pending.side, i - 1) && touched) {
+        enterAt(pending.side, pending.entryPrice, i, pending.flippedFrom);
+      } else {
+        pending = undefined; // cancel_pending — no stake, office relearn via live autopsy
       }
     }
 
@@ -151,24 +159,26 @@ export function papersFrom(
     const newSide = sideOf(sig.dir);
 
     if (open && open.side !== newSide) {
-      // ── REVERSAL: ALWAYS close current position AND open the opposite entry.
-      //    The SMA gate never blocks a flip — only fresh entries are gated.
+      // ── REVERSAL: close current, queue PENDING 2-candle for opposite.
+      //    Flip also waits 2 candles — no immediate open.
       const old = open;
       const flipIndex = i + 1;
       const flipPrice = klines[flipIndex].o;
       closeAt(old, flipPrice, flipIndex, "flip");
-      enterAt(newSide, flipPrice, flipIndex, old.id);
+      const flipEntry = klines[flipIndex + 1]?.o ?? flipPrice;
+      pending = { side: newSide, signalIndex: flipIndex, expiryIndex: flipIndex + 2, entryPrice: flipEntry, flippedFrom: old.id };
     } else if (open) {
       // same direction → pyramiding=0, ignore
     } else if (pending && pending.side !== newSide) {
-      // direction changed while queued → replace the queued entry
-      pending = { side: newSide, signalIndex: i };
+      // direction changed while queued → replace queued entry, reset 2-candle clock
+      const entryPrice = klines[i + 1]?.o ?? k.c;
+      pending = { side: newSide, signalIndex: i, expiryIndex: i + 2, entryPrice };
     } else if (pending) {
-      pending = { ...pending, signalIndex: i };
-    } else if (gateOkAt(newSide, i)) {
-      enterAt(newSide, klines[i + 1].o, i + 1);
+      // already waiting — keep original expiry, do NOT reset clock
     } else {
-      pending = { side: newSide, signalIndex: i };
+      // Fresh entry: ALWAYS queue pending 2 candles, never enter immediately
+      const entryPrice = klines[i + 1]?.o ?? k.c;
+      pending = { side: newSide, signalIndex: i, expiryIndex: i + 2, entryPrice };
     }
   }
 
