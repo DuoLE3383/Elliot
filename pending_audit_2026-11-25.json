@@ -1,0 +1,6 @@
+[
+  {"symbol":"ETHUSDT","interval":"1m","side":"LONG","pendingMark":1640.9,"sl":1638.761111,"tp":1644.108333,"slPct":0.13,"tpPct":0.196,"pendingTimeUTC":"2026-11-25 07:58:00","verdict":"expired - cancel -> office relearn"},
+  {"symbol":"1000FLOKIUSDT","interval":"1m","side":"LONG","pendingMark":0.01602,"sl":0.016,"tp":0.01605,"slPct":0.125,"tpPct":0.188,"pendingTimeUTC":"2026-11-25 07:43:00","verdict":"expired + drift 0.62% > 0.5% - cancel -> office relearn"},
+  {"symbol":"SEIUSDT","interval":"5m","side":"SHORT","pendingMark":0.03207,"sl":0.032327,"tp":0.031685,"slPct":0.8,"tpPct":1.2,"pendingTimeUTC":"2026-11-25 07:42:00","verdict":"expired - cancel -> office relearn"},
+  {"symbol":"1000BONKUSDT","interval":"1m","side":"SHORT","pendingMark":0.002101,"sl":0.002103,"tp":0.002098,"slPct":0.11,"tpPct":0.164,"pendingTimeUTC":"2026-11-25 06:32:00","verdict":"expired + drift -1.33% > 0.5% - cancel -> office relearn"}
+]
