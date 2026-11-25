@@ -806,6 +806,26 @@ const STATS_DIVE_SYSTEM = [
  * Dùng bởi /ai card "Phân tích nguyên nhân gốc"; timeout mặc định 300s vì 7B CPU cần
  * thời gian sinh văn bản dài hơn verdict go/skip.
  */
+/** Shrink the /stats snapshot before sending it to the LLM: drop charts and hints,
+ *  truncate notes, cap total size near 20k chars to stay within n_ctx.
+ *  The LLM only describes results; it never computes them. */
+function compactSnapshot(json: string): string {
+  let d: any;
+  try { d = JSON.parse(json); } catch { return json.slice(0, 20000); }
+  const secs = Array.isArray(d?.sections) ? d.sections : [];
+  const out = {
+    ...d,
+    sections: secs.map((x: any) => ({
+      key: x.key, state: x.state, accPct: x.accPct,
+      note: typeof x.note === "string" ? x.note.slice(0, 300) : x.note,
+      metrics: Array.isArray(x.metrics)
+        ? x.metrics.map((m: any) => ({ k: m.k, v: m.v, sub: m.sub, tone: m.tone }))
+        : [],
+    })),
+  };
+  return JSON.stringify(out).slice(0, 20000);
+}
+
 export async function llmStatsDive(
   url: string,
   model: string,
@@ -814,6 +834,7 @@ export async function llmStatsDive(
   timeoutMs = Math.max(pval("LLM_TIMEOUT_MS", LLM_TIMEOUT_MS), 300_000),
 ): Promise<LlmTextResult> {
   const started = Date.now();
+  snapshotJson = compactSnapshot(snapshotJson);
   const base = { prompt: snapshotJson.slice(0, 4000), url, model };
   try {
     const res = await fetch(`${baseOf(url)}/v1/chat/completions`, {
@@ -827,7 +848,7 @@ export async function llmStatsDive(
           {
             role: "user",
             content:
-              "STATS SNAPSHOT (use ONLY numbers that appear below; answer in English):\n" +
+              "STATS SNAPSHOT (use ONLY numbers below; answer in English). RULES: do NOT propose parameter changes; only describe sections with state warn/bad, quoting the numbers shown; if closed trades < 30 write \"insufficient n\":\n" +
               snapshotJson,
           },
         ],
