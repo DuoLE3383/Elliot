@@ -31,7 +31,7 @@ import { autopsyClosedTrade } from "@/lib/autopsy";
 import { auditBook, repairBook, auditEntryClose } from "@/lib/audit-book";
 import { tgSendMessage } from "@/lib/telegram-store";
 import { msgOpen } from "@/lib/tg-msgs";
-import { readUnifiedSettled } from "@/lib/unified-balance";
+import { readUnifiedSettled, resetSettledWallet } from "@/lib/unified-balance";
 
 export const dynamic = "force-dynamic";
 
@@ -164,6 +164,7 @@ export async function PATCH(req: NextRequest) {
         db.vulcanBook.deleteMany(),
         db.dryRunState.upsert({ where: { id: "wallet" }, create: { id: "wallet", capital: cap, resetAt, note }, update: { capital: cap, resetAt, note } }),
       ]);
+      await resetSettledWallet(cap);
     } catch (e) {
       if (isCorruptDbError(e)) return corruptDbResponse();
       throw e;

@@ -18,7 +18,7 @@ import { db } from "./db";
 import { tgSendMessage } from "./telegram-store";
 import { fmtPrice } from "./i18n";
 import { buildTradeHeader } from "./tg-msgs";
-import { readUnifiedSettled } from "./unified-balance";
+import { bumpSettledWallet, readUnifiedSettled } from "./unified-balance";
 import { fetchKlinesDirect } from "./klines-direct";
 import { feeRoi, pval, VUL_ATR_STOP_MULT, VUL_VOL_FACTOR } from "./params";
 import { readWallet } from "./autostate";
@@ -205,6 +205,7 @@ async function vulcanSymbolTick(symbol: string, lastCandleT: Map<string, number>
         capitalAfter: after,
       },
     });
+    await bumpSettledWallet(delta).catch(() => null);
     console.log(`[vulcan] CLOSE ${open.side} ${symbol} @ ${action.price} (${action.exitKind}) move ${movePct}% ROI ${roePct}% vốn ${before}→${after}`);
     return;
   }

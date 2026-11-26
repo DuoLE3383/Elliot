@@ -1,9 +1,9 @@
-// ─── Audit Replay v1 — ĐO, KHÔNG SỬA ───
-// Chạy lại evalExit (engine.ts) trên NẾN ĐÃ ĐÓNG, dùng GIÁ ĐÓNG (close),
-// không dùng giá wick như watcherTick live.
-// Mục đích: đo "nếu chốt bằng giá đóng thì lệnh này lãi bao nhiêu" —
-// để chứng minh chốt bằng râu / BE quá chặt làm mất bao nhiêu.
-// KHÔNG ghi đè DB, KHÔNG đổi logic live. Chỉ trả đề xuất để so sánh.
+// --- Audit Replay v1 - MEASURE, DO NOT FIX ---
+// Re-run evalExit (engine.ts) on CLOSED candles, using CLOSE price,
+// do not use wick price like live watcherTick.
+// Purpose: measure "if closed at close price, how much would this order make" -
+// to prove how much wick / too-tight BE closes lose.
+// Do NOT overwrite DB, do NOT change live logic. Only return suggestions for comparison.
 import { feeRoi } from "./params";
 import { atrLevelsAtEntry } from "./indicators";
 import {
@@ -24,6 +24,7 @@ export interface ReplayTrade {
   slPct: number; tpPct: number; leverage: number;
   exitPrice: number | null; exitTime: string | Date | null; p1Pct?: number | null; p1Share?: number | null; tp2Pct?: number | null; trailPct?: number | null;
   exitKind: string | null; pnlPct: number | null;
+  exitBasis?: string | null; // 'mark' (old) | 'last' (new, Binance fill)
 }
 export interface ReplayResult {
   closed: boolean;
@@ -36,7 +37,7 @@ export interface ReplayResult {
 export function replayExit(
   trade: ReplayTrade, klinesBefore: ReplayKline[], klinesAfter: ReplayKline[], cfg: ReplayCfg,
 ): ReplayResult {
-  const notes: string[] = ["close-price replay — khong dung gia wick", "dcaCount=0 (DB khong luu so lan DCA)"];
+  const notes: string[] = ["close-price replay - do not use wick price", "dcaCount=0 (DB does not store DCA count)"];
   const entry = trade.entryPrice;
   const entryMs = new Date(trade.entryTime).getTime();
   // 1) Tái tạo act/dist như updateTrail — khóa 1 lần từ ATR lúc vào lệnh
@@ -46,14 +47,14 @@ export function replayExit(
     if (lv) {
       const auto = trailAutoLevels(lv.atrPct, trade.leverage);
       act = auto.actPct; dist = auto.distPct;
-      notes.push(`act/dist auto tu ATR: act ${act}% dist ${dist}%`);
+      notes.push(`act/dist auto from ATR: act ${act}% dist ${dist}%`);
     }
   }
   let peak = entry;
   let p1Pct: number | null = trade.p1Pct ?? null, p1Share: number | null = trade.p1Share ?? null, tp2Pct = trade.tp2Pct ?? 0, trailPct = trade.trailPct ?? 0;
   let runner = p1Pct != null;
   const sorted = [...klinesAfter].filter((k) => k.t > entryMs).sort((a, b) => a.t - b.t);
-  // MFE — đỉnh thuận nhất (giá đóng) trong đời lệnh, tính 1 lần để Audit so với trail
+  // MFE - best favorable peak (close price) in order lifetime, computed once for Audit vs trail
   let peakPrice: number | null = null;
   for (const k of sorted) {
     const wick = trade.side === "SHORT" ? (k.l ?? k.c) : (k.h ?? k.c);
@@ -78,20 +79,20 @@ export function replayExit(
     const bar = sorted[i];
     const price = bar.c;
     if (!price || !entry) continue;
-    // Liquidation — ưu tiên như evalExit
+    // Liquidation - priority like evalExit
     if (liquidationHit(trade.side, price, entry, trade.leverage)) {
       return finish(price, sorted[i].t, "sl", p1Pct, p1Share, trade, notes, { peakPrice, peakRoi, trailArmed, missedClosePrice, missedPnlPct });
     }
     if (runner) {
       const move1x = movePct1x(trade.side, entry, price);
-      // 0.3.40 — bỏ chốt cứng TP2: runner chạy theo trail tới hết position
+      // 0.3.40 - drop hard TP2 close: runner follows trail to end of position
       if (trailHit(trade.side, price, entry, trailPct)) return finish(price, sorted[i].t, "trail", p1Pct, p1Share, trade, notes, { peakPrice, peakRoi, trailArmed, missedClosePrice, missedPnlPct });
       const lock = trailRatchet(trailPct, Math.max(0, move1x), cfg.runnerTrailLock);
       if (lock > trailPct) trailPct = lock;
       continue;
     }
-    // NORMAL PHASE — trail trước SL/TP như evalExit
-    // 0.3.42 — peak dùng WICK (H/L), hit check dùng WICK — khớp live engine
+    // NORMAL PHASE - trail before SL/TP like evalExit
+    // 0.3.42 - peak uses WICK (H/L), hit check uses WICK - matches live engine
     if (cfg.trailOn) {
       const peakWick = trade.side === "SHORT" ? (bar.l ?? bar.c) : (bar.h ?? bar.c);
       peak = trailNextPeak(trade.side, peak, peakWick);
@@ -99,18 +100,19 @@ export function replayExit(
       const roiStop = trailRoiStopPrice(trade.side, entry, peakRoi, trade.leverage);
       const stop = roiStop ?? trailStopPrice(trade.side, entry, peak, act, dist);
       if (stop != null) {
-        // hit check: giá cực trị trong bar chạm stop chưa
+        // hit check: has bar extreme touched stop yet
         const hitHit = trade.side === "SHORT" ? (bar.h ?? bar.c) : (bar.l ?? bar.c);
         const hit = roiStop != null
           ? (trade.side === "SHORT" ? hitHit >= stop : hitHit <= stop)
           : (trade.side === "SHORT" ? price >= stop : price <= stop);
         if (hit) {
-          // 0.3.41 — spec: trail hit TRƯỚC TP1 → đóng 100% tại stop (gap → open)
-          const openP = bar.o ?? price;
-          const fillAt = trade.side === "LONG"
-            ? Math.min(openP, stop)
-            : Math.max(openP, stop);
-          notes.push(`trail close @ nến ${new Date(sorted[i].t).toISOString()} — fill ${fillAt} (stop ${stop}, mark ${price}, H=${bar.h} L=${bar.l})`);
+          // LASTPRICE audit: trail hit detected on wick, fill at bar.c.
+          // bar.c = lastPrice at that historical candle close (no historical ticker).
+          // Same rule as engine closeTradeDirect: entry=mark, exit=lastPrice.
+          // Old code filled at theoretical stop (min/max open,stop) -> diff vs stored.
+          // exitBasis=mark (old): fill at theoretical stop. exitBasis=last (new): fill at bar.c = lastPrice at candle close proxy.
+          const fillAt = trade.exitBasis === "mark" ? (trade.side === "LONG" ? Math.min(bar.o ?? price, stop) : Math.max(bar.o ?? price, stop)) : price;
+          notes.push(`trail close @ candle ${new Date(sorted[i].t).toISOString()} - fill lastClose ${fillAt} (stop ${stop}, H=${bar.h} L=${bar.l})`);
           return finish(fillAt, sorted[i].t, "trail", p1Pct, p1Share, trade, notes, { peakPrice, peakRoi, trailArmed, missedClosePrice, missedPnlPct });
         }
       }
@@ -121,13 +123,13 @@ export function replayExit(
       if (plan) {
         const p1Net = Math.round((plan.p1Pct - feeRoi(trade.leverage)) * 100) / 100;
         p1Pct = p1Net; p1Share = plan.share; tp2Pct = plan.tp2Pct; trailPct = trade.tpPct; runner = true;
-        notes.push(`TP1 partial @ nến ${new Date(sorted[i].t).toISOString()} — bank ${(plan.share * 100).toFixed(2)}%`);
+        notes.push(`TP1 partial @ candle ${new Date(sorted[i].t).toISOString()} — bank ${(plan.share * 100).toFixed(2)}%`);
         continue;
       }
       return finish(price, sorted[i].t, "tp", p1Pct, p1Share, trade, notes, { peakPrice, peakRoi, trailArmed, missedClosePrice, missedPnlPct });
     }
     if (kind === "sl") {
-      // SL CONFIRM trên nến đóng: sâu >=15% bề rộng stop → đóng ngay; nông → cần nến sau vẫn vượt SL mới đóng
+      // SL CONFIRM on closed candle: deep >=15% of stop width -> close now; shallow -> need next candle still beyond SL to close
       const adverse1x = -movePct1x(trade.side, entry, price);
       const deep = adverse1x >= Math.abs(trade.slPct) * (1 + SL_DEEP_FRAC);
       if (deep) return finish(price, sorted[i].t, "sl", p1Pct, p1Share, trade, notes, { peakPrice, peakRoi, trailArmed, missedClosePrice, missedPnlPct });
@@ -135,11 +137,11 @@ export function replayExit(
       if (nxt && slTpHit(trade.side, nxt.c, entry, trade.slPct, trade.tpPct) === "sl") {
         return finish(nxt.c, nxt.t, "sl", p1Pct, p1Share, trade, notes, { peakPrice, peakRoi, trailArmed, missedClosePrice, missedPnlPct });
       }
-      notes.push("SL nong 1 nen — doi xac nhan, khong dong bang rau");
+      notes.push("SL shallow 1 candle - wait for confirm, do not close on wick");
       continue;
     }
   }
-  return { closed: false, replayExitPrice: null, replayExitTime: null, replayExitKind: null, replayPnlPct: null, storedPnlPct: trade.pnlPct, diffPnl: null, wouldFlipToWin: false, notes: [...notes, "replay: khong dong trong khoang nen — qua exitTime luu"], peakPrice, peakRoi, trailArmed, missedClosePrice, missedPnlPct };
+  return { closed: false, replayExitPrice: null, replayExitTime: null, replayExitKind: null, replayPnlPct: null, storedPnlPct: trade.pnlPct, diffPnl: null, wouldFlipToWin: false, notes: [...notes, "replay: no close in candle range - past stored exitTime"], peakPrice, peakRoi, trailArmed, missedClosePrice, missedPnlPct };
 }
 
 function finish(price: number, t: number, kind: string, p1Pct: number | null, p1Share: number | null, trade: ReplayTrade, notes: string[], peakInfo?: { peakPrice: number | null; peakRoi: number | null; trailArmed: boolean; missedClosePrice: number | null; missedPnlPct: number | null }): ReplayResult {
@@ -148,11 +150,11 @@ function finish(price: number, t: number, kind: string, p1Pct: number | null, p1
   if (trade.leverage > 1 && move <= -(100 / trade.leverage)) remPnl = -100;
   else if (remPnl < -100) remPnl = -100;
   const total = combineClosePnl(p1Pct, p1Share, remPnl);
-  // Đối chiếu với expectedPnlPctOf của audit khi không có TP1 partial
+  // Cross-check with audit expectedPnlPctOf when no TP1 partial
   const auditExpected = p1Pct == null ? expectedPnlPctOf({ side: trade.side, entryPrice: trade.entryPrice, exitPrice: price, leverage: trade.leverage, exitKind: kind }) : total;
   const replayPnl = auditExpected ?? total;
   const stored = trade.pnlPct ?? 0;
-  // Peak tối thiểu = giá đóng này (ReplayResult đầy đủ sẽ được API bổ sung peak thật từ klines)
+  // Min peak = this close price (full ReplayResult will get real peak from klines via API)
   const _peakRoi = Math.round(trailMovePct(trade.side, trade.entryPrice, price) * trade.leverage * 100) / 100;
   return {
     closed: true, replayExitPrice: price, replayExitTime: t, replayExitKind: kind,

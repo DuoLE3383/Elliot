@@ -30,7 +30,7 @@ import { db } from "./db";
 import { tgSendMessage } from "./telegram-store";
 import { fmtPrice } from "./i18n";
 import { buildTradeHeader } from "./tg-msgs";
-import { readUnifiedSettled } from "./unified-balance";
+import { bumpSettledWallet, readUnifiedSettled } from "./unified-balance";
 import { fetchKlinesDirect } from "./klines-direct";
 import { feeRoi, pval } from "./params";
 import {
@@ -595,6 +595,7 @@ async function wyckoffTick(): Promise<void> {
             capitalAfter: after,
           },
         });
+        await bumpSettledWallet(delta).catch(() => null);
         console.log(`[wyckoff-C] CLOSE LONG ${openRow.symbol} @ ${price} (${exitKind}) move ${movePct}% ROI ${pnlPct}% vốn ${before}→${after} — ${exitReason}`);
         return;
       }

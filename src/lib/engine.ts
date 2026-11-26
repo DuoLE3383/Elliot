@@ -102,7 +102,7 @@ import { loadScanState, saveScanState } from "./scan-state";
 import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store";
 import { pushAutoDigests } from "./autodigest";
 import { msgDca, msgLlmVeto, msgNear, msgOpen, msgTp1 } from "./tg-msgs";
-import { readUnifiedSettled } from "./unified-balance";
+import { bumpSettledWallet, getLockedMargin, readUnifiedSettled } from "./unified-balance";
 import { notifyClosed, tgMuted } from "./tg-alerts";
 import { enqueueJob, jobViews } from "./engine-jobs";
 import { directionalPnl, outcomeOf } from "./history";
@@ -412,7 +412,10 @@ const tgReady = (): boolean => Boolean(effectiveToken().token && effectiveChatId
 
 async function getTickers(): Promise<Record<string, Ticker>> {
   const { p, v } = eng();
+  // FAIL-CLOSED: cache qua han TTL*2 thi coi nhu khong co gia, khong tra gia ket 118.
+  // Board bi ban (-1003) thi throw de caller tu choi mo/dong, khong dung gia cu.
   if (Date.now() - v.tickersAt < TICKERS_TTL && Object.keys(v.tickers).length > 0) return v.tickers;
+  if (Date.now() - v.tickersAt > TICKERS_TTL * 2) v.tickers = {}; // xoa cache ket, bat buoc fetch moi hoac fail
   const board = await fetchBoard24h();
   const map: Record<string, Ticker> = {};
   const want = new Set<string>([...p.pairs, ...(p.cfg.broadcast ? UNIVERSE : [])]);
@@ -434,6 +437,10 @@ async function getTickers(): Promise<Record<string, Ticker>> {
 // ─── MARK PRICE — giá mark thật lúc khớp (không phải close nến cũ) ─────
 // Lấy từ board 24h (last price ≈ mark). Fallback closePriceOf nếu board hụt.
 // Gate + entry + SL/TP đều phải dùng mark này thì mới live được.
+function assertTpValid(entry: number, tpPct: number): void {
+  if (!(tpPct > 0) || Math.abs(entry * (1 + tpPct / 100) - entry) < 1e-9) throw new Error(`TP invalid: tpPct=${tpPct} entry=${entry} -> TP==entry, refuse to open`);
+}
+
 async function markPriceOf(symbol: string, interval: string): Promise<number> {
   try {
     const tickers = await getTickers();
@@ -441,6 +448,34 @@ async function markPriceOf(symbol: string, interval: string): Promise<number> {
     if (t && t.price > 0) return t.price;
   } catch {}
   return closePriceOf(symbol, interval);
+}
+
+// EXIT PRICE — lastPrice (Binance Futures market fill).
+// Entry = markPriceOf. Exit = lastPrice from ticker (last traded price).
+// Trigger (TP/SL/liq) is checked on mark, fill is at lastPrice at close moment.
+// Fallback to last closed candle close only if ticker fails.
+// triggerLast: last price da chup tai tick lam dieu kien thoa (WS/ticker cache).
+// Neu co -> dung luon, khong fetch REST lai (tranh lech vai giay giua trigger va fill).
+async function lastPriceOf(symbol: string): Promise<number> {
+  const tickers = await getTickers();
+  const alias = (() => { try { return aliasFuturesSymbol(symbol); } catch { return undefined; } })();
+  const candidates = [symbol, alias, symbol.replace(/^(1000|10000|100000)/, ""), symbol.toUpperCase()].filter(Boolean) as string[];
+  for (const c of candidates) {
+    const tk = (tickers as any)[c];
+    if (tk && tk.price > 0) return tk.price;
+  }
+  console.warn(`[engine] lastPriceOf: no ticker for ${symbol} candidates=${candidates.join(",")}`);
+  return 0;
+}
+
+async function exitPriceOf(symbol: string, interval: string, triggerLast?: number): Promise<number> {
+  // EXIT = lastPrice (Binance Futures market fill). triggerLast da chup tai tick trigger -> dung luon.
+  if (triggerLast && triggerLast > 0) return triggerLast;
+  try {
+    const last = await lastPriceOf(symbol);
+    if (last > 0) return last;
+  } catch {}
+  return closePriceOf(symbol, interval); // fallback hiem khi ticker fail
 }
 
 async function closePriceOf(symbol: string, interval: string): Promise<number> {
@@ -533,9 +568,9 @@ async function persistTrainResult(
 }
 
 /** Close the open paper position — same math as PATCH /api/autotrade close.
- *  Sau khi chốt lời/cắt lỗ, lệnh được GIẢI PHẪU (autopsy — cả thắng lẫn thua)
- *  fire-and-forget: không chặn cycle/watcher, lỗi chỉ log. Bài học nằm lại DB,
- *  nạp lại vào lần duyệt lệnh sau của cùng cặp. exitKind "flip" = đóng vì
+ *  After TP/SL, order is AUTOPSIED (both wins and losses)
+ *  fire-and-forget: does not block cycle/watcher, errors only logged. Lesson stays in DB,
+ *  reloaded on next review of same pair. exitKind "flip" = đóng vì
  *  AUTO-FLIP (model đảo chiều đủ tin cậy — xem tryFlip). "trail" = lệnh bị
  *  trailing/BE-stop đưa về (0.2.61 trailing · 0.3.3 runner-trail sau TP1).
  *  0.3.3 — COMBINE CLOSE: lệnh đã qua TP1 partial (p1Pct != null) thì ROI tổng
@@ -546,9 +581,16 @@ async function closeTradeDirect(
   id: string,
   exitPrice: number,
   exitKind: "tp" | "sl" | "manual" | "flip" | "trail",
+  triggerLast?: number,
 ): Promise<AutoTradeRow | null> {
   const row = await db.autoTrade.findUnique({ where: { id } });
   if (!row || row.status !== "open") return null;
+  // EXIT = lastPrice. Entry stays mark. triggerPrice = mark luc trigger, effExit = last luc fill.
+  const triggerPrice = exitPrice;
+  const exitLast = await exitPriceOf(row.symbol, row.interval, triggerLast).catch(() => 0); // name kept, value is now lastPrice
+  const effExit = exitLast > 0 ? exitLast : exitPrice;
+  if (exitLast > 0 && Math.abs(exitLast - exitPrice) > 1e-9) console.log(`[engine] exit fill: mark ${exitPrice} -> lastPrice ${exitLast} (${row.symbol} ${row.interval} ${exitKind})`);
+  exitPrice = effExit;
   const movePct =
     row.side === "SHORT" ? ((row.entryPrice - exitPrice) / row.entryPrice) * 100 : ((exitPrice - row.entryPrice) / row.entryPrice) * 100;
   // ROI SAU PHÍ (0.2.77) — phí mỗi bên tính trên notional nên mức ăn vào ROI
@@ -567,10 +609,11 @@ async function closeTradeDirect(
   const capitalAfter = Math.max(0, Math.round((capitalBefore + delta) * 100) / 100);
   const updated = await db.autoTrade.update({
     where: { id },
-    data: { status: "closed", exitPrice, exitTime: new Date(), pnlPct, exitKind, capitalAfter },
+    data: { status: "closed", exitPrice, exitTime: new Date(), pnlPct, exitKind, capitalAfter, exitBasis: "last", exitTriggerPrice: triggerPrice, exitFillPrice: effExit },
   });
+  await bumpSettledWallet(delta).catch(() => null);
   // trailing state của lệnh vừa đóng hết giá trị — dọn ngay để snapshot không
-  // hiển thị đỉnh cũ (lệnh mới có id khác thì updateTrail cũng tự reset)
+  // hiển thị đỉnh cũ (new order có id khác thì updateTrail cũng tự reset)
   // trail/slPending per-trade cua lenh vua dong - dropTradeState ben duoi xoa
   // per-trade warned/dca cua lenh vua dong het gia tri - xoa de map khong ro
   // (chi goi SAU khi DB da closed - dong fail thi state giu lai de nhip sau dong tiep)
@@ -626,7 +669,7 @@ export function engineLiveStop(): { ok: boolean; note: string } {
   const { p } = eng();
   p.live = { on: false, confirmedAt: p.live.confirmedAt };
   persistEngine();
-  console.warn("[engine] LIVE MODE TẮT — mirror dừng; vị thế sàn đang mở (nếu có) cần tự đóng tay hoặc khớp dry-run kế tiếp");
+  console.warn("[engine] LIVE MODE OFF - mirror stopped; open live positions (if any) must be closed manually or matched by next dry-run");
   return { ok: true, note: "LIVE tắt — dry-run tiếp tục chạy bình thường" };
 }
 
@@ -671,7 +714,7 @@ async function bumpSignalTotals(rows: ScanRow[]): Promise<void> {
  * Load closed dry-run trades as per-combo TradeLesson lists (newest-first,
  * capped per combo). Shared by scanCore AND trainCore — 0.2.86: trước giờ chỉ
  * nút Train mới nạp bài học lệnh thật, còn model của vòng QUÉT 5 phút (nơi
- * quyết định vào lệnh) lại train thuần kline → "train/xgb không tác dụng vào
+ * quyết định entry) lại train thuần kline → "train/xgb không tác dụng vào
  * lệnh kế tiếp". Từ bản này MỌI model quét đều học từ track record của chính
  * nó: lệnh thắng/thua được lặp ×LESSON_WEIGHT trong TRAIN split (val giữ thuần
  * kline → AUC/ACC vẫn so được với champion — gate không phình).
@@ -1343,8 +1386,8 @@ async function resolveTick(): Promise<void> {
 // ─── paper-trade cycle (port of the client runCycle) ──────────────────────────
 
 /**
- * LLM Risk Officer duyệt MỘT setup — dùng chung cho cả luồng vào lệnh thường
- * (cycleTick §2.5) và luồng LẬT CHIỀU (tryFlip): nạp bài học autopsy của cặp,
+ * LLM Risk Officer duyệt MỘT setup — dùng chung cho cả luồng regular entry
+ * (cycleTick §2.5) và luồng FLIP (tryFlip): nạp bài học autopsy của cặp,
  * gọi llama, ghi llmLast (kể cả unreachable — hết "chốt chặn im lặng"), gửi
  * tin veto. LLM CHẾT thì tuỳ tham số LLM_FAIL_CLOSED: fail-open (mặc định) cho
  * qua đường XGBoost-only; fail-closed chặn (vetoed=true). Verdict trả về để
@@ -1358,7 +1401,7 @@ async function llmGate(
   slPct: number,
   tpPct: number,
   track?: string,
-  /** isFlip=true khi duyệt LẬT CHIỀU (tryFlip) — lúc này engine nạp thêm
+  /** isFlip=true khi duyệt FLIP (tryFlip) — lúc này engine nạp thêm
    *  recentFlipLessons (exitKind="flip" của cặp này) và truyền vào LlmSetup.
    *  flipLessons để LLM thấy hậu quả flip cụ thể thay vì chỉ entry lessons chung. */
   opts?: { isFlip?: boolean },
@@ -1368,10 +1411,10 @@ async function llmGate(
   let vetoed = false;
   let lastVerdict: LlmVerdict | null = null;
   try {
-    // vòng học: bài giải phẫu các lệnh đã đóng của CHÍNH cặp này (mới nhất
+    // learning loop: autopsy of closed orders of THIS pair itself (mới nhất
     // trước, ≤5 bài) đi kèm setup — Risk Officer phán trên hậu quả thật.
     const lessons = pval("AUTOPSY_ON", AUTOPSY_ON) ? await recentAutopsyLessons(row.symbol).catch(() => []) : [];
-    // vòng học FLIP — chỉ nạp khi duyệt lật chiều: bài giải phẫu RIÊNG của các
+    // FLIP learning loop - only load when reviewing a flip: the SEPARATE autopsy of
     // lệnh exitKind="flip" cùng cặp. Tách khỏi entry lessons để LLM phán flip
     // trên bằng chứng flip (vd "4/5 flip gần đây thua vì whipsaw 1h").
     const flipLessons =
@@ -1542,7 +1585,7 @@ async function cycleTick(): Promise<void> {
     const st = await readAutoState();
 
     // 0.3.2 — DQF: sàn chất lượng ĐỘNG học từ toàn bộ Elliott session (bảng
-    // AutoTrade, mỗi lệnh có auc/acc/score lúc vào). Một lần đo/quyết mỗi chu kỳ
+    // AutoTrade, mỗi lệnh có auc/acc/score lúc vào). Một lần đo/quyết mỗi cycle
     // — cả flip lẫn vào-lệnh bên dưới đều dùng sàn HIỆU LỰC này (override lớp
     // ngoài cfg panel; tắt/đủ mẫu thì passthrough cfg — xem src/lib/dqf.ts).
     const fl = await dqfTick(c);
@@ -1571,13 +1614,13 @@ async function cycleTick(): Promise<void> {
             : ex.dca
               ? `${open.symbol} ${open.interval} DCA — giữ vị thế, SL/TP re-anchor`
               : `${open.symbol} ${open.interval} SL chờ confirm (wick nông)`;
-          continue; // trạng thái mới đã ghi — chu kỳ sau quản lý tiếp
+          continue; // trạng thái mới đã ghi — next cycle quản lý tiếp
         }
         const roi = roiOf(open.side, open.entryPrice, price, open.leverage);
         const base = `${open.symbol} ${open.interval} ${open.side} · ROI ${roi >= 0 ? "+" : ""}${roi.toFixed(2)}%`;
         // 1.5) AUTO-FLIP — thị trường luôn biến động, dự báo chỉ là dự báo:
         // scan (5 phút/lần) thấy tín hiệu NGƯỢC phía lệnh đủ tin cậy trên
-        // CÙNG cặp/khung → đóng lệnh cũ + mở lệnh đảo chiều NGAY chu kỳ này
+        // CÙNG cặp/khung → đóng old order + mở lệnh đảo chiều NGAY this cycle
         // (flipDecision quyết định "đủ tin cậy"; tryFlip thực hiện đóng/mở).
         if (!c.autoFlip) {
           v.lastCycleStatus = base;
@@ -1585,8 +1628,8 @@ async function cycleTick(): Promise<void> {
         }
         const scan = v.scan && Date.now() - v.scan.at <= SCAN_TTL ? v.scan : null;
         const row = scan?.rows.find((r) => r.symbol === open.symbol && r.interval === open.interval);
-        // flip cooldown — anti-churn: nếu combo vừa bị lật, đợi flipCooldownMin
-        // phút mới cho lật lại. 0 = tắt (giữ hành vi cũ). Trade list newest-first.
+        // flip cooldown — anti-churn: nếu combo just flipped, đợi flipCooldownMin
+        // phút mới cho flip again. 0 = tắt (giữ hành vi cũ). Trade list newest-first.
         const flipCd = flipCooldownLeft(st.trades, open.symbol, open.interval, c.flipCooldownMin);
         if (flipCd > 0) {
           v.lastCycleStatus = `${base} · flip chờ ${flipCd}ph (cooldown)`;
@@ -1594,8 +1637,8 @@ async function cycleTick(): Promise<void> {
         }
         const d = flipDecision(open, row, { ...c, minScore: fl.minScore, minAuc: fl.minAuc, minAcc: fl.minAcc });
         if (d.ok && row) {
-          // tryFlip tự ghi status mọi nhánh (lật xong / LLM chặn / lỗi) —
-          // trả xong là chu kỳ này xong, lệnh mới sống độc lập từ chu kỳ sau
+          // tryFlip tự ghi status mọi nhánh (flip done / LLM chặn / lỗi) —
+          // trả xong là this cycle xong, new order sống độc lập từ next cycle
           await tryFlip(open, row, price);
           continue;
         }
@@ -1736,7 +1779,7 @@ async function cycleTick(): Promise<void> {
 
     // 2.2) live DYNAMIC levels at entry (tpMode "dyn") — pair × time × volume:
     // ATR%(pair·khung) × heat(TR 5 nến gần vs ATR) × vol(20 vs 100 nến), đo
-    // tại THỜI ĐIỂM vào lệnh. ROI không còn là số cứng — mỗi coin, mỗi phút,
+    // tại THỜI ĐIỂM entry. ROI không còn là số cứng — mỗi coin, mỗi phút,
     // mỗi chế độ volume một bộ SL/TP riêng.
     const coef = best.atrCoef > 0 ? best.atrCoef : c.atrCoef;
     let live: { slPct: number; tpPct: number; atrPct: number; heatMul: number; volMul: number } | null = null;
@@ -1803,7 +1846,7 @@ async function cycleTick(): Promise<void> {
       const wy = await wyckoffLongGate(best.symbol, wyUniverse, best.interval);
       if (!wy.ok) {
         console.log(`[engine] Wyckoff gate CHẶN LONG ${best.symbol} ${best.interval} — ${wy.reason}`);
-        v.lastCycleStatus = `LONG ${best.symbol} bị chặn cổng Wyckoff — ${wy.reason}`;
+        v.lastCycleStatus = `LONG ${best.symbol} blocked by Wyckoff gate — ${wy.reason}`;
         return;
       }
       console.log(`[engine] Wyckoff gate PASS ${best.symbol} ${best.interval} — ${wy.reason}`);
@@ -1860,7 +1903,7 @@ async function cycleTick(): Promise<void> {
     }
     const stNow = await readAutoState();
     const capitalNow = stNow.capital ?? c.capital;
-    const usedMargin = (stNow.opens ?? (stNow.open ? [stNow.open] : [])).reduce((a, o) => a + ((o.capitalBefore ?? capitalNow) * (o.stakePct ?? 100)) / 100, 0);
+    const usedMargin = await getLockedMargin().catch(() => 0); // real wallet: locked across ALL books, not just Book B
     // multi-position: von gioi han = tong margin, khong gioi han so lenh
     // RISK ENVELOPE (0.2.79) — stake cam = min(cfg.riskPct, RISK_MAX_STAKE):
     // lệnh ghi số ĐÃ KẸP (equity impact của lệnh = capitalBefore × stakePct ×
@@ -1945,7 +1988,7 @@ async function cycleTick(): Promise<void> {
             : "";
       const note = [baseNote, capNote].filter(Boolean).join(" · ") || undefined;
       void logTgOpen(trade.symbol, trade.side, tgSendMessage(
-        msgOpen(trade, capitalNow, note, await readUnifiedSettled().then((u) => u.balance).catch(() => undefined)),
+        msgOpen(trade, capitalNow, note, await readUnifiedSettled().then((u) => u.balance).catch(() => undefined), { locked: Math.round((usedMargin + needMargin) * 100) / 100, available: Math.round((capitalNow - usedMargin - needMargin) * 100) / 100 }),
         "HTML",
       ));
     }
@@ -1955,20 +1998,20 @@ async function cycleTick(): Promise<void> {
   }
 }
 
-// ─── auto-flip — đóng lệnh cũ (exitKind "flip") + mở lệnh đảo chiều ngay ─────
+// ─── auto-flip — đóng old order (exitKind "flip") + mở lệnh đảo chiều ngay ─────
 //
 // "Thị trường luôn biến động nên dự báo chỉ là dự báo; 5 phút scan một lần —
-// scan thấy tín hiệu thay đổi đủ tin cậy để lật là LẬP TỨC lật ngay." Luồng:
-//   1. Đóng lệnh cũ với exitKind "flip" (autopsy tự chạy fire-and-forget;
+// if scan sees a signal change reliable enough to flip, flip IMMEDIATELY." Flow:
+//   1. Đóng old order với exitKind "flip" (autopsy tự chạy fire-and-forget;
 //      không rơi vào SL-cooldown/chase guard — flip là luận điểm MỚI, không
 //      phải đu theo lỗ cũ).
-//   2. SL/TP động của lệnh mới đo lại tại giá bây giờ (tpMode "dyn") — y hệt
-//      luồng vào lệnh thường.
-//   3. Risk Officer duyệt lệnh đảo chiều qua llmGate (chung luồng vào lệnh):
-//      veto → đứng ngoài chờ chu kỳ sau; unreachable → fail-open/closed theo
+//   2. SL/TP động của new order đo lại tại giá bây giờ (tpMode "dyn") — y hệt
+//      luồng regular entry.
+//   3. Risk Officer duyệt lệnh đảo chiều qua llmGate (chung luồng entry):
+//      veto → staying out chờ next cycle; unreachable → fail-open/closed theo
 //      tham số như entry thường.
 //   4. Mở lệnh ngược chiều trên CÙNG combo (race-safe như luồng thường) +
-//      Telegram. Trả true = lệnh cũ đã xử lý xong (kể cả khi không mở lệnh mới).
+//      Telegram. Trả true = old order đã xử lý xong (kể cả khi không mở new order).
 
 async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise<boolean> {
   const flipClose = await markPriceOf(row.symbol, row.interval);
@@ -1978,30 +2021,30 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
   const from = open.side;
   const to = row.bias === "SHORT" ? "SHORT" : "LONG";
 
-  // 2.9) WYCKOFF GATE (0.2.96) — chạy TRƯỚC khi đóng lệnh cũ: flip sang LONG
-  // bị chặn cổng thì GIỮ NGUYÊN lệnh đang mở (không đóng xong rồi bỏ trống,
+  // 2.9) WYCKOFF GATE (0.2.96) — chạy TRƯỚC khi đóng old order: flip sang LONG
+  // if gate blocks, KEEP the open order as-is (do not close then leave empty,
   // trái với llmGate chạy sau đóng — cổng cấu trúc phải rẻ và chạy trước).
   if (to === "LONG") {
     const wyUniverse = [...new Set([...p.pairs, ...(v.scan?.rows ?? []).map((r) => r.symbol)])];
     const wy = await wyckoffLongGate(row.symbol, wyUniverse, row.interval);
     if (!wy.ok) {
       console.log(`[engine] Wyckoff gate chặn flip→LONG ${row.symbol} — ${wy.reason} · giữ lệnh ${from} hiện tại`);
-      v.lastCycleStatus = `flip→LONG bị chặn cổng Wyckoff — giữ lệnh cũ`;
+      v.lastCycleStatus = `flip→LONG blocked by Wyckoff gate — keep old order`;
       return false;
     }
   }
 
-  // 1) đóng lệnh cũ
+  // 1) đóng old order
   const closed = await closeTradeDirect(open.id, price, "flip");
   if (!closed) return false; // lệnh đã đóng bởi watcher/luồng khác — bỏ qua
   console.log(
-    `[engine] FLIP ${open.symbol} ${open.interval} ${from}→${to} @ ${price} — đóng lệnh cũ ROI ${(closed.pnlPct ?? 0) >= 0 ? "+" : ""}${(closed.pnlPct ?? 0).toFixed(2)}%`,
+    `[engine] FLIP ${open.symbol} ${open.interval} ${from}→${to} @ ${price} — đóng old order ROI ${(closed.pnlPct ?? 0) >= 0 ? "+" : ""}${(closed.pnlPct ?? 0).toFixed(2)}%`,
   );
-  v.lastCycleStatus = `${open.symbol} ${open.interval} LẬT CHIỀU ${from}→${to}`;
+  v.lastCycleStatus = `${open.symbol} ${open.interval} FLIP ${from}→${to}`;
   void notifyClosed(closed);
 
-  // 2) SL/TP động đo tại giá lật (tpMode "dyn") — fail-open giữ mức scan row;
-  //    y hệt luồng vào lệnh thường: pair × time × volume tại THỜI ĐIỂM lật
+  // 2) SL/TP động measured at flip price (tpMode "dyn") — fail-open giữ mức scan row;
+  //    y hệt luồng regular entry: pair × time × volume tại FLIP time
   const coef = row.atrCoef > 0 ? row.atrCoef : c.atrCoef;
   let live: { slPct: number; tpPct: number; atrPct: number; heatMul: number; volMul: number } | null = null;
   if (c.tpMode === "dyn") {
@@ -2013,7 +2056,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
   }
   const slPct = c.tpMode === "manual" ? c.slPct : c.tpMode === "dyn" && live ? live.slPct : row.slPct;
   const tpPct = c.tpMode === "manual" ? c.tpPct : c.tpMode === "dyn" && live ? live.tpPct : row.tpPct;
-  // SL/TP × LEVERAGE (0.2.72) — y hệt luồng vào lệnh thường: scale theo lev
+  // SL/TP × LEVERAGE (0.2.72) — y hệt luồng regular entry: scale theo lev
   // (manual bỏ qua) + mui thanh khoản, R:R giữ nguyên.
   const levScale = c.tpMode === "manual" ? 1 : levNormScale(p.leverage);
   const adj = levAdjSlTp(slPct, tpPct, levScale, p.leverage);
@@ -2025,7 +2068,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
     );
   }
 
-  // 3) Risk Officer duyệt lệnh đảo chiều — Y HỆT luồng vào lệnh (kể cả track record)
+  // 3) Risk Officer duyệt lệnh đảo chiều — Y HỆT luồng entry (kể cả track record)
   const st = await readAutoState();
   const track =
     st.stats.closed > 0
@@ -2033,8 +2076,8 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
       : undefined;
   const { verdict: lastVerdict, vetoed } = await llmGate(row, to, finalSl, finalTp, track, { isFlip: true });
   if (vetoed) {
-    v.lastCycleStatus = `flip ${from}→${to} bị chặn — đứng ngoài, chu kỳ sau xét lại`;
-    return true; // lệnh cũ ĐÃ đóng — không ôm chiều cũ, cũng không mở mới
+    v.lastCycleStatus = `flip ${from}→${to} blocked - staying out, will re-check next cycle`;
+    return true; // old order ĐÃ đóng — không ôm chiều cũ, cũng không mở mới
   }
 
   // 4) mở lệnh ngược chiều (DB race-safe như luồng thường)
@@ -2049,7 +2092,7 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
   }
   const created = await db.autoTrade.create({
     data: {
-      status: "open", // MARK IMMEDIATE (flip): entry = mark lúc lật
+      status: "open", // MARK IMMEDIATE (flip): entry = mark at flip
       symbol: row.symbol,
       interval: row.interval,
       side: to,
@@ -2064,27 +2107,27 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
       score: row.score,
       capitalBefore: capitalNow,
       methodId: methodIdOf(methodSnapshot(c, p.leverage)),
-      // verdict LLM LÚC LẬT — đi kèm lệnh để autopsy đối chiếu sau này
+      // verdict LLM AT FLIP — đi kèm lệnh để autopsy đối chiếu sau này
       llmVerdict: lastVerdict ? lastVerdict.verdict : "unreachable",
       llmReason: lastVerdict?.reasons[0] ? lastVerdict.reasons[0].slice(0, 180) : null,
     },
   });
   const trade = serialize(created);
   mirrorLiveOpen(trade.symbol, trade.side === "SHORT" ? "SHORT" : "LONG", trade.id, p.leverage, stakeUsed); // MARK flip: stake ngay
-  v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice} (lật từ ${from})${stakeUsed < c.riskPct ? ` · stake ${stakeUsed}% (trần ${stakeUsed}<${c.riskPct}%)` : ""}`;
+  v.lastCycleStatus = `${trade.symbol} ${trade.interval} ${trade.side} @ ${trade.entryPrice} (flipped from ${from})${stakeUsed < c.riskPct ? ` · stake ${stakeUsed}% (trần ${stakeUsed}<${c.riskPct}%)` : ""}`;
   warnedOf(trade.id); dcaOf(trade.id, stakeUsed, trade.entryPrice);
   persistEngine();
   if (tgReady()) {
     const capNote = stakeUsed < c.riskPct ? `🛡 stake ${c.riskPct}% → ${stakeUsed}% (trần RISK_MAX_STAKE)` : "";
     const baseNote =
       c.tpMode === "dyn" && live
-        ? `📏 SL/TP động = ATR ${live.atrPct.toFixed(2)}% × ${coef} · time ×${live.heatMul.toFixed(2)} · vol ×${live.volMul.toFixed(2)}${levScale < 1 ? ` · lev-norm ×${levScale.toFixed(2)} @ ×${p.leverage}` : ""} → SL ${finalSl}% · TP ${finalTp}% — pair/time/volume đo lúc LẬT CHIỀU 🔄`
+        ? `📏 SL/TP động = ATR ${live.atrPct.toFixed(2)}% × ${coef} · time ×${live.heatMul.toFixed(2)} · vol ×${live.volMul.toFixed(2)}${levScale < 1 ? ` · lev-norm ×${levScale.toFixed(2)} @ ×${p.leverage}` : ""} → SL ${finalSl}% · TP ${finalTp}% — pair/time/volume đo lúc FLIP 🔄`
         : finalSl !== slPct || finalTp !== tpPct
           ? `📏 SL/TP capped by liquidation safety @ ×${p.leverage}: ${slPct}/${tpPct}% → ${finalSl}/${finalTp}% (max ${pval("TP_LIQ_SAFE", TP_LIQ_SAFE)}% of the liquidation distance)`
           : "";
     const note = [baseNote, capNote].filter(Boolean).join(" · ") || undefined;
     void logTgOpen(trade.symbol, trade.side, tgSendMessage(
-      msgOpen(trade, capitalNow, note, await readUnifiedSettled().then((u) => u.balance).catch(() => undefined)),
+      msgOpen(trade, capitalNow, note, await readUnifiedSettled().then((u) => u.balance).catch(() => undefined), { locked: Math.round((capitalNow * stakeUsed / 100) * 100) / 100, available: Math.round((capitalNow - capitalNow * stakeUsed / 100) * 100) / 100 }),
       "HTML",
     ));
   }
@@ -2278,7 +2321,10 @@ export interface ExitEval {
   pending?: boolean;
 }
 
-async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | null> {
+async function evalExit(open: AutoTradeRow, price: number, lastPrice?: number): Promise<ExitEval | null> {
+  // price = mark (trigger). last = lastPrice chup ngay tai tick trigger (1 lan, khong fetch lai trong close).
+  const mark = price;
+  const last = lastPrice && lastPrice > 0 ? lastPrice : (await lastPriceOf(open.symbol).catch(() => 0)) || mark;
   const { p } = eng();
   const c = p.cfg;
   const liq = liquidationHit(open.side, price, open.entryPrice, open.leverage);
@@ -2287,15 +2333,15 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
   const runner = (open.p1Pct ?? null) != null && (open.tp2Pct ?? null) != null;
 
   if (runner) {
-    if (liq) return { closed: await closeTradeDirect(open.id, price, "sl"), kind: "sl" };
+    if (liq) return { closed: await closeTradeDirect(open.id, price, "sl", last), kind: "sl" };
     const move1x = movePct1x(open.side, open.entryPrice, price);
     // 0.3.40 — BỎ chốt cứng TP2: runner để lời chạy, trail đuổi theo tới khi hết
     // position (spec user: "TP mở rộng thì trail lại đuổi theo tiếp cho đến khi
     // hết position"). tp2Pct chỉ còn là số tham chiếu hiển thị.
     const trail = Math.max(0, open.trailPct ?? 0);
     if (trailHit(open.side, price, open.entryPrice, trail)) {
-      const stopPrice = open.side === "LONG" ? open.entryPrice * (1 + trail / 100) : open.entryPrice * (1 - trail / 100);
-      return { closed: await closeTradeDirect(open.id, stopPrice, TRAIL_KIND), kind: TRAIL_KIND };
+      // Trail trigger = mark cham stop, fill = last (khong fill bang stop ly thuyet)
+      return { closed: await closeTradeDirect(open.id, mark, TRAIL_KIND, last), kind: TRAIL_KIND };
     }
     // ratchet khoá lời — CHỈ TĂNG, state nằm trên ROW (restart an toàn)
     const lock = trailRatchet(trail, Math.max(0, move1x), c.runnerTrailLock);
@@ -2317,12 +2363,11 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
   const trail = await updateTrail(open, price, c);
   if (trail.hit) {
     // 0.3.41 spec user #5: trail hit TRƯỚC TP1 → close 100% tại stop (không partial).
-    const fill = trail.stop != null && (open.side === "LONG" ? trail.stop > price : trail.stop < price)
-      ? trail.stop : price;
-    return { closed: await closeTradeDirect(open.id, fill, "trail"), kind: "trail" };
+    // Trail trigger = mark, fill = last (khong fill bang stop)
+    return { closed: await closeTradeDirect(open.id, mark, "trail", last), kind: "trail" };
   }
   const kind = slTpHit(open.side, price, open.entryPrice, open.slPct, open.tpPct);
-  if (liq) return { closed: await closeTradeDirect(open.id, price, "sl"), kind: "sl" };
+  if (liq) return { closed: await closeTradeDirect(open.id, price, "sl", last), kind: "sl" };
   if (kind === "tp") {
     // 0.3.3 — TP1 PARTIAL → RUNNER ("chốt sớm" hết: nửa bank, nửa chạy ra RR cao
     // hơn — muốn RR lớn không cần đẩy TP xa tới mức không còn lệnh nào chạm).
@@ -2350,7 +2395,7 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
         console.error(`[engine] TP1 partial failed: ${e instanceof Error ? e.message : e} — đóng toàn bộ như cũ`);
       }
     }
-    return { closed: await closeTradeDirect(open.id, price, "tp"), kind: "tp" };
+    return { closed: await closeTradeDirect(open.id, price, "tp", last), kind: "tp" };
   }
   if (kind === "sl") {
     // last-chance DCA at the stop itself — giữ nguyên hành vi cũ (ưu tiên trước
@@ -2367,7 +2412,7 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
     const step = slConfirmStep(slPendingGet(open.id), open.id, Date.now(), true, deep, c.slConfirmTicks);
     slPendingSet(open.id, step.next);
     persistEngine();
-    if (step.close) return { closed: await closeTradeDirect(open.id, price, "sl"), kind: "sl" };
+    if (step.close) return { closed: await closeTradeDirect(open.id, price, "sl", last), kind: "sl" };
     if (step.next && Date.now() - step.next.since < 1_000) {
       console.log(
         `[engine] SL confirm ${open.symbol} ${open.interval} — vượt ${adverse1x.toFixed(2)}% (SL ${Math.abs(open.slPct).toFixed(2)}%)${deep ? " SÂU" : " nông"}, đợi nhịp kế xác nhận (slConfirmTicks ${c.slConfirmTicks})`,
@@ -2522,7 +2567,7 @@ export function engineSnapshot(): {
   train: TrainSnapshot;
   bcast: BcastSnapshot;
   cycle: { lastAt: number; status: string; nextAt: number };
-  /** 0.3.2 — sàn chất lượng HIỆU LỰC chu kỳ gần nhất (DQF tự học hoặc cfg panel
+  /** 0.3.2 — sàn chất lượng HIỆU LỰC cycle gần nhất (DQF tự học hoặc cfg panel
    *  khi tắt/chưa đủ mẫu) — panel/tooltip dùng đúng số engine đang lọc */
   floors: { minScore: number; minAuc: number; minAcc: number; src: "dqf" | "cfg"; why: string; on: boolean };
   /** trailing-stop state của vị thế đang mở — kèm bộ thông số đã khoá cho lệnh
@@ -2650,7 +2695,7 @@ export function startEngineScheduler(): void {
   loadEngine();
 
   // Sổ C — phễu Wyckoff gốc (0.2.97): tick riêng 20 phút trên nến ngày, độc
-  // lập chu kỳ sổ B. Sổ A (Vulcan) đã tự start ở instrumentation lúc boot.
+  // lập cycle sổ B. Sổ A (Vulcan) đã tự start ở instrumentation lúc boot.
   startWyckoffEngine();
   startLiquidEngine([...UNIVERSE]); // D Liquid — SHORT phân phối, cùng Universe với C
 

@@ -4,6 +4,7 @@
 // UI and the Telegram reports always quote the same numbers.
 
 import { db } from "@/lib/db";
+import { readUnifiedSettled } from "@/lib/unified-balance";
 import { comboStats, type AutoAnalytics, type AutoState, type BookKey, type BookRecent } from "@/lib/autotrade";
 
 // ─── Analytics chi tiết (0.2.97) — hàm thuần, test được độc lập ──────────────
@@ -255,7 +256,7 @@ export async function readAutoState(): Promise<AutoState> {
     where: { status: "closed" },
     select: { symbol: true, interval: true, status: true, pnlPct: true },
   });
-  // 0.2.97 — analytics cần đủ 6 field trên TOÀN BỘ lịch sử đóng (cũ → mới)
+  // 0.2.97 — analytics needs all 6 fields over the FULL closed history (old -> new)
   const closedAsc = await db.autoTrade.findMany({
     where: { status: "closed" },
     orderBy: { exitTime: "asc" },
@@ -285,14 +286,12 @@ export async function readAutoState(): Promise<AutoState> {
   const anaC = analyticsFromClosed(cRows, null);
   const anaD = analyticsFromClosed(dRows, null);
   const allRows = [...aRows, ...bRows, ...cRows, ...dRows].sort((x, y) => (x.exitTime ?? x.entryTime).getTime() - (y.exitTime ?? y.entryTime).getTime());
-  const anaAllStart = [aClosed[0], closedAsc[0], cClosed[0], dClosed[0]].reduce((sum, r: any) => sum + (r?.capitalBefore ?? 0), 0);
+  const anaAllStart = wallet.capital ?? 1000; // single wallet, not sum of 4 books (was 4000)
   const anaAll = analyticsFromClosed(allRows, null, anaAllStart > 0 ? anaAllStart : null);
   const allEvents = [...aClosed.map((r) => ({ book: "A" as BookKey, exitTime: r.exitTime, entryTime: r.entryTime, capitalAfter: r.capitalAfter, capitalBefore: r.capitalBefore, symbol: r.symbol, side: r.side, exitKind: r.exitKind })), ...closedAsc.map((r) => ({ book: "B" as BookKey, exitTime: r.exitTime, entryTime: r.entryTime, capitalAfter: r.capitalAfter, capitalBefore: r.capitalBefore, symbol: r.symbol, side: r.side, exitKind: r.exitKind })), ...cClosed.map((r) => ({ book: "C" as BookKey, exitTime: r.exitTime, entryTime: r.entryTime, capitalAfter: r.capitalAfter, capitalBefore: r.capitalBefore, symbol: r.symbol, side: r.side, exitKind: r.exitKind })), ...dClosed.map((r) => ({ book: "D" as BookKey, exitTime: r.exitTime, entryTime: r.entryTime, capitalAfter: r.capitalAfter, capitalBefore: r.capitalBefore, symbol: r.symbol, side: r.side, exitKind: r.exitKind }))];
+  // Single-wallet equity curve: start once at wallet capital, not 4x1000.
   const seeds: Array<{ book: BookKey; t: Date; capital: number }> = [];
-  if (aClosed.length) seeds.push({ book: "A", t: (aClosed[0] as any).entryTime, capital: ((aClosed[0] as any).capitalBefore ?? 1000) });
-  if (closedAsc.length) seeds.push({ book: "B", t: (closedAsc[0] as any).entryTime, capital: ((closedAsc[0] as any).capitalBefore ?? 1000) });
-  if (cClosed.length) seeds.push({ book: "C", t: (cClosed[0] as any).entryTime, capital: ((cClosed[0] as any).capitalBefore ?? 1000) });
-  if (dClosed.length) seeds.push({ book: "D", t: (dClosed[0] as any).entryTime, capital: ((dClosed[0] as any).capitalBefore ?? 1000) });
+  if (allRows.length) seeds.push({ book: "B", t: (allRows[0] as any).entryTime, capital: (wallet.capital ?? 1000) });
   anaAll.equity = equityAll(allEvents, seeds);
   const byBook = { ALL: anaAll, A: anaA, B: anaB, C: anaC, D: anaD };
   const recentByBook = {
@@ -308,10 +307,14 @@ export async function readAutoState(): Promise<AutoState> {
   const open = opens[0] ?? null;
   // equity = vốn gốc ví (sau Reset vốn gần nhất — 0.2.86) + Σ delta MỌI lệnh
   // đã đóng trong lịch sử (không trần 200). Base hardcode 1000 đã bị BỎ: nó
-  // làm reset_capital thành cosmetic — TG báo "vốn đặt về X" nhưng engine mở
+  // made reset_capital cosmetic - Telegram reported "capital reset to X" but engine opened
   // lệnh kế với capitalBefore=1000. Σ delta phải lấy từ closedAsc (TOÀN BỘ
   // lịch sử) chứ không phải `closed` (take 200) — sổ >200 lệnh thì thiếu.
-  const capital = (wallet.capital ?? 1000) + closedAsc.reduce(
+  // Single wallet: settled is the only capital. Old code used Book B chain only
+  // (1000 + sum B = 1601.74), ignoring Vulcan loss, so UI showed 1601.74
+  // while Telegram showed settled 1590.20.
+  const _settled = await readUnifiedSettled().catch(() => null);
+  const capital = _settled ? _settled.balance : (wallet.capital ?? 1000) + closedAsc.reduce(
     (s, r) => s + (r.capitalAfter != null && r.capitalBefore != null ? r.capitalAfter - r.capitalBefore : 0),
     0,
   );
@@ -345,19 +348,16 @@ export async function readAutoState(): Promise<AutoState> {
  * trades or the combo table. */
 export async function readOpenPosition(): Promise<{ open: TradeRow | null; opens: TradeRow[]; pendings?: TradeRow[]; capital: number | null }> {
   const pendings = (await db.autoTrade.findMany({ where: { status: "pending" }, orderBy: { createdAt: "desc" } })).map(serialize);
+  // Wallet = settled (single source). Never return capitalBefore of an open trade (was 1001.88).
+  const _s = await readUnifiedSettled().catch(() => null);
+  const settledCap = _s ? _s.balance : null;
   const row = await db.autoTrade.findFirst({ where: { status: "open" }, orderBy: { createdAt: "desc" } });
   if (row) {
     const all = await db.autoTrade.findMany({ where: { status: "open" }, orderBy: { createdAt: "desc" } });
-    return { open: serialize(row), opens: all.map(serialize), pendings, capital: row.capitalBefore };
+    return { open: serialize(row), opens: all.map(serialize), pendings, capital: settledCap ?? row.capitalBefore };
   }
-  // không có lệnh mở → vẫn trả vốn đã chốt gần nhất cho title/tooltip
-  const last = await db.autoTrade.findFirst({
-    where: { status: "closed" },
-    orderBy: { createdAt: "desc" },
-    select: { capitalAfter: true },
-  });
-  if (last?.capitalAfter != null) return { open: null, opens: [], pendings, capital: last.capitalAfter };
-  // sổ trống → vốn từ ví (sau Reset vốn) — hết kiểu hiện "?" ngay sau reset
+  const last = await db.autoTrade.findFirst({ where: { status: "closed" }, orderBy: { createdAt: "desc" }, select: { capitalAfter: true } });
+  if (last?.capitalAfter != null) return { open: null, opens: [], pendings, capital: settledCap ?? last.capitalAfter };
   const wallet = await readWallet();
-  return { open: null, opens: [], pendings, capital: wallet.capital };
+  return { open: null, opens: [], pendings, capital: settledCap ?? wallet.capital };
 }

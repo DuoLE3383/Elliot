@@ -59,7 +59,7 @@ export const slPrice = (side: string, entry: number, slPct: number): number =>
 export const tpPrice = (side: string, entry: number, tpPct: number): number =>
   side === "SHORT" ? entry * (1 - Math.abs(tpPct) / 100) : entry * (1 + Math.abs(tpPct) / 100);
 
-export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string, displayBalance?: number): string => {
+export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string, displayBalance?: number, walletInfo?: { locked: number; available: number }): string => {
   const x = r as any;
   const forced = x.methodId === "force";
   const noModel = (r.auc ?? 0) <= 0.5 && (r.acc ?? 0) <= 0;
@@ -98,6 +98,7 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string, displ
   );
   lines.push("");
   lines.push(`💰 Balance <b>${(displayBalance ?? base).toFixed(2)}</b> USDT`);
+  if (walletInfo) lines.push(`🔒 Locked <b>${walletInfo.locked.toFixed(2)}</b> USDT · Available <b>${walletInfo.available.toFixed(2)}</b> USDT`);
   return lines.join("\n");
 };
 
@@ -148,7 +149,7 @@ export const msgNear = (r: AutoTradeRow, price: number, kind: "tp" | "sl"): stri
   const awayPct = price > 0 ? Math.abs((target - price) / price) * 100 : 0;
   const roi = roiOf(r.side, r.entryPrice, price, r.leverage);
   return [
-    ...buildTradeHeader("⚠", kind === "tp" ? "NEAR TAKE PROFIT — READY TO LOCK GAINS" : "NEAR STOP LOSS — RISK WATCH", r),
+    ...buildTradeHeader("⚠", kind === "tp" ? "#ALMOST TP — READY TO LOCK GAINS" : "#ALMOST SL — RISK WATCH", r),
     `${kind === "tp" ? "🏁" : "🛑"} ${kind === "tp" ? "Take Profit" : "Stop Loss"} ${fmtPrice(target)} · <b>${awayPct.toFixed(2)}%</b> away`,
     "",
     `📊 Plan: SL ${r.slPct.toFixed(2)}% · TP ${r.tpPct.toFixed(2)}% · Lev ${levTxt(r.leverage)} · Score ${(r.score ?? 0).toFixed(2)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}%`,

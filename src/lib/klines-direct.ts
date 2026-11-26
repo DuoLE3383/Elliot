@@ -122,6 +122,8 @@ export async function fetchKlinesDirect(
     ...SPOT_HOSTS.map((h) => ({ url: SPOT_PATH, label: h })),
   ];
 
+  if (Date.now() < boardBanUntil) throw new Error(`board banned until ${new Date(boardBanUntil).toISOString()}`);
+  if (boardFetching) return boardFetching;
   let lastErr: string | null = null;
   let invalidSymbol = false;
   for (const cand of candidates) {
@@ -144,6 +146,7 @@ export async function fetchKlinesDirect(
           continue;
         }
         if (!res.ok) {
+        try { const j: any = await res.clone().json(); if (String(j?.msg || '').includes('banned') || j?.code === -1003) boardBanUntil = Date.now() + 60000; } catch {}
           lastErr = `HTTP ${res.status}`;
           // Binance answers 400 for an unknown symbol — try the next candidate
           // (alias) before surfacing it
@@ -210,12 +213,19 @@ export async function fetchKlinesDirectResolved(
  * symbols param) — the engine indexes it by perp symbol; callers that want
  * watchlist names map through aliasFuturesSymbol themselves.
  */
+let boardBanUntil = 0;
+let boardFetching: Promise<Map<string, TickerRow>> | null = null;
+export function isBoardBanned(): boolean { return Date.now() < boardBanUntil; }
+
 export async function fetchBoard24h(): Promise<Map<string, TickerRow>> {
+  if (Date.now() < boardBanUntil) throw new Error(`board banned until ${new Date(boardBanUntil).toISOString()}`);
+  if (boardFetching) return boardFetching;
   let lastErr: string | null = null;
   for (const host of binanceHosts()) {
     try {
       const res = await fetch(`${host}/fapi/v1/ticker/24hr`, { signal: AbortSignal.timeout(9000) });
       if (!res.ok) {
+        try { const j: any = await res.clone().json(); if (String(j?.msg || '').includes('banned') || j?.code === -1003) boardBanUntil = Date.now() + 60000; } catch {}
         lastErr = `HTTP ${res.status}`;
         continue;
       }
