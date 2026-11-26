@@ -1505,7 +1505,7 @@ export const AUTO_DEFAULTS: AutoConfig = {
   // audit 04/11: 25% vốn/lệnh là nguyên nhân −40% net ROI hoá nhỏ thành
   // swing vốn lớn; khuyến nghị 2-3%/lệnh — mặc định 3, trần RISK_MAX_STAKE
   // (params §4e) kẹp bất kể panel đặt gì. SET CỨNG [10,20,30,50] ở RISK_CHOICES.
-  riskPct: 3,
+  riskPct: 5,
   tpMode: "dyn",
   slPct: 1,
   tpPct: 1.5,

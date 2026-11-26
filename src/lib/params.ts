@@ -252,8 +252,8 @@ export function clampLev(lev: number): number {
   const cap = pval("RISK_MAX_LEV", RISK_MAX_LEV);
   return cap > 0 && lev > cap ? cap : lev;
 }
-/** Stake hiệu dụng MỘT lần vào/lật = clamp(pct, 10, RISK_MAX_STAKE). SET CỨNG min 10% / max 50%. */
-export function clampStake(riskPct: number) { const floor = Math.min(riskPct, 10); const v = Math.max(floor, Math.min(50, riskPct)); if (v !== riskPct) console.warn(`[risk] clampStake ${riskPct}% -> ${v}% (floor=min(cfg,10), cap=50)`); return v; }
+/** Effective stake per entry = clamp(pct, 5, 10). Stake range 5-10% per trade. */
+export function clampStake(riskPct: number) { const v = Math.max(5, Math.min(10, riskPct)); if (v !== riskPct) console.warn(`[risk] clampStake ${riskPct}% -> ${v}% (stake range 5-10%)`); return v; }
 /** Bù DCA có được phép không — tổng stake (đã cam + bù mới) phải nằm trong
  *  trần RISK_MAX_STAKE. eps chống sai số dấu phẩy động khi tổng == trần. */
 export function allowDcaAdd(curStake: number, addStake: number): boolean {
@@ -595,7 +595,7 @@ export const CHAMP_WINDOW = 20;
  *  (vẫn ≤ cfg.riskPct — không bao giờ đặt lớn hơn ý user). 0 = tắt (stake phẳng). */
 export const RISK_TIER_SCORE = 15;
 /** Mức stake nền cho tín hiệu "vừa đủ gate" (% vốn). */
-export const RISK_TIER_MIN = 2;
+export const RISK_TIER_MIN = 5;
 
 // ── 8 · LLM RISK OFFICER — kiểm tra rủi ro im lặng trước khi vào lệnh ────────
 

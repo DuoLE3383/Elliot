@@ -18,7 +18,7 @@
 //
 // Thuần (không IO) — API route đọc DB rồi truyền vào; test chạy trực tiếp.
 
-import { feeRoi } from "./params";
+import { feeRoi, clampStake } from "./params";
 import { fetchKlinesDirect } from "./klines-direct";
 import { combineClosePnl } from "./trade-mgmt";
 
@@ -47,6 +47,7 @@ export interface AuditTradeRow {
 
 export interface AuditRowIssue {
   id: string;
+  kind?: "pnl" | "stake";
   side: string;
   symbol?: string;
   interval?: string;
@@ -117,20 +118,40 @@ export function auditBook(trades: AuditTradeRow[]): AuditReport {
     const expected = expectedPnlPctOf(t);
     if (expected == null) continue;
     const stored = t.pnlPct ?? 0;
-    if (Math.abs(stored - expected) <= 0.005) {
+    const pnlBad = Math.abs(stored - expected) > 0.005;
+    const storedStake = t.stakePct ?? 10;
+    const expectedStake = clampStake(storedStake);
+    const stakeBad = Math.abs(storedStake - expectedStake) > 0.005;
+    if (!pnlBad && !stakeBad) {
       ok += 1;
       continue;
     }
-    issues.push({
-      id: t.id,
-      side: t.side === "SHORT" ? "SHORT" : "LONG",
-      symbol: (t as { symbol?: string }).symbol,
-      interval: (t as { interval?: string }).interval,
-      exitKind: t.exitKind ?? null,
-      stored: round2(stored),
-      expected,
-      diff: round2(expected - stored),
-    });
+    if (pnlBad) {
+      issues.push({
+        id: t.id,
+        kind: "pnl",
+        side: t.side === "SHORT" ? "SHORT" : "LONG",
+        symbol: (t as { symbol?: string }).symbol,
+        interval: (t as { interval?: string }).interval,
+        exitKind: t.exitKind ?? null,
+        stored: round2(stored),
+        expected,
+        diff: round2(expected - stored),
+      });
+    }
+    if (stakeBad) {
+      issues.push({
+        id: t.id,
+        kind: "stake",
+        side: t.side === "SHORT" ? "SHORT" : "LONG",
+        symbol: (t as { symbol?: string }).symbol,
+        interval: (t as { interval?: string }).interval,
+        exitKind: t.exitKind ?? null,
+        stored: round2(storedStake),
+        expected: expectedStake,
+        diff: round2(expectedStake - storedStake),
+      });
+    }
   }
   return {
     total: trades.length,
@@ -153,7 +174,9 @@ function sideStats(trades: AuditTradeRow[], fixed: boolean): AuditSideStat[] {
     const net = rows.reduce((a, t) => a + ((fixed ? expectedPnlPctOf(t) : t.pnlPct) ?? 0), 0);
     const mismatched = rows.filter((t) => {
       const e = expectedPnlPctOf(t);
-      return e != null && Math.abs((t.pnlPct ?? 0) - e) > 0.005;
+      const pnlBad = e != null && Math.abs((t.pnlPct ?? 0) - e) > 0.005;
+      const stakeBad = Math.abs((t.stakePct ?? 10) - clampStake(t.stakePct ?? 10)) > 0.005;
+      return pnlBad || stakeBad;
     }).length;
     out.push({
       side,
@@ -170,6 +193,7 @@ function sideStats(trades: AuditTradeRow[], fixed: boolean): AuditSideStat[] {
 // ─── Repair — sửa ROI + tái lập CHUỖI VỐN theo thời gian ─────────────────────
 
 export interface RepairUpdate {
+  stakePct?: number;
   id: string;
   /** ROI đã chuẩn hoá (chỉ xuất hiện khi khác số đang lưu) */
   pnlPct?: number;
@@ -266,7 +290,8 @@ export function repairBook(trades: AuditTradeRow[], base?: number): RepairPlan {
         u.pnlPct = pnl;
         pnlFixed += 1;
       }
-      const stake = t.stakePct ?? 10;
+      const stake = clampStake(t.stakePct ?? 10);
+      if (stake !== (t.stakePct ?? 10)) u.stakePct = stake;
       const delta = round2(cb * (stake / 100) * (pnl / 100));
       deltaAt.set(t.id, delta);
       const ca = Math.max(0, round2(cb + delta));

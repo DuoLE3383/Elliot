@@ -2634,6 +2634,7 @@ export async function getEvolveInfo() {
 
 /** Idempotent — global flag survives dev-mode module reloads. */
 export function startEngineScheduler(): void {
+  if (process.env.NEXT_PHASE === "phase-production-build") return;
   const gg = globalThis as { __elliottEngineSched?: boolean };
   if (started || gg.__elliottEngineSched) return;
   started = true;

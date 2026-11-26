@@ -330,6 +330,7 @@ let started = false;
 
 /** Idempotent — global flag survives dev-mode module reloads. */
 export function startSessionBroadcastScheduler(): void {
+  if (process.env.NEXT_PHASE === "phase-production-build") return;
   const g = globalThis as { __elliottSessionBcast?: boolean };
   if (started || g.__elliottSessionBcast) return;
   started = true;

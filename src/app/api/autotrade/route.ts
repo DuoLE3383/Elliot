@@ -194,6 +194,7 @@ export async function PATCH(req: NextRequest) {
             ...(u.pnlPct !== undefined ? { pnlPct: u.pnlPct } : {}),
             ...(u.capitalBefore !== undefined ? { capitalBefore: u.capitalBefore } : {}),
             ...(u.capitalAfter !== undefined ? { capitalAfter: u.capitalAfter } : {}),
+            ...(u.stakePct !== undefined ? { stakePct: u.stakePct } : {}),
           },
         });
       }
