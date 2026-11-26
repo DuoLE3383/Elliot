@@ -1183,7 +1183,7 @@ export default function Home() {
       
 
       {/* ── Main terminal grid ─────────────────────────────────────── */}
-      <main className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-3 lg:grid lg:grid-cols-[228px_minmax(0,1fr)_228px] lg:overflow-hidden xl:grid-cols-[248px_minmax(0,1fr)_248px]">
+      <main className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-3 lg:grid lg:grid-cols-[236px_minmax(0,1fr)_272px] lg:overflow-hidden xl:grid-cols-[288px_minmax(0,1fr)_320px]">
         {error ? (
           <div className="lg:col-span-3">
             <Card className="border-rose-900 bg-rose-950/30">
