@@ -23,7 +23,7 @@ export const buildTradeHeader = (
   r: { symbol: string; interval: string; side: string; book?: string | null },
 ): string[] => [
   `${icon} <b>${event}</b>`,
-  `${BOOK_ICON[bookCode(r)] ?? "☯️"} <b>#${r.symbol}</b> · ${bookCode(r)} · ${r.interval} · ${sideTxt(r.side)}`,
+  `${BOOK_ICON[bookCode(r)] ?? "☯️"} <b>#${escHtml(r.symbol)}</b> · ${bookCode(r)} · ${r.interval} · ${sideTxt(r.side)}`,
   HR,
   "",
 ];
@@ -89,7 +89,7 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string, displ
   ];
   if (forced) lines.push("🔓 Gate: bypassed (forced start from BEST)");
   if (feeRt > 0) lines.push(`🧾 Fees (round-trip) −${feeRt.toFixed(2)}% ROI — already counted in realized ROI`);
-  if (atrNote) lines.push(atrNote);
+  if (atrNote) lines.push(escHtml(atrNote));
   lines.push(`🧠 ${llm}`);
   lines.push(
     noModel
