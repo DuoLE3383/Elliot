@@ -74,7 +74,7 @@ export function AutoTopbar({ lang, liveOn, dryOn, breadth, notifCount = 0, onTog
   const connected = binance?.configured === true;
 
   return (
-    <header className="sticky top-0 z-30 border-b border-[#1e2d4d]/70 bg-[#060a14]/90 backdrop-blur">
+    <header className="sticky top-9 z-30 border-b border-[#1e2d4d]/70 bg-[#060a14]/90 backdrop-blur">
       <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 sm:px-5">
         {/* mobile: back + tên gọn */}
         <Button

@@ -26,6 +26,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ParamsEditor } from "@/components/params-editor";
 import { PipeMap, type PipeNodeDef, type PipeTone } from "@/components/pipe-map";
+import { AppHeader } from "@/components/app-header";
 import { Stage } from "@/components/stage-panel";
 import { t, type Lang } from "@/lib/i18n";
 import { loadAutoConfig, saveAutoConfig } from "@/lib/autotrade";
@@ -586,8 +587,10 @@ export default function AiPage() {
 
   return (
     <div className="min-h-screen bg-transparent text-zinc-200">
+      {/* nav dùng chung 5 trang */}
+      <AppHeader />
       {/* sticky header — Settings / Refresh / lang luôn trong tầm tay trên trang dài */}
-      <header className="sticky top-0 z-30 border-b border-zinc-800/60 bg-[#020617]/85 backdrop-blur">
+      <header className="sticky top-9 z-30 border-b border-zinc-800/60 bg-[#020617]/85 backdrop-blur">
         <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 sm:px-5">
           <Button size="sm" variant="outline" className="h-8 gap-1.5 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800" asChild>
             <Link href="/">

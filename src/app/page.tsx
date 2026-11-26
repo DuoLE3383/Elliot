@@ -47,6 +47,7 @@ import {
 } from "@/lib/types";
 import { type XgbResult } from "@/lib/xgb";
 import { ElliottLogo } from "@/components/logo";
+import { AppHeader } from "@/components/app-header";
 import { AlertTriangle, ArrowLeftRight, Bot, BrainCircuit, ChevronRight, Eye, EyeOff, Landmark, RefreshCw, ScrollText, Settings2 } from "lucide-react";
 import Link from "next/link";
 
@@ -1047,9 +1048,11 @@ export default function Home() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-transparent text-zinc-100 lg:h-dvh lg:min-h-0 lg:overflow-hidden">
+      {/* ── Nav dùng chung 5 trang (Home · Analytics · Arena · AI Lab · AI Revolution) ── */}
+      <AppHeader />
       {/* ── Header — ELLIOTT terminal bar (sticky trên mobile: refresh/settings
           luôn trong tầm tay khi cuộn dọc panel dài) ─────────────────── */}
-      <header className="sticky top-0 z-40 shrink-0 border-b border-zinc-800/70 bg-[#020617]/85 backdrop-blur">
+      <header className="sticky top-9 z-40 shrink-0 border-b border-zinc-800/70 bg-[#020617]/85 backdrop-blur">
         <div className="flex h-12 items-center gap-2 px-3">
           <div className="flex min-w-0 items-center gap-2">
             <div className="flex h-8 shrink-0 items-center gap-2 rounded-lg border border-zinc-800 bg-gradient-to-b from-zinc-900 to-zinc-950 p-1.5 shadow-[0_0_18px_-6px_rgba(16,185,129,0.45)] lg:pr-3">

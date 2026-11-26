@@ -238,8 +238,12 @@ export function SessionsPanel({
                       const m = fLean(f);
                       return (
                         <div key={f.key} className="flex items-baseline gap-2 text-[10.5px]">
-                          <span className="w-[86px] shrink-0 font-medium text-zinc-400">{t(lang, `sess.fc.f.${f.key}`)}</span>
-                          <span className="min-w-0 flex-1 whitespace-normal leading-snug text-zinc-600" title={f.text}>
+                          {/* rail hẹp (228px): label + text mỗi phiếu 1 dòng, tràn thì …
+                              + tooltip đầy đủ — hết lỗi chữ tràn dọc đáy rail phải */}
+                          <span className="w-[72px] shrink-0 truncate font-medium text-zinc-400" title={t(lang, `sess.fc.f.${f.key}`)}>
+                            {t(lang, `sess.fc.f.${f.key}`)}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-zinc-600" title={f.text}>
                             {f.text}
                           </span>
                           <span className={`shrink-0 font-mono ${m.cls}`}>
