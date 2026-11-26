@@ -36,7 +36,9 @@ export function AppHeader() {
           title="Elliott — Home"
         >
           <ElliottLogo className="h-5 w-5" />
-          <span className="hidden text-[11px] font-black tracking-[0.22em] text-zinc-100 xl:inline">ELLIOTT</span>
+          <span className="hidden bg-gradient-to-r from-emerald-300 via-teal-200 to-emerald-400 bg-clip-text text-[11px] font-black tracking-[0.22em] text-transparent drop-shadow-[0_0_7px_rgba(16,185,129,0.45)] xl:inline">
+            ELLIOTT
+          </span>
         </Link>
       </div>
       {NAV.map((item) => {
