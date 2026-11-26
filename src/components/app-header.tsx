@@ -9,6 +9,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Activity, LineChart, Swords, BrainCircuit, Bot } from "lucide-react";
+import { ElliottLogo } from "@/components/logo";
 
 const NAV = [
   { href: "/", key: "Home", icon: Activity },
@@ -25,8 +26,19 @@ export function AppHeader() {
       aria-label="Main"
       className="sticky top-0 z-50 flex h-9 shrink-0 items-center gap-1 border-b border-zinc-800/70 bg-[#020617]/85 px-2 backdrop-blur sm:px-3"
     >
-      {/* logo chỉ giữ 1 cái — badge ELLIOTT lớn trong terminal bar của từng trang;
-          nav này bắt đầu thẳng bằng link Home (user: góc trên thừa 1 logo) */}
+      {/* logo ở GIỮA thanh nav (đúng chỗ khung đỏ user vẽ) — lg mới đủ chỗ cho
+          5 link + logo giữa; mobile vẫn chỉ 5 icon. Vẫn chỉ 1 logo/trang: các
+          trang nội dung (terminal/console bar) không nhắc lại badge này */}
+      <div className="pointer-events-none absolute inset-y-0 left-1/2 z-10 hidden -translate-x-1/2 items-center lg:flex">
+        <Link
+          href="/"
+          className="pointer-events-auto flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-zinc-900"
+          title="Elliott — Home"
+        >
+          <ElliottLogo className="h-5 w-5" />
+          <span className="hidden text-[11px] font-black tracking-[0.22em] text-zinc-100 xl:inline">ELLIOTT</span>
+        </Link>
+      </div>
       {NAV.map((item) => {
         const active = pathname === item.href;
         const Icon = item.icon;
