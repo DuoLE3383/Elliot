@@ -30,7 +30,8 @@ export async function buildAuditLedger(base = 1000): Promise<{ rows: number; fin
   for (const t of trades as any[]) {
     const isRunner = t.p1Pct != null;
     const slPrice = t.slPct != null ? (t.side === "SHORT" ? t.entryPrice * (1 + t.slPct / 100) : t.entryPrice * (1 - t.slPct / 100)) : null;
-    const exitAudit = t.exitKind === "sl" && !isRunner && slPrice != null ? slPrice : t.exitPrice;
+    // Market exits: the stored exit price is the real fill (SL triggers at market), so keep it.
+    const exitAudit = t.exitPrice;
     const pnlAuditRaw = expectedPnlPctOf({ ...t, exitPrice: exitAudit });
     const pnlAudit = pnlAuditRaw ?? t.pnlPct ?? 0;
     const pnlStored = t.pnlPct ?? 0;
