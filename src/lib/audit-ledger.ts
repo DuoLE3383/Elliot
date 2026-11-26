@@ -15,7 +15,7 @@ export async function ensureAuditLedger(): Promise<void> {
     tradeId TEXT PRIMARY KEY, symbol TEXT, side TEXT, exitKind TEXT,
     entryPrice REAL, slPrice REAL, exitStored REAL, exitAudit REAL,
     pnlStored REAL, pnlAudit REAL, capBefore REAL, capAfter REAL,
-    exitTime INTEGER, runAt INTEGER)`);
+    exitTime BIGINT, runAt BIGINT)`);
 }
 
 export async function buildAuditLedger(base = 1000): Promise<{ rows: number; finalCapital: number; pnlDiffs: number }> {
