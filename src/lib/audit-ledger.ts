@@ -57,5 +57,7 @@ export async function buildAuditLedger(base = 1000): Promise<{ rows: number; fin
 
 export async function readAuditLedger(limit = 200): Promise<unknown[]> {
   await ensureAuditLedger();
-  return db.$queryRawUnsafe(`SELECT * FROM AuditLedger ORDER BY exitTime DESC LIMIT ${Math.max(1, Math.min(1000, limit))}`);
+  const rows: any[] = await db.$queryRawUnsafe(`SELECT * FROM AuditLedger ORDER BY exitTime DESC LIMIT ${Math.max(1, Math.min(1000, limit))}`);
+  // $queryRaw returns BIGINT columns as BigInt, which JSON cannot serialize.
+  return rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, typeof v === "bigint" ? Number(v) : v])));
 }
