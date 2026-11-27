@@ -31,9 +31,29 @@ try {
   // not a git checkout (CI tarball, docker copy) — version+time still identifies the build
 }
 
+// Versioning: bat dau tu 0.5.1, tu tang sau moi cap nhat.
+// Co che dung-roi-moi-tang: build nay dung version hien tai (0.5.1),
+// xong tang patch +1 ghi lai package.json cho build sau (0.5.2, 0.5.3...).
+// Neu version cu < 0.5.1 thi kep len 0.5.1.
+const cmp = (a, b) => {
+  const pa = a.split(".").map(Number), pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) { if (pa[i] !== pb[i]) return pa[i] - pb[i]; }
+  return 0;
+};
+if (cmp(version, "0.5.1") < 0) version = "0.5.1";
 const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12); // YYYYMMDDHHMM
 const id = `v${version}-${sha}-${stamp}`;
 
 mkdirSync(path.join(ROOT, "public"), { recursive: true });
 writeFileSync(path.join(ROOT, "public", "build-id.txt"), `${id}\n`);
 console.log(`[build-id] ${id}`);
+// Tu tang cho lan sau: 0.5.1 -> 0.5.2 -> 0.5.3...
+try {
+  const pkgPath = path.join(ROOT, "package.json");
+  const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+  const parts = String(pkg.version ?? version).split(".").map(Number);
+  parts[2] = (parts[2] ?? 0) + 1;
+  pkg.version = parts.join(".");
+  writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+  console.log(`[build-id] next version -> ${pkg.version}`);
+} catch (e) { console.log(`[build-id] bump skip: ${e.message}`); }
