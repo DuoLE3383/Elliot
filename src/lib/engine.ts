@@ -145,6 +145,7 @@ import {
   slConfirmStep,
   trailHit,
   trailRatchet,
+  movePctLock,
   tp1Plan,
   TRAIL_ROI_ARM,
   TRAIL_ROI_GIVEBACK,
@@ -2377,7 +2378,17 @@ async function evalExit(open: AutoTradeRow, price: number, lastPrice?: number): 
       return { closed: await closeTradeDirect(open.id, mark, TRAIL_KIND, last), kind: TRAIL_KIND };
     }
     // ratchet khoá lời — CHỈ TĂNG, state nằm trên ROW (restart an toàn)
-    const lock = trailRatchet(trail, Math.max(0, move1x), c.runnerTrailLock);
+    let lock = trailRatchet(trail, Math.max(0, move1x), c.runnerTrailLock);
+    // roi-trail (bật bằng cờ runnerRoiTrail, mặc định tắt): đuổi theo đỉnh ROI, cách giveback
+    if (c.runnerRoiTrail === true) {
+      const peakNow = trailOf(open.id, open.entryPrice).peak;
+      const peakRoi = trailMovePct(open.side, open.entryPrice, peakNow) * open.leverage;
+      const roiStop = trailRoiStopPrice(open.side, open.entryPrice, peakRoi, open.leverage, 0, c.trailRoiGiveback ?? 1);
+      if (roiStop != null) {
+        const roiLock = Math.max(0, movePctLock(open.side, open.entryPrice, roiStop));
+        lock = Math.max(lock, Math.round(roiLock * 1000) / 1000);
+      }
+    }
     if (lock > trail) {
       try {
         await db.autoTrade.update({ where: { id: open.id }, data: { trailPct: lock } });

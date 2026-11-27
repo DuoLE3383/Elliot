@@ -1478,6 +1478,8 @@ export interface AutoConfig {
   trailRoiArm: number;
   /** Trail ROI giveback - stop follows peak minus this, % ROI */
   trailRoiGiveback: number;
+  /** runner: trail theo đỉnh ROI (giveback) thay vì ratchet quãng đi × lock. Mặc định tắt. */
+  runnerRoiTrail: boolean;
   /** Extra SL distance on DCA and TP1, % price */
   dcaTp1SlExtra: number;
   /** 0.3.3 — TP1 PARTIAL → RUNNER: chạm TP lần đầu chỉ chốt runnerSharePct% stake
@@ -1541,6 +1543,7 @@ export const AUTO_DEFAULTS: AutoConfig = {
   trailDistPct: 0.8,
   trailRoiArm: 4,
   trailRoiGiveback: 1,
+  runnerRoiTrail: false,
   dcaTp1SlExtra: 1,
   // 0.3.3 — TP1→runner + SL confirm: bật sẵn vì sửa đúng hai pain user báo:
   // "các lệnh bị chốt sớm và SL non… tăng RR thì ko bắt lệnh dc nữa" — TP1 bank
@@ -1664,6 +1667,7 @@ export function loadAutoConfig(): AutoConfig {
         typeof p.trailDistPct === "number" && p.trailDistPct > 0 ? Math.min(10, Math.max(0.1, p.trailDistPct)) : AUTO_DEFAULTS.trailDistPct,
       trailRoiArm:
         typeof p.trailRoiArm === "number" && p.trailRoiArm > 0 ? Math.min(20, Math.max(0.5, p.trailRoiArm)) : AUTO_DEFAULTS.trailRoiArm,
+      runnerRoiTrail: p.runnerRoiTrail === true,
       trailRoiGiveback:
         typeof p.trailRoiGiveback === "number" && p.trailRoiGiveback >= 0 ? Math.min(10, Math.max(0, p.trailRoiGiveback)) : AUTO_DEFAULTS.trailRoiGiveback,
       dcaTp1SlExtra:

@@ -156,3 +156,9 @@ export function combineClosePnl(p1Pct: number | null | undefined, p1Share: numbe
   const total = share * p1Pct + (1 - share) * remPnl;
   return Math.round(total * 100) / 100;
 }
+
+/** % giá mà mức SL khoá so với entry (dương = đã khoá lời), theo hướng lệnh. */
+export function movePctLock(side: string, entry: number, stopPrice: number): number {
+  if (!entry || !stopPrice) return 0;
+  return side === "SHORT" ? ((entry - stopPrice) / entry) * 100 : ((stopPrice - entry) / entry) * 100;
+}
