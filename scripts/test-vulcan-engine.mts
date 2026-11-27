@@ -67,7 +67,7 @@ console.log("== trailing siết stop khi lãi ≥ 2% ==");
   const d = decideVulcanLive(c, open, VULCAN_DEFAULTS);
   check("hold", d.action.kind === "hold");
   check("trailArmed bật", d.state?.trailArmed === true);
-  check("stop siết lên 103×0.99 = 101.97", d.state ? r2(d.state.stopPrice) === r2(103 * 0.99) : false);
+  check("stop siết theo ROI: peakRoi 15 (3% giá × ×5) → lock 14% ROI = +2.8% giá → 102.8", d.state ? r2(d.state.stopPrice) === 102.8 : false);
   check("peak = 103", d.state?.peak === 103);
 }
 

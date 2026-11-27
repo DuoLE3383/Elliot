@@ -54,7 +54,7 @@ check(
 
 // rrUp — WR ≥ 55 nhưng payoff < 1.15 và exp ≤ 0.3
 const rrUpA = tune2ItemsForBook("a", stats({ wr: 58, payoff: 0.8, expectancy: 0.1, netRoe: 1 }), curA, 0.5);
-check("A4: sổ A rrUp — WR 58 payoff 0.8 → siết stop ATR×2.0→×1.7", rrUpA.length === 1 && rrUpA[0].kind === "rr" && rrUpA[0].param === "VUL_ATR_STOP_MULT" && rrUpA[0].from === 2.0 && rrUpA[0].to === 1.7);
+check("A4: sổ A rrUp — WR 58 payoff 0.8 → ATR×2.0→×2.2 (bước ±0.2, biên 1.4-3.0)", rrUpA.length === 1 && rrUpA[0].kind === "rr" && rrUpA[0].param === "VUL_ATR_STOP_MULT" && rrUpA[0].from === 2.0 && rrUpA[0].to === 2.2);
 const rrUpB = tune2ItemsForBook("b", stats({ wr: 60, payoff: 1.0, expectancy: 0.2, netRoe: 2 }), curB, 1.0);
 check("A5: sổ B rrUp — WR 60 payoff 1.0 → ratio 1.4→1.6", rrUpB.length === 1 && rrUpB[0].param === "RR_TP_RATIO" && rrUpB[0].to === 1.6);
 const rrUpC = tune2ItemsForBook("c", stats({ wr: 55, payoff: 0.9, expectancy: 0.05, netRoe: 0.5 }), curC, 0.1);
@@ -72,9 +72,9 @@ check(
 
 // rrDown — WR ≤ 40 nhưng payoff ≥ 1.6
 const rrDownA = tune2ItemsForBook("a", stats({ wr: 35, payoff: 1.8, expectancy: 0.1, netRoe: 1 }), curA, 0.5);
-check("A9: sổ A rrDown — WR 35 payoff 1.8 → nới stop ATR×2.0→×2.3", rrDownA.length === 1 && rrDownA[0].kind === "rr" && rrDownA[0].to === 2.3);
-const rrDownB = tune2ItemsForBook("b", stats({ wr: 38, payoff: 2.0, expectancy: 0.15, netRoe: 1.5 }), curB, 1.0);
-check("A10: sổ B rrDown — ratio 1.4→1.2", rrDownB.length === 1 && rrDownB[0].to === 1.2);
+check("A9: sổ A rrDown — WR 35 payoff 1.8 → ATR×2.0→×1.8", rrDownA.length === 1 && rrDownA[0].kind === "rr" && rrDownA[0].to === 1.8);
+const rrDownB = tune2ItemsForBook("b", stats({ wr: 38, payoff: 2.0, expectancy: 0.15, netRoe: 1.5 }), { rr: 1.6, floor: 60, floor2: 0.8, floor3: 70 }, 1.0);
+check("A10: sổ B rrDown — ratio 1.6→1.4 (sàn 1.4)", rrDownB.length === 1 && rrDownB[0].to === 1.4);
 const rrDownC = tune2ItemsForBook("c", stats({ wr: 40, payoff: 1.7, expectancy: 0.1, netRoe: 1 }), curC, 0.1);
 check("A11: sổ C rrDown — stop 7→8.5", rrDownC.length === 1 && rrDownC[0].to === 8.5);
 
@@ -106,8 +106,8 @@ check(
 );
 
 // biên — at-cap không đề xuất
-check("A19: sổ A stop đã 1.2 (floor biên) → không rrUp nữa", tune2ItemsForBook("a", stats({ wr: 58, payoff: 0.8, expectancy: 0.2, netRoe: 2 }), { rr: 1.2, floor: 1.5 }, 0.5).every((i) => i.kind !== "rr"));
-check("A20: sổ B ratio đã 2.2 (trần) → không rrUp nữa", tune2ItemsForBook("b", stats({ wr: 60, payoff: 1.0, expectancy: 0.2, netRoe: 2 }), { rr: 2.2, floor: 60, floor2: 0.8, floor3: 70 }, 1.0).every((i) => i.kind !== "rr"));
+check("A19: sổ A stop đã 3.0 (trần) → không rrUp nữa · rr 1.4 (sàn) → không rrDown nữa", tune2ItemsForBook("a", stats({ wr: 58, payoff: 0.8, expectancy: 0.2, netRoe: 2 }), { rr: 3.0, floor: 1.5 }, 0.5).every((i) => i.kind !== "rr") && tune2ItemsForBook("a", stats({ wr: 35, payoff: 1.8, expectancy: 0.2, netRoe: 2 }), { rr: 1.4, floor: 1.5 }, 0.5).every((i) => i.kind !== "rr"));
+check("A20: sổ B ratio đã 3.0 (trần) → không rrUp nữa", tune2ItemsForBook("b", stats({ wr: 60, payoff: 1.0, expectancy: 0.2, netRoe: 2 }), { rr: 3.0, floor: 60, floor2: 0.8, floor3: 70 }, 1.0).every((i) => i.kind !== "rr"));
 check("A21: sổ B floor đã 85/0.9/85 (trần) → không floorUp nữa", tune2ItemsForBook("b", stats({ wr: 40, payoff: 1.0, expectancy: -0.5, netRoe: -6 }), { rr: 1.4, floor: 85, floor2: 0.9, floor3: 85 }, 1.0).every((i) => i.kind !== "floor"));
 check("A22: sổ C stop đã 4.5 (biên) → không rrUp nữa", tune2ItemsForBook("c", stats({ wr: 56, payoff: 0.9, expectancy: 0.2, netRoe: 2 }), { rr: 4.5, floor: 65, floor2: 70 }, 0.1).every((i) => i.kind !== "rr"));
 
@@ -115,7 +115,7 @@ check("A22: sổ C stop đã 4.5 (biên) → không rrUp nữa", tune2ItemsForBo
 
 const item = rrUpA[0];
 check("B1: item rrUp có lý do kèm số (wr/pay/aw/al/n/net/exp/fee/from/to)", ["wr", "pay", "aw", "al", "n", "net", "exp", "fee", "from", "to"].every((k) => k in item.args));
-check("B2: lý do rr.up.a kèm số — fee 0.5 (lev 5 × 2 × 0.05)", item.args.fee === 0.5 && item.args.wr === 58 && item.args.from === 2 && item.args.to === 1.7);
+check("B2: lý do rr.up.a kèm số — fee 0.5 (lev 5 × 2 × 0.05)", item.args.fee === 0.5 && item.args.wr === 58 && item.args.from === 2 && item.args.to === 2.2);
 
 const i18n = readFileSync("src/lib/i18n.ts", "utf8");
 const keys = [

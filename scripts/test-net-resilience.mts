@@ -91,11 +91,23 @@ check(kls.length === 1 && kls[0].c === 68050, "2 host đầu body hỏng → hos
 check(hits.length === 3, "đúng 3 lần fetch (không retry vô ích)", JSON.stringify(hits));
 
 process.env.KLINES_HOSTS = "https://cut1.example.com,https://cut2.example.com";
-await expectThrow(
-  () => fetchKlinesDirect("BTCUSDT", "1h", 10),
-  "cả 2 host đều cắt cụt → ném lỗi nêu host 'truncated'",
-  "truncated/non-JSON body",
-);
+{
+  // 03/11: klines failover thêm 2 SPOT host làm last-resort — lỗi cuối là HTTP 404
+  // của spot (mock), nhưng cut1/cut2 phải được thử TRƯỚC (đủ trong hits).
+  const hitsBefore = hits.length;
+  let threw = "";
+  try {
+    await fetchKlinesDirect("BTCUSDT", "1h", 10);
+  } catch (e) {
+    threw = e instanceof Error ? e.message : String(e);
+  }
+  const slice = hits.slice(hitsBefore);
+  check(
+    "cả 2 host cắt cụt + 2 spot last-resort 404 → ném binance_unreachable (cut1/cut2 đã thử trước)",
+    threw.startsWith("binance_unreachable") && threw.includes("HTTP 404") && slice.some((u) => u.includes("cut1")) && slice.some((u) => u.includes("cut2")) && slice.some((u) => u.includes("data-api.binance.vision")),
+    `${threw} · fetches=${slice.length}`,
+  );
+}
 
 process.env.KLINES_HOSTS = "https://ok.example.com";
 const kls2 = await fetchKlinesDirect("BTCUSDT", "1h", 10);

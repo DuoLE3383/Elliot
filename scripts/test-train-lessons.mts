@@ -127,8 +127,8 @@ console.log("\n[3] universeBroadcastText — bảng monospace có cột, gọn")
   }));
   const txt = universeBroadcastText(rows);
   const numbered = (txt.match(/\d{1,2} ▲COIN/g) ?? []).length;
-  check("chỉ 10 dòng coin", numbered === 10, `got ${numbered}`);
-  check("header TOP 10", txt.includes("UNIVERSE · TOP 10</b>"));
+  check("chỉ 5 dòng coin (UNIVERSE_BCAST_TOP = 5)", numbered === 5, `got ${numbered}`);
+  check("header TOP 5", txt.includes("UNIVERSE · TOP 5</b>"));
   check("footer full top-30", txt.includes("full top-30 in the app"));
   check("không prev → không cột Δ/NEW", !txt.includes("NEW") && !txt.includes("Δ"));
   check("cold start → không in dòng In (mọi coin đều mới là vô nghĩa)", !txt.includes("In:"));
@@ -139,15 +139,15 @@ console.log("\n[3] universeBroadcastText — bảng monospace có cột, gọn")
   const txt5 = universeBroadcastText(few);
   check("dưới 10 → TOP 5, footer gọn", txt5.includes("TOP 5</b>") && !txt5.includes("full top"));
   // có prev → cột Δ + In/Out: đảo thứ tự 9 coin, COIN10 mới vào, GONE rớt khỏi top
-  const prev = ["COIN09", "COIN08", "COIN07", "COIN06", "COIN05", "COIN04", "COIN03", "COIN02", "COIN01", "GONE"];
+  const prev = ["COIN05", "COIN04", "COIN03", "COIN02", "GONE"]; // cửa sổ TOP 5 — COIN01 mới vào, GONE rớt
   const txtP = universeBroadcastText(rows, { prevSyms: prev });
-  check("có prev → In/Out line", txtP.includes("<b>In:</b> COIN10") && txtP.includes("<b>Out:</b> GONE"));
-  check("có prev → cột Δ (NEW + ↑8 + =)", txtP.includes("NEW") && txtP.includes("↑8") && /  =$/m.test(txtP));
+  check("có prev → In/Out line", txtP.includes("<b>In:</b> COIN01") && txtP.includes("<b>Out:</b> GONE"));
+  check("có prev → cột Δ (NEW + ↑2 + =)", txtP.includes("NEW") && txtP.includes("↑2") && /  =$/m.test(txtP));
   check("có prev → header có Δ", (txtP.split("<code>")[1] ?? "").split("\n")[0].includes("Δ"));
   const codeP = txtP.split("<code>")[1]?.split("</code>")[0] ?? "";
   check("có prev → cột vẫn thẳng", new Set(codeP.split("\n").map((l) => l.length)).size === 1);
   // prev giống hệt → "No rank changes", mọi delta "="
-  const same = rows.slice(0, 10).map((r) => r.symbol.replace("USDT", ""));
+  const same = rows.slice(0, 5).map((r) => r.symbol.replace("USDT", ""));
   const txtS = universeBroadcastText(rows, { prevSyms: same });
   check("prev trùng → No rank changes", txtS.includes("No rank changes") && !txtS.includes("NEW"));
 }

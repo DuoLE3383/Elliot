@@ -1,5 +1,5 @@
 // test-arena.mts — unit test thống kê arena (thuần, không DB)
-import { statsFromRoes } from "../src/lib/arena";
+import { statsFromRois } from "../src/lib/arena";
 
 let pass = 0;
 let fail = 0;
@@ -21,11 +21,11 @@ const rows = [
   { side: "LONG", roi: 30, capitalBefore: 985, capitalAfter: 1015 },
 ];
 
-const s = statsFromRoes(rows);
-console.log("== statsFromRoes ==");
+const s = statsFromRois(rows);
+console.log("== statsFromRois ==");
 check("5 lệnh đóng", s.nClosed === 5);
 check("3 thắng → WR 60%", s.wins === 3 && s.wr === 60);
-check("net ROI = 15", s.netRoe === 15);
+check("net ROI = 15", s.netRoi === 15);
 check("avgWin = (10+5+30)/3 = 15", s.avgWin === 15);
 check("avgLoss = −15", s.avgLoss === -15);
 check("payoff = 1.0", s.payoff === 1);
@@ -33,7 +33,7 @@ check("vốn đầu 1000 / cuối 1015", s.startCapital === 1000 && s.finalCapit
 check("LONG: 3 lệnh WR 66.7% net 20", s.bySide[0].n === 3 && s.bySide[0].wr === 66.7 && s.bySide[0].net === 20);
 check("SHORT: 2 lệnh WR 50% net −5", s.bySide[1].n === 2 && s.bySide[1].wr === 50 && s.bySide[1].net === -5);
 
-const empty = statsFromRoes([]);
+const empty = statsFromRois([]);
 check("rỗng không nổ: nClosed 0, payoff 0", empty.nClosed === 0 && empty.payoff === 0 && empty.finalCapital === null);
 
 console.log(`\nKẾT QUẢ: ${pass} pass / ${fail} fail`);

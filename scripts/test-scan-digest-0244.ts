@@ -76,9 +76,9 @@ async function main(): Promise<void> {
     ok(listed.length >= 1, `ít nhất 1 passer được liệt kê (thấy: ${listed.join(", ") || "không"})`);
     ok(!plain.includes("✗"), "không còn dòng lý do chặn ✗");
     ok(!plain.includes("PEPEUSDT") && !plain.includes("BNBUSDT") && !plain.includes("FETUSDT"), "combo bị chặn KHÔNG xuất hiện trong tin");
-    ok(plain.includes("ĐẠT CỔNG"), "entry có dòng 🚀 ĐẠT CỔNG kèm SL/TP");
-    ok(/\d+\/\d+ combo đạt cổng/.test(plain), "header vẫn đếm N/216 combo đạt cổng (số thực = passers sau coherence)");
-    ok(/Thị trường:/.test(plain), "có dòng 🌡 Thị trường (F&G/BTC.D/funding)");
+    ok(plain.includes("PASSED THE GATE"), "entry có dòng 🚀 PASSED THE GATE kèm SL/TP");
+    ok(/\d+\/\d+ combos passed/.test(plain), "header đếm N/total combos passed (số thực = passers sau coherence)");
+    ok(/Market:/.test(plain), "có dòng 🌡 Market (F&G/BTC.D/funding)");
     ok(r1.picked.length >= 1, `picked = ${r1.picked.length}`);
   }
 

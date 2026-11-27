@@ -45,12 +45,12 @@ ok("bySide LONG n=3 net +25", a.bySide.find((x) => x.side === "LONG")?.net === 2
 ok("equity có điểm xuất phát ví 1000", a.equity[0]?.capital === 1000 && a.equity.length === 6, String(a.equity.length));
 
 // ── strategyAdvice ──
-const mk = (nClosed: number, wr: number, netRoe: number): BookStats => ({
+const mk = (nClosed: number, wr: number, netRoi: number): BookStats => ({
   nClosed,
   nOpen: 0,
   wins: 0,
   wr,
-  netRoe,
+  netRoi,
   avgWin: 0,
   avgLoss: 0,
   payoff: 0,

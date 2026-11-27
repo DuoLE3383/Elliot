@@ -193,12 +193,12 @@ check(`engine: 2 cổng if (tpMode === "dyn") (entry + flip) — got ${(eng.matc
 check(`engine: 6 nhánh dyn && live (2 SL + 2 TP chọn mức + 2 note Telegram) — got ${(eng.match(/c\.tpMode === "dyn" && live/g) ?? []).length}`, (eng.match(/c\.tpMode === "dyn" && live/g) ?? []).length === 6);
 check(`engine: sanitizeTpMode ở loadEngine + syncEngine — got ${(eng.match(/p\.cfg\.tpMode = sanitizeTpMode\(p\.cfg\.tpMode\)/g) ?? []).length}`, (eng.match(/p\.cfg\.tpMode = sanitizeTpMode\(p\.cfg\.tpMode\)/g) ?? []).length === 2);
 check("engine: KHÔNG còn tpMode === \"atr\" nào", (eng.match(/tpMode === "atr"/g) ?? []).length === 0);
-check(`engine: lev behavior 0.2.72 giữ nguyên (manual ? 1 : levNormScale × 2) — got ${(eng.match(/c\.tpMode === "manual" \? 1 : levNormScale\(p\.leverage\)/g) ?? []).length}`, (eng.match(/c\.tpMode === "manual" \? 1 : levNormScale\(p\.leverage\)/g) ?? []).length === 2);
+check(`engine: lev behavior 0.2.72 (manual ? 1 : levNormScale) đủ 3 luồng — entry dynLev + flip bù stake + force — got ${(eng.match(/c\.tpMode === "manual" \? 1 : levNormScale\((?:tradeLev|p\.leverage)\)/g) ?? []).length}`, (eng.match(/c\.tpMode === "manual" \? 1 : levNormScale\((?:tradeLev|p\.leverage)\)/g) ?? []).length === 3);
 check("engine: msgOpen note phân tích thành phần (time × · vol ×)", eng.includes("· time ×${live.heatMul.toFixed(2)} · vol ×${live.volMul.toFixed(2)}"));
 check("autotrade: sanitizeTpMode export + loadAutoConfig dùng nó", /export function sanitizeTpMode/.test(at) && at.includes("tpMode: sanitizeTpMode(p.tpMode)"));
 check("autotrade: TP_MODES = [\"dyn\", \"auto\", \"manual\"]", at.includes('export const TP_MODES = ["dyn", "auto", "manual"] as const;'));
 check("autotrade: KHÔNG còn nhánh mode \"atr\"", (at.match(/=== "atr"/g) ?? []).length === 0);
-check(`panel: nút mode dyn + 2 điều kiện === \"dyn\" — got ${(panel.match(/cfg\.tpMode === "dyn"/g) ?? []).length}`, panel.includes('m === "dyn" ? "auto.cfg.tpDyn"') && (panel.match(/cfg\.tpMode === "dyn"/g) ?? []).length === 2);
+check(`panel: nút mode dyn (TP_MODES map) + khối atrCoef 1 điều kiện === \"dyn\" — got ${(panel.match(/cfg\.tpMode === "dyn"/g) ?? []).length}`, panel.includes('m === "dyn" ? "auto.cfg.tpDyn"') && (panel.match(/cfg\.tpMode === "dyn"/g) ?? []).length === 1);
 check("panel: KHÔNG còn === \"atr\"", (panel.match(/cfg\.tpMode === "atr"|m === "atr"/g) ?? []).length === 0);
 check(`i18n: tpDyn + tpDynDesc đủ vi + en — got ${(i18n.match(/auto\.cfg\.tpDyn"/g) ?? []).length}/${(i18n.match(/auto\.cfg\.tpDynDesc"/g) ?? []).length}`, (i18n.match(/auto\.cfg\.tpDyn"/g) ?? []).length === 2 && (i18n.match(/auto\.cfg\.tpDynDesc"/g) ?? []).length === 2);
 check("i18n: key cũ tpAtr/tpAtrDesc đã xoá", (i18n.match(/auto\.cfg\.tpAtr\b|auto\.cfg\.tpAtrDesc/g) ?? []).length === 0);

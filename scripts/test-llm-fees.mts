@@ -54,16 +54,16 @@ const riskLine = p.split("\n").find((l) => l.startsWith("risk:")) ?? "";
 check(
   "risk line mở rộng số net: phí 1.00% ROI → sl −4.0 / tp +3.0 (net rr 1:0.75)",
   riskLine ===
-    "risk: leverage=x10 (liquidation at 10.0% adverse) stake=10%equity sl=0.3%price tp=0.4%price rr=1:1.33 · fees 2x0.05%/side = 1.00% ROI -> net: sl -4.0% / tp +3.0% ROI (net rr 1:0.75)",
+    "risk: leverage=x10 (liquidation at 10.00% adverse) stake=10%equity sl=0.30%price tp=0.40%price rr=1:1.33 · fees 2x0.05%/side = 1.00% ROI -> net: sl -4.00% / tp +3.00% ROI (net rr 1:0.75)",
 );
 check(
   "fee_check dòng chấm sẵn: consumes 25.0% tp ROI — NOT payoff-inverting",
-  p.includes("fee_check: round-trip fees 2x0.05%/side = 1.00% ROI at x10 — consumes 25.0% of the tp ROI 4.00% (net tp +3.00%) — NOT payoff-inverting"),
+  p.includes("fee_check: round-trip fees 2x0.05%/side = 1.00% ROI at x10 — consumes 25.00% of the tp ROI 4.00% (net tp +3.00%) — NOT payoff-inverting"),
 );
 check("fee_check đứng ngay sau rr_check (trước coinflip_check)", p.indexOf("rr_check:") < p.indexOf("fee_check:") && p.indexOf("fee_check:") < p.indexOf("coinflip_check:"));
 check("rr_check GROSS giữ nguyên (tp/sl là hình học giá — phí không dịch mức)", p.includes("rr_check: tp/sl = 1.33 -> matches rr=1:1.33 above -> CONSISTENT"));
 check("số phí trong prompt = feeRoi(lev,2) settlement (một công thức)", p.includes(`= ${feeRoi(10).toFixed(2)}% ROI -> net:`) && p.includes(`= ${feeRoi(10).toFixed(2)}% ROI at x10`));
-check("champ/gate/sample các dòng khác vẫn nguyên vẹn", p.includes("gate_check: engine gate NOT passed (score 59.2)") && p.includes("champ_check: best-ever of this pair+tf is val_auc=0.891/val_acc=79.3%") && p.includes("sample_base: 287 train rows ~ 1.0 days of 5m candles"));
+check("champ/gate/sample các dòng khác vẫn nguyên vẹn", p.includes("gate_check: engine gate NOT passed (score 59.20)") && p.includes("champ_check: best-ever of this pair+tf is val_auc=0.89/val_acc=79.30%") && p.includes("sample_base: 287 train rows ~ 1.00 days of 5m candles"));
 
 // ── C · ba nhánh verdict của fee_check ───────────────────────────────────────
 console.log("3. fee_check — 3 nhánh: INVERTED / over HALF / NOT inverting");
@@ -73,18 +73,18 @@ check(
   "INVERTED: phí EXCEED tp ROI 0.50% — net tp −0.50%",
   inv.includes("fee_check: round-trip fees 2x0.05%/side = 1.00% ROI at x10 EXCEED the tp ROI 0.50% — payoff INVERTED by fees (net tp -0.50%)"),
 );
-check("INVERTED: risk line không in net rr (vô nghĩa khi âm) — sl −1.4 / tp −0.5", inv.includes("· fees 2x0.05%/side = 1.00% ROI -> net: sl -1.4% / tp -0.5% ROI (payoff inverted by fees — see fee_check)"));
+check("INVERTED: risk line không in net rr (vô nghĩa khi âm) — sl −1.4 / tp −0.5", inv.includes("· fees 2x0.05%/side = 1.00% ROI -> net: sl -1.40% / tp -0.50% ROI (payoff inverted by fees — see fee_check)"));
 check("INVERTED: không có 'net rr' trong risk line", !(inv.split("\n").find((l) => l.startsWith("risk:")) ?? "").includes("net rr"));
 // over HALF: ×20 sl 0.075 / tp 0.15 → phí 2.0 ăn 66.7% tp ROI 3.0
 const heavy = setupPrompt({ ...xaut, slPct: 0.075, tpPct: 0.15, leverage: 20 });
 check(
-  "over HALF: consumes 66.7% of the tp ROI 3.00%",
-  heavy.includes("fee_check: round-trip fees 2x0.05%/side = 2.00% ROI at x20 — consumes 66.7% of the tp ROI 3.00% (net tp +1.00%) — over HALF the target goes to fees"),
+  "over HALF: consumes 66.67% of the tp ROI 3.00%",
+  heavy.includes("fee_check: round-trip fees 2x0.05%/side = 2.00% ROI at x20 — consumes 66.67% of the tp ROI 3.00% (net tp +1.00%) — over HALF the target goes to fees"),
 );
-check("over HALF: risk line net sl −3.5 / tp +1.0 (net rr 1:0.29)", heavy.includes("· fees 2x0.05%/side = 2.00% ROI -> net: sl -3.5% / tp +1.0% ROI (net rr 1:0.29)"));
+check("over HALF: risk line net sl −3.5 / tp +1.0 (net rr 1:0.29)", heavy.includes("· fees 2x0.05%/side = 2.00% ROI -> net: sl -3.50% / tp +1.00% ROI (net rr 1:0.29)"));
 // NOT inverting đã cover ở mục 2 (25.0%); nhánh biên share đúng ngưỡng 50
 const half = setupPrompt({ ...xaut, slPct: 0.1, tpPct: 0.2, leverage: 10 }); // phí 1.0 / tp ROI 2.0 → 50.0%
-check("ngưỡng 50.0% tính là over HALF (≥, không phải >)", half.includes("— consumes 50.0% of the tp ROI 2.00% (net tp +1.00%) — over HALF the target goes to fees"));
+check("ngưỡng 50.0% tính là over HALF (≥, không phải >)", half.includes("— consumes 50.00% of the tp ROI 2.00% (net tp +1.00%) — over HALF the target goes to fees"));
 
 // ── D · FEE_PCT = 0 → off sạch, prompt y hệt 0.2.77 ──────────────────────────
 console.log("4. FEE_PCT = 0 — off: không fee_check, risk line BYTE-IDENTICAL 0.2.77");
@@ -97,7 +97,7 @@ const link: LlmSetup = {
 setOverride("FEE_PCT", 0);
 const pOff = setupPrompt(link);
 const riskOff = pOff.split("\n").find((l) => l.startsWith("risk:")) ?? "";
-check("risk line không còn segment phí (đúng từng byte 0.2.77)", riskOff === "risk: leverage=x20 (liquidation at 5.0% adverse) stake=10%equity sl=1.2%price tp=1.7%price rr=1:1.42");
+check("risk line không còn segment phí (đúng từng byte 0.2.77)", riskOff === "risk: leverage=x20 (liquidation at 5.00% adverse) stake=10%equity sl=1.20%price tp=1.70%price rr=1:1.42");
 check("không có fee_check / 'fees 2x' ở bất kỳ đâu", !pOff.includes("fee_check") && !pOff.includes("fees 2x"));
 check("fees off → 'fees are not accounted' KHÔNG bị cờ (nhận định đúng khi off)", factCheckReasons(["fees are not accounted for"], link, "skip")[0] === "fees are not accounted for");
 setOverride("FEE_PCT", null);
@@ -106,8 +106,8 @@ setOverride("FEE_PCT", null);
 console.log("5. FEE_PCT runtime (pval) — maker 0.02 đổi số prompt không cần deploy");
 setOverride("FEE_PCT", 0.02);
 const pMaker = setupPrompt(xaut);
-check("maker 0.02: phí 0.40% ROI — consumes 10.0% tp, net tp +3.60%", pMaker.includes("fee_check: round-trip fees 2x0.02%/side = 0.40% ROI at x10 — consumes 10.0% of the tp ROI 4.00% (net tp +3.60%) — NOT payoff-inverting"));
-check("maker 0.02: risk line net sl −3.4 / tp +3.6 (net rr 1:1.06)", pMaker.includes("· fees 2x0.02%/side = 0.40% ROI -> net: sl -3.4% / tp +3.6% ROI (net rr 1:1.06)"));
+check("maker 0.02: phí 0.40% ROI — consumes 10.0% tp, net tp +3.60%", pMaker.includes("fee_check: round-trip fees 2x0.02%/side = 0.40% ROI at x10 — consumes 10.00% of the tp ROI 4.00% (net tp +3.60%) — NOT payoff-inverting"));
+check("maker 0.02: risk line net sl −3.4 / tp +3.6 (net rr 1:1.06)", pMaker.includes("· fees 2x0.02%/side = 0.40% ROI -> net: sl -3.40% / tp +3.60% ROI (net rr 1:1.06)"));
 setOverride("FEE_PCT", null);
 check("reset về default: phí 1.00% ROI trở lại", setupPrompt(xaut).includes("2x0.05%/side = 1.00% ROI"));
 
@@ -163,11 +163,11 @@ check("guard phí chạy CẢ verdict go (bảo sai là sai)", factCheckReasons(
 console.log("8. regression LINKUSDT (case 0.2.26) + wiring source");
 const pLink = setupPrompt(link); // fees default: phí 2.0 / tp ROI 34.0 → 5.9% NOT inverting
 check("rr_check byte-identical", pLink.includes("rr_check: tp/sl = 1.42 -> matches rr=1:1.42 above -> CONSISTENT"));
-check("coinflip_check byte-identical", pLink.includes('coinflip_check: val_acc=78.1% (+28.1 pts, not barely) · val_auc=0.845 (+0.345, not barely) — the "barely above coin flip" skip condition does NOT apply'));
-check("liq_check byte-identical", pLink.includes("liq_check: liquidation 5.0% is 4.2x beyond the SL 1.2% — NOT dangerously close"));
-check("gate_check + sample_base byte-identical", pLink.includes("gate_check: engine gate PASSED (score 66.5)") && pLink.includes("sample_base: 288 train rows ~ 3.0 days of 15m candles"));
-check("LINKUSDT x20: fee_check 5.9% NOT inverting (số lớn — phí nhỏ giọt)", pLink.includes("fee_check: round-trip fees 2x0.05%/side = 2.00% ROI at x20 — consumes 5.9% of the tp ROI 34.00% (net tp +32.00%) — NOT payoff-inverting"));
-check("LINKUSDT x20: risk net sl −26.0 / tp +32.0 (net rr 1:1.23)", pLink.includes("· fees 2x0.05%/side = 2.00% ROI -> net: sl -26.0% / tp +32.0% ROI (net rr 1:1.23)"));
+check("coinflip_check byte-identical", pLink.includes('coinflip_check: val_acc=78.10% (+28.10 pts, not barely) · val_auc=0.84 (+0.34, not barely) — the "barely above coin flip" skip condition does NOT apply'));
+check("liq_check byte-identical", pLink.includes("liq_check: liquidation 5.00% is 4.17x beyond the SL 1.20% — NOT dangerously close"));
+check("gate_check + sample_base byte-identical", pLink.includes("gate_check: engine gate PASSED (score 66.50)") && pLink.includes("sample_base: 288 train rows ~ 3.00 days of 15m candles"));
+check("LINKUSDT x20: fee_check 5.9% NOT inverting (số lớn — phí nhỏ giọt)", pLink.includes("fee_check: round-trip fees 2x0.05%/side = 2.00% ROI at x20 — consumes 5.88% of the tp ROI 34.00% (net tp +32.00%) — NOT payoff-inverting"));
+check("LINKUSDT x20: risk net sl −26.0 / tp +32.0 (net rr 1:1.23)", pLink.includes("· fees 2x0.05%/side = 2.00% ROI -> net: sl -26.00% / tp +32.00% ROI (net rr 1:1.23)"));
 const psSrc = readFileSync("src/lib/params-store.ts", "utf8");
 const i18nSrc = readFileSync("src/lib/i18n.ts", "utf8");
 check("params-store note FEE_PCT nhắc prompt LLM cũng dùng (một nguồn)", psSrc.includes("the LLM Risk Officer prompt carries the same drag (fee_check + fee-net ROI at SL/TP)"));

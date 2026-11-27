@@ -101,15 +101,15 @@ const msg = buildSessionOpenMessage("tokyo", NOW, klines);
 console.log("---- rendered message ----");
 console.log(msg);
 console.log("--------------------------");
-check(msg.includes("PHIÊN TOKYO"), "title names the opened session");
+check(msg.includes("<b>TOKYO SESSION</b>"), "title names the opened session");
 check(msg.includes("00:00 UTC"), "UTC open hour shown");
 check(msg.includes("07:00 GMT+7"), "GMT+7 open hour shown (0+7)");
-check(msg.includes("VỪA MỞ"), "opened session flagged VỪA MỞ");
-check(msg.includes("drift BTC"), "opened session line carries drift");
+check(msg.includes("<b>JUST OPENED</b>"), "opened session flagged JUST OPENED");
+check(msg.includes("BTC drift"), "opened session line carries drift");
 check(!msg.includes("đang mở") && !msg.includes("mạnh nhất") && !msg.includes("Chu kỳ lịch"), "lean message — no 4-session table / best-worst / calendar noise");
-check(/Chiều Hướng <b>(LONG|SHORT|SIDEWAYS)<\/b>/.test(msg), "forecast direction present (3 zones)");
+check(/Bias <b>(LONG|SHORT|SIDEWAYS)<\/b>/.test(msg), "forecast direction present (3 zones)");
 check(/P≈\d+(?:\.\d+)?%/.test(msg), "forecast P present");
-check(msg.includes("bảo đảm"), "disclaimer present");
+check(msg.includes("Stats ≠ guarantees"), "disclaimer present");
 
 // ─── 2. tick fires for the just-opened session only ───────────────────────────
 
@@ -124,7 +124,7 @@ check(
 );
 check(tgCalls[0]?.body.chat_id === "@airealtime", "chat_id = @airealtime");
 check(tgCalls[0]?.body.parse_mode === "HTML", "HTML parse mode");
-check(String(tgCalls[0]?.body.text ?? "").includes("PHIÊN TOKYO"), "text carries the broadcast body");
+check(String(tgCalls[0]?.body.text ?? "").includes("<b>TOKYO SESSION</b>"), "text carries the broadcast body");
 
 // ─── 3. dedupe: same session, same date → silent ──────────────────────────────
 
@@ -146,8 +146,8 @@ const r3 = await tickSessionBroadcast(NOW7);
 check(r3.due.length === 1 && r3.due[0] === "london", "due = [london]", JSON.stringify(r3));
 check(r3.sent.length === 1, "london sent");
 check(tgCalls.length === 2, "second Telegram call");
-check(String(tgCalls[1]?.body.text ?? "").includes("PHIÊN LONDON"), "london broadcast body");
-check(String(tgCalls[1]?.body.text ?? "").includes("🔮 Phiên tới"), "next-session forecast present");
+check(String(tgCalls[1]?.body.text ?? "").includes("<b>LONDON SESSION</b>"), "london broadcast body");
+check(String(tgCalls[1]?.body.text ?? "").includes("🔮 Next session:"), "next-session forecast present");
 check(!String(tgCalls[1]?.body.text ?? "").includes("📅"), "lean message — no calendar-cycle lines");
 const msg7 = String(tgCalls[1]?.body.text ?? "");
 check(msg7.includes("14:00 GMT+7"), "london = 14:00 GMT+7");
@@ -194,11 +194,11 @@ const r6 = await tickSessionBroadcast(NOWP);
 check(r6.due.length === 1 && r6.due[0] === "tokyo", "pre-open due = [tokyo]", JSON.stringify(r6));
 check(r6.sent.length === 1, "pre-open sent");
 const msgP = String(tgCalls[tgCalls.length - 1]?.body.text ?? "");
-check(msgP.includes("SẮP MỞ PHIÊN TOKYO"), "pre-open title", msgP.split("\n")[0]);
-check(msgP.includes("sau 5p"), "5-minute countdown shown");
-check(msgP.includes("sắp mở sau 5p"), "session line marked sắp mở");
+check(msgP.includes("<b>TOKYO SESSION OPENS SOON</b>"), "pre-open title", msgP.split("\n")[0]);
+check(msgP.includes("in 5p"), "5-minute countdown shown");
+check(msgP.includes("opens in 5p"), "session line marked opens-in-5p");
 check(msgP.includes("00:00 UTC"), "title shows the OPEN hour, not the fire hour");
-check(/Chiều Hướng <b>(LONG|SHORT|SIDEWAYS)<\/b>/.test(msgP), "forecast direction for the imminent session");
+check(/Bias <b>(LONG|SHORT|SIDEWAYS)<\/b>/.test(msgP), "forecast direction for the imminent session");
 const rawStateP = readFileSync("/tmp/elliot-test-session-bcast/session-bcast.json", "utf8");
 check(rawStateP.includes("2026-11-03"), "state keyed by OPEN date (tomorrow)", rawStateP);
 

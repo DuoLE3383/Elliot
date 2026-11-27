@@ -81,7 +81,7 @@ const dump = sessionVerdict(bullInp(sqOf(85, "dump")));
 const fd = liqFactor(dump)!;
 check("dump 85: lean = −0.85", fd.lean === -0.85);
 check("dump 85: weight mặc định 2.5 (phiếu đơn lớn nhất)", fd.weight === 2.5);
-check("dump 85: text đầy đủ LS/taker/OI/funding", /^radar 85\/100 DUMP — LS 2\.40 · taker 0\.60 · OI 4h -6\.0% · funding \+0\.050%\/8h$/.test(fd.text));
+check("dump 85: text đầy đủ LS/taker/OI/funding", /^radar 85\/100 DUMP — LS 2\.40 · taker 0\.60 · OI 4h -6\.00% · funding \+0\.05%\/8h$/.test(fd.text));
 check("dump 85: đủ 10 factors", dump.factors.length === 10);
 
 // 2) pump → lean dương

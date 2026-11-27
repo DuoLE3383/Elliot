@@ -58,12 +58,9 @@ check("markVariantApplied + type VariantRow xoá khỏi import history", (() => 
   return m ? !m[0].includes("markVariantApplied") && !m[0].includes("VariantRow") : false;
 })());
 check("import Tabs GIỮ (tab Context/Wyckoff vẫn dùng)", home.includes('import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";'));
-check('tab Context/Wyckoff của rail nguyên vẹn (defaultValue="context" + 2 trigger)', (() => {
-  const seg = home.slice(home.indexOf('<Tabs defaultValue="context"'), home.indexOf("</Tabs>"));
-  return seg.includes('value="context"') && seg.includes('value="wyckoff"');
-})());
+check('rail Wyckoff của trang chủ nguyên vẹn (defaultValue="wyckoff")', home.includes('<Tabs defaultValue="wyckoff"') && home.includes('value="wyckoff"'));
 check("chart card còn nguyên (PriceChart + fill trong Card giữa)", (() => {
-  const card = home.indexOf('<Card className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden');
+  const card = home.indexOf('<Card className="flex min-h-0 ');
   const chart = home.indexOf("<PriceChart");
   const close = home.indexOf("</Card>", card);
   return card > -1 && chart > card && chart < close;
@@ -81,15 +78,16 @@ check("import Tabs + 4 component dời sang", (() => {
     /import \{ StrategyPies \} from "@\/components\/strategy-pies";/.test(stats)
   );
 })());
-check("thứ tự: picker → tabs → card journal", (() => {
-  const pick = stats.indexOf('t(lang, "stats.pick")');
-  const tabs = stats.indexOf('<Tabs defaultValue="suggest">');
+check("thứ tự 0.3.x: picker → card journal → trạm Analysis (tabs)", (() => {
+  const pick = stats.indexOf("comboPicker");
   const journal = stats.indexOf('t(lang, "stats.section.journal")');
-  return pick > -1 && tabs > pick && journal > tabs;
+  const tabs = stats.indexOf('<Tabs defaultValue="suggest">');
+  return pick > -1 && journal > pick && tabs > journal;
 })());
-check("đủ 3 trigger dùng key tabs.suggest / tabs.lab / tabs.analysis", (() => {
-  const seg = stats.slice(stats.indexOf('<Tabs defaultValue="suggest">'), stats.indexOf("</Tabs>"));
-  return ["suggest", "lab", "analysis"].every((v) => seg.includes(`value="${v}"`)) && ["tabs.suggest", "tabs.lab", "tabs.analysis"].every((k) => seg.includes(`t(lang, "${k}")`));
+check("đủ 3 tab dùng key tabs.suggest / tabs.lab / tabs.analysis (mảng trigger + TabsContent)", (() => {
+  const start = stats.indexOf('<Tabs defaultValue="suggest">');
+  const seg = stats.slice(start, stats.indexOf("</Tabs>", start));
+  return ["suggest", "lab", "analysis"].every((v) => seg.includes(`v: "${v}"`) && seg.includes(`<TabsContent value="${v}"`)) && ["tabs.suggest", "tabs.lab", "tabs.analysis"].every((k) => seg.includes(`t(lang, "${k}")`));
 })());
 check("Suggestions: symbol={pickSym} + interval={pickTf} + refreshKey={tabsRefresh}", (() => {
   const seg = stats.slice(stats.indexOf("<SuggestionHistory"), stats.indexOf("</Tabs>", stats.indexOf("<SuggestionHistory")));
@@ -107,22 +105,22 @@ check("Lab: note xác nhận sl.applyToast + stats.labApplied khi labApplied", (
 })());
 
 console.log("── 3. Analysis thay card Deep analysis cũ ──");
-check('card Deep analysis cũ XOÁ (không còn title stats.section.analysis)', !stats.includes('t(lang, "stats.section.analysis")'));
+check('trạm Analysis riêng vẫn dùng title stats.section.analysis', stats.includes('t(lang, "stats.section.analysis")'));
 check("card cũ XOÁ (không còn viền border-blue-500/70)", !stats.includes("border-blue-500/70"));
-check("icon Search + FlaskConical xoá khỏi import (chỉ card cũ dùng)", !/\bSearch\b/.test(stats) && !/\bFlaskConical\b/.test(stats));
-check("state analysis → view: useState<ViewPayload | null>(null)", /const \[view, setView\] = useState<ViewPayload \| null>\(null\);/.test(stats));
+check("icon Search xoá; FlaskConical còn — giờ là icon NAV trạm Lab", !/\bSearch\b/.test(stats) && stats.includes("FlaskConical"));
+check("state analysis → viewPayload: useState<ViewPayload | null>(null)", /const \[viewPayload, setViewPayload\] = useState<ViewPayload \| null>\(null\);/.test(stats));
 check("fetchView import type ViewPayload", /import \{ fetchView, type ViewPayload \} from "@\/lib\/view";/.test(stats));
-check("đường ALL: setView(null) (2 nhánh thành công + lỗi)", stats.split("setView(null);").length === 3);
-check("đường 1 cặp: setView(v) — giữ nguyên payload thay vì chỉ analysis", /setView\(v\);/.test(stats) && !/setAnalysis/.test(stats));
-check("counts đếm analysis qua view?.analysis", /if \(view\?\.analysis\) counts\.ok \+= 1;/.test(stats));
+check("đường ALL: setViewPayload(null) (2 nhánh thành công + lỗi)", stats.split("setViewPayload(null);").length === 3);
+check("đường 1 cặp: setViewPayload(v) — giữ nguyên payload thay vì chỉ analysis", /setViewPayload\(v\);/.test(stats) && !/setAnalysis/.test(stats));
+check("counts nav: journal/lab đếm qua journal khi view khớp", /if \(journal && \(view === "journal" \|\| view === "lab"\)\) counts\[/.test(stats));
 check("Analysis tab: DeepAnalysis a={view.analysis} + gate từ view.gate", (() => {
   const start = stats.indexOf("<DeepAnalysis");
   const seg = stats.slice(start, stats.indexOf("/>", start) + 2);
   return (
-    seg.includes("a={view.analysis}") &&
-    seg.includes("gateLong={view.gate.long}") &&
-    seg.includes("gateShort={view.gate.short}") &&
-    seg.includes("smaValue={view.gate.sma}") &&
+    seg.includes("a={viewPayload.analysis}") &&
+    seg.includes("gateLong={viewPayload.gate.long}") &&
+    seg.includes("gateShort={viewPayload.gate.short}") &&
+    seg.includes("smaValue={viewPayload.gate.sma}") &&
     seg.includes("smaFilter={DEFAULT_SETTINGS.smaFilter}") &&
     seg.includes("smaPeriod={DEFAULT_SETTINGS.smaPeriod}")
   );
@@ -130,7 +128,7 @@ check("Analysis tab: DeepAnalysis a={view.analysis} + gate từ view.gate", (() 
 check("Analysis tab: StrategyPies pies={view.pies} n={view.n} leverage DEFAULT", (() => {
   const start = stats.indexOf("<StrategyPies");
   const seg = stats.slice(start, stats.indexOf("/>", start) + 2);
-  return seg.includes("pies={view.pies}") && seg.includes("n={view.n}") && seg.includes("leverage={DEFAULT_SETTINGS.leverage}");
+  return seg.includes("pies={viewPayload.pies}") && seg.includes("n={viewPayload.n}") && seg.includes("leverage={DEFAULT_SETTINGS.leverage}");
 })());
 check("Analysis tab: ALL → note stats.analysisAll giữ nguyên hành vi card cũ", (() => {
   const seg = stats.slice(stats.indexOf('<TabsContent value="analysis"'), stats.indexOf("</TabsContent>", stats.indexOf('<TabsContent value="analysis"')));

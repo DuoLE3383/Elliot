@@ -126,13 +126,13 @@ console.log("\n[3] universeBroadcastText — 30 coins không thành 1 nùi");
     score: 1 - i * 0.03,
   }));
   const txt = universeBroadcastText(rows);
-  const numbered = (txt.match(/\d{1,2}\. COIN/g) ?? []).length;
-  check("chỉ 10 dòng coin", numbered === 10, `got ${numbered}`);
-  check("header TOP 10/30", txt.includes("TOP 10/30"));
-  check("footer …và 20 coin khác", txt.includes("…và 20 coin khác trong top-30"));
+  const numbered = (txt.match(/\d{1,2} ▲COIN/g) ?? []).length;
+  check("chỉ 5 dòng coin (UNIVERSE_BCAST_TOP = 5)", numbered === 5, `got ${numbered}`);
+  check("header TOP 5", txt.includes("UNIVERSE · TOP 5</b>"));
+  check("footer full top-30", txt.includes("full top-30 in the app"));
   const few: UniverseRow[] = rows.slice(0, 5);
   const txt5 = universeBroadcastText(few);
-  check("dưới 10 → không footer", !txt5.includes("…và") && txt5.includes("TOP 5/5"));
+  check("đúng TOP → không footer", !txt5.includes("full top") && txt5.includes("UNIVERSE · TOP 5</b>"));
 }
 
 // ── 4 · scan-state persist/load — chạy riêng: scripts/test-scanstate.ts ──────

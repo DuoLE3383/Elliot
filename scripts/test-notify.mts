@@ -109,7 +109,7 @@ check("peak tính cả capitalBefore (đỉnh giữa 2 lần chốt)", !!x2 && x
 console.log("6. msgLossStreak / msgDrawdown — nội dung tin báo động");
 const m1 = msgLossStreak(4, [tL3, tL2, tL1, closed(6, { pnl: -3, sym: "DOGEUSDT" })], 77_368.51);
 check("streak: tiêu đề số + HTML bold", m1.includes("LOSS STREAK — 4 losses in a row") && m1.includes("<b>"));
-check("streak: chuỗi lệnh mới nhất trước + ROI chuỗi", m1.includes("#XRPUSDT 15m -0.5%") && m1.includes("chain ROI"));
+check("streak: chuỗi lệnh mới nhất trước + ROI chuỗi", m1.includes("#XRPUSDT 15m -0.50%") && m1.includes("Streak ROI"));
 check("streak: equity định dạng EN", m1.includes("77,368.51"));
 const long8 = Array.from({ length: 8 }, (_, i) => closed(20 + i, { pnl: -1, sym: `S${i}USDT`, at: NOW - (8 - i) * MIN }));
 const m2 = msgLossStreak(8, long8, 75_000);
@@ -119,38 +119,42 @@ check("dd: tiêu đề % dưới đỉnh + mức", m3.includes("under the 24h pe
 check("dd: lệnh gây cắt mức", m3.includes("#ETHUSDT") && m3.includes("closed -1.50%"));
 
 // ── 5 · statLines lesson rollup ──────────────────────────────────────────────
-console.log("7. statLines — 💡 lesson rollup khi autopsy bị mute");
+console.log("7. statLines — 💡 lesson rollup khi autopsy bị mute (0.4.x: gate ≥10 lệnh đóng)");
 const withLesson = closed(30, { pnl: -1, at: NOW - 10 * MIN, autopsy: JSON.stringify({ outcome: "loss", tag: "chase", why: [], lesson: "Don't enter right after a whale bar." }) });
-const noLesson = closed(31, { pnl: 1, at: NOW - 5 * MIN, autopsy: JSON.stringify({ outcome: "win", tag: "ok", why: [], lesson: "" }) });
+const noLesson = closed(31, { pnl: -1, at: NOW - 5 * MIN, autopsy: JSON.stringify({ outcome: "loss", tag: "ok", why: [], lesson: "" }) }); // loss — nhánh lesson chỉ chạy khi 3 lệnh mới nhất đều lỗ
 const badJson = closed(32, { pnl: -1, at: NOW - 4 * MIN, autopsy: "{not json" });
-let lines = statLines(stOf([badJson, withLesson, noLesson]), NOW - 60 * MIN, "⏰ <b>HOURLY</b>", "last 1h");
-check("có dòng 💡 Lesson với symbol của lệnh có autopsy hợp lệ", lines.some((l) => l.startsWith("💡 Lesson (#BTC 15m):") && l.includes("whale bar")));
-check("lesson rỗng/JSON hỏng bị bỏ qua (không crash)", !lines.some((l) => l.includes("not json")));
+// 0.4.x: lesson rollup cần ≥10 lệnh đóng (MIN_TRADES) — dưới ngưỡng chỉ in dòng gate
+const gateLines = statLines(stOf([withLesson, noLesson, badJson]), NOW - 60 * MIN, "⏰ <b>HOURLY</b>", "last 1h");
+check("dưới 10 lệnh → dòng gate 'Chưa đủ mẫu (n=3/10)', không lesson per-trade", gateLines.some((l) => l.startsWith("💡 Lesson: Chưa đủ mẫu (n=3/10)")) && gateLines.every((l) => !l.startsWith("💡 Lesson (#")));
+const fill9 = Array.from({ length: 9 }, (_, i) => closed(100 + i, { pnl: -1, at: NOW - (40 + i) * MIN }));
+let lines = statLines(stOf([badJson, withLesson, noLesson, ...fill9]), NOW - 60 * MIN, "⏰ <b>HOURLY</b>", "last 1h");
+check("có dòng 💡 Lesson với symbol của lệnh có autopsy hợp lệ (đủ 12 lệnh đóng)", lines.some((l) => l.startsWith("💡 Lesson (#BTC 15m):") && l.includes("whale bar")));
+check("lesson rỗng/JSON hỏng bị bỏ qua (không crash)", !lines.some((l) => l.includes("not json")) && lines.filter((l) => l.startsWith("💡 Lesson")).length === 1);
 const escLesson = closed(33, { pnl: -1, at: NOW - 2 * MIN, autopsy: JSON.stringify({ lesson: "avoid <b>fakeout</b> & chase" }) });
-lines = statLines(stOf([escLesson]), NOW - 60 * MIN, "⏰ <b>HOURLY</b>", "last 1h");
+lines = statLines(stOf([escLesson, ...Array.from({ length: 10 }, (_, i) => closed(200 + i, { pnl: -1, at: NOW - (30 + i) * MIN }))]), NOW - 60 * MIN, "⏰ <b>HOURLY</b>", "last 1h");
 check("lesson escape HTML (& < >)", lines.some((l) => l.includes("&lt;b&gt;fakeout&lt;/b&gt; &amp; chase")));
 const longLesson = closed(34, { pnl: -1, at: NOW - MIN, autopsy: JSON.stringify({ lesson: "x".repeat(200) }) });
-lines = statLines(stOf([longLesson]), NOW - 60 * MIN, "⏰ <b>HOURLY</b>", "last 1h");
+lines = statLines(stOf([longLesson, ...Array.from({ length: 10 }, (_, i) => closed(300 + i, { pnl: -1, at: NOW - (30 + i) * MIN }))]), NOW - 60 * MIN, "⏰ <b>HOURLY</b>", "last 1h");
 const lessonLine = lines.find((l) => l.startsWith("💡 Lesson"));
-check("lesson dài cắt tại 130 + …", !!lessonLine && lessonLine.includes("…") && lessonLine.length <= "💡 Lesson (#BTCUSDT 15m): ".length + 131);
+check("lesson dài cắt tại 130 + …", !!lessonLine && lessonLine.includes("…") && lessonLine.length <= "💡 Lesson (#BTC 15m): ".length + 131);
 const newest = closed(35, { pnl: -1, sym: "NEWUSDT", at: NOW - MIN, autopsy: JSON.stringify({ lesson: "newest lesson wins" }) });
-lines = statLines(stOf([withLesson, newest]), NOW - 60 * MIN, "⏰ <b>HOURLY</b>", "last 1h");
+lines = statLines(stOf([withLesson, newest, ...Array.from({ length: 8 }, (_, i) => closed(400 + i, { pnl: -1, at: NOW - (30 + i) * MIN }))]), NOW - 60 * MIN, "⏰ <b>HOURLY</b>", "last 1h");
 check("chỉ 1 lesson MỚI NHẤT mỗi digest", lines.filter((l) => l.startsWith("💡 Lesson")).length === 1 && lines.some((l) => l.includes("newest lesson wins")));
-lines = statLines(stOf([closed(36, { pnl: -1, at: NOW - MIN })]), NOW - 60 * MIN, "⏰ <b>HOURLY</b>", "last 1h");
-check("không có autopsy → không in dòng 💡", !lines.some((l) => l.startsWith("💡 Lesson")));
+lines = statLines(stOf([closed(36, { pnl: -1, at: NOW - MIN }), ...Array.from({ length: 10 }, (_, i) => closed(500 + i, { pnl: -1, at: NOW - (30 + i) * MIN }))]), NOW - 60 * MIN, "⏰ <b>HOURLY</b>", "last 1h");
+check("đủ mẫu nhưng không autopsy có lesson → không dòng 💡 per-trade", !lines.some((l) => l.startsWith("💡 Lesson (#")));
 
 // ── 6 · wiring — 5 điểm đóng lệnh dồn qua notifyClosed + các cổng mute ──────
 console.log("8. wiring engine.ts / autopsy.ts");
 const eng = readFileSync("src/lib/engine.ts", "utf8");
 const aut = readFileSync("src/lib/autopsy.ts", "utf8");
-check("engine: 5 chỗ đóng lệnh đều qua notifyClosed", (eng.match(/void notifyClosed\(closed\);/g) ?? []).length === 5);
+check("engine: 3 chỗ đóng lệnh đều qua notifyClosed (closeTradeDirect gộp)", (eng.match(/void notifyClosed\(/g) ?? []).length === 3);
 check("engine: không còn cụm msgClose trực tiếp", !eng.includes("msgClose(closed"));
 check("engine: cổng mute veto", eng.includes('tgMuted("veto")'));
 check("engine: cổng mute near", eng.includes('tgMuted("near")'));
 check("engine: cổng mute scan (bookkeep vẫn chạy)", eng.includes('tgMuted("scan")'));
 check("autopsy: cổng mute autopsy", aut.includes('tgMuted("autopsy")'));
 const alerts = readFileSync("src/lib/tg-alerts.ts", "utf8");
-check("chỉ close push được gate — alert tier-1 gửi thẳng không mute", alerts.includes('if (!tgMuted("close"))') && alerts.includes("msgLossStreak(chain.length, chain, st.capital)") && alerts.includes("msgDrawdown(x, closed)"));
+check("chỉ close push được gate — alert tier-1 gửi thẳng không mute", alerts.includes('if (!tgMuted("close"))') && alerts.includes("msgLossStreak(chain.length, chain, balAfter)") && alerts.includes("msgDrawdown(x, closed)"));
 
 console.log(fail === 0 ? "\nALL PASS" : `\n${fail} FAIL`);
 process.exit(fail === 0 ? 0 : 1);

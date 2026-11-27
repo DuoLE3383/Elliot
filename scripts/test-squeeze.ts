@@ -36,9 +36,9 @@ ok(sessionDirection(62).dir === "LONG", "62% → LONG");
 ok(sessionDirection(38).dir === "SHORT", "38% → SHORT");
 ok(sessionDirection(52).dir === "SIDEWAYS", "52% → SIDEWAYS");
 ok(sessionDirection(60).dir === "LONG" && sessionDirection(40).dir === "SHORT", "biên 60/40 thuộc LONG/SHORT");
-ok(sessionDirection(65).pTxt.includes("nến tăng"), "LONG → P theo nến tăng");
-ok(sessionDirection(35).pTxt.includes("nến giảm"), "SHORT → P theo nến giảm");
-ok(sessionDirection(50).pTxt.includes("không thiên hướng rõ"), "SIDEWAYS → ghi rõ không thiên hướng");
+ok(sessionDirection(65).pTxt.includes("bullish candles"), "LONG → P theo nến tăng");
+ok(sessionDirection(35).pTxt.includes("bearish candles"), "SHORT → P theo nến giảm");
+ok(sessionDirection(50).pTxt.includes("no clear lean"), "SIDEWAYS → ghi rõ không thiên hướng");
 ok(Math.abs(sessionDirection(72.34).pPct - 72.34) < 1e-9, "P giữ 1 số thập phân nguyên bản");
 
 // ─── 2. dumpPressure — crowd long + funding dương + bán đẩy + giá rơi ────────
@@ -139,8 +139,8 @@ const mockSq: SqueezeReport = {
   }),
 };
 const msg = buildSessionOpenMessage("tokyo", NOW, series(500), NOW, mockSq);
-ok(msg.includes("Chiều Hướng <b>"), "dòng Phiên tới có Chiều Hướng");
-ok(/n=\d+ phiên gần nhất/.test(msg), "số phiên mẫu n= hiển thị");
+ok(msg.includes("Bias <b>"), "dòng Phiên tới có Bias");
+ok(/n=\d+ recent sessions/.test(msg), "số phiên mẫu n= hiển thị");
 ok(msg.includes("⛓ Đòn bẩy:"), "khối ⛓ đòn bẩy xuất hiện");
 ok(msg.includes("RỦI RO DUMP CAO") || msg.includes("rủi ro dump"), `nhãn rủi ro dump: "${mockSq.risk.label}"`);
 ok(msg.includes("Coinglass"), "chú thích nguồn dữ liệu nhắc Coinglass");
@@ -149,7 +149,7 @@ ok(!msg.includes("undefined") && !msg.includes("NaN"), "không rò undefined/NaN
 // không có squeeze → không khối ⛓, message vẫn lành
 const msgNoSq = buildSessionOpenMessage("tokyo", NOW, series(500), NOW, null);
 ok(!msgNoSq.includes("⛓ Đòn bẩy"), "không có report → bỏ khối ⛓ Đòn bẩy, không crash");
-ok(msgNoSq.includes("Chiều Hướng <b>"), "Phiên tới vẫn có Chiều Hướng");
+ok(msgNoSq.includes("Bias <b>"), "Phiên tới vẫn có Bias");
 
 // ─── 4. LIVE — getSqueezeReport thật (best-effort) ────────────────────────────
 

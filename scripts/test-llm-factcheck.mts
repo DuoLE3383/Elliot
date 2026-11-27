@@ -89,29 +89,29 @@ const pass =
   // checks block đủ 5 dòng với số ĐÚNG (đúng case user gặp)
   p.includes("rr_check: tp/sl = 1.42 -> matches rr=1:1.42 above -> CONSISTENT") &&
   p.includes(
-    'coinflip_check: val_acc=78.1% (+28.1 pts, not barely) · val_auc=0.845 (+0.345, not barely) — the "barely above coin flip" skip condition does NOT apply',
+    'coinflip_check: val_acc=78.10% (+28.10 pts, not barely) · val_auc=0.84 (+0.34, not barely) — the "barely above coin flip" skip condition does NOT apply',
   ) &&
-  p.includes("liq_check: liquidation 5.0% is 4.2x beyond the SL 1.2% — NOT dangerously close") &&
-  p.includes("gate_check: engine gate PASSED (score 66.5)") &&
-  p.includes("sample_base: 288 train rows ~ 3.0 days of 15m candles") &&
+  p.includes("liq_check: liquidation 5.00% is 4.17x beyond the SL 1.20% — NOT dangerously close") &&
+  p.includes("gate_check: engine gate PASSED (score 66.50)") &&
+  p.includes("sample_base: 288 train rows ~ 3.00 days of 15m candles") &&
   // acc/auc yếu → MAY apply
-  pWeak.includes("(+5.2 pts, barely)") &&
+  pWeak.includes("(+5.20 pts, barely)") &&
   pWeak.includes("MAY apply") &&
   !pWeak.includes("does NOT apply") &&
   // SL sát liq / SL dưới liq → 2 nhánh dangerous
-  pTight.includes("liq_check: liquidation 5.0% is only 1.1x beyond the SL 4.5% — dangerously close") &&
-  pInside.includes("liq_check: liquidation 5.0% is INSIDE the SL 6.0% (liq hits first) — dangerously close") &&
+  pTight.includes("liq_check: liquidation 5.00% is only 1.11x beyond the SL 4.50% — dangerously close") &&
+  pInside.includes("liq_check: liquidation 5.00% is INSIDE the SL 6.00% (liq hits first) — dangerously close") &&
   // fact-check theo verdict: skip cờ lý do mượn coin-flip, go không cờ
-  skipReasons[0].includes("⚠ trái coinflip_check: val_acc=78.1%") &&
-  skipReasons[1].includes("⚠ trái coinflip_check: val_auc=0.845") &&
-  skipReasons[2].includes("⚠ sai số liệu: tp/sl=1.42 = rr 1:1.42") &&
+  skipReasons[0].includes("⚠ contradicts coinflip_check: val_acc=78.10%") &&
+  skipReasons[1].includes("⚠ contradicts coinflip_check: val_auc=0.84") &&
+  skipReasons[2].includes("⚠ fact-check: tp/sl=1.42 = rr 1:1.42") &&
   skipReasons[3] === "train_samples=288 is small" &&
   skipReasons[4] === "rr 1:1.42 is thin" &&
   goReasons[0] === "val_acc=78.1% is above 50%" &&
   weakAcc[0] === "val_acc close to 50%" &&
   // đường production: reasons đi ra từ llmReviewDebug đã cờ đúng chỗ
   dbg.ok === true &&
-  dbg.verdict?.reasons[0]?.includes("⚠ trái coinflip_check") === true &&
+  dbg.verdict?.reasons[0]?.includes("⚠ contradicts coinflip_check") === true &&
   dbg.verdict?.reasons[1] === "train_samples=288 is small" &&
   // system prompt: nudge go + cấm bịa điều kiện skip mới + hết ví dụ nguyên văn
   received.includes("verdict MUST be 'go'") &&

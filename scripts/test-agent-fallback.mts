@@ -28,7 +28,7 @@ const check = (name: string, ok: boolean, detail = "") => {
 /** stats fixture — chỉ các field decidePatch đọc. */
 const st = (over: Partial<MethodStats>): MethodStats =>
   ({
-    methodId: "m1", n: 16, wins: 8, winRate: 46, netRoe: -23.04,
+    methodId: "m1", n: 16, wins: 8, winRate: 46, netRoi: -23.04,
     expectancy: -1.44, avgWin: 1.2, avgLoss: -2.1, ...over,
   }) as MethodStats;
 /** cfg fixture — đúng 4 field decidePatch chạm. */
@@ -43,12 +43,12 @@ console.log("1. aggStats — tổng hợp pnl thuần (flat không vào nồi n�
   check("n=6 (flat vẫn tính n)", a.n === 6);
   check("wins=3 (2 · 3 · 1.5)", a.wins === 3);
   check("winRate=50%", a.winRate === 50);
-  check("netRoe=5 (làm tròn 2 chữ số)", a.netRoe === 5);
+  check("netRoi=5 (làm tròn 2 chữ số)", a.netRoi === 5);
   check("expectancy=0.83 (5/6, round 2dp)", a.expectancy === 0.83);
   check("avgWin=6.5/3", Math.abs(a.avgWin - 6.5 / 3) < 1e-12);
   check("avgLoss=−1.5/3 (n−wins gồm cả flat — cùng công thức measureMethods)", a.avgLoss === -0.5);
   const e = aggStats("x", []);
-  check("rỗng → n=0, mọi rate 0, không NaN", e.n === 0 && e.winRate === 0 && e.expectancy === 0 && e.avgWin === 0 && e.avgLoss === 0 && Number.isFinite(e.netRoe));
+  check("rỗng → n=0, mọi rate 0, không NaN", e.n === 0 && e.winRate === 0 && e.expectancy === 0 && e.avgWin === 0 && e.avgLoss === 0 && Number.isFinite(e.netRoi));
 }
 
 // ══ 2 · hồi quy method-pure — đầu ra BYTE-IDENTICAL với 0.2.72 ═══════════════
@@ -57,14 +57,14 @@ console.log("2. method-pure giữ nguyên hành vi cũ (không truyền recent)"
   const r = decidePatch(st({ n: 16, expectancy: -1.44, winRate: 46 }), cfg());
   check("n=16 exp<0 → tighten đủ 3 field", JSON.stringify(r.patch) === JSON.stringify({ minScore: 62, minAcc: 71, riskPct: 10 }), JSON.stringify(r.patch));
   check("kind=promote", r.kind === "promote");
-  check("note format cũ giữ nguyên", r.note === "tighten entry: exp -1.44% WR 46% n=16 → minScore 62 minAcc 71 risk 10%", r.note);
+  check("note format cũ giữ nguyên", r.note === "tighten entry: exp -1.44% WR 46.00% n=16 → minScore 62 minAcc 71 risk 10%", r.note);
 
   const r2 = decidePatch(st({ n: 12, expectancy: -1.44 }), cfg());
   check("n=12 (10≤n<15) → measure, không tighten", r2.patch === null && r2.kind === "measure");
-  check("note tracking cũ", r2.note === "tracking exp -1.44% WR 46% n=12", r2.note);
+  check("note tracking cũ", r2.note === "tracking exp -1.44% WR 46.00% n=12", r2.note);
 
   const r3 = decidePatch(st({ n: 25, expectancy: 0.5, winRate: 60 }), cfg({ riskPct: 10 }));
-  check("n=25 exp≥0.3 WR≥48 risk10 → restore 25", JSON.stringify(r3.patch) === JSON.stringify({ riskPct: 25 }) && r3.note === "restore risk 10→25 · exp 0.5% WR 60% n=25", r3.note);
+  check("n=25 exp≥0.3 WR≥48 risk10 → restore 25", JSON.stringify(r3.patch) === JSON.stringify({ riskPct: 25 }) && r3.note === "restore risk 10→25 · exp 0.5% WR 60.00% n=25", r3.note);
 
   const r4 = decidePatch(st({ n: 25, expectancy: 0.5, winRate: 60 }), cfg({ riskPct: 25 }));
   check("risk 25 → không restore (chỉ từ 10)", r4.patch === null && r4.kind === "measure");
@@ -76,12 +76,12 @@ console.log("2. method-pure giữ nguyên hành vi cũ (không truyền recent)"
 // ══ 3 · FALLBACK — cửa sổ gần siết khi method active còn non ══════════════════
 console.log("3. fallback tighten — recent cross-method, TIGHTEN ONLY");
 {
-  const rec = st({ methodId: "__recent__", n: 28, expectancy: -1.44, winRate: 46, netRoe: -40.3 });
+  const rec = st({ methodId: "__recent__", n: 28, expectancy: -1.44, winRate: 46, netRoi: -40.3 });
 
   const r = decidePatch(undefined, cfg(), null, rec);
   check("starved + recent 28 exp<0 → tighten đủ 3 field", JSON.stringify(r.patch) === JSON.stringify({ minScore: 62, minAcc: 71, riskPct: 10 }), JSON.stringify(r.patch));
   check("kind=promote", r.kind === "promote");
-  check("note ghi rõ fallback + nguồn", r.note.startsWith("fallback tighten (recent 28 closed, cross-method): exp -1.44% WR 46% · active method only 0 → minScore 62 minAcc 71 risk 10%"), r.note);
+  check("note ghi rõ fallback + nguồn", r.note.startsWith("fallback tighten (recent 28 closed, cross-method): exp -1.44% WR 46.00% · active method only 0 → minScore 62 minAcc 71 risk 10%"), r.note);
 
   const r2 = decidePatch(st({ n: 3, expectancy: -2 }), cfg(), null, rec);
   check("method có 3 lệnh (non nhưng có) → vẫn fallback, note 'active method only 3'", r2.patch?.minScore === 62 && r2.note.includes("active method only 3"), r2.note);
@@ -96,10 +96,10 @@ console.log("3. fallback tighten — recent cross-method, TIGHTEN ONLY");
   check("gates ở trần + risk sàn → fallback idle, không patch", r5.patch === null && r5.kind === "skip" && r5.note.includes("fallback nothing left to tighten (minScore 85 · risk 10%)"), r5.note);
 
   const r6 = decidePatch(st({ n: 16, expectancy: -1.44 }), cfg(), null, rec);
-  check("method-pure đủ mẫu → DÙNG method-pure, không lẫn note fallback", r6.note === "tighten entry: exp -1.44% WR 46% n=16 → minScore 62 minAcc 71 risk 10%", r6.note);
+  check("method-pure đủ mẫu → DÙNG method-pure, không lẫn note fallback", r6.note === "tighten entry: exp -1.44% WR 46.00% n=16 → minScore 62 minAcc 71 risk 10%", r6.note);
 
   const r7 = decidePatch(st({ n: 25, expectancy: 0.5, winRate: 60 }), cfg({ riskPct: 10 }), null, rec);
-  check("method-pure lành (n≥20) + recent âm → fallback KHÔNG đè (recent chỉ chạy khi starved)", r7.note === "restore risk 10→25 · exp 0.5% WR 60% n=25" && r7.patch?.riskPct === 25, r7.note);
+  check("method-pure lành (n≥20) + recent âm → fallback KHÔNG đè (recent chỉ chạy khi starved)", r7.note === "restore risk 10→25 · exp 0.5% WR 60.00% n=25" && r7.patch?.riskPct === 25, r7.note);
 }
 
 // ══ 4 · AGENT_FALLBACK_N — ngưỡng runtime + off-switch ═══════════════════════
@@ -128,7 +128,7 @@ console.log("5. flip-cooldown tuning — hết bị cổng method-pure chặn");
   const bleed = st({ methodId: "__flip__", n: 8, expectancy: -1.2, winRate: 38 });
   const r = decidePatch(undefined, cfg({ flipCooldownMin: 0 }), bleed);
   check("starved + flip n=8 exp<0 → cooldown 0→15", JSON.stringify(r.patch) === JSON.stringify({ flipCooldownMin: 15 }) && r.kind === "promote", JSON.stringify(r.patch));
-  check("note flip churn cũ nguyên văn", r.note === "flip churn bleed: exp -1.2% WR 38% n=8 → flipCooldownMin 0→15", r.note);
+  check("note flip churn cũ nguyên văn", r.note === "flip churn bleed: exp -1.2% WR 38.00% n=8 → flipCooldownMin 0→15", r.note);
 
   const healthy = st({ methodId: "__flip__", n: 9, expectancy: 0.5, winRate: 55 });
   const r2 = decidePatch(undefined, cfg({ flipCooldownMin: 30 }), healthy);
@@ -140,7 +140,7 @@ console.log("5. flip-cooldown tuning — hết bị cổng method-pure chặn");
   check(
     "note đủ 2 đoạn theo đúng thứ tự",
     r3.note ===
-      "fallback tighten (recent 28 closed, cross-method): exp -1.44% WR 46% · active method only 0 → minScore 62 minAcc 71 risk 10% · flip churn bleed: exp -1.2% WR 38% n=8 → flipCooldownMin 0→15",
+      "fallback tighten (recent 28 closed, cross-method): exp -1.44% WR 46.00% · active method only 0 → minScore 62 minAcc 71 risk 10% · flip churn bleed: exp -1.2% WR 38.00% n=8 → flipCooldownMin 0→15",
     r3.note,
   );
 

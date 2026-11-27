@@ -61,14 +61,14 @@ check("SESS_SYMBOL reset", pval("SESS_SYMBOL", SESS_SYMBOL) === "BTCUSDT");
 // 6) catalog: 7 nhóm + 32 row + string item giữ nguyên view
 hydrateParams();
 const cat = paramCatalog();
-check("catalog has 7 groups", cat.groups.length === 7);
+check("catalog has 11 groups (0.4.x thêm Quality gate / 5-minute broadcast / Scan digest / Train-Prob)", cat.groups.length === 11);
 check("catalog items >= 32", EDITABLE.length >= 32);
 const groups = cat.groups.map((g) => g.name);
 check("group Universe / sessions exists", groups.includes("Universe / sessions"));
 const sess = cat.groups.flatMap((g) => g.items).find((i) => i.key === "SESS_SYMBOL")!;
 check("SESS_SYMBOL catalog string + pattern", sess.type === "string" && sess.pattern === "^[A-Z0-9]{5,20}$" && sess.view === "BTCUSDT");
 const to = cat.groups.flatMap((g) => g.items).find((i) => i.key === "LLM_TIMEOUT_MS")!;
-check("LLM_TIMEOUT view in seconds (300)", to.view === 300 && to.unit === "s");
+check("LLM_TIMEOUT view in seconds (600)", to.view === 600 && to.unit === "s");
 const depth = cat.groups.flatMap((g) => g.items).find((i) => i.key === "XGB_DEPTH")!;
 check("XGB_DEPTH catalog present", depth.type === "number" && depth.def === XGB_BASE.depth);
 

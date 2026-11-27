@@ -23,6 +23,7 @@ const DIR = "/tmp/elliott-test-ss";
 const FILE = `${DIR}/scan-state.json`;
 rmSync(DIR, { recursive: true, force: true });
 
+process.env.DATA_DIR = DIR; // đặt TRƯỚC dynamic import — data-dir đọc DATA_DIR lúc module init
 const { loadScanState, saveScanState } = await import("../src/lib/scan-state");
 
 console.log("\n[4] scan-state — roundtrip qua file, filter row hỏng");

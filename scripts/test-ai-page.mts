@@ -69,7 +69,7 @@ check("llmSetupOpen + utp.llmSetupOpen đã xoá", !page.includes("llmSetupOpen"
 console.log("── 3. Nền trang (0.2.83: TechBackground toàn cục) ──");
 check("root /ai trong suốt — nền từ TechBackground, hết #0a100f cũ", page.includes("min-h-screen bg-transparent") && !page.includes("bg-[#0a100f]"));
 check("nền cũ zinc-950 phẳng đã xoá khỏi root", !page.includes("min-h-screen bg-zinc-950"));
-check("sticky header (sticky top-0 + backdrop-blur)", /sticky top-0 z-30[\s\S]{0,120}backdrop-blur/.test(page));
+check("sticky header (sticky top-9 + backdrop-blur — né thanh global)", /sticky top-9 z-30[\s\S]{0,120}backdrop-blur/.test(page));
 check("header tint navy translucent #020617/85", page.includes("bg-[#020617]/85"));
 check("layout gắn TechBackground + body navy #020617", layout.includes("<TechBackground />") && layout.includes("bg-[#020617]"));
 check("themeColor khớp nền navy #020617", layout.includes('themeColor: "#020617"'));
@@ -79,19 +79,17 @@ check("TechBackground đủ 4 lớp animation (mạch/node/pixel/sao)", (() => {
 })());
 
 console.log("── 4. Bố cục dọn trang ──");
-check("About gấp gọn mặc định: aboutOpen=false + render điều kiện", /const \[aboutOpen, setAboutOpen\] = useState\(false\)/.test(page) && page.includes("{aboutOpen ? (") && page.includes(": null}"));
+check("About gấp gọn: Stage accordion ai-about (Trạm 9) cuối trang, sau dive", page.includes('id="ai-about"') && page.indexOf('id="ai-about"') > page.indexOf('t(lang, "ai.dive.title")'));
 check("About chứa 2 lớp AI + Prob (layers.xgb.t + prob.warn)", page.includes('t(lang, "ai.layers.xgb.t")') && page.includes('t(lang, "ai.prob.warn")'));
-check("thứ tự mới: engine TRƯỚC llm TRƯỚC reliab TRƯỚC data TRƯỚC autopsy", (() => {
-  const order = ["ai.engine.title", "ai.llm.title", "ai.reliab.title", "ai.data.title", "ai.autopsy.title", "ai.champ.title", "ai.evo.title", "ai.dive.title", "ai.about.title"].map((k) => page.indexOf(`t(lang, "${k}")`));
+check("thứ tự 0.4.x: data·champ TRƯỚC reliab TRƯỚC engine TRƯỚC llm TRƯỚC autopsy TRƯỚC evo TRƯỚC dive TRƯỚC about", (() => {
+  const order = ["ai.data.title", "ai.champ.title", "ai.reliab.title", "ai.engine.title", "ai.llm.title", "ai.autopsy.title", "ai.evo.title", "ai.dive.title", "ai.about.title"].map((k) => page.indexOf(`t(lang, "${k}")`));
   return order.every((v) => v >= 0) && order.every((v, i) => i === 0 || v > order[i - 1]);
 })());
-check("engine + llm chung hàng 1, evo + dive chung hàng 2 (xl:grid-cols-2 ×2)", (() => {
-  const rows = [...page.matchAll(/grid gap-4 xl:grid-cols-2/g)].map((m) => m.index ?? -1);
-  const eng = page.indexOf('t(lang, "ai.engine.title")');
-  const llm = page.indexOf('t(lang, "ai.llm.title")');
-  const evo = page.indexOf('t(lang, "ai.evo.title")');
-  const dive = page.indexOf('t(lang, "ai.dive.title")');
-  return rows.length === 2 && rows[0] > -1 && rows[0] < eng && eng < llm && llm < rows[1] && rows[1] < evo && evo < dive;
+check("cards xếp dọc 1 cột — chỉ card data·champ còn grid xl:grid-cols-2", (() => {
+  const rows = [...page.matchAll(/grid gap-3 xl:grid-cols-2/g)].map((m) => m.index ?? -1);
+  const data = page.indexOf('t(lang, "ai.data.title")');
+  const rel = page.indexOf('t(lang, "ai.reliab.title")');
+  return rows.length === 1 && rows[0] > data && rows[0] < rel;
 })());
 check("updated/build dồn vào header (không còn dòng riêng sau header)", page.indexOf("ai.updated") > page.indexOf("<header") && page.indexOf("ai.updated") < page.indexOf("</header>"));
 check("cfg engine: giá trị dài wrap được trên mobile (min-w-0 break-words, bỏ shrink-0)", (() => {

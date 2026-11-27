@@ -83,10 +83,10 @@ console.log(
 void (0 as unknown as AutoTradeRow | undefined); // kiểu chỉ để chắc import không gãy
 
 const pass =
-  gated?.source.includes("đạt gate") === true &&
+  gated?.source.includes("gate passed") === true &&
   gated?.setup.symbol === "ETHUSDT" &&
   gated?.setup.samples === 48000 &&
-  ungated?.source.includes("CHƯA đạt gate") === true &&
+  ungated?.source.includes("gate NOT passed") === true &&
   ungated?.setup.samples === 1200 &&
   empty === null &&
   neutral === null &&

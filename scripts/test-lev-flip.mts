@@ -3,9 +3,10 @@
 //     score ≥ sàn vào lệnh + FLIP_SCORE_EXTRA (chi tiết cases ở test-autoflip
 //     mục 2b; file này kiểm defaults + off-switch).
 //  B. SL/TP ĐỘC LẬP ĐÒN BẨY — levNormScale (off/sqrt/lin, chỉ thu hẹp) +
-//     levAdjSlTp (mui thanh khoản TP_LIQ_SAFE mọi tpMode, sàn 0.15%, R:R giữ).
+//     levAdjSlTp (mui thanh khoản TP_LIQ_SAFE mọi tpMode + mui ROI SL_ROI_MAX
+//     0.2.89, sàn 0.15%, R:R giữ — mui ROI thắng sàn khi nhỏ hơn).
 import { levNormScale, levAdjSlTp, flipDecision, type ScanRow } from "../src/lib/autotrade.ts";
-import { FLIP_PROB_MIN, FLIP_SCORE_EXTRA, TP_LEV_MODE, TP_LEV_REF, TP_LIQ_SAFE } from "../src/lib/params.ts";
+import { FLIP_PROB_MIN, FLIP_SCORE_EXTRA, TP_LEV_MODE, TP_LEV_REF, TP_LIQ_SAFE, SL_ROI_MAX } from "../src/lib/params.ts";
 import { setOverride } from "../src/lib/params-store.ts";
 import { readFileSync } from "fs";
 
@@ -70,18 +71,19 @@ let a = levAdjSlTp(1.8, 2.52, 1, 10);
 check("identity khi scale 1, không chạm mui (cap 6%)", near(a.slPct, 1.8) && near(a.tpPct, 2.52));
 a = levAdjSlTp(1.8, 2.52, 0.5, 20);
 check("lin lev 20: SL 1.8→0.9 · TP 2.52→1.26", near(a.slPct, 0.9) && near(a.tpPct, 1.26));
+// 0.2.89 thêm mui ROI-at-SL (SL_ROI_MAX = 20) SAU mui liq — cap lần 2 giữ R:R
 a = levAdjSlTp(5, 7, 1, 20);
-check("mui mặc định 60%: lev 20 cap 3% → SL 5→3, TP 7→4.2", near(a.slPct, 3) && near(a.tpPct, 4.2));
+check("mui liq 60%: lev 20 → cap 3% (5→3, 7→4.2), rồi mui ROI 20 → 1/1.4", near(a.slPct, 1) && near(a.tpPct, 1.4));
 a = levAdjSlTp(5, 7, 1, 50);
-check("manual semantics (scale 1) vẫn ăn mui: lev 50 cap 1.2 → 1.2/1.68", near(a.slPct, 1.2) && near(a.tpPct, 1.68));
+check("manual semantics (scale 1) vẫn ăn cả 2 mui: lev 50 liq 1.2 → ROI 20 → 0.4/0.56", near(a.slPct, 0.4) && near(a.tpPct, 0.56));
 a = levAdjSlTp(0.06, 0.084, 1, 10);
 check("sàn 0.15%: SL 0.06→0.15, TP theo → 0.21", near(a.slPct, 0.15) && near(a.tpPct, 0.21));
 a = levAdjSlTp(0.06, 0.084, 1, 500);
-check("mui < sàn (lev 500 cap 0.12%) → mui thắng, không sàn", near(a.slPct, 0.06));
+check("mui ROI 20 < sàn (lev 500) → mui ROI thắng sàn: SL 0.06→≤0.04 (fp floor 0.03), không nâng lên sàn", a.slPct <= 0.0401 && a.slPct >= 0.029 && a.tpPct <= 0.0601 && a.tpPct >= 0.049);
 a = levAdjSlTp(1.8, 2.52, 0.25, 40);
 check("R:R 1.4 giữ nguyên sau scale (0.45/0.63, sai số làm tròn 2dp)", near(a.tpPct / a.slPct, 1.4, 0.03));
 a = levAdjSlTp(5, 7, 1, 20);
-check("R:R giữ nguyên sau mui (3/4.2)", near(a.tpPct / a.slPct, 7 / 5, 0.03));
+check("R:R giữ nguyên sau 2 mui (1/1.4)", near(a.tpPct / a.slPct, 7 / 5, 0.03));
 
 console.log("6. độc lập ROI-at-SL — lin ref 10, SL gốc 1.8% (baseline 18% ROI)");
 const roiAt = (lev: number): number => levAdjSlTp(1.8, 2.52, levNormScale(lev), lev).slPct * lev;
@@ -102,11 +104,11 @@ const ps = readFileSync("src/lib/params-store.ts", "utf8");
 check("engine: áp levAdjSlTp ở CẢ HAI luồng (entry + flip)", eng.includes("levAdjSlTp(entrySl, entryTp") && eng.includes("levAdjSlTp(slPct, tpPct"));
 check("engine: lệnh ghi finalSl/finalTp (2 create)", (eng.match(/slPct: finalSl,/g) ?? []).length === 2);
 check("engine: LLM duyệt theo SL/TP ĐÃ hiệu chỉnh (finalSl vào llmGate)", eng.includes("finalSl,\n      finalTp,") || eng.includes("finalSl, finalTp"));
-check("engine: manual bỏ scale nhưng vẫn mui (ternary manual ? 1)", (eng.match(/c\.tpMode === "manual" \? 1 : levNormScale\(p\.leverage\)/g) ?? []).length === 2);
+check("engine: manual bỏ scale nhưng vẫn mui ở CẢ 3 luồng (entry dynLev + flip bù stake + force)", (eng.match(/c\.tpMode === "manual" \? 1 : levNormScale\((?:tradeLev|p\.leverage)\)/g) ?? []).length === 3);
 check("engine: msgOpen ATR note có lev-norm khi scale < 1", eng.includes("lev-norm ×"));
 check("params-store: nhóm Flip / SL-TP đủ 5 núm", ["FLIP_PROB_MIN", "FLIP_SCORE_EXTRA", "TP_LEV_MODE", "TP_LEV_REF", "TP_LIQ_SAFE"].every((k) => ps.includes(`"${k}"`)));
 check("params-store: TP_LEV_MODE pattern chặn giá trị lạ", ps.includes("^(off|sqrt|lin)$"));
-check("mặc định: TP_LEV_MODE lin · TP_LEV_REF 10 · TP_LIQ_SAFE 60", TP_LEV_MODE === "lin" && TP_LEV_REF === 10 && TP_LIQ_SAFE === 60);
+check("mặc định: TP_LEV_MODE lin · TP_LEV_REF 10 · TP_LIQ_SAFE 60 · SL_ROI_MAX 20", TP_LEV_MODE === "lin" && TP_LEV_REF === 10 && TP_LIQ_SAFE === 60 && SL_ROI_MAX === 20);
 
 console.log(fail === 0 ? "\nALL PASS" : `\n${fail} FAIL`);
 process.exit(fail === 0 ? 0 : 1);
