@@ -30,7 +30,7 @@ export const dynamic = "force-dynamic";
 
 // the route may be hit before instrumentation's dynamic import resolves —
 // make sure the scheduler exists on first touch (idempotent)
-void startEngineScheduler();
+if (process.env.NEXT_PHASE !== "phase-production-build") void startEngineScheduler();
 
 export async function GET() {
   try {

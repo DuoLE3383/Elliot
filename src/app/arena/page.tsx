@@ -7,6 +7,7 @@
 //   trực tiếp được; live vốn là balance Binance thật.
 
 import { arenaSnapshot, type ArenaSnapshot } from "@/lib/arena";
+import { AppHeader } from "@/components/app-header";
 
 export const dynamic = "force-dynamic";
 
@@ -106,7 +107,10 @@ export default async function ArenaPage() {
     err = e instanceof Error ? e.message : String(e);
   }
   return (
-    <main className="mx-auto max-w-5xl space-y-4 p-4">
+    <>
+      {/* nav dùng chung 5 trang — arena là server component, AppHeader là client */}
+      <AppHeader />
+      <main className="mx-auto max-w-5xl space-y-4 p-4">
       <div>
         <h1 className="text-2xl font-bold">Arena A/B/C/D — Vulcan vs Elliott vs Wyckoff vs Liquid</h1>
         <p className="mt-1 text-sm text-white/50">
@@ -192,5 +196,6 @@ export default async function ArenaPage() {
         </>
       )}
     </main>
+    </>
   );
 }

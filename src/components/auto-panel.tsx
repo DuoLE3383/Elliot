@@ -682,9 +682,9 @@ const capitalNow = auto?.capital ?? cfg.capital;
   // bảng scan + tooltip funnel tô theo ef; các ô nhập ở panel vẫn là cfg (kênh
   // chỉnh tay — DQF đè khi bật và đủ mẫu, xem /stats trạm "Sàn chất lượng động").
   const ef = effFloors ?? { minScore: cfg.minScore, minAuc: cfg.minAuc, minAcc: cfg.minAcc, src: "cfg" as const };
-  // model đã LẬT CHIỀU trên cùng combo đang mở? (best pick ngược phía lệnh)
-  // — từ 0.2.30 engine TỰ LẬT khi chế độ 🔄 Lật chiều bật (flipDecision +
-  // tryFlip trong chu kỳ kế tiếp); khi chế độ tắt, DCA cũng tự tắt khi model
+  // model already FLIPPED on same open combo? (best pick opposite to order)
+  // — since 0.2.30 engine AUTO-FLIPs when 🔄 Flip mode is on (flipDecision +
+  // tryFlip in next cycle); when mode is off, DCA also auto-offs when model
   // flipped. Badge để user NHÌN LÀ HIỂU ngay thay vì thấy "Tốt nhất: LINKUSDT
   // 15m LONG" cạnh lệnh SHORT đang mở mà tưởng bug.
   const flipped = !!(open && best && best.bias !== "NEUTRAL" && best.symbol === open.symbol && best.interval === open.interval && best.bias !== open.side);
@@ -697,9 +697,9 @@ const capitalNow = auto?.capital ?? cfg.capital;
   // minAuc/minAcc/minScore theo cfg panel → regress vs champion → whale ≥4σ →
   // noise band |P−0.5| → sàn SHORT → EV gate (đòn bẩy thật của panel).
   // null = đạt hết cổng tĩnh — engine chỉ còn có thể chặn bởi cooldown /
-  // chase-guard / combo memory (đọc status chu kỳ cạnh "Next cycle").
+  // chase-guard / combo memory (read cycle status next to "Next cycle").
   // Lưu ý: band/SHORT/EV dùng hằng mặc định — knob runtime đặt khác trên /ai
-  // sẽ lệch nhẹ; số CHÍNH XÁC theo chu kỳ nằm ở status engine (0.3.1 đã in lý do).
+  // will drift slightly; the EXACT per-cycle numbers are in engine status (0.3.1 already prints reason).
   const blockedWhy = (r: ScanRow): string | null => {
     const why: string[] = [];
     const sc = t(lang, "auto.col.score");
@@ -1009,7 +1009,7 @@ const capitalNow = auto?.capital ?? cfg.capital;
               </div>
             )}
 
-            {/* ─── TAB CAPITAL — vốn · risk/trade · đòn bẩy ─── */}
+            {/* ─── TAB CAPITAL — capital · risk/trade · leverage ─── */}
             {tab === "capital" && (
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center gap-2">

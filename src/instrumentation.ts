@@ -89,6 +89,7 @@ export async function register(): Promise<void> {
   } catch {
     // older Node / exotic runtime — nothing to harden, ignore
   }
+  if (process.env.NEXT_PHASE === "phase-production-build") return;
   // 3. Session-open broadcast scheduler — server-side timer that sends the
   //    "đầu phiên" Telegram messages (Sydney/Tokyo/London/New York opens)
   //    with no browser open. Dynamic import keeps the edge bundle clean;
