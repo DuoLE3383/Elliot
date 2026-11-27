@@ -405,3 +405,12 @@ model LiveBook {
   @@index([symbol, status])
   @@index([status, entryTime])
 }
+
+model CapitalState {
+  id         String   @id @default("main")
+  equity     Float
+  settled    Float
+  openMargin Float    @default(0)
+  unrealized Float    @default(0)
+  updatedAt  DateTime @updatedAt
+}

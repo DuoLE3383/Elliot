@@ -1823,7 +1823,7 @@ async function cycleTick(): Promise<void> {
     // 5m SL floor: SL không được dưới max(1.5x ATR, 0.80%) — chống quét trên TF nhỏ
     // dù lev-norm / ref có bị đổi lại. TP kéo theo cùng hệ số để giữ R:R.
     if (best.interval === "5m") {
-      const slFloor = Math.max(atrNow * 1.5, Math.max(0.2, 4 / tradeLev));
+      const slFloor = Math.max(atrNow * 2.5, Math.max(0.6, 4 / tradeLev));
       if (finalSl < slFloor) {
         const k = slFloor / finalSl;
         finalSl = slFloor;
@@ -1979,7 +1979,7 @@ async function cycleTick(): Promise<void> {
   finalSl = adj.slPct; finalTp = adj.tpPct; // bu lev khi stake nho
   // Re-apply 5m floor sau bu lev theo stake - floor truoc do bi ghi de
   if (best.interval === "5m") {
-    const slFloor2 = Math.max(atrNow * 1.5, Math.max(0.2, 4 / tradeLev));
+    const slFloor2 = Math.max(atrNow * 2.5, Math.max(0.6, 4 / tradeLev));
     if (finalSl < slFloor2) {
       const k2 = slFloor2 / finalSl;
       finalSl = slFloor2;

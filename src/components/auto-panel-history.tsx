@@ -31,7 +31,7 @@ export function AutoHistory(props: any) {
       </CardHeader>
       <CardContent className="space-y-3 px-3 pt-0">
         {/* capital + stats */}
-        <div className="grid grid-cols-3 gap-2">
+        <div className="hidden grid grid-cols-3 gap-2">
           <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
             <p className="whitespace-normal leading-snug text-[10px] uppercase tracking-wide text-zinc-500">{t(lang, "auto.capital.now")}</p>
             <p className="mt-0.5 whitespace-normal leading-snug font-mono text-[16px] font-bold text-zinc-100">{capitalNow.toFixed(2)}</p>

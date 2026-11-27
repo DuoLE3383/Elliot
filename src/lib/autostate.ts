@@ -222,6 +222,7 @@ export interface WalletState {
 
 export async function readWallet(): Promise<WalletState> {
   try {
+    try { const cs:any = await (await import("./capital")).getCapital().catch(()=>null); if (cs?.equity != null) { const r2 = await db.dryRunState.findUnique({ where: { id: "wallet" } }); return { capital: cs.equity, resetAt: r2?.resetAt?.toISOString() ?? null }; } } catch {}
     const row = await db.dryRunState.findUnique({ where: { id: "wallet" } });
     return { capital: row?.capital ?? null, resetAt: row?.resetAt?.toISOString() ?? null };
   } catch {

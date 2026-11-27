@@ -674,7 +674,7 @@ const langRef = useRef(lang);
     }
   };
 
-const capitalNow = auto?.capital ?? cfg.capital;
+const capitalNow = (auto as any)?.balance ?? (auto as any)?.equity ?? auto?.capital ?? cfg.capital;
   const opens = [...(auto?.opens ?? (auto?.open ? [auto.open] : [])), ...booksOpen];
   const open = opens[0] ?? null;
   const best = rows.find((r) => r.bias !== "NEUTRAL") ?? rows[0] ?? null;
