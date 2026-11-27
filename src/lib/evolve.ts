@@ -36,7 +36,7 @@ import type { EngineSettings } from "./types";
 // EVOLVE_ON=1            bật vòng (mặc định 1) — 0 để tắt hoàn toàn
 // EVOLVE_ROUND_MIN=240   chu kỳ vòng (phút) - 4h
 // EVOLVE_COOLDOWN_H=24   nghỉ tối thiểu giữa 2 lần ÁP (giờ)
-// EVOLVE_MIN_TRADES=12   ứng viên phải có ≥ n lệnh backtest mới đủ điều kiện
+// EVOLVE_MIN_TRADES=10   ứng viên phải có ≥ n lệnh backtest mới đủ điều kiện (code default 10, comment cũ ghi 12 là sai)
 // EVOLVE_WATCH_N=15      số lệnh giấy đóng để chấm kết thúc theo dõi
 // EVOLVE_MARGIN=0.1      biên expectancy%/lệnh phải vượt mốc
 // EVOLVE_DD_FACTOR=1.5   DD ứng viên không sâu hơn 1.5× DD mốc

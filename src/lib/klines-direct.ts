@@ -123,7 +123,6 @@ export async function fetchKlinesDirect(
   ];
 
   if (Date.now() < boardBanUntil) throw new Error(`board banned until ${new Date(boardBanUntil).toISOString()}`);
-  if (boardFetching) return boardFetching;
   let lastErr: string | null = null;
   let invalidSymbol = false;
   for (const cand of candidates) {

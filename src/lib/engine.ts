@@ -77,6 +77,7 @@ import { runAgentTick } from "./self-improve";
 import { fetchKlinesDirect, fetchBoard24h } from "./klines-direct";
 import { getLiveTail } from "./live-stream";
 import { wyckoffLongGate } from "./wyckoff-gate";
+import { liquidShortGate, liquidXorDecision } from "./liquid-gate";
 import { startVulcanEngine } from "./vulcan-engine";
 import { startWyckoffEngine, wyckoffEngineStatus } from "./wyckoff-engine";
 import { startLiquidEngine } from "./liquid-engine";
@@ -1707,9 +1708,14 @@ async function cycleTick(): Promise<void> {
         if (cand.bias !== "LONG") { kept.push(cand); continue; }
         try {
           const wy = await wyckoffLongGate(cand.symbol, wyUniverse, cand.interval);
-          if (!wy.ok) { wyBlocked++; (cand as any).score = Math.max(0, ((cand as any).score ?? 0) - 5); (cand as any).wyPenalty = true; }
+          const liq = await liquidShortGate(cand.symbol, wyUniverse, cand.interval).catch(() => ({ ok: false, reason: "liquid gate error - fail-open as fail" } as any));
+          const xor = liquidXorDecision(wy.ok, liq.ok, "LONG", (wy as any).failOpen, (liq as any).failOpen);
+          if (!xor.approve) { wyBlocked++; (cand as any).score = Math.max(0, ((cand as any).score ?? 0) - 5); (cand as any).wyPenalty = true; }
+// Prob <60% huong ve lenh: avg +0.39, win 68.1% - phat -5, khong chan han de giu mau hoc
+          const probToward = cand.bias === "LONG" ? (cand as any).prob ?? 0.5 : 1 - ((cand as any).prob ?? 0.5);
+          if (probToward < 0.60) { (cand as any).score = Math.max(0, ((cand as any).score ?? 0) - 5); (cand as any).probPenalty = true; }
           kept.push(cand);
-        } catch { kept.push(cand); } // fail-open — Wyckoff lỗi thì không giết engine
+        } catch { kept.push(cand); }
       }
       if (wyBlocked > 0) console.log(`[engine] Wyckoff pre-filter (mem v0.3.50, C -5 khong loai) — loại ${wyBlocked}/${cands.length} LONG no Spring/SOS, còn ${kept.length} cands`);
       cands.splice(0, cands.length, ...kept);
@@ -1844,12 +1850,26 @@ async function cycleTick(): Promise<void> {
     if (best.bias === "LONG") {
       const wyUniverse = [...new Set([...p.pairs, ...(v.scan?.rows ?? []).map((r) => r.symbol)])];
       const wy = await wyckoffLongGate(best.symbol, wyUniverse, best.interval);
-      if (!wy.ok) {
-        console.log(`[engine] Wyckoff gate CHẶN LONG ${best.symbol} ${best.interval} — ${wy.reason}`);
-        v.lastCycleStatus = `LONG ${best.symbol} blocked by Wyckoff gate — ${wy.reason}`;
+      const liq = await liquidShortGate(best.symbol, wyUniverse, best.interval).catch(() => ({ ok: false, reason: "liquid gate error" } as any));
+      const xor = liquidXorDecision(wy.ok, liq.ok, "LONG", (wy as any).failOpen, (liq as any).failOpen);
+      if (!xor.approve) {
+        console.log(`[engine] XOR gate BLOCK LONG ${best.symbol} ${best.interval} - ${xor.reason} | Wyckoff: ${wy.reason} | Liquid: ${liq.reason}`);
+        v.lastCycleStatus = `LONG ${best.symbol} blocked by XOR gate - ${xor.reason}`;
         return;
       }
-      console.log(`[engine] Wyckoff gate PASS ${best.symbol} ${best.interval} — ${wy.reason}`);
+      console.log(`[engine] XOR gate PASS LONG ${best.symbol} ${best.interval} - ${xor.reason} | Wyckoff: ${wy.reason}`);
+    }
+    if (best.bias === "SHORT") {
+      const wyUniverse = [...new Set([...p.pairs, ...(v.scan?.rows ?? []).map((r) => r.symbol)])];
+      const wy = await wyckoffLongGate(best.symbol, wyUniverse, best.interval).catch(() => ({ ok: false, reason: "wyckoff gate error" } as any));
+      const liq = await liquidShortGate(best.symbol, wyUniverse, best.interval).catch(() => ({ ok: false, reason: "liquid gate error" } as any));
+      const xor = liquidXorDecision(wy.ok, liq.ok, "SHORT", (wy as any).failOpen, (liq as any).failOpen);
+      if (!xor.approve) {
+        console.log(`[engine] XOR gate BLOCK SHORT ${best.symbol} ${best.interval} - ${xor.reason} | Wyckoff: ${wy.reason} | Liquid: ${liq.reason}`);
+        v.lastCycleStatus = `SHORT ${best.symbol} blocked by XOR gate - ${xor.reason}`;
+        return;
+      }
+      console.log(`[engine] XOR gate PASS SHORT ${best.symbol} ${best.interval} - ${xor.reason} | Liquid: ${liq.reason}`);
     }
 
     // 2.5) LLM risk officer — silent. LLM CHẾT thì tuỳ tham số LLM_FAIL_CLOSED:
@@ -2027,9 +2047,22 @@ async function tryFlip(open: AutoTradeRow, row: ScanRow, price: number): Promise
   if (to === "LONG") {
     const wyUniverse = [...new Set([...p.pairs, ...(v.scan?.rows ?? []).map((r) => r.symbol)])];
     const wy = await wyckoffLongGate(row.symbol, wyUniverse, row.interval);
-    if (!wy.ok) {
-      console.log(`[engine] Wyckoff gate chặn flip→LONG ${row.symbol} — ${wy.reason} · giữ lệnh ${from} hiện tại`);
-      v.lastCycleStatus = `flip→LONG blocked by Wyckoff gate — keep old order`;
+    const liq = await liquidShortGate(row.symbol, wyUniverse, row.interval).catch(() => ({ ok: false, reason: "liquid gate error" } as any));
+    const xor = liquidXorDecision(wy.ok, liq.ok, "LONG", (wy as any).failOpen, (liq as any).failOpen);
+    if (!xor.approve) {
+      console.log(`[engine] XOR gate BLOCK flip to LONG ${row.symbol} - ${xor.reason} - keep ${from} order`);
+      v.lastCycleStatus = `flip to LONG blocked by XOR gate - keep old order`;
+      return false;
+    }
+  }
+  if (to === "SHORT") {
+    const wyUniverse = [...new Set([...p.pairs, ...(v.scan?.rows ?? []).map((r) => r.symbol)])];
+    const wy = await wyckoffLongGate(row.symbol, wyUniverse, row.interval).catch(() => ({ ok: false, reason: "wyckoff gate error" } as any));
+    const liq = await liquidShortGate(row.symbol, wyUniverse, row.interval).catch(() => ({ ok: false, reason: "liquid gate error" } as any));
+    const xor = liquidXorDecision(wy.ok, liq.ok, "SHORT", (wy as any).failOpen, (liq as any).failOpen);
+    if (!xor.approve) {
+      console.log(`[engine] XOR gate BLOCK flip to SHORT ${row.symbol} - ${xor.reason} - keep ${from} order`);
+      v.lastCycleStatus = `flip to SHORT blocked by XOR gate - keep old order`;
       return false;
     }
   }

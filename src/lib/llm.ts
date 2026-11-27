@@ -825,6 +825,33 @@ function compactSnapshot(json: string): string {
   };
   return JSON.stringify(out).slice(0, 20000);
 }
+// Chunk snapshot theo sections: moi chunk <= 48000 chars (~12000 token input) + system + max_tokens 1600 < 16384
+// Thay vi cat cung 20000 chars lam mat section, chia de giu du data
+function chunkSnapshotBySections(json: string): string[] {
+  let d: any;
+  try { d = JSON.parse(json); } catch { return [json.slice(0, 48000)]; }
+  const secs = Array.isArray(d?.sections) ? d.sections : [];
+  if (!secs.length) return [compactSnapshot(json)];
+  const chunks: string[] = [];
+  let cur: any[] = [];
+  let curLen = 0;
+  const MAX_CHUNK_CHARS = 48000;
+  for (const s of secs) {
+    const compact = {
+      key: s.key, state: s.state, accPct: s.accPct,
+      note: typeof s.note === "string" ? s.note.slice(0, 300) : s.note,
+      metrics: Array.isArray(s.metrics) ? s.metrics.map((m: any) => ({ k: m.k, v: m.v, sub: m.sub, tone: m.tone })) : [],
+    };
+    const sLen = JSON.stringify(compact).length;
+    if (cur.length && curLen + sLen > MAX_CHUNK_CHARS) {
+      chunks.push(JSON.stringify({ ...d, sections: cur }));
+      cur = []; curLen = 0;
+    }
+    cur.push(compact); curLen += sLen;
+  }
+  if (cur.length) chunks.push(JSON.stringify({ ...d, sections: cur }));
+  return chunks.length ? chunks : [compactSnapshot(json)];
+}
 
 export async function llmStatsDive(
   url: string,

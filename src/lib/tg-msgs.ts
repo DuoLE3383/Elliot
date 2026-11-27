@@ -34,7 +34,7 @@ export const balanceLine = (before: number, after: number): string => {
   return `Balance ${before.toFixed(2)} → <b>${after.toFixed(2)}</b> USDT (${d >= 0 ? "+" : ""}${d.toFixed(2)})`;
 };
 const levTxt = (x: number): string => `×${x % 1 === 0 ? x : x.toFixed(2)}`;
-const sideTxt = (side: string): string => (side === "LONG" ? "LONG 🟢" : side === "SHORT" ? "SHORT 🔴" : "NEUTRAL ⚪");
+const sideTxt = (side: string): string => (side === "LONG" ? "LONG 📈" : side === "SHORT" ? "SHORT 📉" : "NEUTRAL ⚪");
 const escHtml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** Display prob FLIPPED toward the side the model leans to (same SIDE convention as §6c reliability).
@@ -46,9 +46,9 @@ const escHtml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&
 const probTxt = (side: string, prob: number): string => {
   const p = side === "SHORT" ? 1 - prob : prob;
   return side === "LONG"
-    ? `Prob ${(p * 100).toFixed(2)}% toward LONG 🟢`
+    ? `Prob ${(p * 100).toFixed(2)}% toward LONG 📈`
     : side === "SHORT"
-      ? `Prob ${(p * 100).toFixed(2)}% toward SHORT 🔴`
+      ? `Prob ${(p * 100).toFixed(2)}% toward SHORT 📉`
       : `Prob ${(p * 100).toFixed(2)}%`;
 };
 
@@ -78,7 +78,7 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string, displ
       ? `LLM Risk Officer: ${x.llmVerdict}${x.llmReason ? ` — ${escHtml(String(x.llmReason))}` : ""}`
       : "LLM Risk Officer: not reviewed";
   const lines = [
-    ...buildTradeHeader("🟢", forced ? "OPEN · FORCE" : "OPEN", r),
+    ...buildTradeHeader("📡", forced ? "OPEN · FORCE" : "OPEN", r),
     `🎯 Entry <b>${fmtPrice(r.entryPrice)}</b>`,
     `🛑 Stop Loss <b>${fmtPrice(slNow)}</b> (−${r.slPct.toFixed(2)}% price · ROI ${(-(r.slPct * r.leverage)).toFixed(2)}% if hit)`,
     `🏁 Take Profit <b>${fmtPrice(tpNow)}</b> (+${r.tpPct.toFixed(2)}% price · ROI +${(r.tpPct * r.leverage).toFixed(2)}% if hit)`,
@@ -149,7 +149,7 @@ export const msgNear = (r: AutoTradeRow, price: number, kind: "tp" | "sl"): stri
   const awayPct = price > 0 ? Math.abs((target - price) / price) * 100 : 0;
   const roi = roiOf(r.side, r.entryPrice, price, r.leverage);
   return [
-    ...buildTradeHeader("⚠", kind === "tp" ? "#ALMOST TP — READY TO LOCK GAINS" : "#ALMOST SL — RISK WATCH", r),
+    ...buildTradeHeader(kind === "tp" ? "✅" : "⚠", kind === "tp" ? "#ALMOST TP — READY TO LOCK GAINS" : "#ALMOST SL — RISK WATCH", r),
     `${kind === "tp" ? "🏁" : "🛑"} ${kind === "tp" ? "Take Profit" : "Stop Loss"} ${fmtPrice(target)} · <b>${awayPct.toFixed(2)}%</b> away`,
     "",
     `📊 Plan: SL ${r.slPct.toFixed(2)}% · TP ${r.tpPct.toFixed(2)}% · Lev ${levTxt(r.leverage)} · Score ${(r.score ?? 0).toFixed(2)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}%`,

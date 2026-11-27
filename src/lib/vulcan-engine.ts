@@ -231,7 +231,7 @@ async function vulcanSymbolTick(symbol: string, lastCandleT: Map<string, number>
     const unifiedBalA = await readUnifiedSettled().then((u) => u.balance).catch(() => undefined);
     void tgSendMessage(
       [
-      ...buildTradeHeader("🟢", "OPEN", { symbol, interval: "15m", side: action.side, book: "A" }),
+      ...buildTradeHeader("📡", "OPEN", { symbol, interval: "15m", side: action.side, book: "A" }),
       `🎯 Entry <b>${fmtPrice(Number(action.entry))}</b>`,
       `🛑 Stop Loss <b>${fmtPrice(Number(action.stopPrice))}</b> · Trailing — Donchian (no fixed TP)`,
       "",

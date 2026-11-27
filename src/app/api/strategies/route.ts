@@ -21,7 +21,7 @@ import { labCfgOf, runStrategyLab, type LabConfig, type LabMetrics } from "@/lib
 export const dynamic = "force-dynamic";
 
 const isSchemaMissing = (e: unknown): boolean =>
-  e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2021";
+  e instanceof Prisma.PrismaClientKnownRequestError && (e as { code?: unknown }).code === "P2021";
 
 interface VariantRow {
   id: string;

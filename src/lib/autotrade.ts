@@ -233,7 +233,7 @@ export function confluenceBlend(rows: ScanRow[]): ScanRow[] {
       const cap = pval("PROB_CAP", PROB_CAP);
       const row = outByKey.get(`${r.symbol}|${r.interval}`)!;
       row.prob = Math.round(Math.min(cap, Math.max(1 - cap, kept)) * 10_000) / 10_000;
-      row.confidence = Math.abs(row.prob - 0.5) * 2; // công thức gốc xgb.ts
+      row.confidence = Math.min(Math.abs(row.prob - 0.5) * 2, 0.6); // cap 0.6 = prob 80% huong ve lenh, chong qua tu tin 85-90 dang lo -4.45 (thong ke 2026-11-27)
       row.bias = biasFrom(row.prob); // ngưỡng chết gốc 0.56/0.44
       row.score = scoreFrom(row.auc, row.acc, row.confidence);
     }

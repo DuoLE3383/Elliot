@@ -693,7 +693,7 @@ async function wyckoffTick(): Promise<void> {
     const unifiedBalC = await readUnifiedSettled().then((u) => u.balance).catch(() => undefined);
     void tgSendMessage(
       [
-      ...buildTradeHeader("🟢", "OPEN", { symbol: pick.sym, interval: "1d", side: "LONG", book: "C" }),
+      ...buildTradeHeader("📡", "OPEN", { symbol: pick.sym, interval: "1d", side: "LONG", book: "C" }),
       `🎯 Entry <b>${fmtPrice(Number(entry))}</b>`,
       `🛑 Stop Loss <b>${fmtPrice(Number(stop))}</b> · Wyckoff trigger: ${pick.trig.kind} · Trigger score ${pick.trig.score.toFixed(2)}`,
       "",
