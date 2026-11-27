@@ -38,7 +38,7 @@ export async function liquidShortGate(symbol: string, universe: string[], interv
   const base: Omit<LiquidVerdict, "ok" | "reason" | "trigger" | "range" | "breadth" | "regime" | "suggestedStopPct" | "failOpen"> = { side: "SHORT", symbol: sym };
   try {
     const now = Date.now();
-    const tfMs: Record<string, number> = { "5m": 300_000, "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": DAY_MS };
+    const tfMs: Record<string, number> = { "1m": 60_000, "5m": 300_000, "15m": 900_000, "30m": 1_800_000, "1h": 3_600_000, "4h": 14_400_000, "1d": DAY_MS };
     const intervalMs = tfMs[interval] ?? DAY_MS;
     const lookback = interval === "1d" ? Math.max(pval("WY_RANGE_LOOKBACK", WY_RANGE_LOOKBACK) + 60, 150) : Math.max(pval("WY_RANGE_LOOKBACK", WY_RANGE_LOOKBACK) * 2 + 60, 240);
     const raw = await fetchKlinesDirect(sym, interval, lookback);
