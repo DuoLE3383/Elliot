@@ -1057,8 +1057,8 @@ export default function Home() {
               <span className="hidden text-sm font-black tracking-[0.24em] text-zinc-100 lg:inline">ELLIOTT</span>
             </div>
             <div className="hidden leading-tight xl:block">
-              <p className="text-[11px] font-semibold text-zinc-300">UT Bot · Swing · Whale</p>
-              <p className="text-[10px] text-zinc-600">{t(lang, "app.subtitle")}</p>
+              {/* <p className="text-[11px] font-semibold text-zinc-300">UT Bot · Swing · Whale</p> */}
+              {/* <p className="text-[10px] text-zinc-600">{t(lang, "app.subtitle")}</p> */}
             </div>
           </div>
 
@@ -1180,7 +1180,7 @@ export default function Home() {
       
 
       {/* ── Main terminal grid ─────────────────────────────────────── */}
-      <main className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-3 lg:grid lg:grid-cols-[300px_minmax(0,1fr)_300px] lg:overflow-hidden xl:grid-cols-[320px_minmax(0,1fr)_320px]">
+      <main className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-3 lg:grid lg:grid-cols-[228px_minmax(0,1fr)_228px] lg:overflow-hidden xl:grid-cols-[248px_minmax(0,1fr)_248px]">
         {error ? (
           <div className="lg:col-span-3">
             <Card className="border-rose-900 bg-rose-950/30">

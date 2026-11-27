@@ -88,7 +88,7 @@ export function AutoTopbar({ lang, liveOn, dryOn, breadth, notifCount = 0, onTog
           </Link>
         </Button>
         <div className="mr-1 hidden min-w-0 lg:block">
-          <h1 className="text-[15px] font-bold leading-tight text-white">Auto Trading Console</h1>
+          <h1 className="text-[15px] font-bold leading-tight text-white">AI Revolution Console</h1>
           <p className="text-[10px] leading-tight text-zinc-500">{lang === "vi" ? "Bốn chiến lược — một engine" : "Four strategies — one engine"}</p>
         </div>
 

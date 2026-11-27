@@ -1,8 +1,9 @@
-// ─── /arena — SO SÁNH BA CHIẾN LƯỢC A/B/C (0.2.97) + trạng thái sổ LIVE ──────
+// ─── /arena — SO SÁNH BỐN CHIẾN LƯỢC A/B/C/D (0.2.97) + trạng thái sổ LIVE ───
 // Server component đọc thẳng arenaSnapshot() (không cần client JS).
 //   A = Vulcan/Donchian (15m, lev 5) · B = Elliott XGB (đa khung) ·
-//   C = Wyckoff gốc 5 lớp (nến ngày, lev 1, long-only) · Live = mirror thật
-//   của B khi LIVE bật. Ba sổ dry-run cùng vốn xuất phát từ ví reset nên so
+//   C = Wyckoff gốc 5 lớp (nến ngày, lev 1, long-only) ·
+//   D = Liquid (Wyckoff phân phối SHORT) · Live = mirror thật
+//   của B khi LIVE bật. Bốn sổ dry-run cùng vốn xuất phát từ ví reset nên so
 //   trực tiếp được; live vốn là balance Binance thật.
 
 import { arenaSnapshot, type ArenaSnapshot } from "@/lib/arena";
@@ -48,7 +49,7 @@ function StatCard({ title, sub, s, accent }: { title: string; sub: string; s: Ar
   );
 }
 
-function EquityChart({ aEquity, bEquity, cEquity, dEquity }: { aEquity: ArenaSnapshot["aEquity"]; bEquity: ArenaSnapshot["bEquity"]; cEquity: ArenaSnapshot["cEquity"]; dEquity: ArenaSnapshot["dEquity"] }) {
+function EquityChart({ aEquity, bEquity, cEquity, dEquity }: { aEquity: ArenaSnapshot["aEquity"]; bEquity: ArenaSnapshot["bEquity"]; cEquity: ArenaSnapshot["cEquity"]; dEquity: ArenaSnapshot["dEquity"] }) { // D — Liquid: line đã vẽ sẵn, thêm legend bên dưới
   const all = [...aEquity.map((p) => p.capital), ...bEquity.map((p) => p.capital), ...cEquity.map((p) => p.capital), ...dEquity.map((p) => p.capital)];
   if (all.length < 2) {
     return <div className="p-6 text-center text-sm text-white/40">Not enough closed trades to draw the equity curve — books are still accumulating.</div>;
@@ -86,6 +87,9 @@ function EquityChart({ aEquity, bEquity, cEquity, dEquity }: { aEquity: ArenaSna
       <text x="8" y="48" fontSize="12" fill="#a78bfa">
         C — Wyckoff
       </text>
+      <text x="8" y="64" fontSize="12" fill="#34d399">
+        D — Liquid
+      </text>
       <text x={W - 8} y={H - 8} fontSize="11" fill="#ffffff66" textAnchor="end">
         {num(trueMin)} — {num(trueMax)} USDT
       </text>
@@ -104,20 +108,22 @@ export default async function ArenaPage() {
   return (
     <main className="mx-auto max-w-5xl space-y-4 p-4">
       <div>
-        <h1 className="text-2xl font-bold">Arena A/B/C — Vulcan vs Elliott vs Wyckoff</h1>
+        <h1 className="text-2xl font-bold">Arena A/B/C/D — Vulcan vs Elliott vs Wyckoff vs Liquid</h1>
         <p className="mt-1 text-sm text-white/50">
-          Three dry-run books in parallel, all starting from the same reset-wallet capital. A = DonchianBreakout (15m, lev 5, ATR stop) ·
-          B = the current Elliott engine · C = the original 5-layer Wyckoff funnel (daily candles, lev 1, long-only, since 0.2.97). ROI uses
+          Four dry-run books in parallel, all starting from the same reset-wallet capital. A = DonchianBreakout (15m, lev 5, ATR stop) ·
+          B = the current Elliott engine · C = the original 5-layer Wyckoff funnel (daily candles, lev 1, long-only, since 0.2.97) ·
+          D = Liquid — Wyckoff distribution SHORT book (daily · Upthrust/Breakdown, only SHORT when RISK_OFF). ROI uses
           the same formula, so they compare directly. LIVE below is book B's real-order matching layer when LIVE is on.
         </p>
       </div>
       {err && <div className="rounded border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-300">Arena error: {err}</div>}
       {snap && (
         <>
-          <div className="flex flex-col gap-4 lg:flex-row">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             <StatCard title="A — Vulcan/Donchian" sub="breakout 15m · lev 5 · stake 10% · ATR×2 stop" s={snap.a} accent="#f59e0b" />
             <StatCard title="B — Elliott" sub="signal engine + prob + LLM gate · lev from cfg" s={snap.b} accent="#60a5fa" />
             <StatCard title="C — Original Wyckoff" sub="5-layer funnel · daily candles · lev 1 · long-only · stake 10%" s={snap.c} accent="#a78bfa" />
+            <StatCard title="D — Liquid" sub="Wyckoff distribution SHORT · daily · Upthrust/Breakdown · RISK_OFF gate" s={snap.d} accent="#34d399" />
           </div>
           <EquityChart aEquity={snap.aEquity} bEquity={snap.bEquity} cEquity={snap.cEquity} dEquity={snap.dEquity} />
           <div className="overflow-x-auto rounded-lg border border-white/10">
@@ -131,18 +137,20 @@ export default async function ArenaPage() {
                   <th className="px-3 py-2">B — net</th>
                   <th className="px-3 py-2">C — trades</th>
                   <th className="px-3 py-2">C — net</th>
+                  <th className="px-3 py-2">D — trades</th>
+                  <th className="px-3 py-2">D — net</th>
                 </tr>
               </thead>
               <tbody>
                 {snap.bySymbol.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-3 py-4 text-center text-white/40">
-                      No trades yet in any of the three books.
+                    <td colSpan={9} className="px-3 py-4 text-center text-white/40">
+                      No trades yet in any of the four books.
                     </td>
                   </tr>
                 )}
                 {snap.bySymbol.map((r) => {
-                  const best = Math.max(r.aNet, r.bNet, r.cNet);
+                  const best = Math.max(r.aNet, r.bNet, r.cNet, r.dNet);
                   return (
                     <tr key={r.symbol} className="border-t border-white/5">
                       <td className="px-3 py-2 font-medium">{r.symbol}</td>
@@ -152,6 +160,8 @@ export default async function ArenaPage() {
                       <td className={`px-3 py-2 ${r.bNet >= 0 ? "text-emerald-400" : "text-rose-400"} ${best === r.bNet && (r.bN > 0) ? "font-bold" : ""}`}>{r.bN ? num(r.bNet) : "—"}</td>
                       <td className="px-3 py-2">{r.cN || "—"}</td>
                       <td className={`px-3 py-2 ${r.cNet >= 0 ? "text-emerald-400" : "text-rose-400"} ${best === r.cNet && (r.cN > 0) ? "font-bold" : ""}`}>{r.cN ? num(r.cNet) : "—"}</td>
+                      <td className="px-3 py-2">{r.dN || "—"}</td>
+                      <td className={`px-3 py-2 ${r.dNet >= 0 ? "text-emerald-400" : "text-rose-400"} ${best === r.dNet && (r.dN > 0) ? "font-bold" : ""}`}>{r.dN ? num(r.dNet) : "—"}</td>
                     </tr>
                   );
                 })}

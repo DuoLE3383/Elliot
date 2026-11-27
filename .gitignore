@@ -83,3 +83,4 @@ scripts/wyckoff_crypto_*.csv
 # single live DB — never commit repo DB
 /db/custom.db
 /.env
+*.db

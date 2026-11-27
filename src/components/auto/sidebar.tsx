@@ -16,11 +16,12 @@ import { Activity, Bot, LineChart, Swords, BrainCircuit } from "lucide-react";
 export const APP_VERSION = "v0.3.53";
 
 const NAV = [
-  { href: "/auto", key: "Auto Trading", icon: Bot, accent: "text-sky-400" },
-  { href: "/", key: "Dashboard", icon: Activity, accent: "text-zinc-400" },
+  { href: "/", key: "Home", icon: Activity, accent: "text-zinc-400" },
   { href: "/stats", key: "Analytics", icon: LineChart, accent: "text-zinc-400" },
   { href: "/arena", key: "Arena", icon: Swords, accent: "text-zinc-400" },
   { href: "/ai", key: "AI Lab", icon: BrainCircuit, accent: "text-zinc-400" },
+  // Auto Trading dời xuống CUỐI nav + đổi tên "AI Revolution" (yêu cầu user)
+  { href: "/auto", key: "AI Revolution", icon: Bot, accent: "text-sky-400" },
 ] as const;
 
 /** Logo tam giác xếp lớp kiểu mockup — thuần SVG, không ảnh. */
