@@ -666,7 +666,7 @@ export async function recentFlipLessons(symbol: string, take = 5): Promise<strin
 // Con lai -> PASS. Loi DB -> PASS (fail-open, khong chan het lenh vi DB loi).
 // Bo methodId=force (lenh tay) — chi tinh lenh engine.
 export type AutopsyGateDecision = "PASS" | "BLOCK" | "REQUIRE_CONFIRM";
-export interface AutopsyGateResult { decision: AutopsyGateDecision; wrongCount: number; reason: string; lessons: string[]; }
+export interface AutopsyGateResult { decision: AutopsyGateDecision; wrongCount: number; reason: string; lessons: string[]; stats?: { total100: number; wrong100: number; wrongRate100: number; g24: number; win100: number; lose100: number }; }
 export async function autopsyGate(symbol: string, interval: string): Promise<AutopsyGateResult> {
   try {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -703,8 +703,20 @@ export async function autopsyGate(symbol: string, interval: string): Promise<Aut
         if ((gr as any).methodId === "force") continue;
         try { if ((JSON.parse(gr.autopsy || "{}") as Partial<AutopsyJson>).tag === "wrong_dir") gWrong++; } catch {}
       }
-      if (gWrong >= 5) return { decision: "BLOCK", wrongCount: gWrong, reason: `EVOLUTION LV2 BLOCK - GLOBAL wrong_dir ${gWrong}/30 lenh 24h (>=5 thong ke 100 lenh: wrong_dir 38, 97% so thua) - thi truong dang nguoc song, dung vao`, lessons };
-      if (gWrong >= 3) return { decision: "REQUIRE_CONFIRM", wrongCount: gWrong, reason: `EVOLUTION LV1 - GLOBAL wrong_dir ${gWrong}/30 lenh 24h (>=3 bat dau tien hoa) - can 1 nen dong dung huong + trend 5m dong thuan moi cho qua, khong vao nguoc song`, lessons };
+      // Thong ke that 100 lenh gan nhat (khong force) - thay hardcode 38/97%
+      let total100 = 0, wrong100 = 0, win100 = 0, lose100 = 0;
+      try {
+        const hRows = await db.autoTrade.findMany({ where: { status: "closed", autopsy: { not: null } }, orderBy: { exitTime: "desc" }, take: 100, select: { autopsy: true, methodId: true } });
+        for (const hr of hRows) {
+          if ((hr as any).methodId === "force") continue;
+          total100++;
+          try { const pa = JSON.parse(hr.autopsy || "{}") as Partial<AutopsyJson>; if (pa.outcome === "win") win100++; else if (pa.outcome === "loss") lose100++; if (pa.tag === "wrong_dir") wrong100++; } catch {}
+        }
+      } catch {}
+      const wrongRate100 = lose100 > 0 ? Math.round((wrong100 / lose100) * 100) : 0;
+      const stats = { total100, wrong100, wrongRate100, g24: gWrong, win100, lose100 };
+      if (gWrong >= 5) return { decision: "BLOCK", wrongCount: gWrong, reason: `EVOLUTION LV2 BLOCK - GLOBAL wrong_dir ${gWrong}/30 lenh 24h (>=5 | thong ke 100 lenh: wrong_dir ${wrong100}/${total100}, ${wrongRate100}% so thua) - thi truong dang nguoc song, dung vao`, lessons, stats };
+      if (gWrong >= 3) return { decision: "REQUIRE_CONFIRM", wrongCount: gWrong, reason: `EVOLUTION LV1 - GLOBAL wrong_dir ${gWrong}/30 lenh 24h (>=3 bat dau tien hoa | 100 lenh: wrong_dir ${wrong100}/${total100}) - can 1 nen dong dung huong + trend 5m dong thuan moi cho qua, khong vao nguoc song`, lessons, stats };
     } catch {}
     return { decision: "PASS", wrongCount: 0, reason: "", lessons: [] };
   } catch { return { decision: "PASS", wrongCount: 0, reason: "", lessons: [] }; }

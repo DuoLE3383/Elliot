@@ -67,7 +67,7 @@ import {
   type ScanRow,
 } from "./autotrade";
 import { readAutoState, serialize } from "./autostate";
-import { autopsyBackfill, autopsyClosedTrade, recentAutopsyLessons, recentFlipLessons } from "./autopsy";
+import { autopsyBackfill, autopsyClosedTrade, autopsyGate, recentAutopsyLessons, recentFlipLessons } from "./autopsy";
 import { aliasFuturesSymbol, type EngineSettings, type Ticker } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 import { atrLevelsAtEntry, dynLevelsAtEntry } from "./indicators";
@@ -1841,6 +1841,25 @@ async function cycleTick(): Promise<void> {
       );
     }
 
+    // 2.4a) EVOLUTION GATE (SPY) - autopsyGate la gate chan that, khong chi bao cao.
+    // BLOCK -> chan mo lenh + Telegram 1 lan/episode (dedupe). REQUIRE_CONFIRM LV1 -> cho qua, can xac nhan.
+    // LV2 van scan o observe/paper (scan khong bi chan, chi chan mo lenh). Loi DB -> PASS fail-open.
+    try {
+      const evo = await autopsyGate(best.symbol, best.interval);
+      if (evo.decision === "BLOCK") {
+        const lv = evo.reason.includes("LV2") ? "LV2" : "BLOCK";
+        const st = (evo as any).stats;
+        const statsLine = st ? `100 lenh: wrong_dir ${st.wrong100}/${st.total100} (${st.wrongRate100}% so thua) | 24h: wrong ${st.g24}/30` : `24h wrong ${evo.wrongCount}`;
+        const msg = `🚫 EVOLUTION ${lv} BLOCK — ${best.symbol} ${best.interval} ${best.bias}\n${evo.reason}\n📊 ${statsLine}\n📚 ${(evo.lessons[0] ?? "").slice(0, 200)}\n➡️ Next: DUNG VAO lenh moi. LV2 van scan observe/paper, khong mo lenh.\n🔓 Mo lai khi: 24h wrong_dir < 3, hoac 1 nen dong dung huong + trend 5m dong thuan (LV1 confirm).`;
+        console.log(`[engine] EVOLUTION BLOCK ${best.symbol} ${best.interval} - ${evo.reason} | ${statsLine}`);
+        v.lastCycleStatus = `EVOLUTION ${lv} BLOCK ${best.symbol} — ${evo.reason}`;
+        if (tgReady() && !tgMuted("veto")) void tgSendMessage(msg, "HTML", { dedupeKey: `evo-block:${best.symbol}:${best.interval}:${evo.wrongCount}:${new Date().toISOString().slice(0, 10)}` });
+        return;
+      }
+      if (evo.decision === "REQUIRE_CONFIRM") {
+        console.log(`[engine] EVOLUTION LV1 REQUIRE_CONFIRM ${best.symbol} ${best.interval} - ${evo.reason} — cho qua, can 1 nen dong dung huong + trend 5m dong thuan`);
+      }
+    } catch (e) { console.log(`[engine] autopsyGate error ${best.symbol} - fail-open`, e); }
     // 2.4b) WYCKOFF GATE (0.2.96) — cổng cấu trúc cho lệnh LONG sổ B. Port ĐÚNG
     // ngưỡng đã walk-forward verify trên nến ngày crypto (07/11): LONG chỉ vào
     // khi có range tích luỹ hợp lệ + Spring/SOS ở nến ngày đã đóng + breadth
