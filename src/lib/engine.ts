@@ -100,6 +100,7 @@ import {
 import { buildTopCoinsMessage, buildScanTop10Message, loadBcastState, saveBcastState } from "./scan-broadcast";
 import { loadScanState, saveScanState } from "./scan-state";
 import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store";
+import { getMarkPrice } from "./mark-price";
 import { pushAutoDigests } from "./autodigest";
 import { msgDca, msgLlmVeto, msgNear, msgOpen, msgTp1 } from "./tg-msgs";
 import { readUnifiedSettled } from "./unified-balance";
@@ -2407,33 +2408,38 @@ async function watcherTick(): Promise<void> {
     // multi-position: watcher quet TUNG lenh, khong chi lenh dau
     for (const open of opens) {
     const tickerPrice = tickers[open.symbol]?.price ?? 0;
-    // bat wick: lay low/high nen hien tai tu luong live chung (WS), fallback REST 2 nen
-    // SHORT: low cham TP + cap nhat peak, high cham SL/trail. LONG nguoc lai.
-    let wickLow = 0, wickHigh = 0;
-    const tail = getLiveTail(open.symbol, open.interval);
-    if (tail && tail.length) {
-      const k = tail[tail.length - 1];
-      wickLow = k.l; wickHigh = k.h;
-    } else {
-      try {
-        const kl = await fetchKlinesDirect(open.symbol, open.interval, 2);
-        const k = kl[kl.length - 1];
-        if (k) { wickLow = k.l; wickHigh = k.h; }
-      } catch { /* fallback ticker */ }
+    // Dùng MARK PRICE cho cả Entry và Exit (đồng nhất, tránh lệch pha)
+    const markPrice = await getMarkPrice(open.symbol);
+    if (markPrice <= 0) {
+      console.warn(`[watcher] No mark price for ${open.symbol}, skip this tick`);
+      continue;
     }
-    // chon gia de cham exit: neu wick da cham TP/SL/trail thi dung gia wick, khong thi ticker
-    let price = tickerPrice;
-    if (wickLow > 0 && wickHigh > 0) {
-      const tpP = open.side === "SHORT" ? open.entryPrice * (1 - Math.abs(open.tpPct) / 100) : open.entryPrice * (1 + Math.abs(open.tpPct) / 100);
-      const slP = open.side === "SHORT" ? open.entryPrice * (1 + Math.abs(open.slPct) / 100) : open.entryPrice * (1 - Math.abs(open.slPct) / 100);
-      if (open.side === "SHORT" && wickHigh >= slP) price = wickHigh;
-      else if (open.side === "LONG" && wickLow <= slP) price = wickLow;
-      else if (open.side === "SHORT" && wickLow <= tpP) price = wickLow;
-      else if (open.side === "LONG" && wickHigh >= tpP) price = wickHigh;
-      else if (open.side === "SHORT") price = Math.min(tickerPrice || wickLow, wickLow); // cap nhat peak trail bang low
-      else price = Math.max(tickerPrice || wickHigh, wickHigh);
+    const price = markPrice;
+    const tpP = open.side === "SHORT" ? open.entryPrice * (1 - Math.abs(open.tpPct) / 100) : open.entryPrice * (1 + Math.abs(open.tpPct) / 100);
+    const slP = open.side === "SHORT" ? open.entryPrice * (1 + Math.abs(open.slPct) / 100) : open.entryPrice * (1 - Math.abs(open.slPct) / 100);
+
+    // Kiểm tra chạm SL/TP dựa trên mark price
+    let exitPrice = price;
+    let exitKind: string | null = null;
+    if (open.side === "SHORT" && price >= slP) {
+      exitPrice = slP;
+      exitKind = "sl";
+    } else if (open.side === "LONG" && price <= slP) {
+      exitPrice = slP;
+      exitKind = "sl";
+    } else if (open.side === "SHORT" && price <= tpP) {
+      exitPrice = tpP;
+      exitKind = "tp";
+    } else if (open.side === "LONG" && price >= tpP) {
+      exitPrice = tpP;
+      exitKind = "tp";
     }
-    if (price <= 0) continue;
+
+    if (exitKind) {
+      await closeTrade(open, exitPrice, exitKind);
+      continue;
+    }
+
     // 0.3.3 — MỘT luồng chấm thoát (trailing / liq / TP1-runner / TP2 / runner-
     // trail / SL-confirm / DCA-at-stop) nằm trong evalExit — cùng thuật toán
     // với cycleTick §1, không đường nào đóng trước làm hỏng TP1 partial.

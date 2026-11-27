@@ -30,6 +30,7 @@ import { combineClosePnl } from "@/lib/trade-mgmt";
 import { autopsyClosedTrade } from "@/lib/autopsy";
 import { auditBook, repairBook, auditEntryClose } from "@/lib/audit-book";
 import { tgSendMessage } from "@/lib/telegram-store";
+import { getMarkPrice } from "@/lib/mark-price";
 import { msgOpen } from "@/lib/tg-msgs";
 import { readUnifiedSettled } from "@/lib/unified-balance";
 
@@ -72,12 +73,10 @@ export async function POST(req: NextRequest) {
   const side = body.side === "SHORT" ? "SHORT" : "LONG";
   // MARK: entry phải là mark thật lúc khớp, không lấy entryPrice bịa từ body/scan.
   // Body entryPrice chỉ là fallback nếu board hụt.
-  let entryPrice = num(body.entryPrice, 0, Infinity, 0);
-  try {
-    const board = await fetchBoard24h();
-    const row = board.get(symbol) ?? board.get(symbol.replace("USDT", "USDT"));
-    if (row && row.price > 0) entryPrice = row.price;
-  } catch {}
+  let entryPrice = await getMarkPrice(symbol);
+  if (entryPrice <= 0) {
+    entryPrice = num(body.entryPrice, 0, Infinity, 0);
+  }
   if (!symbol || !interval || entryPrice <= 0) {
     return NextResponse.json({ error: "symbol, interval, entryPrice required" }, { status: 400 });
   }
