@@ -135,8 +135,10 @@ const MIN_ROWS_WITH_MARGIN = 150; // fall back to no dead-zone below this
  *  công thức gốc sau khi ghép phiếu đa khung — không có thuật toán thứ hai. */
 export const BIAS_LONG_MIN = 0.5 + NOISE_BAND; // 1 nguon duy nhat: 0.5+NOISE_BAND
 export const BIAS_SHORT_MAX = 0.5 - NOISE_BAND; // 1 nguon duy nhat: 0.5-NOISE_BAND
-export const biasFrom = (prob: number): XgbBias =>
-  prob >= BIAS_LONG_MIN ? "LONG" : prob <= BIAS_SHORT_MAX ? "SHORT" : "NEUTRAL";
+export const biasFrom = (prob: number): XgbBias => {
+  const band = pval("NOISE_BAND", NOISE_BAND);
+  return prob >= 0.5 + band ? "LONG" : prob <= 0.5 - band ? "SHORT" : "NEUTRAL";
+};
 
 // ─── Features ─────────────────────────────────────────────────────────────────
 
