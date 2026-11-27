@@ -81,8 +81,18 @@ export interface ScanRow {
  * (CONF_W = 15 trong params.ts §7 — prob đầu vào đã qua calibration §6c,
  *  nên "confidence" là số trung thực, không còn kiểu 86% chỉ để rồi thắng 60%.)
  */
+// Prob tier — tu thong ke AutoTrade CLOSED 375 lenh (bo force), conf theo phia lenh:
+// 75-80: 68 lenh, win 77.9%, avg +2.41 — sweet spot -> x1.3
+// 80-85: 70 lenh, win 62.9%, avg +0.72 — ho overconfident -> x0.7
+// Con lai x1.0. Giua CONF_W=15, khong tang mu len 25.
+// conf = 0.5 + confidence/2 vi confidence = |prob-0.5|*2.
+export const probTierMult = (confidence: number): number => {
+  if (confidence >= 0.5 && confidence < 0.6) return 1.3;
+  if (confidence >= 0.6 && confidence < 0.7) return 0.7;
+  return 1.0;
+};
 export const scoreFrom = (auc: number, acc: number, confidence: number): number =>
-  Math.round(((auc - 0.5) * 100 + (acc - 50) + confidence * pval("CONF_W", CONF_W)) * 10) / 10;
+  Math.round(((auc - 0.5) * 100 + (acc - 50) + confidence * pval("CONF_W", CONF_W) * probTierMult(confidence)) * 10) / 10;
 
 export function scoreOf(res: XgbResult): number {
   return scoreFrom(res.auc, res.acc, res.suggestion.confidence);
