@@ -2489,15 +2489,15 @@ async function watcherTick(): Promise<void> {
         if (k) { wickLow = k.l; wickHigh = k.h; }
       } catch { /* fallback ticker */ }
     }
-    // chon gia de cham exit: neu wick da cham TP/SL/trail thi dung gia wick, khong thi ticker
+    // chon gia de cham exit: wick chi phat hien cham, gia cat = SL/TP, khong thi ticker; wick chi dung de cap nhat peak trail
     let price = tickerPrice;
     if (wickLow > 0 && wickHigh > 0) {
       const tpP = open.side === "SHORT" ? open.entryPrice * (1 - Math.abs(open.tpPct) / 100) : open.entryPrice * (1 + Math.abs(open.tpPct) / 100);
       const slP = open.side === "SHORT" ? open.entryPrice * (1 + Math.abs(open.slPct) / 100) : open.entryPrice * (1 - Math.abs(open.slPct) / 100);
-      if (open.side === "SHORT" && wickHigh >= slP) price = wickHigh;
-      else if (open.side === "LONG" && wickLow <= slP) price = wickLow;
-      else if (open.side === "SHORT" && wickLow <= tpP) price = wickLow;
-      else if (open.side === "LONG" && wickHigh >= tpP) price = wickHigh;
+      if (open.side === "SHORT" && wickHigh >= slP) price = slP; // wick chi phat hien cham, cat bang SL
+      else if (open.side === "LONG" && wickLow <= slP) price = slP; // wick chi phat hien cham, cat bang SL
+      else if (open.side === "SHORT" && wickLow <= tpP) price = tpP; // cat bang TP
+      else if (open.side === "LONG" && wickHigh >= tpP) price = tpP; // cat bang TP
       else if (open.side === "SHORT") price = Math.min(tickerPrice || wickLow, wickLow); // cap nhat peak trail bang low
       else price = Math.max(tickerPrice || wickHigh, wickHigh);
     }

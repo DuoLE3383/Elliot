@@ -133,8 +133,8 @@ const MIN_ROWS_WITH_MARGIN = 150; // fall back to no dead-zone below this
 /** Ngưỡng chết cho bias — prob trong (0.44, 0.56) là "không rõ", không trade.
  *  Xuất khẩu để confluence pooling (autotrade.ts) sinh lại bias bằng ĐÚNG
  *  công thức gốc sau khi ghép phiếu đa khung — không có thuật toán thứ hai. */
-export const BIAS_LONG_MIN = 0.56;
-export const BIAS_SHORT_MAX = 0.44;
+export const BIAS_LONG_MIN = 0.5 + NOISE_BAND; // 1 nguon duy nhat: 0.5+NOISE_BAND
+export const BIAS_SHORT_MAX = 0.5 - NOISE_BAND; // 1 nguon duy nhat: 0.5-NOISE_BAND
 export const biasFrom = (prob: number): XgbBias =>
   prob >= BIAS_LONG_MIN ? "LONG" : prob <= BIAS_SHORT_MAX ? "SHORT" : "NEUTRAL";
 

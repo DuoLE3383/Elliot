@@ -234,7 +234,7 @@ export function confluenceBlend(rows: ScanRow[]): ScanRow[] {
       const row = outByKey.get(`${r.symbol}|${r.interval}`)!;
       row.prob = Math.round(Math.min(cap, Math.max(1 - cap, kept)) * 10_000) / 10_000;
       row.confidence = Math.min(Math.abs(row.prob - 0.5) * 2, 0.6); // cap 0.6 = prob 80% huong ve lenh, chong qua tu tin 85-90 dang lo -4.45 (thong ke 2026-11-27)
-      row.bias = biasFrom(row.prob); // ngưỡng chết gốc 0.56/0.44
+      row.bias = biasFrom(row.prob); // 0.5+-NOISE_BAND (0.06 -> 0.56/0.44)
       row.score = scoreFrom(row.auc, row.acc, row.confidence);
     }
   }
@@ -259,7 +259,7 @@ export function confluenceTable(rows: ScanRow[]): Array<{
     const tfs: Record<string, { side: string; score: number; prob: number }> = {};
     let longW = 0, shortW = 0, nLong = 0, nShort = 0;
     for (const r of group) {
-      const side = r.prob > 0.56 ? "LONG" : r.prob < 0.44 ? "SHORT" : "FLAT";
+      const side = biasFrom(r.prob); // dung 0.5+-NOISE_BAND, khong hardcode 0.56/0.44
       tfs[r.interval] = { side, score: r.score ?? 0, prob: r.prob };
       const w = TF_W[r.interval] ?? 1;
       if (side === "LONG") { longW += w; shortW += 0; nLong++; }
@@ -272,7 +272,7 @@ export function confluenceTable(rows: ScanRow[]): Array<{
     if (total >= 3 && (nLong === total || nShort === total)) { verdict = "STRONG"; action = nLong ? "Ưu tiên LONG" : "Ưu tiên SHORT"; }
     else if (total >= 3 && Math.max(nLong, nShort) === total - 1) {
       // 3/4 — chỉ LEAN nếu khung lệch là khung nhỏ (5m/1m), khung lớn lệch → CONFLICT
-      const minority = group.find((r) => (r.prob > 0.56 ? "LONG" : r.prob < 0.44 ? "SHORT" : "FLAT") !== (nLong > nShort ? "LONG" : "SHORT") && (r.prob > 0.56 || r.prob < 0.44));
+      const minority = group.find((r) => biasFrom(r.prob) !== (nLong > nShort ? "LONG" : "SHORT") && (biasFrom(r.prob) !== "NEUTRAL") // NEUTRAL=FLAT cu, biasFrom khong bao gio tra FLAT);
       if (!minority || (TF_W[minority.interval] ?? 1) <= 1) { verdict = "LEAN"; action = nLong > nShort ? "Nghiêng LONG" : "Nghiêng SHORT"; }
     }
     out.push({ symbol, tfs, longW, shortW, agree, verdict, action });
