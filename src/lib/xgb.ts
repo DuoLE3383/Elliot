@@ -977,14 +977,14 @@ export function suggestFrom(
   // with wide sanity clamps only (0.3–20 / 0.4–28). The expectancy scan picks
   // the coef that actually earned the most over this coin's real history.
   const slTpForCoef = (coef: number): { slPct: number; tpPct: number } => {
-    const slPct = round1(clamp(atrNow * 100 * coef, 0.3, 20));
-    const tpPct = round1(clamp(slPct * 1.4, 0.4, 28));
+    const slPct = round1(clamp(atrNow * 100 * coef, 0.6, 20));
+    const tpPct = round1(clamp(slPct * 1.4, 0.8, 28));
     return { slPct, tpPct };
   };
-  let atrCoef = 1.5;
+  let atrCoef = 2.5;
   let { slPct, tpPct } = slTpForCoef(atrCoef);
   let bestCoefScore = -Infinity;
-  for (const coef of [1, 1.5, 2, 2.5, 3]) {
+  for (const coef of [2, 2.5, 3, 3.5, 4]) {
     const { slPct: s, tpPct: p } = slTpForCoef(coef);
     const score = scanScore(klines, { ...base, slPct: s, tpPct: p, smaFilter: false }, symbol, interval);
     if (score > bestCoefScore) {

@@ -163,7 +163,7 @@ export const FLIP_SCORE_EXTRA = 10;
  *  Chỉ THU HẸP khi lev > ref; lev ≤ ref giữ nguyên (SL không nới ra ngoài
  *  cấu trúc ATR chỉ vì đòn bẩy thấp — rủi ro chỉ NHỎ HƠN baseline, không to
  *  hơn). tpMode "manual" không nhân hệ số (user tự đặt %), chỉ ăn cap liq. */
-export const TP_LEV_MODE = "lin";
+export const TP_LEV_MODE = "off";
 /** Leverage tham chiếu — hệ số chuẩn hoá = 1 tại đúng mức này (lin: lev 20
  *  ref 10 → SL/TP × 0.5). Nên đặt bằng leverage bạn vẫn chạy. */
 export const TP_LEV_REF = 10;

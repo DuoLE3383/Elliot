@@ -623,7 +623,7 @@ export async function spyEvolutionSummary(): Promise<string[]> {
     } catch {}
     if (!rows.length) return [];
     const wrongRate = lose > 0 ? Math.round((wrong / lose) * 100) : 0;
-    const evoLv = g24 >= 5 ? `EVOLUTION LV2 BLOCK - 24h wrong ${g24}>=5` : g24 >= 3 ? `EVOLUTION LV1 - 24h wrong ${g24}>=3 bat dau tien hoa` : `EVOLUTION LV0 - 24h wrong ${g24}<3 chua tien hoa`;
+    const evoLv = g24 >= 8 ? `EVOLUTION LV2 REQUIRE_CONFIRM - 24h wrong ${g24}>=8` : g24 >= 3 ? `EVOLUTION LV1 - 24h wrong ${g24}>=3 bat dau tien hoa` : `EVOLUTION LV0 - 24h wrong ${g24}<3 chua tien hoa`;
     return [`[SPY EVOLUTION - ${rows.length} lenh gan nhat: win ${win} / lose ${lose} - wrong_dir ${wrong} (${wrongRate}% so thua) - noise>SL ${noise} - NEVER TP ${neverTp} - opposite immediately ${opposite} - winners_watch ${winners} | 24h: wrong ${g24}/30 - ${evoLv}] Neu wrong_dir cao: doi 1 nen dong dung huong + trend 5m dong thuan, khong vao nguoc song, khong vao khi noise > SL`];
   } catch { return []; }
 }
@@ -715,7 +715,7 @@ export async function autopsyGate(symbol: string, interval: string): Promise<Aut
       } catch {}
       const wrongRate100 = lose100 > 0 ? Math.round((wrong100 / lose100) * 100) : 0;
       const stats = { total100, wrong100, wrongRate100, g24: gWrong, win100, lose100 };
-      if (gWrong >= 5) return { decision: "BLOCK", wrongCount: gWrong, reason: `EVOLUTION LV2 BLOCK - GLOBAL wrong_dir ${gWrong}/30 lenh 24h (>=5 | thong ke 100 lenh: wrong_dir ${wrong100}/${total100}, ${wrongRate100}% so thua) - thi truong dang nguoc song, dung vao`, lessons, stats };
+      if (gWrong >= 8) return { decision: "REQUIRE_CONFIRM", wrongCount: gWrong, reason: `EVOLUTION LV2 - GLOBAL wrong_dir ${gWrong}/30 lenh 24h (>=8 | thong ke 100 lenh: wrong_dir ${wrong100}/${total100}, ${wrongRate100}% so thua) - thi truong dang nguoc song, dung vao`, lessons, stats };
       if (gWrong >= 3) return { decision: "REQUIRE_CONFIRM", wrongCount: gWrong, reason: `EVOLUTION LV1 - GLOBAL wrong_dir ${gWrong}/30 lenh 24h (>=3 bat dau tien hoa | 100 lenh: wrong_dir ${wrong100}/${total100}) - can 1 nen dong dung huong + trend 5m dong thuan moi cho qua, khong vao nguoc song`, lessons, stats };
     } catch {}
     return { decision: "PASS", wrongCount: 0, reason: "", lessons: [] };

@@ -99,7 +99,7 @@ export function rowOf(res: XgbResult, symbol: string, interval: string): ScanRow
     bias: res.suggestion.bias,
     slPct: res.suggestion.slPct,
     tpPct: res.suggestion.tpPct,
-    atrCoef: res.suggestion.atrCoef ?? 1.5,
+    atrCoef: res.suggestion.atrCoef ?? 2.5,
     score: scoreOf(res),
     samples: res.samples,
     valSamples: res.valSamples,
@@ -1510,7 +1510,7 @@ export const AUTO_DEFAULTS: AutoConfig = {
   tpMode: "dyn",
   slPct: 1,
   tpPct: 1.5,
-  atrCoef: 1.5,
+  atrCoef: 2.5,
   cycleMin: 5,
   runTf: [...INTERVALS],
   // ngưỡng chung mặc định = setpoint broadcast 31/10 (60 / 0.8 / 70) — đồng bộ

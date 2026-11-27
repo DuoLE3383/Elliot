@@ -147,7 +147,7 @@ export function atr(klines: Kline[], period: number): (number | null)[] {
  */
 export function atrLevelsAtEntry(
   klines: Kline[],
-  coef = 1.5,
+  coef = 2.5,
   tpRatio = 1.4,
 ): { slPct: number; tpPct: number; atrPct: number } | null {
   const arr = atr(klines, 14);
@@ -159,7 +159,7 @@ export function atrLevelsAtEntry(
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
   const r1 = (v: number) => Math.round(v * 10) / 10;
   const slPct = r1(clamp(atrPct * coef, 0.3, 20));
-  const tpPct = r1(clamp(slPct * tpRatio, 0.4, 28));
+  const tpPct = r1(clamp(slPct * tpRatio, 0.8, 28));
   return { slPct, tpPct, atrPct };
 }
 
@@ -212,7 +212,7 @@ export const DYN_VOL_CLAMP: readonly [number, number] = [0.85, 1.25];
 
 export function dynLevelsAtEntry(
   klines: Kline[],
-  coef = 1.5,
+  coef = 2.5,
   tpRatio = 1.4,
 ): DynLevels | null {
   const last = klines.length - 2; // last CLOSED candle (final row may be forming)
@@ -265,8 +265,8 @@ export function dynLevelsAtEntry(
   const baseAvg = baseCnt >= 30 ? baseSum / baseCnt : 0;
   const volMul = baseAvg > 0 && recAvg > 0 ? clamp(recAvg / baseAvg, DYN_VOL_CLAMP[0], DYN_VOL_CLAMP[1]) : 1;
 
-  const slPct = r1(clamp(atrPct * coef * heatMul * volMul, 0.3, 20));
-  const tpPct = r1(clamp(slPct * tpRatio, 0.4, 28));
+  const slPct = r1(clamp(atrPct * coef * heatMul * volMul, 0.6, 20));
+  const tpPct = r1(clamp(slPct * tpRatio, 0.8, 28));
   return { slPct, tpPct, atrPct, heatMul, volMul };
 }
 
