@@ -1,0 +1,404 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Post {
+  id        String   @id @default(cuid())
+  title     String
+  content   String?
+  published Boolean  @default(false)
+  authorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─── Elliott terminal — XGBoost suggestions & finetune history ──────────────
+// One row per (pair, interval, time) — every train produces a finetune run
+// AND a strategy suggestion; outcomes are scored once the horizon expires.
+
+model Suggestion {
+  id          String    @id @default(cuid())
+  symbol      String // e.g. BTCUSDT
+  interval    String // e.g. 5m
+  bias        String // LONG | SHORT | NEUTRAL
+  prob        Float // P(price up at horizon), 0..1
+  confidence  Float // |2p−1|, 0..1
+  slPct       Float
+  tpPct       Float
+  atrKey      Float
+  atrPeriod   Int
+  smaFilter   Boolean
+  smaPeriod   Int
+  acc         Float // model accuracy at train time, %
+  auc         Float // model AUC at train time, 0..1
+  horizonBars Int // prediction horizon (bars ahead)
+  entryPrice  Float // close of the last closed candle when suggested
+  applied     Boolean   @default(false)
+  appliedAt   DateTime?
+  outcome     String? // null = pending; win | loss | flat
+  exitPrice   Float?
+  pnlPct      Float? // signed % move in the suggested direction
+  resolvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([symbol, interval, createdAt])
+  @@index([outcome])
+}
+
+model FinetuneRun {
+  id         String   @id @default(cuid())
+  symbol     String
+  interval   String
+  kind       String   @default("train") // train | finetune
+  samples    Int
+  valSamples Int
+  acc        Float
+  auc        Float
+  logloss    Float
+  trees      Int
+  horizon    Int
+  importance String // JSON [{name, gain}]
+  params     String // JSON XgbParams
+  applied    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([symbol, interval, createdAt])
+}
+
+// ─── Auto trade (dry-run) — one row per opened position ─────────────────────
+// The auto engine scans every watched pair × timeframe, ranks them by the
+// XGBoost model's predicted win quality (auc/acc/confidence) and opens ONE
+// paper position at a time on the best candidate with a virtual capital.
+
+model AutoTrade {
+  id            String    @id @default(cuid())
+  symbol        String
+  interval      String
+  side          String // LONG | SHORT
+  entryPrice    Float
+  entryTime     DateTime  @default(now())
+  slPct         Float
+  tpPct         Float
+  leverage      Float     @default(1)
+  /** share of equity staked on this trade, % (100 = all-in) */
+  stakePct      Float     @default(100)
+  status        String    @default("open") // open | pending | closed
+  exitPrice     Float?
+  exitTime      DateTime?
+  /** signed ROE % = price move × leverage (liquidation-safe) */
+  pnlPct        Float?
+  exitKind      String? // tp | sl | manual
+  prob          Float?
+  acc           Float?
+  auc           Float?
+  score         Float?
+  capitalBefore Float?
+  capitalAfter  Float?
+  /** verdict của LLM Risk Officer LÚC VÀO LỆNH — go | skip | unreachable;
+   *  null = lệnh mở trước 0.2.28 hoặc không qua LLM. Đi kèm autopsy để nhìn
+   *  lại "risk officer duyệt go mà lệnh vẫn thua" một cách khách quan. */
+  llmVerdict    String?
+  /** lý do đầu tiên của verdict lúc vào lệnh (≤180 ký tự) */
+  llmReason     String?
+  /** JSON giải phẫu lệnh (autopsy) sau khi ĐÓNG — {outcome, tag, why[], lesson,
+   *  ev:{mfePct,maePct,rMultiple,durMin,noisePct,candles,covered}, ms, model, at}.
+   *  Cả lệnh thắng lẫn thua đều được mổ; lesson được nạp lại vào prompt duyệt
+   *  các lệnh sau của cùng cặp (vòng học khép kín). */
+  autopsy       String?
+  /** fingerprint of entry policy (gates/stake/lev/TF) at open — self-improve agent */
+  methodId      String?
+  // ── 0.3.3 · TP1 PARTIAL → RUNNER (xem src/lib/trade-mgmt.ts) ─────────
+  /** ROE % SAU PHÍ đã bank tại TP1 (null = lệnh thường chưa qua TP1) */
+  p1Pct         Float?
+  /** phần stake đã bank tại TP1, 0..1 (runnerSharePct/100) */
+  p1Share       Float?
+  /** TP mở rộng của runner (price move %) — null = chưa vào runner phase */
+  tp2Pct        Float?
+  /** mức khoá lời hiện tại của trail runner (price move %, ≥0; 0 = hoà vô) */
+  trailPct      Float?
+  createdAt     DateTime  @default(now())
+
+  @@index([status, createdAt])
+  @@index([methodId])
+  @@index([symbol, interval])
+}
+
+// ─── Dry-run wallet — vốn gốc của sổ paper-trade (0.2.86) ────────────────────
+// Trước đây vốn chỉ SỐNG TRONG chuỗi capitalAfter của các lệnh: xoá sổ (reset)
+// là vốn thành null, UI hiện "?" và lệnh kế phải đoán lại từ cfg của panel.
+// Một dòng duy nhất (id "wallet") ghi vốn sau lần reset gần nhất — readAutoState
+// dùng làm fallback khi sổ trống, nên "Reset vốn" thấy tiền NGAY, sống qua
+// pm2 restart, và chuỗi equity lệnh mới bắt đầu đúng từ con số đó.
+
+model DryRunState {
+  id       String   @id // luôn "wallet" — bảng một dòng
+  capital  Float // vốn đã đặt sau lần reset gần nhất (USDT)
+  resetAt  DateTime @default(now())
+  note     String   @default("") // nguồn đặt vốn: "panel" | "api" | …
+}
+
+// ─── Broadcast verdict — MỘT thuật toán gate dùng chung panel + Telegram ─────
+// Mỗi 5 phút broadcast tick chấm TẤT CẢ combo quét qua đúng một hàm
+// bcast-gate.gateRow() và upsert phán quyết vào đây (một dòng / combo).
+// Telegram chỉ đăng combo verdict "pass"; panel đọc CÙNG bảng này qua
+// GET /api/engine → "bcast" — không thể lệch nhau vì chỉ có một thuật toán.
+
+model BcastVerdict {
+  id       String   @id @default(cuid())
+  symbol   String
+  interval String
+  side     String // LONG | SHORT | NEUTRAL
+  score    Float
+  auc      Float
+  acc      Float
+  verdict  String // pass | reject
+  reason   String // "" khi pass; "điểm 52.1 < 70", "AUC 0.63 < 0.8", "cooldown còn 42p"…
+  at       DateTime @default(now())
+
+  @@unique([symbol, interval])
+  @@index([verdict])
+}
+
+// ─── Dive report — LƯU LẠI bài phân tích LLM ("Vạch lá tìm sâu") ─────────────
+// Trước 0.2.36 mỗi lần dive chạy xong chỉ hiện trên UI rồi mất (route ghi rõ
+// "KHÔNG ghi DB"). Từ bản này mỗi lần chạy — kể cả fail — được lưu một dòng để
+// soi dọc theo thời gian: win-rate hôm nay LLM nói gì, tuần sau nó đổi ý chưa.
+model DiveReport {
+  id        String   @id @default(cuid())
+  source    String // "stats-dive" | … (tương lai: autopsy-digest, lab-audit…)
+  model     String // tên model LLM đã trả
+  ok        Boolean // LLM trả lời thành công?
+  ms        Int // thời gian chạy
+  text      String // markdown đầu ra của LLM
+  detail    String? // chi tiết lỗi khi !ok
+  createdAt DateTime @default(now())
+
+  @@index([source, createdAt])
+}
+
+// ─── Strategy variant — MỘT ỨNG VIÊN CHIẾN LƯỢC trong Strategy Lab ───────────
+// Mỗi lần "sinh chiến lược" (thủ công hoặc tự động sau train, throttle 12h),
+// server dựng baseline = cfg hiện tại + grid SL/TP·UT·SMA + các biến thể ĐỊNH
+// HƯỚNG theo feature gain của champion run (importance đã lưu trong
+// FinetuneRun), rồi backtest TẤT CẢ trên klines thật bằng đúng thuật toán
+// engine (signalsFrom → papersFrom → kpiFrom). Cả thắng lẫn thua đều sống lại
+// trong bảng này → A/B thật, không phải greedy top-1 như suggestFrom cũ.
+model StrategyVariant {
+  id            String    @id @default(cuid())
+  symbol        String
+  interval      String
+  name          String // tên ngắn, vd "ATR nới 2.5×"
+  hypothesis    String // giả thuyết tiếng Việt — dựa yếu tố nào, chờ điều gì
+  sourceFeature String    @default("") // feature gain chính, "" = grid/quét
+  config        String // JSON LabConfig {slPct,tpPct,atrKey,atrPeriod,smaFilter,smaPeriod,leverage}
+  baseline      Boolean   @default(false) // mốc so sánh = cfg đang chạy
+  scored        Boolean   @default(false) // đã backtest chưa
+  metrics       String? // JSON LabMetrics {trades,winRate,netPnl,expectancy,maxDd,…}
+  applied       Boolean   @default(false)
+  appliedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  scoredAt      DateTime?
+
+  @@index([symbol, interval, createdAt])
+}
+
+// ─── Signal total — đếm TÍCH LUỸ tín hiệu server đã quét thấy ────────────────
+// Mỗi lượt quét engine (scanCore), mọi combo model bật hướng LONG/SHORT (≠
+// NEUTRAL) cộng 1. Đây là "tổng tín hiệu" trên KPI "Signals this window" —
+// số trong khung nến tính phía trình duyệt (signalsFrom), số này đếm suốt
+// đời server, sống qua pm2 restart nhờ DB.
+
+model SignalTotal {
+  symbol    String
+  interval  String
+  total     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@id([symbol, interval])
+}
+
+// ─── Improve event — self-improve agent log (24/7) ───────────────────────────
+// measure | discover | promote | rollback | skip — numeric policy decisions.
+model ImproveEvent {
+  id        String   @id @default(cuid())
+  kind      String // measure | discover | promote | rollback | skip
+  methodId  String   @default("")
+  detail    String // JSON payload
+  note      String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([kind, createdAt])
+  @@index([createdAt])
+}
+
+// ─── Evolve log — nhật ký vòng "tự tiến hoá" (0.2.54) ────────────────────────
+// Vòng khép kín trên nền Strategy Lab: sinh ứng viên từ dữ liệu đang tích hợp
+// (feature importance của champion + grid) và đề xuất LLM → backtest đúng
+// thuật toán engine trên nến thật → áp kẻ thắng vào settings engine → theo dõi
+// hiệu quả trên lệnh giấy THẬT (AutoTrade đóng sau thời điểm áp) → tự hoàn tác
+// nếu tệ hơn mốc. Mỗi quyết định 1 dòng: promote (áp) / keep (không đạt biên)
+// / confirm (qua theo dõi) / revert (hoàn tác) / error.
+// ─── Evolve log — nhật ký vòng "tự tiến hoá" (0.2.54) ────────────────────────
+// Vòng khép kín trên nền Strategy Lab: sinh ứng viên từ dữ liệu đang tích hợp
+// (feature importance của champion + grid) và đề xuất LLM → backtest đúng
+// thuật toán engine trên nến thật → áp kẻ thắng vào settings engine → theo dõi
+// hiệu quả trên lệnh giấy THẬT (AutoTrade đóng sau thời điểm áp) → tự hoàn tác
+// nếu tệ hơn mốc. Mỗi quyết định 1 dòng: promote (áp) / keep (không đạt biên)
+// / confirm (qua theo dõi) / revert (hoàn tác) / error.
+model EvolveLog {
+  id        String   @id @default(cuid())
+  combo     String // "BTCUSDT 15m" — combo đại diện dùng cho backtest
+  decision  String // promote | keep | confirm | revert | error
+  name      String   @default("") // ứng viên áp/hủy — "" với keep/error
+  detail    String   @default("") // giải thích tiếng Việt + số liệu chính
+  cfgBefore String   @default("") // JSON LabConfig trước khi đổi
+  cfgAfter  String   @default("") // JSON LabConfig sau khi đổi
+  metrics   String? // JSON { base, best, watch? } — LabMetrics + số theo dõi
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// ─── Vulcan book — sổ dry-run CHIẾN LƯỢC A (0.2.93) ──────────────────────────
+// Port DonchianBreakout (VulcanTrader) — tách bảng khỏi AutoTrade (sổ B)
+// để hai engine không bao giờ đụng chuỗi vốn của nhau; /arena đọc cả hai.
+model VulcanBook {
+  id            String    @id @default(cuid())
+  symbol        String
+  side          String // LONG | SHORT
+  entryPrice    Float
+  entryTime     DateTime  @default(now())
+  status        String    @default("open") // open | closed
+  stopPrice     Float // ATR×2 neo tại entry, trailing có thể siết
+  peak          Float     @default(0) // đỉnh tốt nhất (trailing)
+  trailArmed    Boolean   @default(false)
+  exitPrice     Float?
+  exitTime      DateTime?
+  exitKind      String? // sl | roi_8pct | roi_5pct | roi_3pct | roi_1pct | rsi_exit | mid_exit
+  movePct       Float?
+  roePct        Float?
+  capitalBefore Float?
+  capitalAfter  Float?
+  createdAt     DateTime  @default(now())
+
+  @@index([symbol, status])
+  @@index([status, entryTime])
+}
+
+// ─── Wyckoff book — sổ dry-run CHIẾN LƯỢC C (0.2.97) ─────────────────────────
+// Port phễu Wyckoff GỐC 5 lớp (WyckoffTradingAgent, core/wyckoff_engine.py):
+// L1 thanh khoản → L2 sức mạnh (markup/RPS) → L3 cộng hưởng (breadth regime)
+// → L4 trigger (Spring/SOS/EVR/TrendPullback; LPS + Compression gốc để OFF)
+// → L5 thoát (stop cấu trúc −7% đáy吸筹 / trailing 15%→−10% / Upthrust /
+//   Distribution / breadth RISK_OFF). Chỉ LONG (gốc là cổ phiếu spot: tích
+// luỹ → markup), lev 1, stake 10% vốn sổ.
+model WyckoffBook {
+  id            String    @id @default(cuid())
+  symbol        String
+  side          String // luôn LONG (phễu gốc long-only)
+  trigger       String // spring | sos | evr | trend_pullback
+  score         Float     @default(0) // điểm trigger (recovery%/vol ratio/…)
+  breadth       Float? // % universe trên MA20 lúc vào
+  entryPrice    Float
+  entryTime     DateTime  @default(now())
+  status        String    @default("open") // open | closed
+  stopPrice     Float // stop cấu trúc hiện hành (accum hoặc trailing)
+  stopKind      String    @default("accum") // accum | trailing
+  accumLow      Float     @default(0) // đáy吸筹 60 ngày — gốc của stop
+  peak          Float     @default(0) // đỉnh cao nhất từ khi vào (trailing)
+  trailArmed    Boolean   @default(false)
+  exitPrice     Float?
+  exitTime      DateTime?
+  exitKind      String? // sl | trailing | upthrust | distribution | breadth
+  exitReason    String?
+  movePct       Float?
+  pnlPct        Float? // lev 1 → ROE = move − phí
+  capitalBefore Float?
+  capitalAfter  Float?
+  createdAt     DateTime  @default(now())
+
+  @@index([symbol, status])
+  @@index([status, entryTime])
+}
+
+// ─── Live book — lệnh THẬT mirror sổ B khi LIVE mode (0.2.97) ────────────────
+// LIVE bật → mỗi lần engine mở/đóng/DCA lệnh dry-run thì gửi MARKET order thật
+// qua Binance USDT-M (key trong binance-keys.json) và ghi KHỐP thời gian/giá
+// vào đây. Vốn sổ live = balance thật đọc từ /fapi/v2/account (không chuỗi
+// vốn ảo). Dry-run LUÔN chạy — live chỉ là lớp mirror, tắt live không ảnh hưởng sổ giấy.
+
+// ─── Liquid book — sổ dry-run CHIẾN LƯỢC D (Wyckoff Distribution SHORT) ───
+// Mirror WyckoffBook (C) nhưng chỉ SHORT. stopPrice = entry * (1 + sl), tpPrice = entry * (1 - tp).
+model LiquidBook {
+  id            String    @id @default(cuid())
+  symbol        String
+  side          String // luôn SHORT
+  trigger       String // upthrust | distribution
+  score         Float     @default(0)
+  breadth       Float?
+  entryPrice    Float
+  entryTime     DateTime  @default(now())
+  status        String    @default("open") // open | closed
+  stopPrice     Float
+  tpPrice       Float
+  peak          Float     @default(0)
+  trailArmed    Boolean   @default(false)
+  exitPrice     Float?
+  exitTime      DateTime?
+  exitKind      String? // tp | sl | manual
+  exitReason    String?
+  movePct       Float?
+  pnlPct        Float?
+  capitalBefore Float?
+  capitalAfter  Float?
+  createdAt     DateTime  @default(now())
+
+  @@index([symbol, status])
+  @@index([status, entryTime])
+}
+
+model LiveBook {
+  id                 String    @id @default(cuid())
+  symbol             String
+  side               String // LONG | SHORT
+  entryPrice         Float // avgPrice khớp thực tế
+  entryTime          DateTime  @default(now())
+  status             String    @default("open") // open | closed
+  qty                Float // lượng coin thực (rounded theo stepSize)
+  notional           Float     @default(0) // qty × entryPrice
+  leverage           Float     @default(1)
+  binanceOrderId     String?
+  dryRunTradeId      String? // liên kết lệnh giấy tương ứng
+  exitPrice          Float?
+  exitTime           DateTime?
+  exitKind           String? // tp | sl | manual | flip
+  binanceExitOrderId String?
+  movePct            Float?
+  roePct             Float?
+  balanceBefore      Float? // totalWalletBalance lúc vào
+  balanceAfter       Float? // lúc đóng
+  note               String?
+  createdAt          DateTime  @default(now())
+
+  @@index([symbol, status])
+  @@index([status, entryTime])
+}

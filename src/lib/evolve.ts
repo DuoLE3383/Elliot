@@ -34,9 +34,9 @@ import type { EngineSettings } from "./types";
 
 // ─── Tuỳ chỉnh bằng env (đọc lúc gọi — đổi xong cần pm2 restart --update-env) ─
 // EVOLVE_ON=1            bật vòng (mặc định 1) — 0 để tắt hoàn toàn
-// EVOLVE_ROUND_MIN=360   chu kỳ vòng (phút)
+// EVOLVE_ROUND_MIN=240   chu kỳ vòng (phút) - 4h
 // EVOLVE_COOLDOWN_H=24   nghỉ tối thiểu giữa 2 lần ÁP (giờ)
-// EVOLVE_MIN_TRADES=12   ứng viên phải có ≥ n lệnh backtest mới đủ điều kiện
+// EVOLVE_MIN_TRADES=10   ứng viên phải có ≥ n lệnh backtest mới đủ điều kiện (code default 10, comment cũ ghi 12 là sai)
 // EVOLVE_WATCH_N=15      số lệnh giấy đóng để chấm kết thúc theo dõi
 // EVOLVE_MARGIN=0.1      biên expectancy%/lệnh phải vượt mốc
 // EVOLVE_DD_FACTOR=1.5   DD ứng viên không sâu hơn 1.5× DD mốc
@@ -47,7 +47,7 @@ const envNum = (k: string, d: number): number => {
 };
 const evolveOn = (): boolean => process.env.EVOLVE_ON !== "0";
 const llmLaneOn = (): boolean => process.env.EVOLVE_LLM !== "0";
-const ROUND_MIN = () => envNum("EVOLVE_ROUND_MIN", 360);
+const ROUND_MIN = () => envNum("EVOLVE_ROUND_MIN", 240);
 const COOLDOWN_H = () => envNum("EVOLVE_COOLDOWN_H", 24);
 const MIN_TRADES = () => envNum("EVOLVE_MIN_TRADES", 10);
 const WATCH_N = () => envNum("EVOLVE_WATCH_N", 15);
@@ -272,10 +272,45 @@ async function pickCombo(bridge: EvolveBridge): Promise<{ sym: string; itv: stri
 
 // ─── Một vòng tiến hoá ────────────────────────────────────────────────────────
 
+
+// --- Audit previous decision: backtest cfgBefore vs cfgAfter on candles after decision ---
+// Called at start of each evolveRound. If last decision was promote and best still beats base -> CORRECT, else WRONG.
+// If last decision was keep and rejected best would have beaten base on out-of-sample -> keep was WRONG (missed promote).
+async function auditPreviousDecision(bridge: EvolveBridge): Promise<void> {
+  try {
+    const last = await db.evolveLog.findFirst({ where: { decision: { in: ["promote", "keep"] } }, orderBy: { createdAt: "desc" } });
+    if (!last) return;
+    if (last.name?.startsWith("AUDIT")) return;
+    const parseCfg = (s: string | null): LabConfig | null => { try { return s ? (JSON.parse(s) as LabConfig) : null; } catch { return null; } };
+    const before = parseCfg(last.cfgBefore);
+    const after = parseCfg(last.cfgAfter);
+    if (!before || !after) return;
+    const parts = (last.combo || "BTCUSDT 15m").split(" ");
+    const sym = parts[0] || "BTCUSDT";
+    const itv = parts[1] || "15m";
+    const { klines } = await fetchKlinesDirectResolved(sym, itv, 500);
+    if (!klines || klines.length < 50) return;
+    // Out-of-sample: only candles after decision time
+    const afterTs = last.createdAt.getTime();
+    const oos = klines.filter((k: any) => (k.t ?? k.time ?? 0) >= afterTs);
+    const sample = oos.length >= 50 ? oos : klines.slice(-200);
+    const mBefore = backtestLab(sample, before, sym, itv);
+    const mAfter = backtestLab(sample, after, sym, itv);
+    const afterBeats = mAfter.expectancy >= mBefore.expectancy + MARGIN();
+    let verdict = "";
+    if (last.decision === "promote") verdict = afterBeats ? "AUDIT: promote CORRECT - best still beats base on out-of-sample" : "AUDIT: promote WRONG - best no longer beats base on out-of-sample";
+    else verdict = afterBeats ? "AUDIT: keep WRONG - rejected best would have beaten base on out-of-sample, missed promote" : "AUDIT: keep CORRECT - rejected best still does not beat base";
+    const detail = `${verdict} | OOS ${sample.length} candles | before exp ${r3(mBefore.expectancy)} vs after exp ${r3(mAfter.expectancy)} | base DD ${r2(mBefore.maxDd)} vs after DD ${r2(mAfter.maxDd)}`;
+    await logRow(last.combo, "keep", `AUDIT ${last.decision} ${last.name}`, detail, before, after, { base: mBefore, best: mAfter });
+    bridge.log(detail);
+  } catch (e) { bridge.log(`AUDIT error: ${e instanceof Error ? e.message : e}`); }
+}
+
 export async function evolveRound(bridge: EvolveBridge): Promise<EvolveOutcome> {
   const comboTag = (c: { sym: string; itv: string }) => `${c.sym} ${c.itv}`;
   try {
-    if (!evolveOn()) return { decision: "keep", combo: "—", note: "EVOLVE_ON=0 — vòng tắt" };
+    if (!evolveOn()) return { decision: "keep", combo: "—", note: "EVOLVE_ON=0 — loop disabled" };
+    await auditPreviousDecision(bridge);
 
     // 0 · cooldown giữa các lần ÁP — chống đun vỉ tham số
     const lastPromote = await activePromotion();
@@ -403,7 +438,7 @@ export async function evolveRound(bridge: EvolveBridge): Promise<EvolveOutcome> 
               },
             });
             rows.push({ id: "", config: cfg, metrics, name: `LLM — ${pr.proposal.name}`, hypothesis: pr.proposal.hypothesis, baseline: false, applied: false, createdAt: new Date() });
-            llmNote = " +1 ứng viên LLM";
+            llmNote = " +1 LLM candidate";
           }
         }
       } catch (e) {
@@ -420,7 +455,9 @@ export async function evolveRound(bridge: EvolveBridge): Promise<EvolveOutcome> 
     }
 
     const best = eligible.sort((a, b) => b.metrics!.expectancy - a.metrics!.expectancy)[0] ?? null;
-    const passMargin = !!best && !!baseMetrics && best.metrics!.expectancy >= baseMetrics.expectancy + MARGIN() && best.metrics!.maxDd <= baseMetrics.maxDd * DD_FACTOR();
+    const passExp = !!best && !!baseMetrics && best.metrics!.expectancy >= baseMetrics.expectancy + MARGIN();
+    const passDdMargin = !!best && !!baseMetrics && best.metrics!.maxDd >= baseMetrics.maxDd * DD_FACTOR();
+    const passMargin = passExp && passDdMargin;
     const passDd = !best || !baseMetrics || best.metrics!.maxDd >= baseMetrics.maxDd * DD_FACTOR();
     const passDiff = !!best && configKey(best.config) !== beforeKey;
     const passApplied = !!best && !best.applied;
@@ -451,11 +488,13 @@ export async function evolveRound(bridge: EvolveBridge): Promise<EvolveOutcome> 
 
     // Không đủ biên → ghi nhận để vòng sau học (LLM đọc recent_evolution)
     const why = !best
-      ? "không ứng viên nào đủ số lệnh tối thiểu"
-      : !passMargin
-        ? `exp ${r3(best.metrics!.expectancy)} chưa vượt mốc ${r3(baseMetrics?.expectancy ?? 0)} + ${MARGIN()}`
+      ? "no candidate reached the minimum trade count"
+      : !passExp
+        ? `exp ${r3(best.metrics!.expectancy)} did not beat base ${r3(baseMetrics?.expectancy ?? 0)} + ${MARGIN()}`
+        : !passDdMargin
+          ? `DD ${r2(best.metrics!.maxDd)}% deeper than allowed base ${r2(baseMetrics?.maxDd ?? 0)}% * ${DD_FACTOR()}`
         : !passDd
-          ? `DD ${r2(best.metrics!.maxDd)}% sâu hơn ngưỡng cho phép`
+          ? `DD ${r2(best.metrics!.maxDd)}% deeper than allowed`
           : !passDiff
             ? "ứng viên trùng cfg đang chạy"
             : "ứng viên đã áp trước đó";

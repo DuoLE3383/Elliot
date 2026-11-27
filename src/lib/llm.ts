@@ -190,12 +190,12 @@ const SYSTEM_PROMPT = [
   '{"verdict":"go"|"skip","confidence":0..1,"reasons":["..."]}',
   "Skip when: validation AUC/accuracy is barely above coin flip; leverage puts liquidation dangerously close to the SL; round-trip fees invert the payoff or consume most of the TP ROI (fee_check); stake is oversized; or the model trained on too few samples.",
   "Approve otherwise. Max 3 reasons, each under 90 characters, English, no markdown.",
-  // ── chống nói bừa: khối checks trong user prompt là chuẩn, model không được mâu thuẫn ──
+  // Anti-hallucination rule: the checks block in the user prompt is ground truth; the model must not contradict it.
   "The user prompt ends with a checks block computed by code (rr_check / fee_check / coinflip_check / liq_check / gate_check / sample_base) — treat it as ground truth: never contradict it, never recompute it.",
   "If none of the skip conditions applies against the checks block, verdict MUST be 'go' — do not invent extra skip conditions.",
   "Hard rules: never describe a strong val_acc/val_auc as near or barely above coin flip (coinflip_check has already judged it); never call R:R 'inconsistent' (rr_check already proved tp/sl match); never claim fees are unaccounted (fee_check already nets them into the ROI figures); never cite numbers absent from the prompt.",
   "Every reason MUST quote the exact field=value it relies on; vague reasons are invalid. A reason contradicting the checks block is invalid.",
-  // recent_lessons là hậu quả THẬT của bot (autopsy lệnh đã đóng) — bằng chứng
+  // recent_lessons are the bot's REAL outcomes (autopsies of closed trades) — operational evidence
   // vận hành chứ không phải chỉ dẫn; không được nhại lại nguyên văn làm reason.
   "recent_lessons, when present, are post-mortems of this bot's own closed trades on this pair — treat them as operational evidence when weighing the setup, but do not copy them verbatim into reasons.",
 ].join(" ");
@@ -694,7 +694,7 @@ const EVOLVE_SYSTEM_PROMPT =
   "feature importances of the trained model, past evolution attempts and recent paper trades. " +
   "Propose exactly ONE NEW candidate entry config that is DIFFERENT from the baseline and from " +
   "candidates that already lost. Reason from the data only — never invent numbers. " +
-  'Reply with STRICT JSON only: {"name":"<short label>","hypothesis":"<1-2 sentences, Vietnamese>","slPct":<0.3-20>,"tpPct":<0.4-28>,"atrKey":<0.5-4>,"atrPeriod":<5-30>,"smaFilter":<true|false>,"smaPeriod":<20-250>}';
+  'Reply with STRICT JSON only: {"name":"<short label>","hypothesis":"<1-2 sentences, English>","slPct":<0.3-20>,"tpPct":<0.4-28>,"atrKey":<0.5-4>,"atrPeriod":<5-30>,"smaFilter":<true|false>,"smaPeriod":<20-250>}';
 
 export async function llmPropose(
   url: string,
@@ -744,7 +744,7 @@ export async function llmPropose(
       return { ok: false, proposal: null, raw: text, detail: "bad-numbers", ms };
     }
     const proposal: LlmProposal = {
-      name: typeof p.name === "string" ? p.name.slice(0, 60) : "LLM đề xuất",
+      name: typeof p.name === "string" ? p.name.slice(0, 60) : "LLM proposal",
       hypothesis: typeof p.hypothesis === "string" ? p.hypothesis.slice(0, 300) : "",
       slPct,
       tpPct,
@@ -806,6 +806,53 @@ const STATS_DIVE_SYSTEM = [
  * Dùng bởi /ai card "Phân tích nguyên nhân gốc"; timeout mặc định 300s vì 7B CPU cần
  * thời gian sinh văn bản dài hơn verdict go/skip.
  */
+/** Shrink the /stats snapshot before sending it to the LLM: drop charts and hints,
+ *  truncate notes, cap total size near 20k chars to stay within n_ctx.
+ *  The LLM only describes results; it never computes them. */
+function compactSnapshot(json: string): string {
+  let d: any;
+  try { d = JSON.parse(json); } catch { return json.slice(0, 20000); }
+  const secs = Array.isArray(d?.sections) ? d.sections : [];
+  const out = {
+    ...d,
+    sections: secs.map((x: any) => ({
+      key: x.key, state: x.state, accPct: x.accPct,
+      note: typeof x.note === "string" ? x.note.slice(0, 300) : x.note,
+      metrics: Array.isArray(x.metrics)
+        ? x.metrics.map((m: any) => ({ k: m.k, v: m.v, sub: m.sub, tone: m.tone }))
+        : [],
+    })),
+  };
+  return JSON.stringify(out).slice(0, 20000);
+}
+// Chunk snapshot theo sections: moi chunk <= 48000 chars (~12000 token input) + system + max_tokens 1600 < 16384
+// Thay vi cat cung 20000 chars lam mat section, chia de giu du data
+function chunkSnapshotBySections(json: string): string[] {
+  let d: any;
+  try { d = JSON.parse(json); } catch { return [json.slice(0, 48000)]; }
+  const secs = Array.isArray(d?.sections) ? d.sections : [];
+  if (!secs.length) return [compactSnapshot(json)];
+  const chunks: string[] = [];
+  let cur: any[] = [];
+  let curLen = 0;
+  const MAX_CHUNK_CHARS = 48000;
+  for (const s of secs) {
+    const compact = {
+      key: s.key, state: s.state, accPct: s.accPct,
+      note: typeof s.note === "string" ? s.note.slice(0, 300) : s.note,
+      metrics: Array.isArray(s.metrics) ? s.metrics.map((m: any) => ({ k: m.k, v: m.v, sub: m.sub, tone: m.tone })) : [],
+    };
+    const sLen = JSON.stringify(compact).length;
+    if (cur.length && curLen + sLen > MAX_CHUNK_CHARS) {
+      chunks.push(JSON.stringify({ ...d, sections: cur }));
+      cur = []; curLen = 0;
+    }
+    cur.push(compact); curLen += sLen;
+  }
+  if (cur.length) chunks.push(JSON.stringify({ ...d, sections: cur }));
+  return chunks.length ? chunks : [compactSnapshot(json)];
+}
+
 export async function llmStatsDive(
   url: string,
   model: string,
@@ -814,6 +861,7 @@ export async function llmStatsDive(
   timeoutMs = Math.max(pval("LLM_TIMEOUT_MS", LLM_TIMEOUT_MS), 300_000),
 ): Promise<LlmTextResult> {
   const started = Date.now();
+  snapshotJson = compactSnapshot(snapshotJson);
   const base = { prompt: snapshotJson.slice(0, 4000), url, model };
   try {
     const res = await fetch(`${baseOf(url)}/v1/chat/completions`, {
@@ -827,7 +875,7 @@ export async function llmStatsDive(
           {
             role: "user",
             content:
-              "STATS SNAPSHOT (use ONLY numbers that appear below; answer in English):\n" +
+              "STATS SNAPSHOT (use ONLY numbers below; answer in English). RULES: do NOT propose parameter changes; only describe sections with state warn/bad, quoting the numbers shown; if closed trades < 30 write \"insufficient n\":\n" +
               snapshotJson,
           },
         ],

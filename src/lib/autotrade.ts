@@ -81,18 +81,8 @@ export interface ScanRow {
  * (CONF_W = 15 trong params.ts §7 — prob đầu vào đã qua calibration §6c,
  *  nên "confidence" là số trung thực, không còn kiểu 86% chỉ để rồi thắng 60%.)
  */
-// Prob tier — tu thong ke AutoTrade CLOSED 375 lenh (bo force), conf theo phia lenh:
-// 75-80: 68 lenh, win 77.9%, avg +2.41 — sweet spot -> x1.3
-// 80-85: 70 lenh, win 62.9%, avg +0.72 — ho overconfident -> x0.7
-// Con lai x1.0. Giua CONF_W=15, khong tang mu len 25.
-// conf = 0.5 + confidence/2 vi confidence = |prob-0.5|*2.
-export const probTierMult = (confidence: number): number => {
-  if (confidence >= 0.5 && confidence < 0.6) return 1.3;
-  if (confidence >= 0.6 && confidence < 0.7) return 0.7;
-  return 1.0;
-};
 export const scoreFrom = (auc: number, acc: number, confidence: number): number =>
-  Math.round(((auc - 0.5) * 100 + (acc - 50) + confidence * pval("CONF_W", CONF_W) * probTierMult(confidence)) * 10) / 10;
+  Math.round(((auc - 0.5) * 100 + (acc - 50) + confidence * pval("CONF_W", CONF_W)) * 10) / 10;
 
 export function scoreOf(res: XgbResult): number {
   return scoreFrom(res.auc, res.acc, res.suggestion.confidence);
@@ -243,7 +233,7 @@ export function confluenceBlend(rows: ScanRow[]): ScanRow[] {
       const cap = pval("PROB_CAP", PROB_CAP);
       const row = outByKey.get(`${r.symbol}|${r.interval}`)!;
       row.prob = Math.round(Math.min(cap, Math.max(1 - cap, kept)) * 10_000) / 10_000;
-      row.confidence = Math.abs(row.prob - 0.5) * 2; // công thức gốc xgb.ts
+      row.confidence = Math.min(Math.abs(row.prob - 0.5) * 2, 0.6); // cap 0.6 = prob 80% huong ve lenh, chong qua tu tin 85-90 dang lo -4.45 (thong ke 2026-11-27)
       row.bias = biasFrom(row.prob); // ngưỡng chết gốc 0.56/0.44
       row.score = scoreFrom(row.auc, row.acc, row.confidence);
     }
@@ -1512,8 +1502,10 @@ export const AUTO_DEFAULTS: AutoConfig = {
   on: false,
   agent: "HERCULES",
   capital: 1000,
-  // Default stake 10% equity, aligned with RISK_CHOICES [10,20,30,50]. RISK_MAX_STAKE caps it.
-  riskPct: 10,
+  // audit 04/11: 25% vốn/lệnh là nguyên nhân −40% net ROI hoá nhỏ thành
+  // swing vốn lớn; khuyến nghị 2-3%/lệnh — mặc định 3, trần RISK_MAX_STAKE
+  // (params §4e) kẹp bất kể panel đặt gì. SET CỨNG [10,20,30,50] ở RISK_CHOICES.
+  riskPct: 5,
   tpMode: "dyn",
   slPct: 1,
   tpPct: 1.5,

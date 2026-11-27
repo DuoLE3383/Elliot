@@ -30,7 +30,7 @@ import { db } from "./db";
 import { tgSendMessage } from "./telegram-store";
 import { fmtPrice } from "./i18n";
 import { buildTradeHeader } from "./tg-msgs";
-import { readUnifiedSettled } from "./unified-balance";
+import { bumpSettledWallet, readUnifiedSettled } from "./unified-balance";
 import { fetchKlinesDirect } from "./klines-direct";
 import { feeRoi, pval } from "./params";
 import {
@@ -595,6 +595,7 @@ async function wyckoffTick(): Promise<void> {
             capitalAfter: after,
           },
         });
+        await bumpSettledWallet(delta).catch(() => null);
         console.log(`[wyckoff-C] CLOSE LONG ${openRow.symbol} @ ${price} (${exitKind}) move ${movePct}% ROI ${pnlPct}% vốn ${before}→${after} — ${exitReason}`);
         return;
       }
@@ -692,7 +693,7 @@ async function wyckoffTick(): Promise<void> {
     const unifiedBalC = await readUnifiedSettled().then((u) => u.balance).catch(() => undefined);
     void tgSendMessage(
       [
-      ...buildTradeHeader("🟢", "OPEN", { symbol: pick.sym, interval: "1d", side: "LONG", book: "C" }),
+      ...buildTradeHeader("📡", "OPEN", { symbol: pick.sym, interval: "1d", side: "LONG", book: "C" }),
       `🎯 Entry <b>${fmtPrice(Number(entry))}</b>`,
       `🛑 Stop Loss <b>${fmtPrice(Number(stop))}</b> · Wyckoff trigger: ${pick.trig.kind} · Trigger score ${pick.trig.score.toFixed(2)}`,
       "",

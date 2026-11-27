@@ -35,74 +35,11 @@ function resolveEndpoint(): { url: string; model: string } {
   };
 }
 
-
-/** Tạo snapshot tinh gọn chỉ chứa các trường cần thiết cho LLM RCA */
-function slimStatsSnapshot(snap: any): any {
-  const sections: any[] = Array.isArray(snap?.sections) ? snap.sections : [];
-  const flow = snap?.flow ?? {};
-  const getSec = (key: string) => sections.find((sec) => sec?.key === key) ?? {};
-  const getMetricVal = (sec: any, k: string) =>
-    (Array.isArray(sec?.metrics) ? sec.metrics : []).find((m: any) => m?.k === k)?.v ?? null;
-
-  const autoSec = getSec("auto");
-  const dqfSec = getSec("dqf");
-  const comboSec = getSec("combo");
-  const histSec = getSec("hist");
-
-  const overall = {
-    totalTrades: flow.closedTrades ?? getMetricVal(autoSec, "Closed / wins") ?? 0,
-    wins: flow.wins ?? 0,
-    winRatePct: flow.winRate != null ? Number(Number(flow.winRate).toFixed(2)) : null,
-    wilsonPct: flow.wilson ?? comboSec.accPct ?? null,
-    netRoiPct: flow.netRoi ?? null,
-    avgRoiPct: flow.avgRoi != null ? Number(Number(flow.avgRoi).toFixed(2)) : null,
-    equityUsd: flow.equity ?? null,
-    startCapitalUsd: flow.totalStartCapital ?? null,
-    lessonSamples: getMetricVal(autoSec, "Lesson samples"),
-    payoffRatio: getMetricVal(dqfSec, "Payoff"),
-  };
-
-  const comboMetrics = (Array.isArray(comboSec?.metrics) ? comboSec.metrics : []).slice(2);
-  const topCombos = comboMetrics.map((m: any) => ({
-    combo: m?.k,
-    winRate: m?.v,
-    detail: m?.sub,
-  }));
-
-  const exitReasons = {
-    tp: flow.tp ?? null,
-    sl: flow.sl ?? null,
-    flip: flow.flip ?? null,
-    manual: flow.manual ?? null,
-    unlabeled: flow.unlabeled ?? null,
-    histBreakdown: getMetricVal(histSec, "TP / SL"),
-    bestWorst: getMetricVal(histSec, "Best / worst"),
-  };
-
-  const floorsRaw = String(getMetricVal(dqfSec, "Effective floors") ?? "");
-  const [floorScore, floorAuc, floorAcc] = floorsRaw.split("/").map((x) => x.trim() || null);
-
-  const params = {
-    dqfOn: Boolean(snap?.dqfOn),
-    autoOn: Boolean(flow.autoOn),
-    effectiveFloorsRaw: floorsRaw || null,
-    minScore: floorScore,
-    minAuc: floorAuc,
-    minAcc: floorAcc,
-    bandTarget: getMetricVal(dqfSec, "Band target"),
-    gatePass: flow.gatePass ?? null,
-    bcastPass: flow.bcastPass ?? null,
-    openTrades: flow.openTrades ?? 0,
-    activeSessions: flow.activeSessions ?? [],
-  };
-
-  return {
-    at: snap?.at ?? null,
-    overall,
-    topCombos,
-    exitReasons,
-    params,
-  };
+// stripActions: drop the Actions block. Parameter proposals from the LLM are
+// not backed by enough samples; the verdict already states when more n is needed.
+function stripActions(text: string): string {
+  const i = text.indexOf("**Actions**");
+  return i === -1 ? text : text.slice(0, i).trimEnd();
 }
 
 export async function POST() {
@@ -116,8 +53,8 @@ export async function POST() {
   } catch {
     /* engine not ready */
   }
-  const slim = slimStatsSnapshot(snap);
-  const r = await llmStatsDive(url, model, JSON.stringify(slim), timeoutMs);
+  const r = await llmStatsDive(url, model, JSON.stringify(snap), timeoutMs);
+  if (r.text) r.text = stripActions(r.text);
   // lưu bài phân tích vào DB — fire-and-forget, kể cả !ok (lỗi LLM cũng là dữ
   // kiện đáng nhớ: "hôm đó nó chết, không audit được"); lỗi lưu chỉ log.
   const modelName = (r.model ?? model ?? "").slice(0, 80);

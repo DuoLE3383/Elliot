@@ -32,7 +32,7 @@ import { auditBook, repairBook, auditEntryClose } from "@/lib/audit-book";
 import { tgSendMessage } from "@/lib/telegram-store";
 import { getMarkPrice } from "@/lib/mark-price";
 import { msgOpen } from "@/lib/tg-msgs";
-import { readUnifiedSettled } from "@/lib/unified-balance";
+import { readUnifiedSettled, resetSettledWallet } from "@/lib/unified-balance";
 
 export const dynamic = "force-dynamic";
 
@@ -163,6 +163,7 @@ export async function PATCH(req: NextRequest) {
         db.vulcanBook.deleteMany(),
         db.dryRunState.upsert({ where: { id: "wallet" }, create: { id: "wallet", capital: cap, resetAt, note }, update: { capital: cap, resetAt, note } }),
       ]);
+      await resetSettledWallet(cap);
     } catch (e) {
       if (isCorruptDbError(e)) return corruptDbResponse();
       throw e;
@@ -193,6 +194,7 @@ export async function PATCH(req: NextRequest) {
             ...(u.pnlPct !== undefined ? { pnlPct: u.pnlPct } : {}),
             ...(u.capitalBefore !== undefined ? { capitalBefore: u.capitalBefore } : {}),
             ...(u.capitalAfter !== undefined ? { capitalAfter: u.capitalAfter } : {}),
+            ...(u.stakePct !== undefined ? { stakePct: u.stakePct } : {}),
           },
         });
       }

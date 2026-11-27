@@ -23,7 +23,7 @@ export const buildTradeHeader = (
   r: { symbol: string; interval: string; side: string; book?: string | null },
 ): string[] => [
   `${icon} <b>${event}</b>`,
-  `${BOOK_ICON[bookCode(r)] ?? "☯️"} <b>#${r.symbol}</b> · ${bookCode(r)} · ${r.interval} · ${sideTxt(r.side)}`,
+  `${BOOK_ICON[bookCode(r)] ?? "☯️"} <b>#${escHtml(r.symbol)}</b> · ${bookCode(r)} · ${r.interval} · ${sideTxt(r.side)}`,
   HR,
   "",
 ];
@@ -34,7 +34,7 @@ export const balanceLine = (before: number, after: number): string => {
   return `Balance ${before.toFixed(2)} → <b>${after.toFixed(2)}</b> USDT (${d >= 0 ? "+" : ""}${d.toFixed(2)})`;
 };
 const levTxt = (x: number): string => `×${x % 1 === 0 ? x : x.toFixed(2)}`;
-const sideTxt = (side: string): string => (side === "LONG" ? "LONG 🟢" : side === "SHORT" ? "SHORT 🔴" : "NEUTRAL ⚪");
+const sideTxt = (side: string): string => (side === "LONG" ? "LONG 📈" : side === "SHORT" ? "SHORT 📉" : "NEUTRAL ⚪");
 const escHtml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** Display prob FLIPPED toward the side the model leans to (same SIDE convention as §6c reliability).
@@ -46,9 +46,9 @@ const escHtml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&
 const probTxt = (side: string, prob: number): string => {
   const p = side === "SHORT" ? 1 - prob : prob;
   return side === "LONG"
-    ? `Prob ${(p * 100).toFixed(2)}% toward LONG 🟢`
+    ? `Prob ${(p * 100).toFixed(2)}% toward LONG 📈`
     : side === "SHORT"
-      ? `Prob ${(p * 100).toFixed(2)}% toward SHORT 🔴`
+      ? `Prob ${(p * 100).toFixed(2)}% toward SHORT 📉`
       : `Prob ${(p * 100).toFixed(2)}%`;
 };
 
@@ -59,7 +59,7 @@ export const slPrice = (side: string, entry: number, slPct: number): number =>
 export const tpPrice = (side: string, entry: number, tpPct: number): number =>
   side === "SHORT" ? entry * (1 - Math.abs(tpPct) / 100) : entry * (1 + Math.abs(tpPct) / 100);
 
-export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string, displayBalance?: number): string => {
+export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string, displayBalance?: number, walletInfo?: { locked: number; available: number }): string => {
   const x = r as any;
   const forced = x.methodId === "force";
   const noModel = (r.auc ?? 0) <= 0.5 && (r.acc ?? 0) <= 0;
@@ -78,7 +78,7 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string, displ
       ? `LLM Risk Officer: ${x.llmVerdict}${x.llmReason ? ` — ${escHtml(String(x.llmReason))}` : ""}`
       : "LLM Risk Officer: not reviewed";
   const lines = [
-    ...buildTradeHeader("🟢", forced ? "OPEN · FORCE" : "OPEN", r),
+    ...buildTradeHeader("📡", forced ? "OPEN · FORCE" : "OPEN", r),
     `🎯 Entry <b>${fmtPrice(r.entryPrice)}</b>`,
     `🛑 Stop Loss <b>${fmtPrice(slNow)}</b> (${r.side === "SHORT" ? "+" : "−"}${r.slPct.toFixed(2)}% price · ROI ${(-(r.slPct * r.leverage)).toFixed(2)}% if hit)`,
     `🏁 Take Profit <b>${fmtPrice(tpNow)}</b> (${r.side === "SHORT" ? "−" : "+"}${r.tpPct.toFixed(2)}% price · ROI +${(r.tpPct * r.leverage).toFixed(2)}% if hit)`,
@@ -89,7 +89,7 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string, displ
   ];
   if (forced) lines.push("🔓 Gate: bypassed (forced start from BEST)");
   if (feeRt > 0) lines.push(`🧾 Fees (round-trip) −${feeRt.toFixed(2)}% ROI — already counted in realized ROI`);
-  if (atrNote) lines.push(atrNote);
+  if (atrNote) lines.push(escHtml(atrNote));
   lines.push(`🧠 ${llm}`);
   lines.push(
     noModel
@@ -98,6 +98,7 @@ export const msgOpen = (r: AutoTradeRow, equity: number, atrNote?: string, displ
   );
   lines.push("");
   lines.push(`💰 Balance <b>${(displayBalance ?? base).toFixed(2)}</b> USDT`);
+  if (walletInfo) lines.push(`🔒 Locked <b>${walletInfo.locked.toFixed(2)}</b> USDT · Available <b>${walletInfo.available.toFixed(2)}</b> USDT`);
   return lines.join("\n");
 };
 
@@ -129,7 +130,7 @@ export const msgClose = (r: AutoTradeRow, closed: number, winRate: number, netPn
   const balAfter = balanceAfter ?? (r.capitalAfter ?? 0);
   const balBefore = balAfter - deltaUsdt;
   return [
-    ...buildTradeHeader("🤖", `AUTO CLOSE · ${kindTag(r.exitKind)}`, r),
+    ...buildTradeHeader("🤖", `AUTO #CLOSE · ${kindTag(r.exitKind).replace("TRAILING STOP", "#TRAIL STOP")}`, r),
     `🎯 Entry ${fmtPrice(r.entryPrice)} → 🚪 Exit <b>${fmtPrice(r.exitPrice ?? 0)}</b>`,
     `📐 Plan: SL ${r.slPct.toFixed(2)}% · TP ${r.tpPct.toFixed(2)}% · Lev ${levTxt(r.leverage)} · Score ${(r.score ?? 0).toFixed(2)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}%`,
     "",
@@ -148,7 +149,7 @@ export const msgNear = (r: AutoTradeRow, price: number, kind: "tp" | "sl"): stri
   const awayPct = price > 0 ? Math.abs((target - price) / price) * 100 : 0;
   const roi = roiOf(r.side, r.entryPrice, price, r.leverage);
   return [
-    ...buildTradeHeader("⚠", kind === "tp" ? "NEAR TAKE PROFIT — READY TO LOCK GAINS" : "NEAR STOP LOSS — RISK WATCH", r),
+    ...buildTradeHeader(kind === "tp" ? "✅" : "⚠", kind === "tp" ? "#ALMOST TP — READY TO LOCK GAINS" : "#ALMOST SL — RISK WATCH", r),
     `${kind === "tp" ? "🏁" : "🛑"} ${kind === "tp" ? "Take Profit" : "Stop Loss"} ${fmtPrice(target)} · <b>${awayPct.toFixed(2)}%</b> away`,
     "",
     `📊 Plan: SL ${r.slPct.toFixed(2)}% · TP ${r.tpPct.toFixed(2)}% · Lev ${levTxt(r.leverage)} · Score ${(r.score ?? 0).toFixed(2)} · AUC ${(r.auc ?? 0).toFixed(2)} · ACC ${(r.acc ?? 0).toFixed(2)}%`,
@@ -233,7 +234,7 @@ export const msgAutopsy = (
   a: { outcome: string; tag: string; why: string[]; lesson: string; ev?: { rMultiple?: number; durMin?: number; mfePct?: number; maePct?: number }; ms?: number; model?: string },
 ): string =>
   [
-    ...buildTradeHeader("🔬", `ELLIOTT DOCTOR — POST-MORTEM · ${a.outcome === "win" ? "WIN ✅" : "LOSS 🔻"} · ${kindTag(t.exitKind ?? null)}`, { symbol: t.symbol, interval: t.interval, side: t.side, book: (t as any).book ?? "B" }),
+    ...buildTradeHeader("🔬", `ELLIOTT #DOCTOR · ${a.outcome === "win" ? "#WIN ✅" : "#LOSS 🔻"}`, { symbol: t.symbol, interval: t.interval, side: t.side, book: (t as any).book ?? "B" }),
     `💵 Result: <b>${(t.pnlPct ?? 0) >= 0 ? "+" : ""}${(t.pnlPct ?? 0).toFixed(2)}% ROI</b>${a.ev?.rMultiple != null ? ` · R ${a.ev.rMultiple >= 0 ? "+" : ""}${a.ev.rMultiple.toFixed(2)}x` : ""}${a.ev?.durMin != null ? ` · Held ${a.ev.durMin.toFixed(2)}m` : ""}`,
     `🏷 Tag: <b>${escHtml(a.tag)}</b>`,
     ...(a.why.length > 0 ? ["", `📝 What happened:`, ...a.why.map((w) => `• ${escHtml(w)}`)] : []),

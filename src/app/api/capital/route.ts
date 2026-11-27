@@ -7,6 +7,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { buildStatsSnapshot } from "@/lib/stats";
 import { liveAccount, liveIncomeSince, resetLiveBaseline } from "@/lib/binance-live";
+import { readUnifiedSettled } from "@/lib/unified-balance";
 
 export const dynamic = "force-dynamic";
 
@@ -38,10 +39,12 @@ async function dryStats(): Promise<Body> {
     if (!b) return EMPTY;
     return { pnlUsd: r2(b.pnlClosed), closed: b.closed, wr: b.closed ? (b.wins / b.closed) * 100 : null };
   };
+  const settled = await readUnifiedSettled().catch(() => null);
   const pnl = r2(L.pnlClosed + L.pnlOpen);
+  const equityBase = settled ? settled.balance : start + L.pnlClosed;
   return {
     mode: "dry",
-    equity: r2(start + pnl),
+    equity: r2(equityBase + L.pnlOpen),
     startEquity: start,
     pnlUsd: pnl,
     roiPct: start > 0 ? (pnl / start) * 100 : null,

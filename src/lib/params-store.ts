@@ -160,7 +160,7 @@ export const EDITABLE: ParamMeta[] = [
   { key: "MEM_NET_FLOOR", group: "Champion–challenger", type: "number", def: MEM_NET_FLOOR, min: -50, max: 0, step: 1, unit: "%", note: "Combo memory net floor: skip combos whose net ROI over the last MEM_LOOKBACK closed trades ≤ this (catches choppy bleed even without a clean streak). Needs ≥ 3 closed trades in the window. 0 = off." },
   { key: "MEM_LOOKBACK", group: "Champion–challenger", type: "number", def: MEM_LOOKBACK, min: 3, max: 30, step: 1, int: true, unit: "trades", note: "Window (closed trades per combo) used by MEM_NET_FLOOR." },
   { key: "RISK_TIER_SCORE", group: "Champion–challenger", type: "number", def: RISK_TIER_SCORE, min: 0, max: 40, step: 1, int: true, note: "Conviction sizing: score ≥ minScore + this earns the full Auto-panel stake; below it, stake drops to RISK_TIER_MIN. 0 = off (flat stake)." },
-  { key: "RISK_TIER_MIN", group: "Champion–challenger", type: "number", def: 10, min: 10, max: 50, step: 0.5, unit: "%", note: "Stake floor for just-passed-gate entries (% of equity, still capped by the Auto panel risk and RISK_MAX_STAKE)." },
+  { key: "RISK_TIER_MIN", group: "Champion–challenger", type: "number", def: 5, min: 5, max: 10, step: 0.5, unit: "%", note: "Stake floor for just-passed-gate entries (% of equity). Stake range 5-10% per trade." },
   // XGB booster hyper — override runtime cho XGB_BASE (params.ts xgbBase()).
   // Hiệu lực ở lần RETRAIN kế tiếp (champion–challenger tự chạy định kỳ);
   // grid ứng viên vẫn patch đè lên base nên "base" mới là mốc bị đổi.

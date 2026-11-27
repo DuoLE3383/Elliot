@@ -85,6 +85,14 @@ scripts/wyckoff_crypto_*.csv
 /.env
 *.db
 
+# local artifacts (sandbox only — never push)
+agent-ctx/
+download/
+scripts/
+upload/
+
 *.bak
 *.bak_*
 *.bak_mark
+*.bak-stake510
+*.bak-audit-stake

@@ -106,6 +106,9 @@ model AutoTrade {
   exitTime      DateTime?
   /** signed ROE % = price move × leverage (liquidation-safe) */
   pnlPct        Float?
+  exitBasis        String?
+  exitTriggerPrice Float?
+  exitFillPrice    Float?
   exitKind      String? // tp | sl | manual
   prob          Float?
   acc           Float?

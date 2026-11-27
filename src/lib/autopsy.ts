@@ -105,6 +105,7 @@ export interface AutopsyTradeInput {
   score: number | null;
   llmVerdict: string | null;
   llmReason: string | null;
+  methodId?: string | null;
 }
 
 // ─── evidence — tính từ nến thật, không cho LLM đụng vào ─────────────────────
@@ -221,6 +222,14 @@ export function autopsyPrompt(input: AutopsyTradeInput, ev: AutopsyEvidence): { 
     input.llmVerdict != null
       ? `risk_officer: verdict=${input.llmVerdict}${input.llmReason ? ` reason="${input.llmReason.slice(0, 120)}"` : ""}`
       : "risk_officer: not reviewed";
+  const isForce = input.methodId === "force";
+  const isPlaceholder = isForce && input.prob === 0.5 && (input.acc ?? 0) === 0 && input.auc === 0.5;
+  const forceLine = isForce
+    ? "entry_type=FORCE — user force-opened because engine MISSED this setup. Engine non-entry was WRONG. Lesson must state: when the same confluence reappears, engine should ENTER, do not wait/block."
+    : "";
+  const modelLineEff = isPlaceholder
+    ? "model: placeholder (force) — real scan prob/acc/auc were not passed at force time, do not trust prob 0.5 / acc 0 / auc 0.5"
+    : modelLine;
   const pathLines: string[] =
     ev.candles > 0
       ? [
@@ -234,7 +243,8 @@ export function autopsyPrompt(input: AutopsyTradeInput, ev: AutopsyEvidence): { 
     `POST-MORTEM of a CLOSED paper trade — outcome ${outcome}. Explain why and give one lesson.`,
     `pair=${input.symbol} tf=${input.interval} side=${input.side}`,
     `entry: entry=${input.entryPrice} sl=${input.slPct.toFixed(2)}%price tp=${input.tpPct.toFixed(2)}%price lev=x${input.leverage} rr=1:${rr.toFixed(2)} stake=${input.stakePct ?? 100}%equity`,
-    modelLine,
+    ...(forceLine ? [forceLine] : []),
+    modelLineEff,
     officer,
     `outcome: exit=${input.exitPrice} kind=${input.exitKind ?? "manual"} pnl_roi=${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}% r=${ev.rMultiple >= 0 ? "+" : ""}${ev.rMultiple.toFixed(2)}x held=${ev.durMin.toFixed(2)}min`,
     "path (computed by code from candles — ground truth, do NOT recompute or contradict):",
@@ -269,8 +279,12 @@ export function sanitizeAutopsy(raw: unknown, model: string, ms: number, input: 
   const outcome = (input.pnlPct ?? 0) > 0 ? "win" : "loss";
   let finalTag = tag || "unlabeled";
   // Code-enforce: WIN không được đề xuất SL/TP, LOSS noise_stop không được đổi SL/TP
-  if (outcome === "win" && /\bsl\b|stop|\btp\b|take-profit|tighten|increase.*stop|adjust.*sl/i.test(lesson)) {
+  const isForceWin = input.methodId === "force" && outcome === "win";
+  if (outcome === "win" && !isForceWin && /\bsl\b|stop|\btp\b|take-profit|tighten|increase.*stop|adjust.*sl/i.test(lesson)) {
     lesson = "winners_watch: keep SL/TP unchanged, winning setup, no config change";
+  }
+  if (isForceWin && !lesson.startsWith("FORCE_MISSED")) {
+    lesson = `FORCE_MISSED: engine missed this setup, user had to force-open, next time with same confluence ENTER do not wait/block. ${lesson}`;
   }
   if (outcome === "win" && (finalTag === "noise_stop" || finalTag === "wrong_dir" || finalTag === "sl_too_tight")) finalTag = "good_entry";
   if (outcome === "loss" && finalTag === "noise_stop" && /tighten|increase|adjust|change.*sl|change.*tp/i.test(lesson)) {
@@ -352,14 +366,44 @@ export async function autopsyLlmCall(url: string, model: string, system: string,
  *  (0.2.90) strip <think> trước khi match — model think-mode nhét reasoning
  *  có dấu {} vào content khiến regex greedy bắt nhầm cặp ngoặc của think. */
 export function parseAutopsyText(text: string, model: string, ms: number, input: AutopsyTradeInput, ev: AutopsyEvidence): AutopsyJson | null {
-  const m = stripThink(text).match(/\{[\s\S]*\}/);
-  let parsed: unknown = null;
-  try {
-    parsed = m ? JSON.parse(m[0]) : null;
-  } catch {
-    parsed = null;
+  const clean = stripThink(text);
+  const candidates: string[] = [];
+  const greedy = clean.match(/\{[\s\S]*\}/);
+  if (greedy) candidates.push(greedy[0]);
+  const lazy = clean.match(/\{[\s\S]*?\}/);
+  if (lazy) candidates.push(lazy[0]);
+  for (let i = 0; i < clean.length; i++) {
+    if (clean[i] !== '{') continue;
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    for (let j = i; j < clean.length; j++) {
+      const c = clean[j];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (c === '\\') esc = true;
+        else if (c === '"') inStr = false;
+      } else {
+        if (c === '"') inStr = true;
+        else if (c === '{') depth++;
+        else if (c === '}') {
+          depth--;
+          if (depth === 0) { candidates.push(clean.slice(i, j + 1)); break; }
+        }
+      }
+    }
   }
-  return sanitizeAutopsy(parsed, model, ms, input, ev);
+  const sorted = [...new Set(candidates)].sort((a, b) => b.length - a.length);
+  for (const cand of sorted) {
+    try {
+      const parsed = JSON.parse(cand);
+      const out = sanitizeAutopsy(parsed, model, ms, input, ev);
+      if (out) return out;
+    } catch {}
+  }
+  const outcome = (input.pnlPct ?? 0) > 0 ? "win" : "loss";
+  const fallbackLesson = outcome === "win" ? "winners_watch: keep SL/TP unchanged, winning setup, no config change" : "wrong_dir: price went opposite immediately after entry, entry was wrong direction, wait for confirmation, do not change SL/TP";
+  return sanitizeAutopsy({ tag: "unlabeled", why: [], lesson: fallbackLesson }, model, ms, input, ev);
 }
 
 const inflight = new Set<string>(); // chống chạy đôi cùng một lệnh (watcher + route)
@@ -391,6 +435,7 @@ export async function autopsyClosedTrade(row: {
   score: number | null;
   llmVerdict: string | null;
   llmReason: string | null;
+  methodId?: string | null;
   autopsy: string | null;
 }, opts?: { url?: string; model?: string; force?: boolean }): Promise<AutopsyJson | null> {
   if (!pval("AUTOPSY_ON", AUTOPSY_ON)) return null;
@@ -513,7 +558,7 @@ export async function recentAutopsyLessons(symbol: string, take = 5): Promise<st
       where: { symbol: symbol.toUpperCase(), status: "closed", autopsy: { not: null } },
       orderBy: { exitTime: "desc" },
       take,
-      select: { interval: true, side: true, exitKind: true, pnlPct: true, autopsy: true },
+      select: { interval: true, side: true, exitKind: true, pnlPct: true, autopsy: true, methodId: true },
     });
     const out: string[] = [];
     for (const r of rows) {
@@ -522,7 +567,8 @@ export async function recentAutopsyLessons(symbol: string, take = 5): Promise<st
         const a = JSON.parse(r.autopsy) as Partial<AutopsyJson>;
         if (!a.lesson) continue;
         const pnl = r.pnlPct ?? 0;
-        const head = `[${r.interval} ${r.side} ${r.exitKind ?? "manual"} ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}% ROI · tag=${a.tag ?? "?"}]`;
+        const forceTag = (r as { methodId?: string | null }).methodId === "force" ? " [FORCE-MISSED]" : "";
+        const head = `[${r.interval} ${r.side} ${r.exitKind ?? "manual"}${forceTag} ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}% ROI · tag=${a.tag ?? "?"}]`;
         out.push(`${head} ${a.lesson}`.slice(0, 220));
       } catch {
         // JSON hỏng — bỏ bài này

@@ -48,6 +48,35 @@ for (const entry of readdirSync(NM, { withFileTypes: true })) {
   }
 }
 
+// Nested node_modules count as installed: npm nests transitive deps
+// (e.g. @codemirror/language under codemirror/ or @mdxeditor/editor/)
+// — only checking top-level falsely reports them as missing.
+const installedAll = new Set(installed.keys());
+const seenDirs = new Set();
+function collectNested(dir) {
+  if (seenDirs.has(dir)) return;
+  seenDirs.add(dir);
+  let entries;
+  try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+  for (const e of entries) {
+    if (!e.isDirectory() || e.name.startsWith(".")) continue;
+    if (e.name === "node_modules") { collectNested(path.join(dir, e.name)); continue; }
+    if (e.name.startsWith("@")) {
+      const scope = path.join(dir, e.name);
+      let subs;
+      try { subs = readdirSync(scope, { withFileTypes: true }); } catch { continue; }
+      for (const s of subs) {
+        if (!s.isDirectory()) continue;
+        installedAll.add(`${e.name}/${s.name}`);
+        collectNested(path.join(scope, s.name, "node_modules"));
+      }
+    } else {
+      installedAll.add(e.name);
+      collectNested(path.join(dir, e.name, "node_modules"));
+    }
+  }
+}
+collectNested(NM);
 let stubbed = 0;
 const missingRegular = [];
 
@@ -57,7 +86,7 @@ for (const [name, dir] of installed) {
 
   const declaredOptional = Object.keys(pkg.optionalDependencies ?? {});
   for (const dep of declaredOptional) {
-    if (installed.has(dep)) continue;
+    if (installedAll.has(dep)) continue;
     const target = path.join(NM, dep);
     mkdirSync(target, { recursive: true });
     const stub = { name: dep, version: "0.0.0-stub", private: true, description: "stub for standalone tracer (optional dependency not installed on this host)" };
@@ -68,7 +97,7 @@ for (const [name, dir] of installed) {
 
   // regular deps missing = broken install — surface it, don't hide it
   for (const dep of Object.keys(pkg.dependencies ?? {})) {
-    if (!installed.has(dep)) missingRegular.push(`${name} → ${dep}`);
+    if (!installedAll.has(dep)) missingRegular.push(`${name} → ${dep}`);
   }
 }
 
