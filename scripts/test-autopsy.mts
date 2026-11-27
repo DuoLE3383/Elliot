@@ -121,8 +121,10 @@ if (parsed) {
   ok(parsed.model === "qwen2.5:7b" && parsed.ms === 8123, "model/ms ghi nhận");
   ok(parsed.ev.maePct === 2.0, "evidence gắn vào JSON");
 }
-ok(parseAutopsyText("no json here", "m", 1, shortInput, evShort) === null, "không có JSON → null");
-ok(parseAutopsyText('{"tag":"","why":[],"lesson":""}', "m", 1, shortInput, evShort) === null, "lesson rỗng → null (hỏng)");
+const noJson = parseAutopsyText("no json here", "m", 1, shortInput, evShort);
+ok(noJson?.tag === "unlabeled" && (noJson.lesson ?? "").length > 0, "không có JSON → fallback unlabeled + lesson (0.4.x, không còn null)");
+const emptyLesson = parseAutopsyText('{"tag":"","why":[],"lesson":""}', "m", 1, shortInput, evShort);
+ok(emptyLesson?.tag === "unlabeled" && (emptyLesson.lesson ?? "").length > 0, "lesson rỗng → fallback unlabeled (hỏng)");
 const unlab = parseAutopsyText('{"tag":"","why":[],"lesson":"chờ nến xác nhận rồi mới vào"}', "m", 1, shortInput, evShort);
 ok(unlab?.tag === "unlabeled", `tag rỗng → unlabeled (thật: ${unlab?.tag})`);
 
@@ -185,7 +187,7 @@ if (call) {
   ok(receivedSystem.includes("post-mortem analyst"), "system prompt đi đúng đường");
   ok(receivedUser.includes("path_check: 3 candles"), "evidence đi nguyên trong user prompt");
   const j = parseAutopsyText(call.text, "qwen2.5:7b", call.ms, longInput, ev);
-  ok(j?.tag === "noise_stop", `parse kết quả mock (thật: ${j?.tag})`);
+  ok(j?.tag === "good_entry", `parse mock: WIN + tag loss (noise_stop) → bị viết lại good_entry (thật: ${j?.tag})`);
   ok(j?.outcome === "win", "lệnh thắng → outcome win");
 }
 srv.close();

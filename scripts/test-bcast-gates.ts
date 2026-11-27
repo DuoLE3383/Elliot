@@ -133,13 +133,13 @@ ok(gateRow(mkRow({}), baseCtx).pass === true, "combo mạnh đạt đầy đủ 
 ok(gateRow(mkRow({ score: 35.8, auc: 0.6, acc: 60 }), baseCtx).reason.startsWith("AUC"), "junk 35.8 → AUC chặn trước");
 ok(gateRow(mkRow({ auc: 0.81, acc: 60 }), baseCtx).reason.startsWith("ACC"), "ACC 60 < 70 → chặn kèm lý do");
 ok(gateRow(mkRow({ auc: 0.81, acc: 69, score: 65 }), baseCtx).reason.startsWith("ACC"), "ACC 69 < 70 → chặn sát sàn");
-ok(gateRow(mkRow({ auc: 0.81, acc: 82, score: 55 }), baseCtx).reason.startsWith("điểm"), "điểm 55 < 60 → chặn kèm lý do");
+ok(gateRow(mkRow({ auc: 0.81, acc: 82, score: 55 }), baseCtx).reason.startsWith("score"), "score 55 < 60 → chặn kèm lý do (reason tiếng Anh)");
 ok(gateRow(mkRow({ auc: 0.81, acc: 71, score: 62 }), baseCtx).pass === true, "sát sàn mới (AUC .81 · ACC 71 · điểm 62) → qua");
 ok(gateRow(mkRow({ tpPct: 3 }), baseCtx).reason.startsWith("PL1"), "PL1 3% < 5% → chặn kèm lý do");
 ok(gateRow(mkRow({}), { ...baseCtx, tickerVol: 3e6 }).reason.startsWith("vol24h"), "vol24h $3M < $7M → chặn kèm lý do");
 ok(
-  gateRow(mkRow({ symbol: "FOOUSDT" }), { ...baseCtx, uniSyms: new Set(["BTCUSDT"]) }).reason.startsWith("ngoài"),
-  "ngoài top-30 universe → chặn kèm lý do",
+  gateRow(mkRow({ symbol: "FOOUSDT" }), { ...baseCtx, uniSyms: new Set(["BTCUSDT"]) }).reason.startsWith("outside"),
+  "ngoài top-30 universe → chặn kèm lý do (reason tiếng Anh)",
 );
 ok(
   gateRow(mkRow({}), { ...baseCtx, lastB: { BTCUSDT: baseCtx.now - 600_000 } }).reason.startsWith("cooldown"),

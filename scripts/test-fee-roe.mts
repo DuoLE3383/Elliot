@@ -90,8 +90,8 @@ const t = (lev: number): AutoTradeRow =>
     capitalBefore: 76755.1, capitalAfter: 78522.6, createdAt: new Date().toISOString(),
   }) as AutoTradeRow;
 const mo = msgOpen(t(10), 76755.1);
-check("msgOpen có dòng 🧾 Fees round-trip −1.00% ROI @ ×10", mo.includes("🧾 Fees round-trip: <b>−1.00% ROI</b> (2 × 0.50%/side @ ×10)"));
-check("msgOpen giải thích realized ROI là sau phí", mo.includes("realized ROI is net of fees"));
+check("msgOpen có dòng 🧾 Fees (round-trip) −1.00% ROI (format 0.4.x)", mo.includes("🧾 Fees (round-trip) −1.00% ROI — already counted in realized ROI"));
+check("msgOpen giải thích realized ROI là sau phí", mo.includes("already counted in realized ROI"));
 const mc = msgClose(t(10), 28, 46, -40.3);
 check("msgClose PnL kèm 'fees −1.00%'", mc.includes("fees −1.00%"));
 check("msgClose PnL vẫn là số sau phí từ settlement", mc.includes("PnL (ROI): <b>+9.00%</b>"));

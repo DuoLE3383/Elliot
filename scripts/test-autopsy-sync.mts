@@ -89,7 +89,7 @@ const autopsyOf = async (id: string): Promise<string | null> =>
 console.log("\n═══ 1. backfill lần 1 — mổ đúng các lệnh thiếu, bỏ open/đã mổ/dị dạng ═══");
 const n1 = await autopsyBackfill(10);
 check("backfill trả về 2 (A + B)", n1 === 2, `thật: ${n1}`);
-check("A có autopsy", (await autopsyOf(idA))?.includes("noise_stop") ?? false);
+check("A có autopsy (WIN → tag good_entry theo policy 0.4.x)", (await autopsyOf(idA))?.includes("good_entry") ?? false);
 check("B có autopsy (lệnh THUA cũng mổ)", (await autopsyOf(idB))?.includes("noise_stop") ?? false);
 check("C giữ nguyên autopsy cũ", (await autopsyOf(idC))?.includes("good_entry") ?? false);
 check("E dị dạng (exitTime null) KHÔNG bị mổ", (await autopsyOf(idE)) === null);
@@ -116,7 +116,7 @@ const rowI = await db.autoTrade.findUnique({ where: { id: idI } });
 const hitsI = mockHits;
 // opts.url trỏ URL CHẾT (cfg.llmUrl cũ kiểu 127.0.0.8:8888) — env phải thắng
 const jI = await autopsyClosedTrade(rowI!, { url: "http://127.0.0.1:9/v1", model: "dead-model" });
-check("autopsyClosedTrade vẫn thành công qua env", jI !== null && jI.tag === "noise_stop");
+check("autopsyClosedTrade vẫn thành công qua env (WIN → good_entry)", jI !== null && jI.tag === "good_entry");
 check("request đi vào mock (không vào URL chết)", mockHits === hitsI + 1, `thật: ${mockHits}`);
 
 console.log("\n═══ 5. env trống → opts.url (cfg) vẫn được dùng ═══");

@@ -93,6 +93,12 @@ const SCHEMA_COLUMNS: { table: string; column: string; ddl: string }[] = [
   { table: "AutoTrade", column: "p1Share", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "p1Share" REAL` },
   { table: "AutoTrade", column: "tp2Pct", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "tp2Pct" REAL` },
   { table: "AutoTrade", column: "trailPct", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "trailPct" REAL` },
+  // 0.3.5 — EXIT = lastPrice: entry mark, trigger chụp mark lúc tick, fill last lúc chốt.
+  // FIX disaster 20261127: 3 cột có trong schema.prisma nhưng thiếu ở đây → mọi DB
+  // cũ (và cả DB bootstrap mới) P2022 "column does not exist" lúc query đầu tiên.
+  { table: "AutoTrade", column: "exitBasis", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "exitBasis" TEXT` },
+  { table: "AutoTrade", column: "exitTriggerPrice", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "exitTriggerPrice" REAL` },
+  { table: "AutoTrade", column: "exitFillPrice", ddl: `ALTER TABLE "AutoTrade" ADD COLUMN "exitFillPrice" REAL` },
 ];
 const MODEL_TABLES = ["User", "Post", "Suggestion", "FinetuneRun", "AutoTrade", "BcastVerdict", "SignalTotal", "DiveReport", "StrategyVariant", "ImproveEvent", "EvolveLog", "DryRunState", "VulcanBook", "WyckoffBook", "LiquidBook", "LiveBook"];
 /** exported for the /api health diagnostic */

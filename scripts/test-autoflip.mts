@@ -65,15 +65,15 @@ console.log("\n═══ 1. flipDecision — đủ điều kiện lật ══�
 console.log("\n═══ 2. flipDecision — từ chối có lý do ═══");
 {
   const d1 = flipDecision(open("LONG"), row({ bias: "LONG" }), cfg);
-  check("model vẫn cùng phía → không lật", !d1.ok && d1.why.includes("xác nhận"));
+  check("model vẫn cùng phía → không lật", !d1.ok && d1.why.includes("still confirms"));
   const d2 = flipDecision(open("LONG"), row({ bias: "NEUTRAL" }), cfg);
   check("model NEUTRAL → không lật theo nhiễu", !d2.ok && d2.why.includes("NEUTRAL"));
   const d3 = flipDecision(open("LONG"), row({ bias: "SHORT", prob: 0.47, score: 66.5 }), cfg);
-  check("prob 0.47 trong dải nhiễu (|P−0.5|=0.03<0.06) → không lật", !d3.ok && d3.why.includes("nhiễu"));
+  check("prob 0.47 trong dải nhiễu (|P−0.5|=0.03<0.06) → không lật", !d3.ok && d3.why.includes("noise band"));
   const d4 = flipDecision(open("LONG"), row({ bias: "SHORT", acc: 55, auc: 0.55, score: 20 }), cfg);
-  check("dưới sàn chung → không lật", !d4.ok && d4.why.includes("chưa đạt sàn"));
+  check("dưới sàn chung → không lật", !d4.ok && d4.why.includes("below the quality gate"));
   const d5 = flipDecision(open("LONG"), row({ bias: "SHORT", regressed: true }), cfg);
-  check("model thoái hoá vs champion → không lật", !d5.ok && d5.why.includes("thoái hoá"));
+  check("model thoái hoá vs champion → không lật", !d5.ok && d5.why.includes("regressed"));
   const whaleRow = row({ bias: "SHORT", prob: 0.265, score: 72 }) as ScanRow & { whale?: { tag: string } };
   whaleRow.whale = { tag: "whale" };
   const d6 = flipDecision(open("LONG"), whaleRow, cfg);
@@ -82,7 +82,7 @@ console.log("\n═══ 2. flipDecision — từ chối có lý do ═══");
   const d7 = flipDecision(open("LONG"), whaleRow, { ...cfg, whaleFilter: false });
   check("whale filter TẮT → nến whale không chặn", d7.ok, d7.why);
   const d8 = flipDecision(open("LONG"), undefined, cfg);
-  check("scan chưa có combo → không lật", !d8.ok && d8.why.includes("chưa có"));
+  check("scan chưa có combo → không lật", !d8.ok && d8.why.includes("no such combo"));
 }
 
 console.log("\n═══ 2b. flipDecision — ngưỡng BẤT ĐỐI XỨNG 0.2.72 (prob ≥ 0.62 theo phía mới + score ≥ sàn+10) ═══");
@@ -90,10 +90,10 @@ console.log("\n═══ 2b. flipDecision — ngưỡng BẤT ĐỐI XỨNG 0.2.
   // prob theo phía mới 0.58 — vượt noise band (đủ vào lệnh thường) nhưng
   // dưới 0.62 → KHÔNG đủ tư cách phá lệnh đang mở
   const w1 = flipDecision(open("SHORT"), row({ bias: "LONG", prob: 0.58, score: 72 }), cfg);
-  check("prob theo phía mới 58% (vượt noise band) → vẫn không lật", !w1.ok && w1.why.includes("62%"));
+  check("prob theo phía mới 58% (vượt noise band) → vẫn không lật", !w1.ok && w1.why.includes("62.00%"));
   // phía SHORT: prob P(up)=0.42 → theo SHORT 58% — cùng mức, phải bị chặn như nhau
   const w2 = flipDecision(open("LONG"), row({ bias: "SHORT", prob: 0.42, score: 72 }), cfg);
-  check("SHORT 58% theo phía (P(up)=0.42) → đối xứng, cũng không lật", !w2.ok && w2.why.includes("58.0%"));
+  check("SHORT 58% theo phía (P(up)=0.42) → đối xứng, cũng không lật", !w2.ok && w2.why.includes("58.00%"));
   // prob đủ nhưng score 66.5 < sàn+10 → chặn
   const w3 = flipDecision(open("SHORT"), row({ bias: "LONG", prob: 0.75, score: 66.5 }), cfg);
   check("prob 75% nhưng score 66.5 < 70 → không lật", !w3.ok && w3.why.includes("score ≥ 70"));
@@ -122,7 +122,7 @@ console.log("\n═══ 3. champ_check — LLM đọc được dữ liệu cham
   const pEq = setupPrompt({ ...base, champAuc: 0.845, champAcc: 61.6 });
   check("có champAuc → prompt có champ_check", pEq.includes("champ_check:"));
   check("model bằng đỉnh → AT or ABOVE champion", pEq.includes("AT or ABOVE champion"));
-  check("dòng champion nêu best-ever đúng số", pEq.includes("val_auc=0.845/val_acc=61.6%"));
+  check("dòng champion nêu best-ever đúng số (toFixed 2)", pEq.includes(`best-ever of this pair+tf is val_auc=${(0.845).toFixed(2)}/val_acc=${(61.6).toFixed(2)}%`));
   // model tụt 0.012 — trong dung sai regressed 0.02
   const pNear = setupPrompt({ ...base, auc: 0.833, champAuc: 0.845, champAcc: 61.6 });
   check("tụt 0.012 → within regression tolerance", pNear.includes("within regression tolerance"));
@@ -146,17 +146,18 @@ console.log("\n═══ 4. exitKind flip — wire-up ═══");
   const route = fs.readFileSync("src/app/api/autotrade/route.ts", "utf8");
   check("PATCH /api/autotrade close nhận exitKind flip", route.includes('body.exitKind === "flip" ? "flip"'));
   const tg = fs.readFileSync("src/lib/tg-msgs.ts", "utf8");
-  check("Telegram tag LẬT CHIỀU 🔄", tg.includes('"flip" ? "LẬT CHIỀU 🔄"'));
-  const panel = fs.readFileSync("src/components/auto-panel.tsx", "utf8");
-  check("badge lịch sử hiện 🔄 cho lệnh lật", panel.includes('r.exitKind === "flip" ? "🔄"'));
-  check("panel có knob 🔄 autoFlip", panel.includes("autoFlip: !cfg.autoFlip"));
+  check("Telegram tag FLIP 🔄 (badge tiếng Anh 0.4.x)", tg.includes('"flip"\n          ? "FLIP 🔄"'));
+  const panel = fs.readFileSync("src/components/auto-panel-history.tsx", "utf8");
+  check("badge lịch sử hiện 🔄 cho lệnh lật (history tách component 0.4.x)", panel.includes('x.exitKind === "flip" ? "🔄"'));
+  const sPanel = fs.readFileSync("src/components/auto-panel.tsx", "utf8");
+  check("panel có knob 🔄 autoFlip", panel.includes("autoFlip: !cfg.autoFlip") || sPanel.includes("updateCfg({ autoFlip: !cfg.autoFlip })"));
   const i18n = fs.readFileSync("src/lib/i18n.ts", "utf8");
   check("i18n có auto.flip.title", i18n.includes('"auto.flip.title"'));
   const cfgLib = fs.readFileSync("src/lib/autotrade.ts", "utf8");
   check("AutoConfig có autoFlip (default true)", cfgLib.includes("autoFlip: true"));
   check("loadAutoConfig giữ autoFlip", cfgLib.includes("autoFlip: p.autoFlip !== false"));
   const engine = fs.readFileSync("src/lib/engine.ts", "utf8");
-  check("engine gọi flipDecision trong cycleTick", engine.includes("flipDecision(open, row, c)"));
+  check("engine gọi flipDecision trong cycleTick (DQF floors inject 0.3.2)", engine.includes("flipDecision(open, row, { ...c"));
   check("engine có tryFlip đóng exitKind flip", engine.includes('closeTradeDirect(open.id, price, "flip")'));
   check("llmGate gửi champAuc/champAcc cho LLM", engine.includes("champAuc: row.champAuc"));
   const aiInfo = fs.readFileSync("src/app/api/ai-info/route.ts", "utf8");

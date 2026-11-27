@@ -11,7 +11,8 @@ import { effectiveChatId, effectiveToken, tgSendMessage } from "../src/lib/teleg
 
 // Standalone run: tsx does NOT load .env (Next.js does). Load it here as a fallback;
 // prefer running with --env-file=.env so DATABASE_URL is set before Prisma boots.
-process.loadEnvFile();
+// Bun <1.2 has no process.loadEnvFile — guard so the suite runs under bun too.
+if (typeof process.loadEnvFile === "function") process.loadEnvFile();
 import {
   buildTradeHeader,
   msgAutopsy,

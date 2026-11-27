@@ -33,7 +33,7 @@ const CFG: DqfFloors = { minScore: 60, minAuc: 0.8, minAcc: 70 };
   const r = dqfDecide(rows, CFG, { floors: CFG, lastChangeAt: null, on: true });
   check("A1: n=15 < 20 → src cfg (passthrough)", r.decision.src === "cfg");
   check("A2: sàn giữ nguyên cfg panel", r.decision.floors.minScore === 60 && r.decision.floors.minAuc === 0.8 && r.decision.floors.minAcc === 70, JSON.stringify(r.decision.floors));
-  check("A3: lý do nói rõ thiếu mẫu", r.decision.why.includes("chưa đủ mẫu"));
+  check("A3: lý do nói rõ thiếu mẫu", r.decision.why.includes("not enough samples"));
   check("A4: không ghi lịch sử", r.hist === null);
 }
 
@@ -63,7 +63,7 @@ const CFG: DqfFloors = { minScore: 60, minAuc: 0.8, minAcc: 70 };
   const rows = Array.from({ length: 40 }, (_, i) => mk(62 + (i % 5) * 5, 0.82 + (i % 3) * 0.03, 72 + (i % 4) * 3, i % 3 ? 1.8 : -0.6));
   const cur: DqfFloors = { minScore: 68, minAuc: 0.85, minAcc: 76 }; // giả sử trước đó bị siết
   const r = dqfDecide(rows, CFG, { floors: cur, lastChangeAt: null, on: true });
-  check("C1: target về default (60/0.80/70)", r.decision.target?.minScore === 60 && r.decision.target?.minAuc === 0.8 && r.decision.target?.minAcc === 70, JSON.stringify(r.decision.target));
+  check("C1: target về default (50/0.60/55 — v0.3.45 hạ đáy)", r.decision.target?.minScore === 50 && r.decision.target?.minAuc === 0.6 && r.decision.target?.minAcc === 55, JSON.stringify(r.decision.target));
   check("C2: bước xuống 1 bậc: 68→66 · 0.85→0.84 · 76→75", r.decision.floors.minScore === 66 && r.decision.floors.minAuc === 0.84 && r.decision.floors.minAcc === 75, JSON.stringify(r.decision.floors));
 }
 
@@ -86,7 +86,7 @@ const CFG: DqfFloors = { minScore: 60, minAuc: 0.8, minAcc: 70 };
   const up = dqfStepToward({ minScore: 84, minAuc: 0.89, minAcc: 84 }, { minScore: 100, minAuc: 1.0, minAcc: 100 });
   check("E1: bước lên bị kẹp trần 85/0.90/85", up.floors.minScore === 85 && up.floors.minAuc === 0.9 && up.floors.minAcc === 85, JSON.stringify(up.floors));
   const down = dqfStepToward({ minScore: 61, minAuc: 0.81, minAcc: 71 }, { minScore: 40, minAuc: 0.5, minAcc: 50 });
-  check("E2: bước xuống bị kẹp đáy default 60/0.80/70", down.floors.minScore === 60 && down.floors.minAuc === 0.8 && down.floors.minAcc === 70, JSON.stringify(down.floors));
+  check("E2: bước xuống bị kẹp đáy default 50/0.60/55 (61→59 vượt đáy mới? không — 59 ≥ 50)", down.floors.minScore === 59 && down.floors.minAuc === 0.8 && down.floors.minAcc === 70, JSON.stringify(down.floors));
   const same = dqfStepToward({ minScore: 70, minAuc: 0.83, minAcc: 74 }, { minScore: 70, minAuc: 0.83, minAcc: 74 });
   check("E3: target = current → không đổi", same.changed === false);
 }
@@ -95,7 +95,7 @@ const CFG: DqfFloors = { minScore: 60, minAuc: 0.8, minAcc: 70 };
 {
   const allPos = Array.from({ length: 11 }, () => mk(55, 0.7, 60, 1.2)); // dưới default mà dương
   const t = dqfTargetOne(allPos, (r) => r.score, DQF_CANDIDATES.minScore);
-  check("F1: nhóm dưới default dương & đủ mẫu → default", t?.kind === "default" && t?.to === 60, JSON.stringify(t));
+  check("F1: nhóm dưới default dương & đủ mẫu → bước to default 50 (kind=\"to\")", t?.kind === "to" && t?.to === 50, JSON.stringify(t));
   const noneN = Array.from({ length: 5 }, () => mk(70, 0.85, 75, 1));
   const t2 = dqfTargetOne(noneN, (r) => r.score, DQF_CANDIDATES.minScore);
   check("F2: không nhóm nào đủ 10 lệnh → null (giữ)", t2 === null, JSON.stringify(t2));
@@ -116,15 +116,15 @@ const CFG: DqfFloors = { minScore: 60, minAuc: 0.8, minAcc: 70 };
   // DQF BẬT = nhận quyền trong biên an toàn [60/0.80/70 → 85/0.90/85]: sàn user
   // dưới default được kẹp LÊN 60 rồi mới tiến hoá (thiết kế — sàn động không
   // bao giờ dưới default). Session toàn lỗ → bước 1: 60→62 · 0.80→0.81 · 70→71.
-  check("G4: bật lại → kẹp biên an toàn rồi tiến hoá 1 bậc (62/0.81/71)", rOn.decision.floors.minScore === 62 && rOn.decision.floors.minAuc === 0.81 && rOn.decision.floors.minAcc === 71, JSON.stringify(rOn.decision.floors));
+  check("G4: bật lại → custom 55/0.75/65 đã ≥ đáy mới 50 → không kẹp, tiến hoá 1 bậc (57/0.76/66)", rOn.decision.floors.minScore === 57 && rOn.decision.floors.minAuc === 0.76 && rOn.decision.floors.minAcc === 66, JSON.stringify(rOn.decision.floors));
 }
 
 // ── H. candidates đúng bước/biên ──────────────────────────────────────────────
 {
-  check("H1: score candidates đầu 60 cuối 85", DQF_CANDIDATES.minScore[0] === 60 && DQF_CANDIDATES.minScore[DQF_CANDIDATES.minScore.length - 1] === 85);
-  check("H2: auc candidates đầu 0.80 cuối 0.90", DQF_CANDIDATES.minAuc[0] === 0.8 && DQF_CANDIDATES.minAuc[DQF_CANDIDATES.minAuc.length - 1] === 0.9);
-  check("H3: acc candidates đầu 70 cuối 85", DQF_CANDIDATES.minAcc[0] === 70 && DQF_CANDIDATES.minAcc[DQF_CANDIDATES.minAcc.length - 1] === 85);
-  check("H4: default đúng setpoint 60/0.80/70", DQF_DEFAULT.minScore === 60 && DQF_DEFAULT.minAuc === 0.8 && DQF_DEFAULT.minAcc === 70);
+  check("H1: score candidates đầu 50 cuối 85", DQF_CANDIDATES.minScore[0] === 50 && DQF_CANDIDATES.minScore[DQF_CANDIDATES.minScore.length - 1] === 85);
+  check("H2: auc candidates đầu 0.60 cuối 0.90", DQF_CANDIDATES.minAuc[0] === 0.6 && DQF_CANDIDATES.minAuc[DQF_CANDIDATES.minAuc.length - 1] === 0.9);
+  check("H3: acc candidates đầu 55 cuối 85", DQF_CANDIDATES.minAcc[0] === 55 && DQF_CANDIDATES.minAcc[DQF_CANDIDATES.minAcc.length - 1] === 85);
+  check("H4: default đúng setpoint 50/0.60/55", DQF_DEFAULT.minScore === 50 && DQF_DEFAULT.minAuc === 0.6 && DQF_DEFAULT.minAcc === 55);
 }
 
 console.log(`\n${pass} pass / ${fail} fail`);
