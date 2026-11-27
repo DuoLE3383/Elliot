@@ -272,7 +272,8 @@ export function confluenceTable(rows: ScanRow[]): Array<{
     if (total >= 3 && (nLong === total || nShort === total)) { verdict = "STRONG"; action = nLong ? "Ưu tiên LONG" : "Ưu tiên SHORT"; }
     else if (total >= 3 && Math.max(nLong, nShort) === total - 1) {
       // 3/4 — chỉ LEAN nếu khung lệch là khung nhỏ (5m/1m), khung lớn lệch → CONFLICT
-      const minority = group.find((r) => biasFrom(r.prob) !== (nLong > nShort ? "LONG" : "SHORT") && (biasFrom(r.prob) !== "NEUTRAL") // NEUTRAL=FLAT cu, biasFrom khong bao gio tra FLAT);
+      // NEUTRAL = FLAT cu, biasFrom khong bao gio tra FLAT
+      const minority = group.find((r) => biasFrom(r.prob) !== (nLong > nShort ? "LONG" : "SHORT") && (biasFrom(r.prob) !== "NEUTRAL"));
       if (!minority || (TF_W[minority.interval] ?? 1) <= 1) { verdict = "LEAN"; action = nLong > nShort ? "Nghiêng LONG" : "Nghiêng SHORT"; }
     }
     out.push({ symbol, tfs, longW, shortW, agree, verdict, action });
