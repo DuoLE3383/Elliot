@@ -1502,10 +1502,8 @@ export const AUTO_DEFAULTS: AutoConfig = {
   on: false,
   agent: "HERCULES",
   capital: 1000,
-  // audit 04/11: 25% vốn/lệnh là nguyên nhân −40% net ROI hoá nhỏ thành
-  // swing vốn lớn; khuyến nghị 2-3%/lệnh — mặc định 3, trần RISK_MAX_STAKE
-  // (params §4e) kẹp bất kể panel đặt gì. SET CỨNG [10,20,30,50] ở RISK_CHOICES.
-  riskPct: 3,
+  // Default stake 10% equity, aligned with RISK_CHOICES [10,20,30,50]. RISK_MAX_STAKE caps it.
+  riskPct: 10,
   tpMode: "dyn",
   slPct: 1,
   tpPct: 1.5,

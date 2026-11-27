@@ -594,8 +594,8 @@ export const CHAMP_WINDOW = 20;
  *  panel (cfg.riskPct sau kẹp RISK_MAX_STAKE); dưới đó stake hạ về RISK_TIER_MIN
  *  (vẫn ≤ cfg.riskPct — không bao giờ đặt lớn hơn ý user). 0 = tắt (stake phẳng). */
 export const RISK_TIER_SCORE = 15;
-/** Mức stake nền cho tín hiệu "vừa đủ gate" (% vốn). */
-export const RISK_TIER_MIN = 2;
+/** Base stake for just-passed-gate signals (% equity). */
+export const RISK_TIER_MIN = 10;
 
 // ── 8 · LLM RISK OFFICER — kiểm tra rủi ro im lặng trước khi vào lệnh ────────
 
