@@ -67,7 +67,7 @@ import {
   type ScanRow,
 } from "./autotrade";
 import { readAutoState, serialize } from "./autostate";
-import { autopsyBackfill, autopsyClosedTrade, autopsyGate, recentAutopsyLessons, recentFlipLessons } from "./autopsy";
+import { autopsyBackfill, autopsyClosedTrade, autopsyGate, computeRegime, recentAutopsyLessons, recentFlipLessons } from "./autopsy";
 import { aliasFuturesSymbol, type EngineSettings, type Ticker } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 import { atrLevelsAtEntry, dynLevelsAtEntry } from "./indicators";
@@ -1860,6 +1860,22 @@ async function cycleTick(): Promise<void> {
         console.log(`[engine] EVOLUTION LV1 REQUIRE_CONFIRM ${best.symbol} ${best.interval} - ${evo.reason} — cho qua, can 1 nen dong dung huong + trend 5m dong thuan`);
       }
     } catch (e) { console.log(`[engine] autopsyGate error ${best.symbol} - fail-open`, e); }
+    // 2.4a2) BTC TREND FILTER - filter moi, khong sua Entry/Exit logic.
+    // LONG alt trong BTC trend_down = danh nguoc song thi truong -> BLOCK. SHORT khong chan (BTC down thuan SHORT).
+    // BTCUSDT tu no thi skip (trend cua chinh no da do Wyckoff/XOR lo). unknown/chop/range/trend_up -> PASS fail-open.
+    if (best.bias === "LONG" && best.symbol !== "BTCUSDT") {
+      try {
+        const btcKl = await fetchKlinesDirect("BTCUSDT", best.interval, 30);
+        const btcRegime = computeRegime(btcKl);
+        if (btcRegime === "trend_down") {
+          const msg = `🚫 BTC TREND BLOCK — ${best.symbol} ${best.interval} LONG\nBTC ${best.interval} regime=trend_down (SMA10 < SMA20, slope < -0.15%) — alt LONG nguoc song BTC, dung vao.\n➡️ Next: cho BTC het trend_down (trend_up / range / chop) moi mo LONG alt.\n🔓 Mo lai khi: BTC regime != trend_down.`;
+          console.log(`[engine] BTC TREND BLOCK LONG ${best.symbol} ${best.interval} - BTC ${best.interval} trend_down`);
+          v.lastCycleStatus = `BTC TREND BLOCK LONG ${best.symbol} — BTC ${best.interval} trend_down`;
+          if (tgReady() && !tgMuted("veto")) void tgSendMessage(msg, "HTML", { dedupeKey: `btc-block:${best.symbol}:${best.interval}:${new Date().toISOString().slice(0, 10)}` });
+          return;
+        }
+      } catch (e) { console.log(`[engine] BTC trend filter error ${best.symbol} - fail-open`, e); }
+    }
     // 2.4b) WYCKOFF GATE (0.2.96) — cổng cấu trúc cho lệnh LONG sổ B. Port ĐÚNG
     // ngưỡng đã walk-forward verify trên nến ngày crypto (07/11): LONG chỉ vào
     // khi có range tích luỹ hợp lệ + Spring/SOS ở nến ngày đã đóng + breadth
