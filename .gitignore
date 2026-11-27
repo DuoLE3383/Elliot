@@ -84,3 +84,7 @@ scripts/wyckoff_crypto_*.csv
 /db/custom.db
 /.env
 *.db
+
+*.bak
+*.bak_*
+*.bak_mark
