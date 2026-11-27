@@ -276,6 +276,7 @@ async function ensureSchemaQuiet(base: PrismaClient): Promise<void> {
 /** Idempotent, memoized per process. A failure does not poison the memo —
  * the next DB op retries the bootstrap (e.g. disk was briefly full). */
 function ensureSchema(base: PrismaClient): Promise<void> {
+  if (process.env.NEXT_PHASE === "phase-production-build") return Promise.resolve();
   if (!schemaReady) {
     schemaReady = runBootstrap(base).catch((e) => {
       schemaReady = null;

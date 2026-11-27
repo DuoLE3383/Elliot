@@ -25,6 +25,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChartBox } from "@/components/stat-charts";
+import { AppHeader } from "@/components/app-header";
 import { ApmFlowMap, type ApmFlowCounts } from "@/components/apm-flow";
 import { Journal } from "@/components/journal";
 import { DeepAnalysis } from "@/components/analysis";
@@ -911,8 +912,10 @@ export default function StatsPage() {
 
   return (
     <div className="min-h-screen text-zinc-200">
+      {/* nav dùng chung 5 trang */}
+      <AppHeader />
       {/* ── TOP BAR ── */}
-      <header className="sticky top-0 z-40 border-b border-[#1d1d23] bg-[#0b0b0e]/95 backdrop-blur">
+      <header className="sticky top-9 z-40 border-b border-[#1d1d23] bg-[#0b0b0e]/95 backdrop-blur">
         <div className="flex h-12 items-center gap-2 px-3 sm:px-4">
           <button
             type="button"

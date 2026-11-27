@@ -60,7 +60,7 @@ export function AutoSidebar() {
   }, []);
 
   return (
-    <aside className="sticky top-0 hidden h-screen w-[218px] shrink-0 flex-col border-r border-[#1e2d4d]/70 bg-[#080d1a]/95 lg:flex">
+    <aside className="sticky top-9 hidden h-[calc(100dvh-2.25rem)] w-[218px] shrink-0 flex-col border-r border-[#1e2d4d]/70 bg-[#080d1a]/95 lg:flex">
       {/* logo + tên engine */}
       <div className="flex items-center gap-3 px-4 pb-4 pt-5">
         <div className="rounded-xl border border-cyan-800/40 bg-[#0b1424] p-1.5 shadow-[0_0_18px_rgba(34,211,238,0.18)]">

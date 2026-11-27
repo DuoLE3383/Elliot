@@ -25,7 +25,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ParamsEditor } from "@/components/params-editor";
-import { PipeMap, type PipeNodeDef } from "@/components/pipe-map";
+import { PipeMap, type PipeNodeDef, type PipeTone } from "@/components/pipe-map";
+import { AppHeader } from "@/components/app-header";
 import { Stage } from "@/components/stage-panel";
 import { t, type Lang } from "@/lib/i18n";
 import { loadAutoConfig, saveAutoConfig } from "@/lib/autotrade";
@@ -257,6 +258,22 @@ const AI_STAGE_IDS = [
   "ai-dive",
   "ai-about",
 ] as const;
+
+// hex mỗi tone cho right rail của PipeMap (giữ đồng bộ bảng C trong pipe-map.tsx)
+const RAIL_TONE: Record<PipeTone, string> = {
+  cyan: "#22d3ee",
+  sky: "#38bdf8",
+  violet: "#a78bfa",
+  amber: "#fbbf24",
+  emerald: "#34d399",
+  rose: "#fb7185",
+  orange: "#fb923c",
+  indigo: "#818cf8",
+  fuchsia: "#e879f9",
+  blue: "#60a5fa",
+  teal: "#2dd4bf",
+  zinc: "#a1a1aa",
+};
 
 export default function AiPage() {
   const [lang, setLang] = useState<Lang>("en");
@@ -570,8 +587,10 @@ export default function AiPage() {
 
   return (
     <div className="min-h-screen bg-transparent text-zinc-200">
+      {/* nav dùng chung 5 trang */}
+      <AppHeader />
       {/* sticky header — Settings / Refresh / lang luôn trong tầm tay trên trang dài */}
-      <header className="sticky top-0 z-30 border-b border-zinc-800/60 bg-[#020617]/85 backdrop-blur">
+      <header className="sticky top-9 z-30 border-b border-zinc-800/60 bg-[#020617]/85 backdrop-blur">
         <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 sm:px-5">
           <Button size="sm" variant="outline" className="h-8 gap-1.5 border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800" asChild>
             <Link href="/">
@@ -627,12 +646,64 @@ export default function AiPage() {
       <div className="space-y-4 p-3 sm:p-5">
         {/* ── 0.2.85 — PipeMap: sơ đồ suy diễn AI — line điện chạy theo hướng
             mũi tên; node đang suy diễn glow + halo; bấm node → trạm tự mở;
-            node Settings mở popup ── */}
-        <Card className="border-zinc-800 bg-zinc-900/60">
-          <CardContent className="py-3">
-            <PipeMap nodes={aiFlowNodes} onNodeClick={goTo} hint={t(lang, "flow.hint")} />
-          </CardContent>
-        </Card>
+            node Settings mở popup.
+            Layout: map chiếm 3/4 bề ngang, 1/4 bên phải là rail trạng thái
+            vòng AI (bấm dòng = bấm node trên map) — mobile xếp dọc ── */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,1fr)]">
+          <Card className="border-zinc-800 bg-zinc-900/60">
+            <CardContent className="py-3">
+              <PipeMap nodes={aiFlowNodes} onNodeClick={goTo} hint={t(lang, "flow.hint")} />
+            </CardContent>
+          </Card>
+          <Card className="border-zinc-800 bg-zinc-900/60">
+            <CardContent className="py-3">
+              <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                <BrainCircuit className="h-3.5 w-3.5 text-teal-400" />
+                {lang === "vi" ? "Vòng AI" : "AI loop"}
+              </p>
+              {data?.engine?.cycle?.status ? (
+                <p
+                  className="mt-2 truncate rounded-md border border-emerald-900/50 bg-emerald-950/30 px-2 py-1 font-mono text-[10px] text-emerald-300"
+                  title={data.engine.cycle.status}
+                >
+                  {data.engine.cycle.status}
+                </p>
+              ) : null}
+              <ul className="mt-2 space-y-1">
+                {aiFlowNodes.map((nd, i) => {
+                  const col = RAIL_TONE[nd.tone];
+                  return (
+                    <li key={`${nd.id}-rail-${i}`}>
+                      <button
+                        type="button"
+                        onClick={() => goTo(nd.id)}
+                        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-zinc-800/60 ${
+                          nd.active ? "bg-zinc-800/80" : ""
+                        }`}
+                      >
+                        <span
+                          aria-hidden
+                          className={`h-2 w-2 shrink-0 rounded-full ${nd.active ? "animate-pulse" : ""} ${nd.dim ? "opacity-40" : ""}`}
+                          style={{ background: col, boxShadow: nd.active ? `0 0 8px ${col}` : undefined }}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span
+                            className={`block truncate text-[12px] font-semibold leading-tight ${
+                              nd.active ? "text-zinc-100" : "text-zinc-300"
+                            }`}
+                          >
+                            {nd.label}
+                          </span>
+                          <span className="block truncate text-[10px] leading-tight text-zinc-500">{nd.sub}</span>
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </CardContent>
+          </Card>
+        </div>
 
         {/* nút gom/mở toàn bộ — mặc định trang thu gọn cho hết dàn trải */}
         <div className="flex items-center justify-end">

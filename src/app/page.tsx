@@ -46,7 +46,7 @@ import {
   migratePairsTo,
 } from "@/lib/types";
 import { type XgbResult } from "@/lib/xgb";
-import { ElliottLogo } from "@/components/logo";
+import { AppHeader } from "@/components/app-header";
 import { AlertTriangle, ArrowLeftRight, Bot, BrainCircuit, ChevronRight, Eye, EyeOff, Landmark, RefreshCw, ScrollText, Settings2 } from "lucide-react";
 import Link from "next/link";
 
@@ -1047,24 +1047,17 @@ export default function Home() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-transparent text-zinc-100 lg:h-dvh lg:min-h-0 lg:overflow-hidden">
-      {/* ── Header — ELLIOTT terminal bar (sticky trên mobile: refresh/settings
-          luôn trong tầm tay khi cuộn dọc panel dài) ─────────────────── */}
-      <header className="sticky top-0 z-40 shrink-0 border-b border-zinc-800/70 bg-[#020617]/85 backdrop-blur">
+      {/* ── Nav dùng chung 5 trang (Home · Analytics · Arena · AI Lab · AI Revolution) ── */}
+      <AppHeader />
+      {/* ── Header — terminal bar (sticky trên mobile: refresh/settings
+          luôn trong tầm tay khi cuộn dọc panel dài). Logo ELLIOTT chỉ còn MỘT
+          cái, nằm giữa nav AppHeader phía trên — bar này không nhắc lại */}
+      <header className="sticky top-9 z-40 shrink-0 border-b border-zinc-800/70 bg-[#020617]/85 backdrop-blur">
         <div className="flex h-12 items-center gap-2 px-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="flex h-8 shrink-0 items-center gap-2 rounded-lg border border-zinc-800 bg-gradient-to-b from-zinc-900 to-zinc-950 p-1.5 shadow-[0_0_18px_-6px_rgba(16,185,129,0.45)] lg:pr-3">
-              <ElliottLogo className="h-6 w-6" />
-              <span className="hidden text-sm font-black tracking-[0.24em] text-zinc-100 lg:inline">ELLIOTT</span>
-            </div>
-            <div className="hidden leading-tight xl:block">
-              {/* <p className="text-[11px] font-semibold text-zinc-300">UT Bot · Swing · Whale</p> */}
-              {/* <p className="text-[10px] text-zinc-600">{t(lang, "app.subtitle")}</p> */}
-            </div>
-          </div>
-
           {/* timeframes — mobile: chiếm phần dư và CUỘN NGANG trong lòng nó
-              (đừng đẩy EN/settings/refresh tràn khỏi màn hình); lg: lại cố định */}
-          <div className="ml-1 flex min-w-0 flex-1 overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900 p-0.5 [scrollbar-width:none] lg:flex-none lg:shrink-0 [&::-webkit-scrollbar]:hidden">
+              (đừng đẩy EN/settings/refresh tràn khỏi màn hình); lg: co giãn được,
+              chật thì cuộn ngang trong lòng bar chứ không đẩy nút phải rơi khỏi màn */}
+          <div className="flex min-w-0 flex-1 overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900 p-0.5 [scrollbar-width:none] lg:flex-initial lg:shrink [&::-webkit-scrollbar]:hidden">
             {INTERVALS.map((itv) => (
               <button
                 key={itv}
@@ -1113,7 +1106,7 @@ export default function Home() {
             >
               <Link href="/stats">
                 <ScrollText className="h-3.5 w-3.5 text-teal-400" />
-                <span className="hidden lg:inline">{t(lang, "stats.title")}</span>
+                <span className="hidden 2xl:inline">{t(lang, "stats.title")}</span>
               </Link>
             </Button>
             <Button
@@ -1125,7 +1118,7 @@ export default function Home() {
             >
               <Link href="/ai">
                 <BrainCircuit className="h-3.5 w-3.5 text-teal-400" />
-                <span className="hidden sm:inline">{t(lang, "ai.title")}</span>
+                <span className="hidden 2xl:inline">{t(lang, "ai.title")}</span>
               </Link>
             </Button>
             <Button
@@ -1137,7 +1130,7 @@ export default function Home() {
             >
               <Link href="/auto">
                 <Bot className="h-3.5 w-3.5 text-teal-400" />
-                <span className="hidden md:inline">{t(lang, "auto.title")}</span>
+                <span className="hidden 2xl:inline">{t(lang, "auto.title")}</span>
               </Link>
             </Button>
             <Button
@@ -1180,7 +1173,7 @@ export default function Home() {
       
 
       {/* ── Main terminal grid ─────────────────────────────────────── */}
-      <main className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-3 lg:grid lg:grid-cols-[228px_minmax(0,1fr)_228px] lg:overflow-hidden xl:grid-cols-[248px_minmax(0,1fr)_248px]">
+      <main className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-3 lg:grid lg:grid-cols-[236px_minmax(0,1fr)_272px] lg:overflow-hidden xl:grid-cols-[288px_minmax(0,1fr)_320px]">
         {error ? (
           <div className="lg:col-span-3">
             <Card className="border-rose-900 bg-rose-950/30">

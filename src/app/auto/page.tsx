@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeftRight, Bot, BrainCircuit, Landmark } from "lucide-react";
 import { AutoSidebar } from "@/components/auto/sidebar";
 import { AutoTopbar } from "@/components/auto/topbar";
+import { AppHeader } from "@/components/app-header";
 import { MetricTiles } from "@/components/auto/metric-tiles";
 import { AutoAnalytics } from "@/components/auto-analytics";
 import { AutoPanel } from "@/components/auto-panel";
@@ -335,13 +336,17 @@ export default function AutoPage() {
 
   return (
     <div
-      className="flex min-h-screen bg-[#060a14] text-zinc-200"
+      className="flex min-h-screen flex-col bg-[#060a14] text-zinc-200"
       style={{
         backgroundImage:
           "linear-gradient(rgba(30,45,77,0.16) 1px, transparent 1px), linear-gradient(90deg, rgba(30,45,77,0.16) 1px, transparent 1px)",
         backgroundSize: "34px 34px",
       }}
     >
+      {/* nav dùng chung 5 trang — trên cùng, full width */}
+      <AppHeader />
+
+      <div className="flex min-h-0 flex-1">
       <AutoSidebar />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -439,6 +444,7 @@ export default function AutoPage() {
             </p>
           </div>
         ))}
+      </div>
       </div>
     </div>
   );
