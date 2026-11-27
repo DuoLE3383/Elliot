@@ -40,6 +40,7 @@ export interface ApmFlowCounts {
   closedTrades: number;
   tp: number;
   sl: number;
+  trail: number;
   flip: number;
   manual: number;
   open: OpenPositionItem | OpenPositionItem[] | null;
@@ -301,6 +302,7 @@ export function ApmFlowMap({
     { id: "st-hist", title: t(lang, "apm.node.trades"), value: `${f.tradesTotal}`, sub: `${f.closedTrades} closed`, color: tradesOn ? C.lime : C.grey, valColor: C.text },
     { id: "st-hist", title: t(lang, "apm.node.tp"), value: `${f.tp}`, sub: "Take profit", color: C.lime, valColor: C.lime },
     { id: "st-hist", title: t(lang, "apm.node.sl"), value: `${f.sl}`, sub: "Stop loss", color: C.red, valColor: C.red },
+    { id: "st-hist", title: "Trail", value: `${f.trail ?? 0}`, sub: "Trailing stop", color: C.cyan, valColor: C.cyan },
     { id: "st-hist", title: t(lang, "apm.node.flip"), value: `${f.flip + f.manual}`, sub: `flip ${f.flip} · manual ${f.manual}`, color: C.amber, valColor: C.amber },
   ];
 
@@ -326,9 +328,9 @@ export function ApmFlowMap({
   const AI_Y = contentBottom + AI_GAP;
   const H = AI_Y + AI_H + 44;
 
-  const outColor = [C.lime, C.red, C.amber];
-  const outN = [f.tp, f.sl, f.flip + f.manual];
-  const outOn = [f.tp > 0, f.sl > 0, f.flip + f.manual > 0];
+  const outColor = [C.lime, C.red, C.cyan, C.amber];
+  const outN = [f.tp, f.sl, f.trail ?? 0, f.flip + f.manual];
+  const outOn = [f.tp > 0, f.sl > 0, (f.trail ?? 0) > 0, f.flip + f.manual > 0];
 
   const warn = f.gatePass === 0 && (f.tradesTotal > 0 || all.length > 0);
 

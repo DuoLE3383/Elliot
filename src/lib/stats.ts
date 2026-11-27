@@ -158,6 +158,7 @@ export interface StatsFlow {
   avgRoi: number; // % ROI bình quân/lệnh
   tp: number;
   sl: number;
+  trail: number;
   flip: number;
   manual: number;
   unlabeled: number;
@@ -928,7 +929,8 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       metrics: [
         { k: "Total trades", v: String(rows.length), sub: `${rows.length - closed.length} open · ${closed.length} closed`, tone: "info", hint: "Every AutoTrade row (newest 2000): sub shows how many are still open vs closed.", hintVi: "Mọi dòng AutoTrade (2000 mới nhất): dòng dưới cho biết đang mở bao nhiêu / đã đóng bao nhiêu." },
         // TP nhiều hơn SL xanh, ngược lại đỏ — bằng nhau thì teal
-        { k: "TP / SL", v: `${kinds.tp} / ${kinds.sl}`, sub: `trail ${kinds.trail} · flip ${kinds.flip} · tay ${kinds.manual}`, tone: kinds.tp > kinds.sl ? "ok" : kinds.tp < kinds.sl ? "bad" : "info", hint: "Take-profit vs stop-loss closes. More TP than SL = green; the sub counts the other close kinds (trail/flip/manual).", hintVi: "Số lệnh đóng ở chốt lời so với cắt lỗ. TP nhiều hơn SL = xanh; dòng dưới đếm các kiểu đóng khác (trail/flip/manual)." },
+        { k: "TP / SL", v: `${kinds.tp} / ${kinds.sl}`, sub: `flip ${kinds.flip} · tay ${kinds.manual}`, tone: kinds.tp > kinds.sl ? "ok" : kinds.tp < kinds.sl ? "bad" : "info" },
+        { k: "Trail", v: String(kinds.trail), sub: "Trailing stop - gia quay ve cham trail, khong phai SL goc", tone: "info", hint: "Trailing-stop closes. Separate from SL.", hintVi: "So lenh dong o trailing stop. Tach rieng khoi SL goc.", hint: "Take-profit vs stop-loss closes. More TP than SL = green; the sub counts the other close kinds (trail/flip/manual).", hintVi: "Số lệnh đóng ở chốt lời so với cắt lỗ. TP nhiều hơn SL = xanh; dòng dưới đếm các kiểu đóng khác (trail/flip/manual)." },
         { k: "Total PNL USD", v: `${totalUsd >= 0 ? "+" : ""}$${totalUsd.toFixed(2)}`, sub: totalPnlPct != null ? `total ${totalPnlPct >= 0 ? "+" : ""}${totalPnlPct.toFixed(2)}% on margin` : undefined, tone: (totalUsd > 0 ? "ok" : totalUsd < 0 ? "bad" : "dim") as StatTone, hint: "Sum of PNL USD across closed trades. PNL USD equals capitalBefore times stakePct times pnlPct." },
         ...(avg != null ? [{ k: "Avg ROI", v: `${avg >= 0 ? "+" : ""}${avg.toFixed(2)}%`, tone: (avg > 0 ? "ok" : avg < 0 ? "bad" : "dim") as StatTone, hint: "Mean ROI across all closed trades — the expectancy per trade before compounding.", hintVi: "ROI trung bình mọi lệnh đã đóng — kỳ vọng mỗi lệnh trước khi cộng dồn." }] : []),
         ...(best != null ? [{ k: "Best / worst", v: `+${best.toFixed(2)}% / ${worst ?? 0}%`, tone: "info" as StatTone, hint: "Best and worst single-trade ROIs ever recorded — the tail risk you survived.", hintVi: "ROI tốt nhất và xấu nhất của một lệnh từ trước tới nay — rủi ro đuôi mà bạn đã sống sót." }] : []),
@@ -1032,7 +1034,7 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
       });
       const closedRows = rows.filter((r) => r.status === "closed");
       const wins = closedRows.filter((r) => (r.pnlPct ?? 0) > 0).length;
-      const kinds = { tp: 0, sl: 0, flip: 0, manual: 0 };
+      const kinds = { tp: 0, sl: 0, trail: 0, flip: 0, manual: 0 };
       for (const r of closedRows) {
         const k = (r.exitKind ?? "") as keyof typeof kinds;
         if (k in kinds) kinds[k] += 1;
@@ -1206,9 +1208,10 @@ export async function buildStatsSnapshot(): Promise<StatsSnapshot> {
         avgRoi: pnls.length ? sumPnl / pnls.length : 0,
         tp: kinds.tp,
         sl: kinds.sl,
+        trail: kinds.trail,
         flip: kinds.flip,
         manual: kinds.manual,
-        unlabeled: closedRows.length - kinds.tp - kinds.sl - kinds.flip - kinds.manual,
+        unlabeled: closedRows.length - kinds.tp - kinds.sl - kinds.trail - kinds.flip - kinds.manual,
         last7d: closedRows.filter((r) => r.exitTime && now - new Date(r.exitTime).getTime() < 7 * 86_400_000).length,
         autoOn: cfg.on,
         equity: st0?.capital ?? null,
