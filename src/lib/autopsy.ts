@@ -575,3 +575,37 @@ export async function recentFlipLessons(symbol: string, take = 5): Promise<strin
     return [];
   }
 }
+
+// ─── autopsy gate — lesson thanh gate chan that ─────────────────────────────
+// >=2 wrong_dir LIEN TIEP gan nhat (24h, cung symbol+interval) -> BLOCK
+// ==1 wrong_dir -> REQUIRE_CONFIRM (log + nhet canh bao vao prompt LLM)
+// Con lai -> PASS. Loi DB -> PASS (fail-open, khong chan het lenh vi DB loi).
+// Bo methodId=force (lenh tay) — chi tinh lenh engine.
+export type AutopsyGateDecision = "PASS" | "BLOCK" | "REQUIRE_CONFIRM";
+export interface AutopsyGateResult { decision: AutopsyGateDecision; wrongCount: number; reason: string; lessons: string[]; }
+export async function autopsyGate(symbol: string, interval: string): Promise<AutopsyGateResult> {
+  try {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const rows = await db.autoTrade.findMany({
+      where: { symbol: symbol.toUpperCase(), interval, status: "closed", exitTime: { gte: cutoff }, autopsy: { not: null } },
+      orderBy: { exitTime: "desc" },
+      take: 5,
+      select: { interval: true, side: true, exitKind: true, pnlPct: true, autopsy: true, exitTime: true, methodId: true },
+    });
+    const filtered = rows.filter((r: any) => r.methodId !== "force");
+    let consecutive = 0;
+    const lessons: string[] = [];
+    for (const r of filtered) {
+      if (!r.autopsy) break;
+      try {
+        const parsed = JSON.parse(r.autopsy) as Partial<AutopsyJson>;
+        if (parsed.tag !== "wrong_dir") break;
+        consecutive++;
+        if (parsed.lesson) lessons.push(`[${r.interval} ${r.side} ${(r.pnlPct ?? 0).toFixed(2)}% tag=wrong_dir] ${parsed.lesson}`.slice(0, 220));
+      } catch { break; }
+    }
+    if (consecutive >= 2) return { decision: "BLOCK", wrongCount: consecutive, reason: `${consecutive} wrong_dir lien tiep 24h ${symbol.toUpperCase()} ${interval} — ${lessons[0] ?? ""}`, lessons };
+    if (consecutive === 1) return { decision: "REQUIRE_CONFIRM", wrongCount: 1, reason: `1 wrong_dir 24h ${symbol.toUpperCase()} ${interval} — ${lessons[0] ?? ""}`, lessons };
+    return { decision: "PASS", wrongCount: 0, reason: "", lessons: [] };
+  } catch { return { decision: "PASS", wrongCount: 0, reason: "", lessons: [] }; }
+}

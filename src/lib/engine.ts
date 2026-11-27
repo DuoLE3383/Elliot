@@ -67,7 +67,7 @@ import {
   type ScanRow,
 } from "./autotrade";
 import { readAutoState, serialize } from "./autostate";
-import { autopsyBackfill, autopsyClosedTrade, recentAutopsyLessons, recentFlipLessons } from "./autopsy";
+import { autopsyBackfill, autopsyClosedTrade, autopsyGate, recentAutopsyLessons, recentFlipLessons } from "./autopsy";
 import { aliasFuturesSymbol, type EngineSettings, type Ticker } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 import { atrLevelsAtEntry, dynLevelsAtEntry } from "./indicators";
@@ -1372,7 +1372,18 @@ async function llmGate(
     // trên bằng chứng flip (vd "4/5 flip gần đây thua vì whipsaw 1h").
     const flipLessons =
       opts?.isFlip && pval("AUTOPSY_ON", AUTOPSY_ON) ? await recentFlipLessons(row.symbol).catch(() => []) : [];
-    if (lessons.length > 0 || flipLessons.length > 0)
+        // Autopsy gate — lesson thanh gate chan that, truoc llmReview
+    const gate = await autopsyGate(row.symbol, row.interval).catch(() => ({ decision: "PASS" as const, wrongCount: 0, reason: "", lessons: [] as string[] }));
+    if (gate.decision === "BLOCK") {
+      console.log(`[engine] autopsy gate BLOCK ${row.symbol} ${row.interval} — ${gate.reason}`);
+      v.lastCycleStatus = `Autopsy gate BLOCK ${row.symbol} ${row.interval} — ${gate.reason}`;
+      return { verdict: null, vetoed: true };
+    }
+    if (gate.decision === "REQUIRE_CONFIRM") {
+      console.log(`[engine] autopsy gate REQUIRE_CONFIRM ${row.symbol} ${row.interval} — ${gate.reason}`);
+      lessons.unshift(`[AUTOPSY GATE REQUIRE_CONFIRM ${row.interval}] ${gate.reason} — can 1 nen dong dung huong + trend 5m dong thuan moi cho qua`);
+    }
+if (lessons.length > 0 || flipLessons.length > 0)
       console.log(
         `[engine] LLM review ${row.symbol} ${row.interval}${opts?.isFlip ? " (FLIP)" : ""} — nạp ${lessons.length} bài autopsy + ${flipLessons.length} bài flip`,
       );
