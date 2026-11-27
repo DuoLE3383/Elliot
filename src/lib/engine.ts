@@ -2296,22 +2296,25 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
   if (runner) {
     if (liq) return { closed: await closeTradeDirect(open.id, price, "sl"), kind: "sl" };
     const move1x = movePct1x(open.side, open.entryPrice, price);
-    // 0.3.40 — BỎ chốt cứng TP2: runner để lời chạy, trail đuổi theo tới khi hết
-    // position (spec user: "TP mở rộng thì trail lại đuổi theo tiếp cho đến khi
-    // hết position"). tp2Pct chỉ còn là số tham chiếu hiển thị.
-    const trail = Math.max(0, open.trailPct ?? 0);
-    if (trailHit(open.side, price, open.entryPrice, trail)) {
-      const stopPrice = open.side === "LONG" ? open.entryPrice * (1 + trail / 100) : open.entryPrice * (1 - trail / 100);
+    // RUNNER chase ROI - spec user: trail = peakROI - 2 (khac trail thuong ROI 4 - 1)
+    // stopROI = max(TP1 ROI san, peakROI - 2), trailPct (gia %) = stopROI / lev, CHI TANG
+    const lev = open.leverage || 1;
+    const floorRoi = open.p1Pct ?? 0;
+    const curRoi = move1x * lev;
+    const prevPeakRoi = Math.max(floorRoi, (open.trailPct ?? 0) * lev + 2);
+    const peakRoi = Math.max(prevPeakRoi, curRoi);
+    const stopRoi = Math.max(floorRoi, peakRoi - 2);
+    const newTrail = Math.max(0, open.trailPct ?? 0, stopRoi / lev);
+    if (curRoi <= stopRoi) {
+      const stopPrice = open.side === "LONG" ? open.entryPrice * (1 + newTrail / 100) : open.entryPrice * (1 - newTrail / 100);
       return { closed: await closeTradeDirect(open.id, stopPrice, TRAIL_KIND), kind: TRAIL_KIND };
     }
-    // ratchet khoá lời — CHỈ TĂNG, state nằm trên ROW (restart an toàn)
-    const lock = trailRatchet(trail, Math.max(0, move1x), c.runnerTrailLock);
-    if (lock > trail) {
+    if (newTrail > (open.trailPct ?? 0) + 1e-9) {
       try {
-        await db.autoTrade.update({ where: { id: open.id }, data: { trailPct: lock } });
-        console.log(`[engine] RUNNER trail ${open.symbol} ${open.interval} — khoá lời ${lock.toFixed(2)}% (từ ${trail.toFixed(2)}%)`);
+        await db.autoTrade.update({ where: { id: open.id }, data: { trailPct: newTrail } });
+        console.log(`[engine] RUNNER trail ROI ${open.symbol} ${open.interval} — peakROI ${peakRoi.toFixed(2)}% -> stopROI ${stopRoi.toFixed(2)}% trailPct ${newTrail.toFixed(3)}% (tu ${(open.trailPct ?? 0).toFixed(3)}%)`);
       } catch {
-        // ghi hụt — nhịp kế tiếp ratchet lại từ mức cũ
+        // ghi hut - nhip ke tiep ratchet lai tu muc cu
       }
     }
     return null;
@@ -2342,7 +2345,7 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
         const p1Net = Math.round((plan.p1Pct - feeRoi(open.leverage)) * 100) / 100;
         await db.autoTrade.update({
           where: { id: open.id },
-          data: { p1Pct: p1Net, p1Share: plan.share, tp2Pct: plan.tp2Pct, trailPct: Math.max(0, Math.round((open.tpPct - (c.dcaTp1SlExtra ?? 1)) * 100) / 100) },
+          data: { p1Pct: p1Net, p1Share: plan.share, tp2Pct: plan.tp2Pct, trailPct: open.tpPct },
         });
         console.log(
           `[engine] TP1 partial ${open.symbol} ${open.interval} — bank ${(plan.share * 100).toFixed(2)}% stake (+${p1Net.toFixed(2)}% ROI sau phí) · runner SL khoá tại giá TP1 (${open.tpPct.toFixed(2)}% giá) · để lời chạy theo trail`,
