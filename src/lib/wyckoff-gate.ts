@@ -255,6 +255,7 @@ export async function breadthPct(symbols: string[]): Promise<{ pct: number; n: n
 // Xuống TF nhỏ, biến động 1 nến nhỏ lại theo căn thời gian, nên ngưỡng phải nhỏ lại.
 // Nếu giữ ngưỡng 1d cho 1h/4h thì LONG 1h/4h gần như không bao giờ qua.
 export const WY_TF_SCALE: Record<string, { rangeMin: number; sosPct: number; driftMax: number }> = {
+  "1m":  { rangeMin: 0.25, sosPct: 0.25, driftMax: 1.0 },
   "5m":  { rangeMin: 0.5, sosPct: 0.5, driftMax: 2 },
   "15m": { rangeMin: 0.8, sosPct: 0.8, driftMax: 3 },
   "30m": { rangeMin: 1.2, sosPct: 1.2, driftMax: 4 },
@@ -278,7 +279,7 @@ export async function wyckoffLongGate(symbol: string, universe: string[], interv
     // FIX v0.3.42: Multi-TF 1h/4h/1d như sổ D — NHƯNG scale ngưỡng theo TF.
     // V0.3.41 ép về 1d là rollback, v0.3.42 khôi phục multi-TF + scale đúng.
     // Ngưỡng ngày (width 4%, SOS +6%, drift 18%) không xài được cho 1h/4h.
-    const tfMs: Record<string, number> = { "5m": 300_000, "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": DAY_MS };
+    const tfMs: Record<string, number> = { "1m": 60_000, "5m": 300_000, "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": DAY_MS };
     const intervalMs = tfMs[interval] ?? DAY_MS;
     const lookback = interval === "1d" ? Math.max(pval("WY_RANGE_LOOKBACK", WY_RANGE_LOOKBACK) + 60, 150) : Math.max(pval("WY_RANGE_LOOKBACK", WY_RANGE_LOOKBACK) * 2 + 60, 240);
     const raw = await fetchKlinesDirect(sym, interval, lookback);

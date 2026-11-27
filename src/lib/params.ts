@@ -685,4 +685,4 @@ export const RR_TP_RATIO = 1.4;
 /** Sổ A — stop = entry ∓ mult×ATR (VulcanDefaults.atrStopMult 2.0). */
 export const VUL_ATR_STOP_MULT = 2.0;
 /** Sổ A — volume phải ≥ volMA20 × factor để coi breakout có dòng tiền (1.5). */
-export const VUL_VOL_FACTOR = 1.5;
+export const VUL_VOL_FACTOR = 1.5;export const USE_STRICT_WATCHER = pval("USE_STRICT_WATCHER", false);

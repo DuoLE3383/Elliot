@@ -528,7 +528,8 @@ export async function recentAutopsyLessons(symbol: string, take = 5): Promise<st
         // JSON hỏng — bỏ bài này
       }
     }
-    return out;
+    const evo = await spyEvolutionSummary().catch(() => [] as string[]);
+    return [...evo, ...out];
   } catch {
     return [];
   }
@@ -544,6 +545,43 @@ export async function recentAutopsyLessons(symbol: string, take = 5): Promise<st
  * Pha 1 (LLM-side fix): tách nguồn bài học flip khỏi entry. Pha 2 sẽ thêm label
  * counterfactual cho XGBoost (xem TODO @ xgb.ts:tradeLessonsToSamples).
  */
+export async function spyEvolutionSummary(): Promise<string[]> {
+  try {
+    const rows = await db.autoTrade.findMany({
+      where: { status: "closed", autopsy: { not: null } },
+      orderBy: { exitTime: "desc" },
+      take: 100,
+      select: { autopsy: true },
+    });
+    let win = 0, lose = 0, wrong = 0, noise = 0, neverTp = 0, opposite = 0, winners = 0;
+    for (const r of rows) {
+      try {
+        const a = JSON.parse(r.autopsy || "{}") as Partial<AutopsyJson>;
+        const why = (a.why || []).join(" ");
+        if (a.outcome === "win") win++; else if (a.outcome === "loss") lose++;
+        if (a.tag === "wrong_dir") {
+          wrong++;
+          if (why.includes("noise")) noise++;
+          if (why.includes("NEVER")) neverTp++;
+          if (why.includes("opposite immediately")) opposite++;
+        }
+        if (a.tag === "winners_watch") winners++;
+      } catch {}
+    }
+    // 24h that - de tien hoa tu 3 wrong tro len, khong doi 100 lenh
+    let g24 = 0;
+    try {
+      const cutoff = new Date(Date.now() - 24*60*60*1000);
+      const gRows = await db.autoTrade.findMany({ where: { status: "closed", exitTime: { gte: cutoff }, autopsy: { not: null } }, orderBy: { exitTime: "desc" }, take: 30, select: { autopsy: true, methodId: true } });
+      for (const gr of gRows) { if ((gr as any).methodId === "force") continue; try { if ((JSON.parse(gr.autopsy || "{}") as Partial<AutopsyJson>).tag === "wrong_dir") g24++; } catch {} }
+    } catch {}
+    if (!rows.length) return [];
+    const wrongRate = lose > 0 ? Math.round((wrong / lose) * 100) : 0;
+    const evoLv = g24 >= 5 ? `EVOLUTION LV2 BLOCK - 24h wrong ${g24}>=5` : g24 >= 3 ? `EVOLUTION LV1 - 24h wrong ${g24}>=3 bat dau tien hoa` : `EVOLUTION LV0 - 24h wrong ${g24}<3 chua tien hoa`;
+    return [`[SPY EVOLUTION - ${rows.length} lenh gan nhat: win ${win} / lose ${lose} - wrong_dir ${wrong} (${wrongRate}% so thua) - noise>SL ${noise} - NEVER TP ${neverTp} - opposite immediately ${opposite} - winners_watch ${winners} | 24h: wrong ${g24}/30 - ${evoLv}] Neu wrong_dir cao: doi 1 nen dong dung huong + trend 5m dong thuan, khong vao nguoc song, khong vao khi noise > SL`];
+  } catch { return []; }
+}
+
 export async function recentFlipLessons(symbol: string, take = 5): Promise<string[]> {
   try {
     const rows = await db.autoTrade.findMany({
@@ -574,4 +612,54 @@ export async function recentFlipLessons(symbol: string, take = 5): Promise<strin
   } catch {
     return [];
   }
+}
+
+// ─── autopsy gate — lesson thanh gate chan that ─────────────────────────────
+// >=2 wrong_dir LIEN TIEP gan nhat (24h, cung symbol+interval) -> BLOCK
+// ==1 wrong_dir -> REQUIRE_CONFIRM (log + nhet canh bao vao prompt LLM)
+// Con lai -> PASS. Loi DB -> PASS (fail-open, khong chan het lenh vi DB loi).
+// Bo methodId=force (lenh tay) — chi tinh lenh engine.
+export type AutopsyGateDecision = "PASS" | "BLOCK" | "REQUIRE_CONFIRM";
+export interface AutopsyGateResult { decision: AutopsyGateDecision; wrongCount: number; reason: string; lessons: string[]; }
+export async function autopsyGate(symbol: string, interval: string): Promise<AutopsyGateResult> {
+  try {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const rows = await db.autoTrade.findMany({
+      where: { symbol: symbol.toUpperCase(), interval, status: "closed", exitTime: { gte: cutoff }, autopsy: { not: null } },
+      orderBy: { exitTime: "desc" },
+      take: 5,
+      select: { interval: true, side: true, exitKind: true, pnlPct: true, autopsy: true, exitTime: true, methodId: true },
+    });
+    const filtered = rows.filter((r: any) => r.methodId !== "force");
+    let consecutive = 0;
+    const lessons: string[] = [];
+    for (const r of filtered) {
+      if (!r.autopsy) break;
+      try {
+        const parsed = JSON.parse(r.autopsy) as Partial<AutopsyJson>;
+        if (parsed.tag !== "wrong_dir") break;
+        consecutive++;
+        if (parsed.lesson) lessons.push(`[${r.interval} ${r.side} ${(r.pnlPct ?? 0).toFixed(2)}% tag=wrong_dir] ${parsed.lesson}`.slice(0, 220));
+      } catch { break; }
+    }
+    if (consecutive >= 2) return { decision: "BLOCK", wrongCount: consecutive, reason: `${consecutive} wrong_dir lien tiep 24h ${symbol.toUpperCase()} ${interval} — ${lessons[0] ?? ""}`, lessons };
+    if (consecutive === 1) return { decision: "REQUIRE_CONFIRM", wrongCount: 1, reason: `1 wrong_dir 24h ${symbol.toUpperCase()} ${interval} — ${lessons[0] ?? ""}`, lessons };
+    // GLOBAL gate - wrong_dir revolution: thi truong dang sai huong thi chan ca loai, khong chi tung cap
+    try {
+      const gRows = await db.autoTrade.findMany({
+        where: { status: "closed", exitTime: { gte: cutoff }, autopsy: { not: null } },
+        orderBy: { exitTime: "desc" },
+        take: 30,
+        select: { autopsy: true, methodId: true },
+      });
+      let gWrong = 0;
+      for (const gr of gRows) {
+        if ((gr as any).methodId === "force") continue;
+        try { if ((JSON.parse(gr.autopsy || "{}") as Partial<AutopsyJson>).tag === "wrong_dir") gWrong++; } catch {}
+      }
+      if (gWrong >= 5) return { decision: "BLOCK", wrongCount: gWrong, reason: `EVOLUTION LV2 BLOCK - GLOBAL wrong_dir ${gWrong}/30 lenh 24h (>=5 thong ke 100 lenh: wrong_dir 38, 97% so thua) - thi truong dang nguoc song, dung vao`, lessons };
+      if (gWrong >= 3) return { decision: "REQUIRE_CONFIRM", wrongCount: gWrong, reason: `EVOLUTION LV1 - GLOBAL wrong_dir ${gWrong}/30 lenh 24h (>=3 bat dau tien hoa) - can 1 nen dong dung huong + trend 5m dong thuan moi cho qua, khong vao nguoc song`, lessons };
+    } catch {}
+    return { decision: "PASS", wrongCount: 0, reason: "", lessons: [] };
+  } catch { return { decision: "PASS", wrongCount: 0, reason: "", lessons: [] }; }
 }

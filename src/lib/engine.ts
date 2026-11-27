@@ -67,7 +67,7 @@ import {
   type ScanRow,
 } from "./autotrade";
 import { readAutoState, serialize } from "./autostate";
-import { autopsyBackfill, autopsyClosedTrade, recentAutopsyLessons, recentFlipLessons } from "./autopsy";
+import { autopsyBackfill, autopsyClosedTrade, autopsyGate, recentAutopsyLessons, recentFlipLessons } from "./autopsy";
 import { aliasFuturesSymbol, type EngineSettings, type Ticker } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 import { atrLevelsAtEntry, dynLevelsAtEntry } from "./indicators";
@@ -100,6 +100,7 @@ import {
 import { buildTopCoinsMessage, buildScanTop10Message, loadBcastState, saveBcastState } from "./scan-broadcast";
 import { loadScanState, saveScanState } from "./scan-state";
 import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store";
+import { getMarkPrice } from "./mark-price";
 import { pushAutoDigests } from "./autodigest";
 import { msgDca, msgLlmVeto, msgNear, msgOpen, msgTp1 } from "./tg-msgs";
 import { readUnifiedSettled } from "./unified-balance";
@@ -1372,7 +1373,18 @@ async function llmGate(
     // trên bằng chứng flip (vd "4/5 flip gần đây thua vì whipsaw 1h").
     const flipLessons =
       opts?.isFlip && pval("AUTOPSY_ON", AUTOPSY_ON) ? await recentFlipLessons(row.symbol).catch(() => []) : [];
-    if (lessons.length > 0 || flipLessons.length > 0)
+        // Autopsy gate — lesson thanh gate chan that, truoc llmReview
+    const gate = await autopsyGate(row.symbol, row.interval).catch(() => ({ decision: "PASS" as const, wrongCount: 0, reason: "", lessons: [] as string[] }));
+    if (gate.decision === "BLOCK") {
+      console.log(`[engine] autopsy gate BLOCK ${row.symbol} ${row.interval} — ${gate.reason}`);
+      v.lastCycleStatus = `Autopsy gate BLOCK ${row.symbol} ${row.interval} — ${gate.reason}`;
+      return { verdict: null, vetoed: true };
+    }
+    if (gate.decision === "REQUIRE_CONFIRM") {
+      console.log(`[engine] autopsy gate REQUIRE_CONFIRM ${row.symbol} ${row.interval} — ${gate.reason}`);
+      lessons.unshift(`[AUTOPSY GATE REQUIRE_CONFIRM ${row.interval}] ${gate.reason} — can 1 nen dong dung huong + trend 5m dong thuan moi cho qua`);
+    }
+if (lessons.length > 0 || flipLessons.length > 0)
       console.log(
         `[engine] LLM review ${row.symbol} ${row.interval}${opts?.isFlip ? " (FLIP)" : ""} — nạp ${lessons.length} bài autopsy + ${flipLessons.length} bài flip`,
       );
@@ -2285,22 +2297,25 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
   if (runner) {
     if (liq) return { closed: await closeTradeDirect(open.id, price, "sl"), kind: "sl" };
     const move1x = movePct1x(open.side, open.entryPrice, price);
-    // 0.3.40 — BỎ chốt cứng TP2: runner để lời chạy, trail đuổi theo tới khi hết
-    // position (spec user: "TP mở rộng thì trail lại đuổi theo tiếp cho đến khi
-    // hết position"). tp2Pct chỉ còn là số tham chiếu hiển thị.
-    const trail = Math.max(0, open.trailPct ?? 0);
-    if (trailHit(open.side, price, open.entryPrice, trail)) {
-      const stopPrice = open.side === "LONG" ? open.entryPrice * (1 + trail / 100) : open.entryPrice * (1 - trail / 100);
+    // RUNNER chase ROI - spec user: trail = peakROI - 2 (khac trail thuong ROI 4 - 1)
+    // stopROI = max(TP1 ROI san, peakROI - 2), trailPct (gia %) = stopROI / lev, CHI TANG
+    const lev = open.leverage || 1;
+    const floorRoi = open.p1Pct ?? 0;
+    const curRoi = move1x * lev;
+    const prevPeakRoi = Math.max(floorRoi, (open.trailPct ?? 0) * lev + 2);
+    const peakRoi = Math.max(prevPeakRoi, curRoi);
+    const stopRoi = Math.max(floorRoi, peakRoi - 2);
+    const newTrail = Math.max(0, open.trailPct ?? 0, stopRoi / lev);
+    if (curRoi <= stopRoi) {
+      const stopPrice = open.side === "LONG" ? open.entryPrice * (1 + newTrail / 100) : open.entryPrice * (1 - newTrail / 100);
       return { closed: await closeTradeDirect(open.id, stopPrice, TRAIL_KIND), kind: TRAIL_KIND };
     }
-    // ratchet khoá lời — CHỈ TĂNG, state nằm trên ROW (restart an toàn)
-    const lock = trailRatchet(trail, Math.max(0, move1x), c.runnerTrailLock);
-    if (lock > trail) {
+    if (newTrail > (open.trailPct ?? 0) + 1e-9) {
       try {
-        await db.autoTrade.update({ where: { id: open.id }, data: { trailPct: lock } });
-        console.log(`[engine] RUNNER trail ${open.symbol} ${open.interval} — khoá lời ${lock.toFixed(2)}% (từ ${trail.toFixed(2)}%)`);
+        await db.autoTrade.update({ where: { id: open.id }, data: { trailPct: newTrail } });
+        console.log(`[engine] RUNNER trail ROI ${open.symbol} ${open.interval} — peakROI ${peakRoi.toFixed(2)}% -> stopROI ${stopRoi.toFixed(2)}% trailPct ${newTrail.toFixed(3)}% (tu ${(open.trailPct ?? 0).toFixed(3)}%)`);
       } catch {
-        // ghi hụt — nhịp kế tiếp ratchet lại từ mức cũ
+        // ghi hut - nhip ke tiep ratchet lai tu muc cu
       }
     }
     return null;
@@ -2331,7 +2346,7 @@ async function evalExit(open: AutoTradeRow, price: number): Promise<ExitEval | n
         const p1Net = Math.round((plan.p1Pct - feeRoi(open.leverage)) * 100) / 100;
         await db.autoTrade.update({
           where: { id: open.id },
-          data: { p1Pct: p1Net, p1Share: plan.share, tp2Pct: plan.tp2Pct, trailPct: Math.max(0, Math.round((open.tpPct - (c.dcaTp1SlExtra ?? 1)) * 100) / 100) },
+          data: { p1Pct: p1Net, p1Share: plan.share, tp2Pct: plan.tp2Pct, trailPct: open.tpPct },
         });
         console.log(
           `[engine] TP1 partial ${open.symbol} ${open.interval} — bank ${(plan.share * 100).toFixed(2)}% stake (+${p1Net.toFixed(2)}% ROI sau phí) · runner SL khoá tại giá TP1 (${open.tpPct.toFixed(2)}% giá) · để lời chạy theo trail`,
@@ -2393,33 +2408,38 @@ async function watcherTick(): Promise<void> {
     // multi-position: watcher quet TUNG lenh, khong chi lenh dau
     for (const open of opens) {
     const tickerPrice = tickers[open.symbol]?.price ?? 0;
-    // bat wick: lay low/high nen hien tai tu luong live chung (WS), fallback REST 2 nen
-    // SHORT: low cham TP + cap nhat peak, high cham SL/trail. LONG nguoc lai.
-    let wickLow = 0, wickHigh = 0;
-    const tail = getLiveTail(open.symbol, open.interval);
-    if (tail && tail.length) {
-      const k = tail[tail.length - 1];
-      wickLow = k.l; wickHigh = k.h;
-    } else {
-      try {
-        const kl = await fetchKlinesDirect(open.symbol, open.interval, 2);
-        const k = kl[kl.length - 1];
-        if (k) { wickLow = k.l; wickHigh = k.h; }
-      } catch { /* fallback ticker */ }
+    // Dùng MARK PRICE cho cả Entry và Exit (đồng nhất, tránh lệch pha)
+    const markPrice = await getMarkPrice(open.symbol);
+    if (markPrice <= 0) {
+      console.warn(`[watcher] No mark price for ${open.symbol}, skip this tick`);
+      continue;
     }
-    // chon gia de cham exit: neu wick da cham TP/SL/trail thi dung gia wick, khong thi ticker
-    let price = tickerPrice;
-    if (wickLow > 0 && wickHigh > 0) {
-      const tpP = open.side === "SHORT" ? open.entryPrice * (1 - Math.abs(open.tpPct) / 100) : open.entryPrice * (1 + Math.abs(open.tpPct) / 100);
-      const slP = open.side === "SHORT" ? open.entryPrice * (1 + Math.abs(open.slPct) / 100) : open.entryPrice * (1 - Math.abs(open.slPct) / 100);
-      if (open.side === "SHORT" && wickHigh >= slP) price = wickHigh;
-      else if (open.side === "LONG" && wickLow <= slP) price = wickLow;
-      else if (open.side === "SHORT" && wickLow <= tpP) price = wickLow;
-      else if (open.side === "LONG" && wickHigh >= tpP) price = wickHigh;
-      else if (open.side === "SHORT") price = Math.min(tickerPrice || wickLow, wickLow); // cap nhat peak trail bang low
-      else price = Math.max(tickerPrice || wickHigh, wickHigh);
+    const price = markPrice;
+    const tpP = open.side === "SHORT" ? open.entryPrice * (1 - Math.abs(open.tpPct) / 100) : open.entryPrice * (1 + Math.abs(open.tpPct) / 100);
+    const slP = open.side === "SHORT" ? open.entryPrice * (1 + Math.abs(open.slPct) / 100) : open.entryPrice * (1 - Math.abs(open.slPct) / 100);
+
+    // Kiểm tra chạm SL/TP dựa trên mark price
+    let exitPrice = price;
+    let exitKind: string | null = null;
+    if (open.side === "SHORT" && price >= slP) {
+      exitPrice = slP;
+      exitKind = "sl";
+    } else if (open.side === "LONG" && price <= slP) {
+      exitPrice = slP;
+      exitKind = "sl";
+    } else if (open.side === "SHORT" && price <= tpP) {
+      exitPrice = tpP;
+      exitKind = "tp";
+    } else if (open.side === "LONG" && price >= tpP) {
+      exitPrice = tpP;
+      exitKind = "tp";
     }
-    if (price <= 0) continue;
+
+    if (exitKind) {
+      await closeTrade(open, exitPrice, exitKind);
+      continue;
+    }
+
     // 0.3.3 — MỘT luồng chấm thoát (trailing / liq / TP1-runner / TP2 / runner-
     // trail / SL-confirm / DCA-at-stop) nằm trong evalExit — cùng thuật toán
     // với cycleTick §1, không đường nào đóng trước làm hỏng TP1 partial.
