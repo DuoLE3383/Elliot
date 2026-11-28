@@ -96,3 +96,7 @@ upload/
 *.bak_mark
 *.bak-stake510
 *.bak-audit-stake
+
+src/lib.bak.*
+core.*
+*.csv

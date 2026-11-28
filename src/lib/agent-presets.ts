@@ -23,9 +23,9 @@ export interface AgentPreset {
 export const AGENT_PRESETS: Record<AgentId, AgentPreset> = {
   ATHENA: {
     riskPct: 10,
-    minAuc: 0.82,
-    minAcc: 80,
-    minScore: 72,
+    minAuc: 0.80,
+    minAcc: 78,
+    minScore: 70,
     runTf: ["15m", "1h"],
     cooldownMin: 120,
     runnerSharePct: 30,
@@ -36,9 +36,9 @@ export const AGENT_PRESETS: Record<AgentId, AgentPreset> = {
   // Balanced — khớp gate đang chạy live / Telegram (55/0.72/68)
   HERCULES: {
     riskPct: 10,
-    minAuc: 0.72,
-    minAcc: 68,
-    minScore: 55,
+    minAuc: 0.74,
+    minAcc: 72,
+    minScore: 60,
     runTf: ["5m", "15m", "1h"],
     cooldownMin: 60,
     runnerSharePct: 50,
@@ -48,9 +48,9 @@ export const AGENT_PRESETS: Record<AgentId, AgentPreset> = {
   },
   ZEUS: {
     riskPct: 10,
-    minAuc: 0.74,
-    minAcc: 72,
-    minScore: 60,
+    minAuc: 0.72,
+    minAcc: 68,
+    minScore: 55,
     runTf: ["5m", "15m", "1h", "4h"],
     cooldownMin: 30,
     runnerSharePct: 70,
@@ -60,9 +60,9 @@ export const AGENT_PRESETS: Record<AgentId, AgentPreset> = {
   },
   OLYMPUS: {
     riskPct: 10,
-    minAuc: 0.8,
-    minAcc: 78,
-    minScore: 70,
+    minAuc: 0.74,
+    minAcc: 72,
+    minScore: 60,
     runTf: ["15m", "1h"],
     cooldownMin: 60,
     runnerSharePct: 50,

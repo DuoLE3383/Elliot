@@ -403,3 +403,8 @@ export function dqfEffectiveSync(cfgFloors: DqfFloors): DqfFloors & { src: "dqf"
   snapCache = { at: Date.now(), floors: out };
   return out;
 }
+
+// PATCH 3-TRACK + OLYMPUS
+export const DQF_TRACKS = { ATHENA: { minScore: 70, minAuc: 0.80, minAcc: 78 }, HERCULES: { minScore: 60, minAuc: 0.74, minAcc: 72 }, ZEUS: { minScore: 55, minAuc: 0.72, minAcc: 68 }, OLYMPUS: { minScore: 60, minAuc: 0.74, minAcc: 72 } } as const;
+export const DQF_PROMOTE_EVERY = 100;
+export function dqfPromoteScore(e:number,w:number,d:number){ return e*100 + w*0.5 - d*2; }
