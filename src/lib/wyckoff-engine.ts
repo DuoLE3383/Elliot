@@ -597,6 +597,17 @@ async function wyckoffTick(): Promise<void> {
         });
         await bumpSettledWallet(delta).catch(() => null);
         console.log(`[wyckoff-C] CLOSE LONG ${openRow.symbol} @ ${price} (${exitKind}) move ${movePct}% ROI ${pnlPct}% vốn ${before}→${after} — ${exitReason}`);
+        // D4 — Telegram CLOSE sổ C (fire-and-forget, cùng style OPEN C)
+        void tgSendMessage(
+          [
+            `CLOSE C - LONG ${openRow.symbol}`,
+            `Exit ${price} - ${exitKind.toUpperCase()} - So C Wyckoff`,
+            `Move ${movePct}% - ROI ${pnlPct}%`,
+            `Von ${before} -> ${after} (lev x${WYC_LEV}, stake ${WYC_STAKE_PCT}%)`,
+          ].join(String.fromCharCode(10)),
+          "HTML",
+          { dedupeKey: `close:C:${openRow.id}` },
+        ).catch(() => {});
         return;
       }
       logStatus(`giữ LONG ${openRow.symbol} · stop ${stop.toPrecision(6)} (${openRow.stopKind})${breadthVal !== null ? ` · breadth ${breadthVal}%` : ""}`);

@@ -93,6 +93,18 @@ export async function startLiquidEngine(symbols: string[]) {
           const pnlPct = -movePct * 3 - (0.05 * 3 * 2) // feeRoi(3) = 0.05*lev*2, giong B/C; // lev 3, SHORT: gia giam -> pnl duong
           const capBeforeD = Number((o as any).capitalBefore ?? 1000); const marginD = capBeforeD * 0.10; const capAfterD = capBeforeD + marginD * (pnlPct / 100); await db.liquidBook.update({ where: { id: o.id }, data: { status: "closed", exitPrice: mark, exitTime: new Date(), exitKind, exitReason: exitKind === "tp" ? "TP RR 1.4" : "SL", movePct, pnlPct, capitalAfter: Math.round(capAfterD * 100) / 100 } }); await bumpSettledWallet(Math.round((capAfterD - capBeforeD) * 100) / 100).catch(() => null);
           console.log(`[liquid] CLOSE ${exitKind.toUpperCase()} ${o.symbol} @ ${mark} · pnl ${pnlPct.toFixed(2)}%`);
+          // D4 — Telegram CLOSE sổ D (fire-and-forget) — sổ D đã có chuỗi vốn +
+          // phí round-trip, nên message đủ 4 dòng như A/C
+          void tgSendMessage(
+            [
+              `CLOSE D - ${o.symbol} SHORT`,
+              `Exit ${mark} - ${exitKind.toUpperCase()} - So D Liquid`,
+              `Move ${movePct.toFixed(2)}% - ROI ${pnlPct.toFixed(2)}%`,
+              `Von ${capBeforeD.toFixed(2)} -> ${capAfterD.toFixed(2)} (lev x3, stake 10%)`,
+            ].join(String.fromCharCode(10)),
+            "HTML",
+            { dedupeKey: `close:D:${o.id}` },
+          ).catch(() => {});
         }
       }
     } catch {}

@@ -207,6 +207,17 @@ async function vulcanSymbolTick(symbol: string, lastCandleT: Map<string, number>
     });
     await bumpSettledWallet(delta).catch(() => null);
     console.log(`[vulcan] CLOSE ${open.side} ${symbol} @ ${action.price} (${action.exitKind}) move ${movePct}% ROI ${roePct}% vốn ${before}→${after}`);
+    // D4 — Telegram CLOSE sổ A (fire-and-forget — lỗi mạng không chặn settlement)
+    void tgSendMessage(
+      [
+        `CLOSE A - ${open.side} ${symbol}`,
+        `Exit ${action.price} - ${action.exitKind.toUpperCase()} - So A Vulcan`,
+        `Move ${movePct}% - ROI ${roePct}%`,
+        `Von ${before} -> ${after} (lev x${VULCAN_LEV}, stake ${VULCAN_STAKE_PCT}%)`,
+      ].join(String.fromCharCode(10)),
+      "HTML",
+      { dedupeKey: `close:A:${openRow.id}` },
+    ).catch(() => {});
     return;
   }
 

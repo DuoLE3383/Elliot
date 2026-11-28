@@ -102,7 +102,10 @@ export async function POST(req: NextRequest) {
       slPct: num(body.slPct, 0.1, 90, 2),
       tpPct: num(body.tpPct, 0.1, 90, 3),
       leverage: num(body.leverage, 1, 125, 10),
-      stakePct: num(body.stakePct, 1, 100, 1),
+      // P5 — fallback stakePct 10% (không 1%): body thiếu stakePct (caller cũ)
+      // trước đây rơi về 1% khiến margin gần bằng 0, chuỗi vốn gần như đứng yên.
+      // 10% khớp AUTO_DEFAULTS.riskPct=3 → hiệu dụng 10% và các lựa chọn panel.
+      stakePct: num(body.stakePct, 1, 100, 10),
       prob: num(body.prob, 0, 1, 0.5),
       acc: num(body.acc, 0, 100, 0),
       auc: num(body.auc, 0, 1, 0.5),
