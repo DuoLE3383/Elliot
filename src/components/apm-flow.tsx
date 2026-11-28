@@ -40,7 +40,7 @@ export interface ApmFlowCounts {
   closedTrades: number;
   tp: number;
   sl: number;
-  trail: number;
+  trail?: number;
   flip: number;
   manual: number;
   open: OpenPositionItem | OpenPositionItem[] | null;

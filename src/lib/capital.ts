@@ -1,4 +1,4 @@
-import { db } from "./db.ts";
+import { db } from "./db";
 export async function getCapital(){
   let row = await db.capitalState.findUnique({ where: { id: "main" } });
   if(!row){
