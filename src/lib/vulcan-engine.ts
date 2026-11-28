@@ -19,6 +19,7 @@ import { tgSendMessage } from "./telegram-store";
 import { fmtPrice } from "./i18n";
 import { buildTradeHeader } from "./tg-msgs";
 import { bumpSettledWallet, readUnifiedSettled } from "./unified-balance";
+import { stake as stakeFromWallet, settle as settleToWallet, getWallet } from "./staking";
 import { fetchKlinesDirect } from "./klines-direct";
 import { feeRoi, pval, VUL_ATR_STOP_MULT, VUL_VOL_FACTOR } from "./params";
 import { readWallet } from "./autostate";
@@ -154,10 +155,7 @@ export function decideVulcanLive(candles: Candle[], open: VulcanOpenState | null
 // SINGLE LEDGER: von dau cho lenh moi = wallet-settled (so cai duy nhat), khong dung chuoi capitalAfter rieng cua A nua.
 // capitalBefore chi de ra so, von that luon lay tu wallet-settled - lockedMargin o engine B / getLockedMargin.
 async function vulcanChainHead(): Promise<number> {
-  const u = await readUnifiedSettled().catch(() => null);
-  if (u != null) return u.balance;
-  const wallet = await readWallet();
-  return wallet.capital ?? 1000;
+  return await getWallet();
 }
 
 async function vulcanSymbolTick(symbol: string, lastCandleT: Map<string, number>): Promise<void> {
@@ -193,8 +191,7 @@ async function vulcanSymbolTick(symbol: string, lastCandleT: Map<string, number>
     const movePct = Math.round(raw * 100 * 100) / 100;
     const roePct = Math.round((movePct * VULCAN_LEV - feeRoi(VULCAN_LEV)) * 100) / 100;
     const before = openRow.capitalBefore ?? (await vulcanChainHead());
-    const delta = Math.round(before * (VULCAN_STAKE_PCT / 100) * (roePct / 100) * 100) / 100;
-    const after = Math.max(0, Math.round((before + delta) * 100) / 100);
+    const after = await settleToWallet(stakeAmt, roePct);
     await db.vulcanBook.update({
       where: { id: openRow.id },
       data: {
@@ -207,7 +204,7 @@ async function vulcanSymbolTick(symbol: string, lastCandleT: Map<string, number>
         capitalAfter: after,
       },
     });
-    await bumpSettledWallet(delta).catch(() => null);
+    // settle qua staking.ts
     console.log(`[vulcan] CLOSE ${open.side} ${symbol} @ ${action.price} (${action.exitKind}) move ${movePct}% ROI ${roePct}% vốn ${before}→${after}`);
     // D4 — Telegram CLOSE sổ A (fire-and-forget — lỗi mạng không chặn settlement)
     void tgSendMessage(

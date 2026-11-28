@@ -31,6 +31,7 @@ import { tgSendMessage } from "./telegram-store";
 import { fmtPrice } from "./i18n";
 import { buildTradeHeader } from "./tg-msgs";
 import { bumpSettledWallet, readUnifiedSettled } from "./unified-balance";
+import { stake as stakeFromWallet, settle as settleToWallet } from "./staking";
 import { fetchKlinesDirect } from "./klines-direct";
 import { feeRoi, pval } from "./params";
 import {
@@ -580,8 +581,8 @@ async function wyckoffTick(): Promise<void> {
         const movePct = Math.round(raw * 100 * 100) / 100;
         const pnlPct = Math.round((movePct * WYC_LEV - feeRoi(WYC_LEV)) * 100) / 100;
         const before = openRow.capitalBefore ?? (await wyckoffChainHead());
-        const delta = Math.round(before * (pval("WYC_STAKE_PCT", WYC_STAKE_PCT) / 100) * (pnlPct / 100) * 100) / 100;
-        const after = Math.max(0, Math.round((before + delta) * 100) / 100);
+        const stakeAmtC = Math.round(before * (pval("WYC_STAKE_PCT", WYC_STAKE_PCT) / 100) * 100) / 100;
+        const after = await settleToWallet(stakeAmtC, pnlPct);
         await db.wyckoffBook.update({
           where: { id: openRow.id },
           data: {
@@ -595,7 +596,7 @@ async function wyckoffTick(): Promise<void> {
             capitalAfter: after,
           },
         });
-        await bumpSettledWallet(delta).catch(() => null);
+        // settle qua staking.ts
         console.log(`[wyckoff-C] CLOSE LONG ${openRow.symbol} @ ${price} (${exitKind}) move ${movePct}% ROI ${pnlPct}% vốn ${before}→${after} — ${exitReason}`);
         // D4 — Telegram CLOSE sổ C (fire-and-forget, cùng style OPEN C)
         void tgSendMessage(
@@ -673,7 +674,8 @@ async function wyckoffTick(): Promise<void> {
   candidates.sort((a, b) => norm(b.trig) - norm(a.trig));
   const pick = candidates[0];
   const d = dailies.get(pick.sym + ":" + pick.tf)!;
-  const head = await wyckoffChainHead();
+  const head = await wyckoffChainHead();      await stakeFromWallet(pval("WYC_STAKE_PCT", WYC_STAKE_PCT)); // SINGLE LEDGER: mo tru stake
+
   const entry = d[d.length - 1].c;
   const accumLow = Math.min(...d.slice(-60).map((k) => k.l));
   const { stop } = wyckoffStopPrice(d, {
@@ -697,7 +699,7 @@ async function wyckoffTick(): Promise<void> {
       accumLow,
       peak: Math.max(...d.slice(-10).map((k) => k.h)),
       trailArmed: false,
-      capitalBefore: head,
+      capitalBefore: head, // stake da tru qua staking.ts o tren
     },
   });
   console.log(`[wyckoff-C] OPEN LONG ${pick.sym} @ ${entry} trigger ${pick.trig.kind} score ${pick.trig.score.toFixed(2)} stop ${stop.toPrecision(6)} (đáy ${accumLow.toPrecision(6)}) vốn ${head} · ${pick.note}${candidates.length > 1 ? ` · ${candidates.length} ứng viên, chọn score cao nhất` : ""}`);

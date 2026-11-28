@@ -104,6 +104,7 @@ import { effectiveChatId, effectiveToken, tgSendMessage } from "./telegram-store
 import { pushAutoDigests } from "./autodigest";
 import { msgDca, msgLlmVeto, msgNear, msgOpen, msgTp1 } from "./tg-msgs";
 import { bumpSettledWallet, getLockedMargin, readUnifiedSettled } from "./unified-balance";
+import { settle as settleToWallet, getWallet } from "./staking";
 import { notifyClosed, tgMuted } from "./tg-alerts";
 import { enqueueJob, jobViews } from "./engine-jobs";
 import { directionalPnl, outcomeOf } from "./history";
@@ -613,7 +614,7 @@ async function closeTradeDirect(
     where: { id },
     data: { status: "closed", exitPrice, exitTime: new Date(), pnlPct, exitKind, capitalAfter, exitBasis: "last", exitTriggerPrice: triggerPrice, exitFillPrice: effExit },
   });
-  await bumpSettledWallet(delta).catch(() => null);
+  await settleToWallet(capitalBefore * (stakePct / 100), pnlPct).catch(() => null); // staking.ts - tra stake + PnL
   // trailing state của lệnh vừa đóng hết giá trị — dọn ngay để snapshot không
   // hiển thị đỉnh cũ (new order có id khác thì updateTrail cũng tự reset)
   // trail/slPending per-trade cua lenh vua dong - dropTradeState ben duoi xoa
