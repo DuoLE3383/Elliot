@@ -2853,7 +2853,7 @@ export function startEngineScheduler(): void {
       }
 
       // paper-trade cycle due?
-      if (p.cfg.on && p.nextCycleAt > 0 && Date.now() >= p.nextCycleAt) {
+      if (p.cfg.on && (p.nextCycleAt <= 0 || Date.now() >= p.nextCycleAt)) {
         p.nextCycleAt = Date.now() + p.cfg.cycleMin * 60_000;
         persistEngine();
         await cycleTick();
@@ -2870,6 +2870,7 @@ export function startEngineScheduler(): void {
   // one visible line per boot — its ABSENCE in server logs means this module
   // never loaded (stale build) and the backend engine is NOT running
   const { p } = eng();
+    p.nextCycleAt = 0; // HOT: scan thay dat la tick ngay, khong doi 15m dau
   console.log(
     `[engine] scheduler armed — scan/train/universe/cycle run on the server (synced: ${p.syncedAt ? "yes" : "waiting for first client sync"}, workers: ${xgbPoolAvailable() ? "threads" : "inline fallback"})`,
   );
