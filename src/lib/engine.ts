@@ -334,6 +334,7 @@ function loadEngine(): void {
         p.cfg.tpMode = sanitizeTpMode(p.cfg.tpMode);
         // ngưỡng chung — kẹp + migration legacy 0.55/55 (thời "no UI") trong một nguồn
         Object.assign(p.cfg, sanitizeFloors(p.cfg.minAuc, p.cfg.minAcc, p.cfg.minScore));
+        p.cfg = applyAgentPreset(p.cfg); // LOCK preset-last
         p.cfg.runTf = sanitizeRunTf(p.cfg.runTf);
       }
       if (raw.settings) p.settings = { ...DEFAULT_SETTINGS, ...raw.settings };
@@ -2592,6 +2593,7 @@ export function syncEngine(input: {
     // ngưỡng chung — browser gửi gì cũng bị kẹp về vùng hợp lệ (một nguồn với
     // engine.json/localStorage); migration legacy nằm trong sanitizeFloors
     Object.assign(p.cfg, sanitizeFloors(p.cfg.minAuc, p.cfg.minAcc, p.cfg.minScore));
+        p.cfg = applyAgentPreset(p.cfg); // LOCK preset-last
     p.cfg.runTf = sanitizeRunTf(p.cfg.runTf);
   }
   if (input.settings) p.settings = { ...p.settings, ...input.settings };
