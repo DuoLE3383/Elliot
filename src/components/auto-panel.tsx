@@ -1338,7 +1338,7 @@ const capitalNow = (auto as any)?.balance ?? (auto as any)?.equity ?? auto?.capi
                   <span className="mr-0.5 text-[11px] text-zinc-500" title={t(lang, "auto.cfg.floorTip", { s: cfg.minScore, a: cfg.minAuc, c: cfg.minAcc })}>
                     {t(lang, "auto.cfg.floor")}
                   </span>
-                  <Input
+                  <Input disabled readOnly
                     type="number"
                     min={0.5}
                     max={0.95}
@@ -1349,7 +1349,7 @@ const capitalNow = (auto as any)?.balance ?? (auto as any)?.equity ?? auto?.capi
                     title={t(lang, "auto.cfg.floorAuc")}
                     style={{fontSize:10}} className="h-6 w-12 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
                   />
-                  <Input
+                  <Input disabled readOnly
                     type="number"
                     min={50}
                     max={90}
@@ -1360,7 +1360,7 @@ const capitalNow = (auto as any)?.balance ?? (auto as any)?.equity ?? auto?.capi
                     title={t(lang, "auto.cfg.floorAcc")}
                     style={{fontSize:10}} className="h-6 w-12 border-amber-900/60 bg-zinc-950/60 px-1.5 font-mono text-xs text-amber-300"
                   />
-                  <Input
+                  <Input disabled readOnly
                     type="number"
                     min={0}
                     max={95}
