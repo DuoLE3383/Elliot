@@ -151,9 +151,11 @@ export function decideVulcanLive(candles: Candle[], open: VulcanOpenState | null
 
 // ── Sổ & chuỗi vốn ───────────────────────────────────────────────────────────
 
+// SINGLE LEDGER: von dau cho lenh moi = wallet-settled (so cai duy nhat), khong dung chuoi capitalAfter rieng cua A nua.
+// capitalBefore chi de ra so, von that luon lay tu wallet-settled - lockedMargin o engine B / getLockedMargin.
 async function vulcanChainHead(): Promise<number> {
-  const last = await db.vulcanBook.findFirst({ where: { status: "closed" }, orderBy: { exitTime: "desc" } });
-  if (last?.capitalAfter != null) return last.capitalAfter;
+  const u = await readUnifiedSettled().catch(() => null);
+  if (u != null) return u.balance;
   const wallet = await readWallet();
   return wallet.capital ?? 1000;
 }
