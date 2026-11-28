@@ -1886,26 +1886,24 @@ async function cycleTick(): Promise<void> {
     if (best.bias === "LONG") {
       const wyUniverse = [...new Set([...p.pairs, ...(v.scan?.rows ?? []).map((r) => r.symbol)])];
       const wy = await wyckoffLongGate(best.symbol, wyUniverse, best.interval);
-      const liq = await liquidShortGate(best.symbol, wyUniverse, best.interval).catch(() => ({ ok: false, reason: "liquid gate error" } as any));
-      const xor = liquidXorDecision(wy.ok, liq.ok, "LONG", (wy as any).failOpen, (liq as any).failOpen);
-      if (!xor.approve) {
-        console.log(`[engine] XOR gate BLOCK LONG ${best.symbol} ${best.interval} - ${xor.reason} | Wyckoff: ${wy.reason} | Liquid: ${liq.reason}`);
-        v.lastCycleStatus = `LONG ${best.symbol} blocked by XOR gate - ${xor.reason}`;
+      // TACH GATE: LONG chi check C Wyckoff, khong check D Liquid nua (D la gate cua SHORT)
+      if (!wy.ok && !(wy as any).failOpen) {
+        console.log(`[engine] Wyckoff gate BLOCK LONG ${best.symbol} ${best.interval} - ${wy.reason}`);
+        v.lastCycleStatus = `LONG ${best.symbol} blocked by Wyckoff - ${wy.reason}`;
         return;
       }
-      console.log(`[engine] XOR gate PASS LONG ${best.symbol} ${best.interval} - ${xor.reason} | Wyckoff: ${wy.reason}`);
+      console.log(`[engine] Wyckoff gate PASS LONG ${best.symbol} ${best.interval} - ${wy.reason}`);
     }
     if (best.bias === "SHORT") {
       const wyUniverse = [...new Set([...p.pairs, ...(v.scan?.rows ?? []).map((r) => r.symbol)])];
-      const wy = await wyckoffLongGate(best.symbol, wyUniverse, best.interval).catch(() => ({ ok: false, reason: "wyckoff gate error" } as any));
       const liq = await liquidShortGate(best.symbol, wyUniverse, best.interval).catch(() => ({ ok: false, reason: "liquid gate error" } as any));
-      const xor = liquidXorDecision(wy.ok, liq.ok, "SHORT", (wy as any).failOpen, (liq as any).failOpen);
-      if (!xor.approve) {
-        console.log(`[engine] XOR gate BLOCK SHORT ${best.symbol} ${best.interval} - ${xor.reason} | Wyckoff: ${wy.reason} | Liquid: ${liq.reason}`);
-        v.lastCycleStatus = `SHORT ${best.symbol} blocked by XOR gate - ${xor.reason}`;
+      // TACH GATE: SHORT chi check D Liquid, khong check C Wyckoff nua (C la gate cua LONG)
+      if (!liq.ok && !(liq as any).failOpen) {
+        console.log(`[engine] Liquid gate BLOCK SHORT ${best.symbol} ${best.interval} - ${liq.reason}`);
+        v.lastCycleStatus = `SHORT ${best.symbol} blocked by Liquid - ${liq.reason}`;
         return;
       }
-      console.log(`[engine] XOR gate PASS SHORT ${best.symbol} ${best.interval} - ${xor.reason} | Liquid: ${liq.reason}`);
+      console.log(`[engine] Liquid gate PASS SHORT ${best.symbol} ${best.interval} - ${liq.reason}`);
     }
 
     // 2.5) LLM risk officer — silent. LLM CHẾT thì tuỳ tham số LLM_FAIL_CLOSED:
