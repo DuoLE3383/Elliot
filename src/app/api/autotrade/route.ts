@@ -21,7 +21,8 @@
 // DELETE ?id                                    → remove one row (housekeeping)
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db } from "@/lib/db"
+import { getWallet, stake as stakeFromWallet, settle as settleToWallet } from "@/lib/staking";
 import { fetchBoard24h } from "@/lib/klines-direct";
 import { isCorruptDbError, corruptDbHint } from "@/lib/db-hardening";
 import { readAutoState, readOpenPosition, readWallet, serialize } from "@/lib/autostate";
@@ -86,12 +87,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "position_open", open: serialize(existing) }, { status: 409 });
   }
 
-  const closedEq = await db.autoTrade.findMany({ where: { status: "closed" }, select: { capitalBefore: true, capitalAfter: true } });
-  // CÙNG MỘT nguồn với readAutoState: vốn gốc ví (sau Reset gần nhất — 0.2.86)
-  // + Σ delta toàn bộ lệnh đóng. Trước đây hardcode 1000 → lệnh mở tay ghi
-  // capitalBefore lệch mốc với engine sau khi reset_capital ≠ 1000.
-  const wallet = await readWallet();
-  const equityNow = (wallet.capital ?? 1000) + closedEq.reduce((s: number, r: any) => s + (Number(r.capitalAfter ?? 0) - Number(r.capitalBefore ?? 0)), 0);
+  // SINGLE LEDGER: von = staking getWallet() - da tru stake cac lenh dang mo, da cong settled PnL
+  const equityNow = await getWallet();
+  const stakePctNow = num(body.stakePct, 1, 100, 10);
+  const stakeAmtNow = await stakeFromWallet(stakePctNow); // mo tru stake ngay
   const row = await db.autoTrade.create({
     data: {
       status: "open", // MARK IMMEDIATE: entryPrice gửi lên đã là mark, SL/TP suy ra từ entry này
@@ -105,7 +104,7 @@ export async function POST(req: NextRequest) {
       // P5 — fallback stakePct 10% (không 1%): body thiếu stakePct (caller cũ)
       // trước đây rơi về 1% khiến margin gần bằng 0, chuỗi vốn gần như đứng yên.
       // 10% khớp AUTO_DEFAULTS.riskPct=3 → hiệu dụng 10% và các lựa chọn panel.
-      stakePct: num(body.stakePct, 1, 100, 10),
+      stakePct: stakePctNow,
       prob: num(body.prob, 0, 1, 0.5),
       acc: num(body.acc, 0, 100, 0),
       auc: num(body.auc, 0, 1, 0.5),
@@ -120,7 +119,7 @@ export async function POST(req: NextRequest) {
   // so force-open positions were silent even though the Telegram test send works.
   // Telegram failure must not fail the open: log it and still return 201.
   try {
-    const tg = await tgSendMessage(msgOpen(trade, equityNow, undefined, (await readUnifiedSettled().catch(() => null))?.balance), "HTML", { dedupeKey: `open:${row.id}` });
+    const tg = await tgSendMessage(msgOpen(trade, equityNow, undefined, await getWallet()), "HTML", { dedupeKey: `open:${row.id}` });
     if (!tg.ok) console.error(`[autotrade] Telegram OPEN failed for ${row.symbol}: ${tg.detail ?? "unknown"}`);
   } catch (e) {
     console.error(`[autotrade] Telegram OPEN error for ${row.symbol}: ${e instanceof Error ? e.message : "unknown"}`);
@@ -259,10 +258,10 @@ if (body.action !== "close") {
   const pnlPct = combineClosePnl(row.p1Pct, row.p1Share, remPnl);
 
   const capitalBefore = row.capitalBefore ?? 1000;
-  // only the STAKED share of equity takes risk: delta = stake × ROI
+  // SINGLE LEDGER: dong tra stake + PnL qua staking (doi xung voi POST open stake)
   const stakePct = row.stakePct ?? 100;
-  const delta = Math.round(capitalBefore * (stakePct / 100) * (pnlPct / 100) * 100) / 100;
-  const capitalAfter = Math.max(0, Math.round((capitalBefore + delta) * 100) / 100);
+  const stakeAmtClose = Math.round(capitalBefore * (stakePct / 100) * 100) / 100;
+  const capitalAfter = await settleToWallet(stakeAmtClose, pnlPct);
 
   const updated = await db.autoTrade.update({
     where: { id },

@@ -326,6 +326,7 @@ export async function readAutoState(): Promise<AutoState> {
     opens,
     pendings,
     capital,
+    balance: capital, // LOCK 1 von - frontend doc balance truoc
     resetAt: wallet.resetAt,
     walletCapital: capital, // LOCK 1 von
     byCombo: comboStats(allClosed),
